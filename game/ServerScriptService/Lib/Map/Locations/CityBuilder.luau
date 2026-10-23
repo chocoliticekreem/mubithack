@@ -422,6 +422,20 @@ local function drawCrossing(ctx: Ctx, parent: Instance, g: any, id: string)
 	-- 4-way crossings only (between and in the middle of the districts)
 	local major = #dirs >= 4 and (c1 == "G" or c1 == "J" or string.match(id, "_C$") ~= nil)
 	if CityConfig.TrafficLights and major and style[3] then
+		-- stop lines across the incoming lanes of every arm, just behind the crosswalk (right-hand
+		-- traffic: the incoming half is on the left of the outward arm direction)
+		for _, d in dirs do
+			local alongX = math.abs(d.X) > 0.5
+			local half = if alongX then n.halfX else n.halfZ
+			local width = if alongX then 2 * n.halfZ else 2 * n.halfX
+			local right = V(-d.Z, 0, d.X)
+			local p = V(n.x, 0, n.z) + d * (half + 9) - right * (width / 4)
+			SK.part(parent, "StopLine", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(width / 2 - 1.5, 0.06, 1.2), C.LineWhite, {
+				collide = false,
+				cast = false,
+				query = false,
+			})
+		end
 		local inset = 5
 		for _, s in { { 1, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 } } do
 			local corner = V(n.x + s[1] * (n.halfX + inset), 0, n.z + s[2] * (n.halfZ + inset))
