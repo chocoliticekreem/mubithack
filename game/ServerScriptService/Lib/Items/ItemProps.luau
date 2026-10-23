@@ -25,10 +25,12 @@ local ROT_UP = CFrame.Angles(0, 0, math.rad(90)) -- cylinder axis X -> Y
 
 local SPECS: { [string]: { PartSpec } } = {
 	Axe = {
-		{ name = "Handle", size = Vector3.new(0.45, 3.4, 0.45), at = CFrame.new(), color = "#8A4A28", material = Enum.Material.Wood },
-		{ name = "Head", size = Vector3.new(0.35, 1.0, 1.5), at = CFrame.new(0, 1.35, -0.55), color = "#D6D8DC", material = Enum.Material.Metal },
-		{ name = "Back", size = Vector3.new(0.4, 0.55, 0.55), at = CFrame.new(0, 1.35, 0.4), color = "#C0301E" },
-		{ name = "Grip", size = Vector3.new(0.55, 0.9, 0.55), at = CFrame.new(0, -1.3, 0), color = "#1A1210" },
+		-- same look as the held axe (Lib/Tools/AxeBuilder): red head, silver edge, red pick
+		{ name = "Handle", size = Vector3.new(0.3, 3.2, 0.3), at = CFrame.new(), color = "#8A4A28", material = Enum.Material.Wood },
+		{ name = "Head", size = Vector3.new(0.32, 0.56, 0.62), at = CFrame.new(0, 1.43, -0.12), color = "#C0301E", material = Enum.Material.Metal },
+		{ name = "Edge", size = Vector3.new(0.18, 0.86, 0.26), at = CFrame.new(0, 1.43, -0.55), color = "#D6D8DC", material = Enum.Material.Metal },
+		{ name = "Back", size = Vector3.new(0.22, 0.26, 0.45), at = CFrame.new(0, 1.48, 0.4), color = "#C0301E", material = Enum.Material.Metal },
+		{ name = "Grip", size = Vector3.new(0.36, 0.8, 0.36), at = CFrame.new(0, -1.15, 0), color = "#1A1210" },
 	},
 	Extinguisher = {
 		{ name = "Handle", size = Vector3.new(1.0, 2.1, 1.0), at = CFrame.new(), color = "#C8232B" },
