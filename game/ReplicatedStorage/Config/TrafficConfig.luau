@@ -8,8 +8,8 @@ return Config.define({
 	Enabled = true, -- false = no traffic at all
 
 	-- Population (spawn and despawn near players only)
-	MaxCars = 40, -- hard cap on live cars (30-60 is the budget)
-	CarsPerPlayer = 14, -- target cars per player, capped by MaxCars
+	MaxCars = 44, -- hard cap on live cars (30-60 is the budget)
+	CarsPerPlayer = 20, -- target cars per player, capped by MaxCars
 	SpawnMin = 110, -- never spawn closer than this to any player (no pop-in in your face)
 	SpawnMax = 360, -- spawn within this of some player
 	DespawnRadius = 460, -- cars farther than this from every player vanish
@@ -20,10 +20,13 @@ return Config.define({
 
 	-- Road graph (Workspace.Map.City.RoadGraphJson / RoadGraph folder). Defaults when an edge has no lane data.
 	GraphWaitSeconds = 90, -- keep polling for the road graph this long after MapReady, then give up
-	RoadWidth = 24, -- curb to curb
+	RoadWidth = 24, -- curb to curb (edges without a width)
 	LaneOffset = 6, -- default lane centre offset from the road centreline (right-hand traffic)
-	IntersectionTrim = 13, -- lanes stop this far from a junction node (stop line); turns curve through it
-	BendTrim = 6, -- trim at degree-2 nodes (bends) and dead ends
+	JunctionMargin = 9, -- lanes stop this far outside a junction's crossing box (behind crosswalk / stop line)
+	StraightTrim = 2, -- trim at straight-through degree-2 nodes (bends trim to the crossing box)
+	BendTrim = 6, -- trim at dead ends
+	StubMaxLen = 40, -- a dead-end edge this short (site door spur) doesn't count as a junction arm
+	StreetLaneFrac = 0.2, -- one lane each way: lane centre at least width x this off the centre line (46 -> 9.2)
 	SnapToGround = true, -- raycast each node down to the road surface at load
 
 	-- Driving
@@ -37,19 +40,38 @@ return Config.define({
 	LookAhead = 48, -- how far ahead a car looks for leaders and pedestrians
 	LeaderLateral = 3.6, -- |side offset| for another car to count as "in my lane"
 	StraightBias = 1.6, -- weight of going straight vs turning at junctions
-	StopWait = 0.7, -- stop-sign: seconds stopped at the line before going
-	StopSignCap = 1, -- cars inside an unsignalled junction at once
-	LightCap = 4, -- cars inside a signalled junction at once
-	LightMatchRadius = 42, -- a light within this of a junction node can control it
-	StuckDespawn = 18, -- seconds stopped (not at a light) before an unseen car is recycled
+	TurnAccel = 28, -- lateral accel through junction curves: speed = sqrt(TurnAccel x radius)
+	MinTurnSpeed = 9,
+	LightMatchRadius = 80, -- a TrafficLight model signals the nearest junction node within this
+
+	-- Junction right-of-way (Lib/Traffic/Junction): reserve the connector, first come first served
+	Clearance = 6.5, -- two junction paths closer than this conflict
+	GrantTime = 1.3, -- a car reserves its path when it is this many seconds from the line
+	GrantDist = 7, -- ... or this close
+	MajorHeadStart = 2.5, -- through-road cars count as having arrived this much earlier (unsignalled)
+	RerouteAfter = 4, -- waited this long at a free line: pick another exit
+	ForceAfter = 9, -- waited this long: go anyway (deadlock breaker)
+	GhostAfter = 11, -- stopped without excuse this long: drive through other cars for GhostSeconds
+	GhostSeconds = 3,
+	PassAfter = 1.5, -- blocked by a parked truck / person this long: drive round it
+	PassStalledAfter = 3.5, -- blocked by a stalled car (not queueing) this long: drive round it
+	PassOffset = 13, -- studs left into the next lane when passing
+	PassLook = 90, -- oncoming lane must be clear this far ahead to pass
+	PassMaxSeconds = 10,
+	PassLateralSpeed = 9,
+	StuckDespawn = 8, -- seconds stopped (no excuse) before an unseen car is recycled
 	UnseenRadius = 170, -- "unseen" = farther than this from every player
+	BlinkDistance = 45, -- indicators on this far before a turn
 
 	-- Pedestrians in the road
 	PedLateral = 4.6,
 	HonkDistance = 30,
 	HonkCooldown = 2.2,
 
-	-- Emergency yield (fire truck with SirenOn)
+	-- Emergency yield (fire truck with SirenOn, and moving)
+	YieldMinSpeed = 6, -- a parked siren truck is an obstacle to drive round, not a reason to pull over
+	YieldMax = 12, -- never sit pulled over longer than this
+	YieldImmune = 8, -- after giving up, ignore sirens this long
 	YieldRadius = 120, -- a siren truck within this, coming from behind -> pull over
 	OncomingRadius = 55, -- a siren truck ahead coming at us this close -> pull over too
 	YieldBehindSlack = 8, -- "behind" = no more than this far ahead along my heading
