@@ -204,6 +204,20 @@ local Presets: { [string]: Preset } = {
 
 return Config.define({
 	Default = "DuskSuburb", -- preset AtmosphereService:Start applies
+	-- v1.5: preset per location (AtmosphereService:ApplyLocation). A MissionCatalog entry's own
+	-- `atmosphere` field wins over this table (AtmosphereService:ApplyMission).
+	LocationPresets = {
+		Station = "DuskSuburb",
+		Town = "DuskSuburb",
+		Apartment = "NightStreet",
+		School = "DuskSuburb",
+		Farm = "FireGlow",
+		Forest = "FireGlow",
+		Storage = "NightStreet",
+		Field = "FireGlow",
+		Dam = "FireGlow",
+		Zoo = "DuskSuburb",
+	} :: { [string]: string },
 	-- Doc wants Future (fires cast point-light shadows). Lighting.Technology is not settable from
 	-- game scripts (it needs plugin/command-bar identity), so the service tries it in a pcall; set it
 	-- in Studio once (Lighting > Technology) or via execute_luau in Edit mode. Fall back to

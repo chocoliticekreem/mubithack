@@ -6,6 +6,13 @@
 --     Pure function on Lighting, no yields, works in the Edit datamodel (preview the look in Studio):
 --       require(game.ServerScriptService.Services.AtmosphereService).ApplyPreset("DuskSuburb")
 --   AtmosphereService:GetPreset(): string?   current preset name (also Lighting attribute "AtmospherePreset")
+--   v1.5 additions:
+--   AtmosphereService:ApplyLocation(locationId: string, tweenTime: number?): boolean
+--     preset = AtmosphereConfig.LocationPresets[locationId] or Default; sets Lighting attr LocationPreset
+--   AtmosphereService:ApplyMission(missionId: string, tweenTime: number?): boolean
+--     preset = MissionCatalog entry's `atmosphere` (else its location's); sets LocationPreset
+--   Lighting is server-global: with parallel squads (LobbyConfig.UseLobby) the server keeps the lobby
+--   look and a client-side controller applies the player's instance preset locally (v2).
 -- Effects live under Lighting as Forge_Atmosphere, Forge_Sky, Forge_ColorCorrection, Forge_Bloom,
 -- Forge_SunRays, Forge_DepthOfField. Created idempotently: an existing Forge_<Kind> is reused, and a
 -- Studio default with the plain name (e.g. "Bloom", "Sky") is adopted and renamed instead of doubled.
@@ -129,6 +136,35 @@ end
 function AtmosphereService:GetPreset(): string?
 	local v = Lighting:GetAttribute(PRESET_ATTR)
 	return if type(v) == "string" then v else nil
+end
+
+function AtmosphereService:ApplyLocation(locationId: string, tweenTime: number?): boolean
+	local presets = (AtmosphereConfig :: any).LocationPresets or {}
+	local name = presets[locationId] or AtmosphereConfig.Default
+	local ok = AtmosphereService.ApplyPreset(name, tweenTime)
+	if ok then
+		Lighting:SetAttribute("LocationPreset", locationId)
+	end
+	return ok
+end
+
+function AtmosphereService:ApplyMission(missionId: string, tweenTime: number?): boolean
+	local catalog = ReplicatedStorage:WaitForChild("Config"):FindFirstChild("MissionCatalog")
+	if not catalog then
+		return false
+	end
+	for _, m in require(catalog :: ModuleScript) :: { any } do
+		if m.id == missionId then
+			local ok = AtmosphereService.ApplyPreset(m.atmosphere, tweenTime)
+			if not ok then
+				return AtmosphereService:ApplyLocation(m.locationId, tweenTime)
+			end
+			Lighting:SetAttribute("LocationPreset", m.locationId)
+			return true
+		end
+	end
+	warn(`[AtmosphereService] unknown mission {missionId}`)
+	return false
 end
 
 function AtmosphereService:Start()
