@@ -6,6 +6,11 @@
 --   ToolService:GiveLoadout(player: Player)              -- Hose + Axe + Extinguisher, full tank/foam
 --   ToolService:Refill(player: Player, litres: number?)  -- nil = full (tank; foam too at a truck)
 --   ToolService:ResetDoors(locationId: string)           -- un-break every door of a location/instance
+--   ToolService:CreateTool(itemId: string, player: Player): Tool?  -- v2: a fresh "Hose" | "Axe" | "Extinguisher"
+--     Tool for InventoryService to put in a hand (nil for other ids)
+-- v2 (docs/game/08 "Inventory"): when InventoryService is running it owns where tools come from, so
+--   GiveLoadout only resets the tank/foam attrs (no Backpack tools), and the Hydrant / TruckRefill
+--   prompts are InventoryService's (nozzle off the reel, supply lines), not hooked here.
 -- Signals: DoorBroken(player, door: BasePart), WaterUsed(player, litres: number),
 --          HoseHit(sprayer: Player, victim: Player)       -- once per pair per HoseHitCooldown
 --          HoseRecoil(sprayer: Player, impulse: Vector3)  -- every hose spray event (-aim * HoseRecoil * pressure).
@@ -882,12 +887,14 @@ function ToolService:Start()
 		end
 	end)
 	puddles()
-	watchTag(Names.Tag.Hydrant, function(player: Player, part: BasePart)
-		onRefill(player, part, false)
-	end)
-	watchTag(Names.Tag.TruckRefill, function(player: Player, part: BasePart)
-		onRefill(player, part, true)
-	end)
+	if not services.InventoryService then -- v2: InventoryService owns the reel and hydrant prompts
+		watchTag(Names.Tag.Hydrant, function(player: Player, part: BasePart)
+			onRefill(player, part, false)
+		end)
+		watchTag(Names.Tag.TruckRefill, function(player: Player, part: BasePart)
+			onRefill(player, part, true)
+		end)
+	end
 	watchTag(Names.Tag.Door, onDoorPrompt)
 	Players.PlayerAdded:Connect(hookPlayer)
 	for _, p in Players:GetPlayers() do
@@ -915,9 +922,9 @@ function ToolService:Start()
 end
 
 function ToolService:GiveLoadout(player: Player)
-	removeTools(player)
-	local backpack = player:FindFirstChildOfClass("Backpack")
+	local backpack = if services.InventoryService then nil else player:FindFirstChildOfClass("Backpack")
 	if backpack then
+		removeTools(player)
 		makeHose().Parent = backpack
 		makeAxe(player).Parent = backpack
 		makeExtinguisher().Parent = backpack
@@ -927,6 +934,17 @@ function ToolService:GiveLoadout(player: Player)
 	player:SetAttribute(Names.Attr.Spraying, false)
 	player:SetAttribute(ATTR_FOAM_SIZE, ToolConfig.FoamSize)
 	player:SetAttribute(ATTR_FOAM, ToolConfig.FoamSize)
+end
+
+function ToolService:CreateTool(itemId: string, player: Player): Tool?
+	if itemId == "Hose" then
+		return makeHose()
+	elseif itemId == "Axe" then
+		return makeAxe(player)
+	elseif itemId == "Extinguisher" then
+		return makeExtinguisher()
+	end
+	return nil
 end
 
 function ToolService:Refill(player: Player, litres: number?)
