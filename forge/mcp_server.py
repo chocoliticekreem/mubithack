@@ -353,7 +353,8 @@ def improve(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: 
 
 @mcp.tool()
 def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes: int = 3,
-        reports: bool = True, studio: str | None = None, edit_human_files: bool = False) -> str:
+        reports: bool = True, studio: str | None = None, edit_human_files: bool = False,
+        start_round: bool = False) -> str:
     """The self-improving loop on the real game (background job): playtest rounds, the auditor
     finds anomalies (plus new tester reports), the fixer rewrites the file behind each one, the game
     is resynced and replayed, and the verifier keeps the fix or rolls it back. Repeats until no high
@@ -367,6 +368,8 @@ def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes:
         args.append("--reports")
     if edit_human_files:
         args.append("--edit-human-files")
+    if start_round:
+        args.append("--start-round")
     if studio:
         args += ["--studio", studio]
     return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")

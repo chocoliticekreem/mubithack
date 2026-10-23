@@ -375,7 +375,11 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
         harness = Harness(studio)
         for n in range(args.cycles):
             extra = pending_report_anomalies(store) if getattr(args, "reports", False) else []
-            cycle = await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=multi_playtest,
+            playtest = multi_playtest
+            if getattr(args, "start_round", False):
+                from forge.improve import round_starting
+                playtest = round_starting(multi_playtest, seconds=getattr(args, "round_seconds", None))
+            cycle = await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=playtest,
                                     faults=faults, goal=args.goal, rounds=args.rounds,
                                     players=args.players, steps=args.steps, fix=fix,
                                     max_fixes=getattr(args, "max_fixes", 3), extra_anomalies=extra,
@@ -555,6 +559,9 @@ def build_parser() -> argparse.ArgumentParser:
     fx.add_argument("--max-fixes", type=int, default=3, help="anomalies to fix per cycle")
     fx.add_argument("--reports", action="store_true", help="also fix anomalies from new tester reports")
     fx.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+    fx.add_argument("--start-round", action="store_true",
+                    help="start each test round inside the game (harness `round` command), not in the lobby")
+    fx.add_argument("--round-seconds", type=int, default=None, help="length of the started round")
     fx.add_argument("--edit-human-files", action="store_true",
                     help="let the fixer edit a seeded game's human files (in runs/<slug>/game only)")
 
