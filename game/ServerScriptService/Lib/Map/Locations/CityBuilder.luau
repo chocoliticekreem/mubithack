@@ -236,6 +236,13 @@ local function buildBridges(ctx: Ctx, parent: Instance)
 				SK.part(m, "Railing", CF(cx + s * (sx / 2 + 0.5), ry + 1.6, cz), V(0.6, 0.6, sz + 8), C.Red)
 				SK.part(m, "Kerb", CF(cx + s * (sx / 2 + 0.5), ry + 0.6, cz), V(1, 1.2, sz + 8), C.Concrete)
 			end
+			-- glowing newel posts on the four railing ends (neon, no PointLight)
+			for _, e in { -1, 1 } do
+				local px = if b.alongX then cx + e * (sx / 2 + 4) else cx + s * (sx / 2 + 0.5)
+				local pz = if b.alongX then cz + s * (sz / 2 + 0.5) else cz + e * (sz / 2 + 4)
+				SK.part(m, "NewelPost", CF(px, ry + 1.5, pz), V(1.2, 3, 1.2), C.Concrete)
+				SK.ball(m, "NewelLamp", CF(px, ry + 3.5, pz), 1.4, Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
+			end
 		end
 		m.Parent = parent
 	end
