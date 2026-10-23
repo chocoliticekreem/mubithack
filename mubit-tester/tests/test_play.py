@@ -1,4 +1,4 @@
-"""Tests for forge.play: the AI playtester loop with a scripted LLM and a fake Studio."""
+"""Tests for mubit_tester.play: the AI playtester loop with a scripted LLM and a fake Studio."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from forge import play
+from mubit_tester import play
 from forge.config import Settings
 from forge.llm import FakeLLM, load_prompt
 

@@ -1,0 +1,15 @@
+{
+  "name": "hydrant_refill",
+  "description": "First player walks to the nearest Hydrant, uses its prompt; Water goes up or a Hydrant event is logged.",
+  "steps": [
+    {"label": "player spawned", "wait_until": {"cmd": "players", "path": "result.0.health", "op": ">", "value": 0, "timeout": 20}, "save": "p0"},
+    {"label": "find hydrant", "wait_until": {"cmd": "query", "args": {"tag": "Hydrant", "near": "$p0.0.userId", "limit": 1}, "path": "result", "op": "len>=", "value": 1, "timeout": 10}, "save": "hydrant"},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "walk to hydrant", "act": {"player": "$p0.0.userId", "action": "walk_to", "args": {"path": "$hydrant.0.path", "timeout": 25}}},
+    {"label": "use hydrant", "act": {"player": "$p0.0.userId", "action": "interact", "args": {"path": "$hydrant.0.path"}}},
+    {"label": "refilled", "wait_until": {"timeout": 10, "any": [
+      {"cmd": "players", "path": "result.0.attrs.Water", "op": "increased", "from": "$p0.0.attrs.Water"},
+      {"cmd": "events", "args": {"since": "$t0.now"}, "path": "result.events", "op": "contains", "value": "Hydrant"}
+    ]}}
+  ]
+}

@@ -71,3 +71,61 @@ game.ServerStorage.DevHook:Invoke("RoundService", "")                -- the modu
 
 It returns `true, results...` or `false, err`. Modules are found by name under
 ServerScriptService, then ServerStorage, then ReplicatedStorage.
+
+## ForgeTest harness (Studio playtests only)
+
+The in-game half of the `mubit-tester` MCP server (contract: `docs/TESTER.md`). Two scripts, both
+inert outside `RunService:IsStudio()`:
+
+- `ServerScriptService/ForgeTest.server.luau` creates `ServerStorage.ForgeTest` (BindableFunction),
+  `ReplicatedStorage.ForgeTestRemote` (RemoteFunction), and an event log.
+- `StarterPlayerScripts/ForgeTestAgent.client.luau` is the per-client actuator. It answers
+  `ForgeTestRemote` calls tagged `"ForgeTest"` and says `hello` to the server when it starts
+  (`players[].agent`, `ping.agents`).
+
+From the **Server** datamodel:
+
+```lua
+local T = game.ServerStorage.ForgeTest
+T:Invoke("ping")                                       -- {"ok":true,"result":{"version","players","agents","studio","time","clock","mapReady"}}
+T:Invoke("players")
+T:Invoke("observe", '{"userId":"1"}')                   -- me/world/things/prompts (play.py OBSERVE shape) + hud from that client
+T:Invoke("act", '{"userId":"1","action":"walk_to","args":{"path":"Workspace.Map.Station.Interior.Hydrant.Body"}}')
+T:Invoke("act", '{"userId":"1","action":"use","args":{"seconds":2,"aim":[9,4,-27]}}')
+T:Invoke("events", '{"since":12.5}')                   -- {"now", "events":[{t, kind, data}]}
+```
+
+Every call returns JSON `{"ok": bool, "result": any, "error": string?}`. Errors are caught per command
+and never throw. Commands: `ping players observe act query inspect set_attr ignite extinguish
+teleport config counters events reset round`. `act` actions: `walk_to jump interact equip unequip
+use look_at say wait` (`wait` runs on the server; the rest run on the player's client).
+
+- **Players** (`userId`, or `player`): a UserId, a helmet number (`"1"`..`"4"`, falling back to join
+  order when helmets aren't assigned), or a name/display name (case-insensitive, prefix ok). With one
+  player in the game it can be omitted.
+- **Paths** are `GetFullName()` strings (`Workspace.Map.Station.FireTruck67.Reel`, optional `game.`).
+- **Client calls** use `InvokeClient` in a separate thread with a timeout (walk: `timeout`+5 s, use:
+  `seconds`+5 s, interact 20 s, others 10 s, hud 3 s). This is the one sanctioned `InvokeClient`
+  (§6 bans it in gameplay code); it exists only in Studio.
+- **walk_to** uses PathfindingService (retrying to a spot beside a solid target), then straight
+  `MoveTo` for the rest, jumping when stuck. It reports `done`, `dist` and `pos`.
+- **interact** calls `InputHoldBegin` on the prompt, waits `HoldDuration + 0.1`, then
+  `InputHoldEnd`. `done` means the prompt's `Triggered` fired. **use** calls `Tool:Activate()`,
+  which the server's `Tool.Activated` sees, and fires `Net.Tool.Spray` at 10/s while held if that
+  remote exists. **say** shows a bubble (TextChatService `DisplayBubble`, else legacy `Chat:Chat`).
+  It's local to that client; `{"chat":true}` also sends to RBXGeneral.
+- **Event log** (ring buffer, 500): `player_added/removed`, `character_added`, `player_died`,
+  `agent_ready`, `tool_equipped/unequipped/activated/deactivated`, `prompt_triggered`,
+  `tag_added/removed` (Burning, Rescuable), `attr` (player/character Water, Carrying, Downed,
+  Helmet; Rescuable RescueState; Workspace RoundState, MissionId), `count` (every ForgeTelemetry
+  count, seen through `ServerStorage.ForgeCounters` attribute changes), `teleport`, `config`,
+  `reset`. Bursts of the same attr/counter within 1 s merge into one entry. `t` uses the same clock
+  as `events.now` / `ping.clock`.
+- **ignite / extinguish** go through the live `FireService:Ignite` / `:Extinguish` /
+  `:ExtinguishAll` when present. Otherwise they fall back to the `Burning` tag + `FireLevel`.
+  `{near, radius}` picks the nearest Flammable (or burning) part; `extinguish {"all":true}` clears
+  every fire.
+- **config** reads a module (`{module}`), or reads/sets a key, through `Config.Set` (live server copy).
+  **reset** rebuilds one or all locations via `MapService:RebuildLocation` and clears the log.
+  **round** reads RoundState/RoundEndsAt/MissionId; `{state:"Active"|"Results"}` goes through
+  MissionService when present, other states set the attribute.

@@ -1,9 +1,15 @@
-"""`forge doctor | new | run | correct | status | watch | sync | place | play | play-correct | play-list | mcp`."""
+"""`forge doctor | new | run | correct | status | watch | sync | place | play | play-correct | play-list |
+test <tool> | mcp`.
+
+`forge test <tool> ...` mirrors every `mubit-tester` MCP tool (docs/TESTER.md): the subcommands and
+their options are generated from the tools' input schemas, and run through the same code path.
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -174,25 +180,119 @@ def cmd_place(args) -> int:
 # ---------------------------------------------------------------- AI playtester
 
 def cmd_play(args) -> int:
-    from forge.mcp_server import run_playtest
+    from mubit_tester.server import run_playtest
     print(asyncio.run(run_playtest(args.goal, args.steps, args.studio)))
     return 0
 
 
 def cmd_play_correct(args) -> int:
-    from forge.mcp_server import run_correct
+    from mubit_tester.server import run_correct
     print(asyncio.run(run_correct(args.run_id, args.step, args.note)))
     return 0
 
 
 def cmd_play_list(args) -> int:
-    from forge.mcp_server import get_list
+    from mubit_tester.server import get_list
     print(get_list())
     return 0
 
 
+# ---------------------------------------------------------------- forge test <tool> (mubit-tester)
+
+def _tester_tools() -> list:
+    from mubit_tester.server import mcp
+    return mcp._tool_manager.list_tools()
+
+
+def _schema_types(prop: dict) -> set[str]:
+    types = {prop.get("type")} if prop.get("type") else set()
+    for alt in prop.get("anyOf") or []:
+        if alt.get("type"):
+            types.add(alt["type"])
+    types.discard("null")
+    return types or {"any"}
+
+
+def _cli_value(raw: str, types: set[str]):
+    """Parse a CLI string for a schema property: JSON for numbers/arrays/objects/any, else text."""
+    if types == {"string"}:
+        return raw
+    if types == {"boolean"}:
+        return raw.lower() in ("1", "true", "yes", "y", "on")
+    try:
+        val = json.loads(raw)
+    except ValueError:
+        if "string" in types or "any" in types:
+            return raw
+        raise argparse.ArgumentTypeError(f"expected JSON ({'/'.join(sorted(types))}), got {raw!r}")
+    if "string" in types and not isinstance(val, (list, dict)) and not ({"number", "integer"} & types):
+        return raw  # e.g. --near 1 is helmet "1", not the number 1
+    return val
+
+
+def _add_test_parsers(sub) -> None:
+    t = sub.add_parser("test", help="mubit-tester tools from the shell (forge test <tool> -h)")
+    tsub = t.add_subparsers(dest="tool", required=True, metavar="<tool>")
+    for tool in _tester_tools():
+        schema = tool.parameters or {}
+        props = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        flat = " ".join((tool.description or "").split())
+        first_line = flat.split(". ")[0].rstrip(".")
+        alias = tool.name.replace("_", "-")
+        tp = tsub.add_parser(tool.name, help=first_line, description=tool.description,
+                             aliases=[alias] if alias != tool.name else [])
+        tp.set_defaults(tool=tool.name, _props=props)
+        for name, prop in props.items():
+            types = _schema_types(prop)
+            hint = "/".join(sorted(types))
+            if name in required:
+                tp.add_argument(name, metavar=name, help=f"{hint}")
+            elif types == {"boolean"}:
+                tp.add_argument(f"--{name.replace('_', '-')}", dest=name, action="store_true",
+                                default=None, help=f"(default {prop.get('default')})")
+            else:
+                tp.add_argument(f"--{name.replace('_', '-')}", dest=name, metavar=hint.upper(),
+                                default=None, help=f"{hint} (default {prop.get('default')})")
+
+
+def test_tool_args(args) -> dict:
+    """argparse Namespace -> MCP tool arguments (only the ones given)."""
+    out = {}
+    for name, prop in (getattr(args, "_props", None) or {}).items():
+        raw = getattr(args, name, None)
+        if raw is None:
+            continue
+        out[name] = raw if isinstance(raw, bool) else _cli_value(raw, _schema_types(prop))
+    return out
+
+
+async def run_tester_tool(name: str, arguments: dict) -> tuple[str, bool]:
+    """Call a mubit-tester tool in-process; returns (text, ok)."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from mubit_tester.server import mcp
+    try:
+        res = await mcp.call_tool(name, arguments)
+    except ToolError as e:
+        return f"error: {e}", False
+    parts = []
+    for c in getattr(res, "content", None) or []:
+        if getattr(c, "type", None) == "text":
+            parts.append(c.text)
+        elif getattr(c, "type", None) == "image":
+            parts.append("(image returned)")
+    return "\n".join(parts), not getattr(res, "is_error", False)
+
+
+def cmd_test(args) -> int:
+    text, ok = asyncio.run(run_tester_tool(args.tool, test_tool_args(args)))
+    print(text)
+    return 0 if ok else 1
+
+
 def cmd_mcp(args) -> int:
-    from forge.mcp_server import main as mcp_main
+    from mubit_tester.server import main as mcp_main
     mcp_main()
     return 0
 
@@ -252,7 +352,8 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("note", help="what it should have done")
 
     sub.add_parser("play-list", help="list past playtest runs")
-    sub.add_parser("mcp", help="run the forge MCP server over stdio (for Claude Code)")
+    _add_test_parsers(sub)
+    sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
     return p
 
 
@@ -261,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "play": cmd_play, "play-correct": cmd_play_correct,
-               "play-list": cmd_play_list, "mcp": cmd_mcp}[args.cmd]
+               "play-list": cmd_play_list, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

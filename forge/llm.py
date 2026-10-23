@@ -20,6 +20,8 @@ from typing import Callable, Protocol
 from forge.config import Settings
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+# mubit-tester's roles (player, judge, explorer) keep their prompts in mubit-tester/prompts/.
+PROMPT_DIRS = (PROMPTS_DIR, Path(__file__).resolve().parent.parent / "mubit-tester" / "prompts")
 ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge")
 
 MAX_TRIES = 3  # total attempts for retryable gateway errors (429 / 503 / 529 overloaded)
@@ -72,7 +74,8 @@ def load_prompt(role: str) -> str:
         raise LLMError(f"unknown role {role!r}; expected one of {', '.join(ROLES)}")
     with _PROMPT_LOCK:
         if role not in _PROMPT_CACHE:
-            path = PROMPTS_DIR / f"{role}.md"
+            path = next((d / f"{role}.md" for d in PROMPT_DIRS if (d / f"{role}.md").exists()),
+                        PROMPTS_DIR / f"{role}.md")
             if not path.exists():
                 raise LLMError(f"missing system prompt file {path}")
             _PROMPT_CACHE[role] = path.read_text(encoding="utf-8").strip()

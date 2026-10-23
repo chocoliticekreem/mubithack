@@ -1,0 +1,10 @@
+{
+  "name": "smoke",
+  "description": "Every player spawns alive, walks 10 studs, and the ForgeProbe report has no errors.",
+  "steps": [
+    {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "start"},
+    {"label": "walk 10 studs", "act": {"player": "all", "action": "walk_to", "offset": [10, 0, 0], "args": {"timeout": 10}}},
+    {"label": "everyone moved", "wait_until": {"cmd": "players", "path": "result.*.pos", "op": "moved", "from": "$start.*.pos", "value": 8, "timeout": 15}},
+    {"label": "no probe errors", "assert": {"cmd": "probe", "path": "result.errors", "op": "len==", "value": 0}}
+  ]
+}

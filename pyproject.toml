@@ -15,13 +15,15 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23"]
 
 [project.scripts]
 forge = "forge.cli:main"
+mubit-tester = "mubit_tester.server:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["forge"]
+packages = ["forge", "mubit-tester/mubit_tester"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests", "mubit-tester/tests"]

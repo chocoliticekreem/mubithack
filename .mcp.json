@@ -5,9 +5,9 @@
       "command": "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP",
       "args": []
     },
-    "forge": {
+    "mubit-tester": {
       "type": "stdio",
-      "command": "scripts/forge-mcp.sh",
+      "command": "mubit-tester/bin/mubit-tester-mcp.sh",
       "args": []
     }
   }

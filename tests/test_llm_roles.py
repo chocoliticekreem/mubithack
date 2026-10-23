@@ -47,7 +47,8 @@ def _settings(tmp_path: Path, key: str | None = "mbt_secret_key") -> Settings:
 
 @pytest.mark.parametrize("role", ROLES)
 def test_prompt_files_exist_and_are_static(role):
-    path = PROMPTS_DIR / f"{role}.md"
+    from forge.llm import PROMPT_DIRS
+    path = next((d / f"{role}.md" for d in PROMPT_DIRS if (d / f"{role}.md").exists()), PROMPTS_DIR / f"{role}.md")
     assert path.exists()
     text = path.read_text()
     assert len(text) > 500
