@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge runs</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
+    --accent: #c2410c; --ok: #15803d; --bad: #b91c1c; --warn: #a16207; --info: #1d4ed8;
+    --code: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9b9a94; --line: #2f2e2b;
+      --accent: #fb923c; --ok: #4ade80; --bad: #f87171; --warn: #facc15; --info: #93c5fd; --code: #262522; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 18px 24px 8px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); }
+  main { padding: 8px 24px 40px; display: grid; gap: 22px; max-width: 1280px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 0; }
+  .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+  .s-running, .s-active { color: var(--info); }
+  .s-finished, .s-kept, .s-fixed { color: var(--ok); }
+  .s-failed, .s-rolled_back, .s-compile_failed, .s-not_fixed, .s-regression, .s-high { color: var(--bad); }
+  .s-idle, .s-stopped, .s-cancelled, .s-inconclusive, .s-low { color: var(--muted); }
+  .s-suggested, .s-medium, .s-no_file { color: var(--warn); }
+  pre { background: var(--code); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; max-height: 220px;
+    overflow: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .bar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; min-width: 120px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .bar.done > i { background: var(--ok); }
+  .sec { margin-top: 12px; }
+  .sec h3 { font-size: 12px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+  .item { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .rollback td { color: var(--warn); }
+  .empty { color: var(--muted); padding: 12px; border: 1px dashed var(--line); border-radius: 10px; }
+  a { color: var(--accent); }
+  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .stat { display: flex; flex-direction: column; }
+  .stat b { font-size: 18px; }
+  @media (max-width: 640px) { header, main { padding-left: 16px; padding-right: 16px; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Forge runs</h1>
+  <span class="sub" id="updated">loading…</span>
+</header>
+<main>
+  <section><h2>Running</h2><div id="running" class="grid"></div></section>
+  <section><h2>Mubit tasks</h2><div id="mubit"></div></section>
+  <section><h2>Games</h2><div id="games" class="grid"></div></section>
+</main>
+<script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pill = s => `<span class="pill s-${esc(String(s).split(" ")[0])}">${esc(s)}</span>`;
+const ago = t => { const d = Math.max(0, Date.now()/1000 - t); return d < 60 ? `${d|0}s ago` : d < 3600 ? `${(d/60)|0}m ago` : `${(d/3600)|0}h ago`; };
+const open = new Set();
+document.addEventListener("toggle", e => { const id = e.target.dataset?.key; if (id) e.target.open ? open.add(id) : open.delete(id); }, true);
+const det = (key, summary, body) => `<details data-key="${esc(key)}" ${open.has(key) ? "open" : ""}><summary>${summary}</summary>${body}</details>`;
+
+function spark(scores) {
+  const pts = scores.filter(s => s != null);
+  if (pts.length < 1) return "";
+  const w = 120, h = 28, n = Math.max(pts.length - 1, 1);
+  const xy = pts.map((s, i) => `${(i / n * (w - 4) + 2).toFixed(1)},${(h - 2 - s / 10 * (h - 4)).toFixed(1)}`);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="critic scores"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${xy.join(" ")}"/>${xy.map(p => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="2" fill="currentColor"/>`).join("")}</svg>`;
+}
+
+function renderRunning(list) {
+  if (!list.length) return `<div class="empty">Nothing running. Start one with forge fix, forge new or the forge MCP tools.</div>`;
+  return list.map(r => `<div class="card">
+    <div class="row"><div class="grow title">${esc(r.name)}</div>${pill(r.status)}</div>
+    <div class="muted small">${esc(r.command)} · ${ago(r.updated)}</div>
+    ${det("run:" + r.name, `<span class="small muted">log (${r.tail.length} lines)</span>`, `<pre>${esc(r.tail.join("\n"))}</pre>`)}
+  </div>`).join("");
+}
+
+function renderMubit(m) {
+  if (!m.roles.length) return `<div class="empty">No Mubit calls recorded yet.</div>`;
+  return `<div class="card"><div class="row small muted" style="margin-bottom:6px">${m.total} calls · a task trains at ${m.train_at} kept examples · <a href="${esc(m.console)}" target="_blank" rel="noopener">open the Mubit console</a></div>
+  <table><thead><tr><th>role (task)</th><th>calls</th><th>toward training</th><th>latest request</th></tr></thead><tbody>
+  ${m.roles.map(r => { const pct = Math.min(100, r.calls / m.train_at * 100);
+    return `<tr><td>${esc(r.role)}</td><td>${r.calls}</td><td><div class="bar ${pct >= 100 ? "done" : ""}"><i style="width:${pct}%"></i></div></td><td><code>${esc(r.latest.request_id || "")}</code></td></tr>`; }).join("")}
+  </tbody></table></div>`;
+}
+
+function anomaly(a) {
+  return `<div class="item">${pill(a.severity)} <b>${esc(a.title)}</b> <span class="muted small">${esc(a.system)} · ${esc(a.kind)}</span><div class="small">${esc(a.observed)}</div></div>`;
+}
+
+function fixItem(f) {
+  const tries = (f.attempts || []).map((t, i) => `<div class="small">try ${i + 1}: ${pill(t.status)} ${esc(t.verdict?.evidence || t.error || "")}</div>`).join("");
+  return `<div class="item">${pill(f.status)} <b>${esc(f.anomaly)}</b> <code>${esc(f.path || "")}</code> ${f.version ? `<span class="muted small">→ ${esc(f.version)}</span>` : ""}${tries}${f.patch ? `<div class="small muted">patch: ${esc(f.patch)}</div>` : ""}</div>`;
+}
+
+function renderGame(g) {
+  const scores = g.iterations.map(i => i.score);
+  const last = g.cycles[g.cycles.length - 1];
+  const v = g.versions[g.versions.length - 1];
+  const head = `<div class="row"><div class="grow"><div class="title">${esc(g.title)}</div><div class="muted small">${esc(g.slug)} · ${ago(g.updated)}</div></div>${g.seeded ? '<span class="pill s-idle">seeded</span>' : ""}<span style="color:var(--accent)">${spark(scores)}</span></div>
+    <div class="row small" style="gap:16px;margin-top:6px">
+      <div class="stat"><b>${scores.length ? scores[scores.length - 1] ?? "–" : "–"}</b><span class="muted">last score</span></div>
+      <div class="stat"><b>${g.iterations.length}</b><span class="muted">iterations</span></div>
+      <div class="stat"><b>${esc(v?.version || "–")}</b><span class="muted">version</span></div>
+      <div class="stat"><b>${last ? last.open ?? "–" : "–"}</b><span class="muted">open anomalies</span></div>
+      <div class="stat"><b>${last ? `${last.code_kept ?? 0}/${last.code_tried ?? 0}` : "–"}</b><span class="muted">fixes kept</span></div>
+    </div>`;
+  const iters = g.iterations.length ? `<div class="sec"><h3>Iterations</h3><table><thead><tr><th>#</th><th>score</th><th>version</th><th>summary</th></tr></thead><tbody>${
+    g.iterations.map(i => `<tr${i.rolled_back_to ? ' class="rollback"' : ""}><td>${i.n}</td><td>${i.score ?? "–"}</td><td>${esc(i.version || "")}${i.rolled_back_to ? ` ↩ ${esc(i.rolled_back_to)}` : ""}</td><td class="small">${esc((i.summary || "").slice(0, 220))}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const cycles = g.cycles.slice().reverse().map(c => `<div class="sec"><h3>Cycle ${c.cycle} · ${esc((c.ts || "").slice(0, 19))} · open ${c.open ?? "–"} · planted ${c.planted}, detected ${c.detected}</h3>
+    ${(c.anomalies || []).map(anomaly).join("") || '<div class="small muted">no anomalies</div>'}
+    ${(c.code_fixes || []).length ? `<div style="margin-top:6px">${c.code_fixes.map(fixItem).join("")}</div>` : ""}
+    ${(c.verdicts || []).map(vd => `<div class="item small">fault ${esc(vd.fault)}: ${pill(vd.verdict)} ${esc(vd.evidence)}</div>`).join("")}</div>`).join("");
+  const versions = g.versions.length ? `<div class="sec"><h3>Versions</h3><table><tbody>${g.versions.slice().reverse().map(x =>
+    `<tr${x.message.startsWith("rollback") ? ' class="rollback"' : ""}><td><code>${esc(x.version)}</code></td><td class="small muted">${esc(x.date.slice(0, 19))}</td><td class="small">${esc(x.message.split("\n")[0])}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const reports = g.reports.length ? `<div class="sec"><h3>Tester reports</h3>${g.reports.slice().reverse().map(r =>
+    `<div class="item"><div class="small muted">${esc(r.ts)} ${esc(r.reporter || "")}</div><div>“${esc(r.text)}”</div>${r.anomalies.map(anomaly).join("")}</div>`).join("")}</div>` : "";
+  const calls = Object.keys(g.calls).length ? `<div class="sec"><h3>Mubit calls</h3><div class="small">${Object.entries(g.calls).map(([k, n]) => `${esc(k)} ${n}`).join(" · ")}</div></div>` : "";
+  return `<div class="card">${head}${det("game:" + g.slug, `<div class="small" style="margin-top:8px;color:var(--accent)">details</div>`, iters + cycles + versions + reports + calls)}</div>`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/state", {cache: "no-store"});
+    const d = await r.json();
+    document.getElementById("running").innerHTML = renderRunning(d.running);
+    document.getElementById("mubit").innerHTML = renderMubit(d.mubit);
+    document.getElementById("games").innerHTML = d.games.length ? d.games.map(renderGame).join("") : '<div class="empty">No games yet.</div>';
+    document.getElementById("updated").textContent = `updated ${new Date().toLocaleTimeString()} · refreshes every 3s`;
+  } catch (e) {
+    document.getElementById("updated").textContent = "can't reach forge dashboard: is it still running?";
+  }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

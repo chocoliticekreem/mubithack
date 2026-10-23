@@ -8,6 +8,7 @@ their options are generated from the tools' input schemas, and run through the s
 from __future__ import annotations
 
 import argparse
+import contextlib
 import asyncio
 import json
 import os
@@ -185,6 +186,22 @@ def cmd_rollback(args) -> int:
     if not args.no_sync:
         print(asyncio.run(sync_once(s, store.game_dir, args.studio or os.environ.get("FORGE_STUDIO"),
                                     prune=True)))
+    return 0
+
+
+def cmd_dashboard(args) -> int:
+    import webbrowser
+
+    from forge.dashboard import serve
+    server = serve(args.host, args.port)
+    url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '') else args.host}:{args.port}"
+    print(f"forge dashboard: {url}  (Ctrl-C to stop)")
+    if args.open:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
     return 0
 
 
@@ -529,6 +546,11 @@ def build_parser() -> argparse.ArgumentParser:
     fx.add_argument("--edit-human-files", action="store_true",
                     help="let the fixer edit a seeded game's human files (in runs/<slug>/game only)")
 
+    db = sub.add_parser("dashboard", help="live view of jobs, games, fix cycles, versions and Mubit calls")
+    db.add_argument("--port", type=int, default=8765)
+    db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to share on your network")
+    db.add_argument("--open", action="store_true", help="open it in the browser")
+
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
     ve.add_argument("slug")
 
@@ -556,11 +578,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Progress lines reach a piped log (tee, runs/*.log, the dashboard) as they happen.
+    with contextlib.suppress(AttributeError, ValueError):
+        sys.stdout.reconfigure(line_buffering=True)
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]

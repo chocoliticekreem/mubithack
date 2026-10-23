@@ -65,6 +65,7 @@ forge/                 Python package (uv), entry point `forge`
                        verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
                        run_cycle(..., fix=True) runs fix_code(): fixer, compile, resync, replay,
                        verifier, then keep or roll back; base_files only get improve/patches/
+  dashboard.py         `forge dashboard`: read-only live view of runs/ (collect() -> /api/state + dashboard.html)
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
                        snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
