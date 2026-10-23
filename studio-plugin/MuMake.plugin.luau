@@ -187,8 +187,13 @@ controlsToggle.Size=UDim2.fromOffset(120,28) controlsToggle.Position=UDim2.new(1
 local nav=Instance.new("Frame") nav.BackgroundTransparency=1 nav.Position=UDim2.fromOffset(20,124)
 nav.Size=UDim2.new(1,-40,0,36) nav.Parent=root
 local body=Instance.new("ScrollingFrame") body.Name="Content" body.BackgroundTransparency=1 body.BorderSizePixel=0
-body.Position=UDim2.fromOffset(20,176) body.Size=UDim2.new(1,-36,1,-236)
+body.Position=UDim2.fromOffset(16,176) body.Size=UDim2.new(1,-28,1,-236)
 body.ScrollBarThickness=3 body.ScrollBarImageColor3=palette.border body.AutomaticCanvasSize=Enum.AutomaticSize.Y
+body.ScrollingDirection=Enum.ScrollingDirection.Y
+-- Keep card outlines inside the clipping area while preserving the content's alignment.
+local contentPadding=Instance.new("UIPadding")
+contentPadding.PaddingLeft=UDim.new(0,4) contentPadding.PaddingRight=UDim.new(0,4)
+contentPadding.PaddingTop=UDim.new(0,4) contentPadding.PaddingBottom=UDim.new(0,4) contentPadding.Parent=body
 body.CanvasSize=UDim2.new() body.Parent=root stack(body,20)
 local footer=section(root,"Footer") footer.Position=UDim2.new(0,20,1,-48) footer.Size=UDim2.new(1,-40,0,0)
 feedback=text(footer,"Start with an idea for your game.","small")
@@ -218,7 +223,7 @@ local function layoutSurface()
     local bottom=tab=="Welcome" and (active and 236 or 128)
         or (makeActionBar and makeActionBar.Visible and math.max(120,makeActionBar.AbsoluteSize.Y+32))
         or (footer.Visible and (active and 116 or 64) or 16)
-    body.Position=UDim2.fromOffset(20,top) body.Size=UDim2.new(1,-36,1,-top-bottom)
+    body.Position=UDim2.fromOffset(16,top) body.Size=UDim2.new(1,-28,1,-top-bottom)
 end
 show=function(name,replace)
     if not pages[name] then return end
