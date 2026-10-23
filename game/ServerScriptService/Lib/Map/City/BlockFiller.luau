@@ -1463,6 +1463,18 @@ function BlockFiller.fillCorridor(ctx: any, parent: Instance, run: any): Model
 		cursor = c.b
 	end
 	slab(cursor, run.a1, run.near, front, cfg.SidewalkY, C.Sidewalk, nil, "Sidewalk")
+	-- highway service stop: a tall "67 SERVICES" pylon by the entrance, readable from the highway
+	if run.highway then
+		local at = run.a0 + 6
+		local c = front + s * 4
+		local p = if run.axis == "x" then V(c, 0, at) else V(at, 0, c)
+		local toRoad = if run.axis == "x" then V(-s, 0, 0) else V(0, 0, -s)
+		local cf = CFrame.lookAt(p, p + toRoad)
+		SK.part(m, "PylonPole", cf * CF(0, GY + 10, 0), V(1.2, 20, 1.2), C.MetalDark)
+		local board = SK.part(m, "Pylon", cf * CF(0, GY + 22, 0), V(10, 6, 1), C.Red)
+		SK.sign(board, "67 SERVICES", Enum.NormalId.Front, C.Trim)
+		SK.sign(board, "67 SERVICES", Enum.NormalId.Back, C.Trim)
+	end
 	-- kerbside furniture just inside the lot fronts (one mark per lot, off the aprons)
 	local marks = {}
 	for _, lot in run.lots do
