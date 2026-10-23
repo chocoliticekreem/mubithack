@@ -18,7 +18,7 @@ local HAZARDS = { electrocution = true, fire_tornado = true, explosion = true, t
 local KINDS = { Civilian = true, Dog = true, Cat = true, Panda = true }
 local OBJECTIVES = { extinguish = true, rescue = true, survive = true, custom = true }
 local STARTS = { FireStart = true, Random = true, Scripted = true }
-local STARS = { finish = true, allOut = true, allRescued = true, underTime = true, noDowns = true }
+local STARS = { finish = true, allOut = true, allRescued = true, underTime = true, noDowns = true, buildingSaved = true }
 local PRESETS = { DuskSuburb = true, NightStreet = true, FireGlow = true } -- AtmosphereConfig.Presets
 
 local byId: { [string]: any } = {}
