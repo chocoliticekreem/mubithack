@@ -38,6 +38,15 @@ forge place --open                           # build place/Forge.rbxlx and open 
 forge watch                                  # auto-sync game/ into Studio on every save
 ```
 
+AI playtester (also exposed to Claude Code as the `forge` MCP server in `.mcp.json`, tools
+`mcp__forge__playtest`, `playtest_correct`, `playtest_report`, `playtest_list`, `forge_doctor`):
+
+```bash
+forge play "spawn, walk to the fire truck and pick up the hose" --steps 20 --studio Forge
+forge play-correct <run_id> 4 "it should have pressed E at the truck, not jumped"   # Mubit training signal
+forge play-list
+```
+
 Then open the [Mubit console](https://app.mubit.ai/console/). **Tasks** shows each role collecting
 examples and training. **Requests** lets you rate calls Good/Bad. **Try models** compares the adapter
 with the base model side by side.

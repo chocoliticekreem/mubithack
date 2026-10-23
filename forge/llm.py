@@ -20,7 +20,7 @@ from typing import Callable, Protocol
 from forge.config import Settings
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-ROLES = ("designer", "coder", "fixer", "critic", "reflector")
+ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge")
 
 MAX_TRIES = 3  # total attempts for retryable gateway errors (429 / 503 / 529 overloaded)
 RETRY_STATUSES = {429, 503, 529}
