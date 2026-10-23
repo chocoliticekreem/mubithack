@@ -1,0 +1,551 @@
+--!strict
+-- InventoryController [owner: Inventory]. Client side of the physical inventory (InventoryService):
+--   * hides the Roblox Backpack (StarterGui:SetCoreGuiEnabled(Backpack, false))
+--   * chunky hotbar bottom-centre: HAND / BACK / CARRY slots from Player attrs InvHand, InvBack,
+--     InvCarry, with water / foam / air gauges (Water+TankSize, Foam+FoamSize, OxygenAir)
+--   * input (bound only while you have something, so Rescue/Vehicle keep G and Q otherwise):
+--       G drop (Inventory/Drop), hold Q throw with a charge meter (Inventory/Throw(cameraLook, charge)),
+--       1 / 2 swap hand <-> back (Inventory/Swap). Gamepad: B drop, L1 throw, DPadUp swap.
+--   * draws every prompt with attr InvPrompt (Style Custom) as a chunky "[E] Grab Axe" sticker plus a
+--     yellow Highlight on the item; relabels the truck reel prompt locally (Grab / Stow Hose, Refill Foam)
+--   * Inventory/Fx world pops: GRAB!, BONK!, Butterfingers!, YEET!, POP!
+local ContextActionService = game:GetService("ContextActionService")
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local CollectionService = game:GetService("CollectionService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
+local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
+local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("InventoryConfig") :: ModuleScript) :: any
+local ItemDefs = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript)
+local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+
+local InventoryController = {}
+InventoryController.Priority = 65
+
+local LocalPlayer = Players.LocalPlayer
+local controllers: { [string]: any } = {}
+
+type Slot = { frame: Frame, tile: Frame, glyph: TextLabel, name: TextLabel, bar: Frame, fill: Frame }
+
+local slots: { [string]: Slot } = {}
+local chargeFrame: Frame? = nil
+local chargeFill: Frame? = nil
+local chargeStart: number? = nil
+local boundItem = false
+local boundSwap = false
+local shown: { [ProximityPrompt]: { gui: BillboardGui, hl: Highlight? } } = {}
+
+local function attr(name: string): string
+	local v = LocalPlayer:GetAttribute(name)
+	return if type(v) == "string" then v else ""
+end
+
+local function num(name: string): number?
+	local v = LocalPlayer:GetAttribute(name)
+	return if type(v) == "number" then v else nil
+end
+
+local function shake(m: number, s: number)
+	local fp = controllers.FirstPersonController
+	if fp and type(fp.Shake) == "function" then
+		pcall(fp.Shake, fp, m, s)
+	end
+end
+
+-- hotbar --------------------------------------------------------------------------------------------
+local function makeSlot(parent: Instance, key: string, label: string, order: number): Slot
+	local size = Cfg.HotbarSlotSize
+	local frame = Instance.new("Frame")
+	frame.Name = key
+	frame.BackgroundTransparency = 1
+	frame.Size = UDim2.fromOffset(size, size + 26)
+	frame.LayoutOrder = order
+	frame.Parent = parent
+	local tile = UiKit.panel(frame, "Tile", UDim2.fromOffset(size, size), UDim2.fromOffset(0, 0))
+	tile.BackgroundColor3 = Palette.UiPanelDark
+	tile.BackgroundTransparency = 0.25
+	local glyph = UiKit.label(tile, "Glyph", "", UDim2.new(1, -8, 0, size * 0.5), UDim2.fromOffset(4, size * 0.16), {
+		font = UiKit.Header,
+		textSize = 30,
+		color = Palette.UiCream,
+		stroke = true,
+	})
+	local keycap = UiKit.label(tile, "Key", label, UDim2.fromOffset(math.max(34, #label * 9 + 10), 20), UDim2.fromOffset(-6, -10), {
+		font = UiKit.Header,
+		textSize = 15,
+		color = Palette.UiInk,
+	})
+	keycap.BackgroundTransparency = 0
+	keycap.BackgroundColor3 = Palette.UiCream
+	UiKit.corner(keycap, 6)
+	UiKit.stroke(keycap, 2)
+	local bar = Instance.new("Frame")
+	bar.Name = "Gauge"
+	bar.Size = UDim2.new(1, -16, 0, 9)
+	bar.Position = UDim2.new(0, 8, 1, -16)
+	bar.BackgroundColor3 = Palette.UiInk
+	bar.BorderSizePixel = 0
+	bar.Visible = false
+	bar.Parent = tile
+	UiKit.corner(bar, 4)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Palette.WaterSpray
+	fill.BorderSizePixel = 0
+	fill.Parent = bar
+	UiKit.corner(fill, 4)
+	local name = UiKit.label(frame, "Name", "", UDim2.new(1, 20, 0, 22), UDim2.new(0, -10, 0, size + 2), {
+		font = UiKit.Body,
+		textSize = 16,
+		color = Palette.UiCream,
+		stroke = true,
+	})
+	return { frame = frame, tile = tile, glyph = glyph, name = name, bar = bar, fill = fill }
+end
+
+local function buildHotbar()
+	local gui = UiKit.screen("InventoryHud", 6)
+	local row = Instance.new("Frame")
+	row.Name = "Hotbar"
+	row.AnchorPoint = Vector2.new(0.5, 1)
+	row.Position = UDim2.new(0.5, 0, 1, -4) -- below HudController's toast stack (bottom -100)
+	row.Size = UDim2.fromOffset(Cfg.HotbarSlotSize * 3 + 28, Cfg.HotbarSlotSize + 26)
+	row.BackgroundTransparency = 1
+	row.Parent = gui
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 14)
+	layout.Parent = row
+	slots.hand = makeSlot(row, "Hand", "G / Q", 1)
+	slots.back = makeSlot(row, "Back", "2 SWAP", 2)
+	slots.carry = makeSlot(row, "Carry", "CARRY", 3)
+	-- throw charge meter, above the hotbar
+	local charge = Instance.new("Frame")
+	charge.Name = "Charge"
+	charge.AnchorPoint = Vector2.new(0.5, 1)
+	charge.Position = UDim2.new(0.5, 0, 1, -(Cfg.HotbarSlotSize + 40))
+	charge.Size = UDim2.fromOffset(240, 18)
+	charge.BackgroundColor3 = Palette.UiInk
+	charge.Visible = false
+	charge.Parent = gui
+	UiKit.corner(charge, 8)
+	UiKit.stroke(charge, 3, Palette.UiCream)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.BackgroundColor3 = Palette.FireBody
+	fill.BorderSizePixel = 0
+	fill.Parent = charge
+	UiKit.corner(fill, 8)
+	UiKit.label(charge, "Yeet", "YEET POWER", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+		font = UiKit.Header,
+		textSize = 14,
+		color = Palette.UiCream,
+		stroke = true,
+	})
+	chargeFrame, chargeFill = charge, fill
+end
+
+local lastShown: { [string]: string } = {}
+
+local function gauge(id: string): (number?, Color3)
+	if id == "Hose" then
+		local w, size = num(Names.Attr.Water), num(Names.Attr.TankSize)
+		return if w and size and size > 0 then w / size else nil, Palette.WaterSpray
+	elseif id == "Extinguisher" then
+		local f, size = num("Foam"), num("FoamSize")
+		return if f and size and size > 0 then f / size else nil, Palette.SmokeWhite
+	elseif id == "OxygenTank" then
+		local a = num("OxygenAir")
+		return if a then a / math.max(1, Cfg.OxygenAir) else nil, Color3.fromHex("#2A9D8F")
+	end
+	return nil, Palette.WaterSpray
+end
+
+local function paint(key: string, id: string, isProp: boolean)
+	local s = slots[key]
+	if not s then
+		return
+	end
+	local def = ItemDefs.get(id)
+	if id == "" then
+		s.glyph.Text = ""
+		s.name.Text = if key == "hand" then "empty hands" elseif key == "back" then "back" else "carry"
+		s.tile.BackgroundColor3 = Palette.UiPanelDark
+		s.tile.BackgroundTransparency = 0.45
+		s.bar.Visible = false
+	else
+		s.glyph.Text = if def then def.short elseif isProp then "PROP" else string.upper(id)
+		s.name.Text = if def then def.name else id
+		s.tile.BackgroundColor3 = if def then Color3.fromHex(def.color) else Palette.FloorLineYellow
+		s.tile.BackgroundTransparency = 0
+		local frac, color = gauge(id)
+		s.bar.Visible = frac ~= nil
+		if frac then
+			s.fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
+			s.fill.BackgroundColor3 = if frac < 0.2 then Palette.UiRed else color
+		end
+	end
+	if lastShown[key] ~= id then
+		lastShown[key] = id
+		if id ~= "" then
+			UiKit.punch(s.tile, 0.25)
+		end
+	end
+end
+
+local function refreshHud()
+	paint("hand", attr("InvHand"), false)
+	paint("back", attr("InvBack"), false)
+	paint("carry", attr("InvCarry"), true)
+end
+
+-- input ----------------------------------------------------------------------------------------------
+local DropR: RemoteEvent? = nil
+local ThrowR: RemoteEvent? = nil
+local SwapR: RemoteEvent? = nil
+
+local function chargeOf(): number
+	if not chargeStart then
+		return 0
+	end
+	return math.clamp((os.clock() - chargeStart) / math.max(0.05, Cfg.ThrowChargeSeconds), 0, 1)
+end
+
+local function hasItem(): boolean
+	return attr("InvHand") ~= "" or attr("InvCarry") ~= ""
+end
+
+local function onDrop(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	if not hasItem() then
+		return Enum.ContextActionResult.Pass
+	end
+	if state == Enum.UserInputState.Begin and DropR then
+		DropR:FireServer()
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function onThrow(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	if not hasItem() then
+		chargeStart = nil
+		return Enum.ContextActionResult.Pass
+	end
+	if state == Enum.UserInputState.Begin then
+		chargeStart = os.clock()
+	elseif state == Enum.UserInputState.End and chargeStart then
+		local c = chargeOf()
+		chargeStart = nil
+		local cam = workspace.CurrentCamera
+		local look = if cam then cam.CFrame.LookVector else Vector3.new(0, 0, -1)
+		if ThrowR then
+			ThrowR:FireServer(look, c)
+		end
+		shake(0.25 + 0.35 * c, 0.2)
+	elseif state == Enum.UserInputState.Cancel then
+		chargeStart = nil
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function onSwap(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	if attr("InvHand") == "" and attr("InvBack") == "" then
+		return Enum.ContextActionResult.Pass
+	end
+	if state == Enum.UserInputState.Begin and SwapR then
+		SwapR:FireServer()
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function rebind()
+	local wantItem = hasItem()
+	if wantItem and not boundItem then
+		ContextActionService:BindAction("InvDrop", onDrop, true, Enum.KeyCode.G, Enum.KeyCode.ButtonB)
+		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
+		ContextActionService:SetTitle("InvDrop", "DROP")
+		ContextActionService:SetTitle("InvThrow", "THROW")
+		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -190, 1, -150))
+		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -260, 1, -110))
+		boundItem = true
+	elseif not wantItem and boundItem then
+		ContextActionService:UnbindAction("InvDrop")
+		ContextActionService:UnbindAction("InvThrow")
+		boundItem = false
+		chargeStart = nil
+	end
+	local wantSwap = attr("InvHand") ~= "" or attr("InvBack") ~= ""
+	if wantSwap and not boundSwap then
+		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
+		ContextActionService:SetTitle("InvSwap", "SWAP")
+		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -190, 1, -220))
+		boundSwap = true
+	elseif not wantSwap and boundSwap then
+		ContextActionService:UnbindAction("InvSwap")
+		boundSwap = false
+	end
+end
+
+-- prompts --------------------------------------------------------------------------------------------
+local function promptTarget(prompt: ProximityPrompt): Instance?
+	local parent = prompt.Parent
+	if not parent then
+		return nil
+	end
+	local display = parent:FindFirstChild("InvDisplay")
+	if display then
+		return display
+	end
+	local model = parent.Parent
+	if model and model:IsA("Model") and model:HasTag("InventoryItem") then
+		return model
+	end
+	if model and model:IsA("Model") and model.PrimaryPart == parent then
+		return model
+	end
+	return parent
+end
+
+local function keyText(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInputType): string
+	if inputType == Enum.ProximityPromptInputType.Gamepad then
+		return string.gsub(prompt.GamepadKeyCode.Name, "Button", "")
+	elseif inputType == Enum.ProximityPromptInputType.Touch then
+		return "TAP"
+	end
+	return prompt.KeyboardKeyCode.Name
+end
+
+local function showPrompt(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInputType)
+	if not prompt:GetAttribute("InvPrompt") or shown[prompt] then
+		return
+	end
+	local adornee = prompt.Parent
+	if not adornee or not adornee:IsA("BasePart") then
+		return
+	end
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "InvPromptGui"
+	gui.Adornee = adornee
+	gui.AlwaysOnTop = true
+	gui.Size = UDim2.fromOffset(260, 56)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 2.6, 0)
+	gui.MaxDistance = 40
+	gui.ResetOnSpawn = false
+	local panel = UiKit.panel(gui, "Panel", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
+	panel.BackgroundColor3 = Palette.UiCream
+	local key = UiKit.label(panel, "Key", keyText(prompt, inputType), UDim2.fromOffset(44, 40), UDim2.fromOffset(8, 8), {
+		font = UiKit.Header,
+		textSize = 24,
+		color = Palette.UiCream,
+	})
+	key.BackgroundTransparency = 0
+	key.BackgroundColor3 = Palette.UiInk
+	UiKit.corner(key, 8)
+	UiKit.label(panel, "Action", prompt.ActionText, UDim2.new(1, -66, 1, 0), UDim2.fromOffset(60, 0), {
+		font = UiKit.Header,
+		textSize = 22,
+		align = Enum.TextXAlignment.Left,
+	})
+	if inputType == Enum.ProximityPromptInputType.Touch then
+		local tap = Instance.new("TextButton")
+		tap.Name = "Tap"
+		tap.BackgroundTransparency = 1
+		tap.Text = ""
+		tap.Size = UDim2.fromScale(1, 1)
+		tap.ZIndex = 5
+		tap.Parent = panel
+		gui.Active = true
+		tap.Activated:Connect(function()
+			prompt:InputHoldBegin()
+			task.defer(function()
+				prompt:InputHoldEnd()
+			end)
+		end)
+	end
+	gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	UiKit.pop(panel, 0.2)
+	local hl: Highlight? = nil
+	local target = promptTarget(prompt)
+	if target and (target:IsA("Model") or target:IsA("BasePart")) then
+		local h = Instance.new("Highlight")
+		h.Name = "InvHighlight"
+		h.Adornee = target
+		h.FillColor = Cfg.HighlightColor
+		h.FillTransparency = 0.7
+		h.OutlineColor = Cfg.HighlightColor
+		h.OutlineTransparency = 0
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
+		h.Parent = gui
+		hl = h
+	end
+	shown[prompt] = { gui = gui, hl = hl }
+end
+
+local function hidePrompt(prompt: ProximityPrompt)
+	local s = shown[prompt]
+	if s then
+		shown[prompt] = nil
+		s.gui:Destroy()
+	end
+end
+
+-- Truck reels keep their builder's default prompt; only the text changes, locally, with what you hold.
+local function relabelReels()
+	local hand = attr("InvHand")
+	local text = if hand == "Hose" then "Stow Hose" elseif hand == "Extinguisher" then "Refill Foam" else "Grab Hose"
+	for _, reel in CollectionService:GetTagged(Names.Tag.TruckRefill) do
+		local p = reel:FindFirstChildOfClass("ProximityPrompt")
+		if p and p:GetAttribute("InvReel") then
+			p.ActionText = text
+		end
+	end
+end
+
+-- world pops -----------------------------------------------------------------------------------------
+local POP_TEXT: { [string]: string } = {
+	grab = "GRAB!",
+	drop = "plonk",
+	throw = "YEET!",
+	bonk = "BONK!",
+	fumble = "Butterfingers!",
+	supply = "HOOKED UP!",
+	snap = "POP!",
+	stow = "click",
+}
+
+local function worldPop(kind: string, pos: Vector3, _text: string)
+	local cam = workspace.CurrentCamera
+	if not cam or (cam.CFrame.Position - pos).Magnitude > 120 then
+		return
+	end
+	local a = Instance.new("Attachment")
+	a.WorldPosition = pos
+	a.Parent = workspace.Terrain
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(240, 60)
+	gui.AlwaysOnTop = true
+	gui.Adornee = a
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 1.5, 0)
+	gui.Parent = a
+	local big = kind == "bonk" or kind == "fumble" or kind == "snap"
+	local label = UiKit.label(gui, "Pop", POP_TEXT[kind] or kind, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+		font = UiKit.Header,
+		textSize = if big then 40 else 24,
+		color = if kind == "bonk" or kind == "snap" then Palette.FireBody else Palette.UiCream,
+		stroke = true,
+	})
+	label.Rotation = math.random(-12, 12)
+	UiKit.pop(label, 0.25)
+	UiKit.tween(gui, 0.9, { StudsOffsetWorldSpace = Vector3.new(0, 4.5, 0) })
+	task.delay(0.55, function()
+		UiKit.tween(label, 0.35, { TextTransparency = 1 })
+	end)
+	task.delay(1, function()
+		a:Destroy()
+	end)
+	local sound = if kind == "grab" then Cfg.SoundGrab
+		elseif kind == "drop" then Cfg.SoundDrop
+		elseif kind == "throw" then Cfg.SoundThrow
+		elseif kind == "bonk" then Cfg.SoundBonk
+		else ""
+	if sound ~= "" then
+		UiKit.sound(sound, 0.7, 0.9 + math.random() * 0.2)
+	end
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if big and root and (root.Position - pos).Magnitude < 8 then
+		shake(0.6, 0.35)
+	end
+end
+
+-- controller -----------------------------------------------------------------------------------------
+local function hideBackpack()
+	for _ = 1, 10 do
+		local ok = pcall(function()
+			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+		end)
+		if ok then
+			return
+		end
+		task.wait(0.5)
+	end
+end
+
+function InventoryController:Init(all: { [string]: any })
+	controllers = all
+end
+
+function InventoryController:Start()
+	task.spawn(hideBackpack)
+	buildHotbar()
+	refreshHud()
+	for _, name in { "InvHand", "InvBack", "InvCarry" } do
+		LocalPlayer:GetAttributeChangedSignal(name):Connect(function()
+			refreshHud()
+			rebind()
+			relabelReels()
+		end)
+	end
+	for _, name in { Names.Attr.Water, Names.Attr.TankSize, "Foam", "FoamSize", "OxygenAir" } do
+		LocalPlayer:GetAttributeChangedSignal(name):Connect(refreshHud)
+	end
+	rebind()
+	relabelReels()
+	CollectionService:GetInstanceAddedSignal(Names.Tag.TruckRefill):Connect(function()
+		task.delay(1, relabelReels)
+	end)
+
+	ProximityPromptService.PromptShown:Connect(showPrompt)
+	ProximityPromptService.PromptHidden:Connect(hidePrompt)
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+		local s = shown[prompt]
+		local panel = s and s.gui:FindFirstChild("Panel")
+		if panel and panel:IsA("Frame") then
+			UiKit.punch(panel, 0.3)
+		end
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		local cf, fill = chargeFrame, chargeFill
+		if not cf or not fill then
+			return
+		end
+		if chargeStart then
+			cf.Visible = true
+			local c = chargeOf()
+			fill.Size = UDim2.fromScale(c, 1)
+			fill.BackgroundColor3 = if c >= 1 then Palette.UiRed else Palette.FireBody
+		else
+			cf.Visible = false
+		end
+	end)
+
+	-- remotes are declared by InventoryService in its Start; wait off the main thread
+	task.spawn(function()
+		local ok, err = pcall(function()
+			DropR = Net.event("Inventory", "Drop")
+			ThrowR = Net.event("Inventory", "Throw")
+			SwapR = Net.event("Inventory", "Swap")
+			local Fx = Net.event("Inventory", "Fx")
+			Fx.OnClientEvent:Connect(function(kind: any, pos: any, text: any)
+				if type(kind) == "string" and typeof(pos) == "Vector3" then
+					worldPop(kind, pos, if type(text) == "string" then text else "")
+				end
+			end)
+		end)
+		if not ok then
+			warn(`[InventoryController] remotes: {err}`)
+		end
+	end)
+end
+
+return InventoryController
