@@ -439,7 +439,7 @@ local function watchRuns()
 				return
 			end
 			local mine = player:GetAttribute(Names.Attr.InstanceId) == run.Name
-			local title = run:GetAttribute("Title") or run:GetAttribute(Names.Attr.MissionId)
+			local title = run:GetAttribute("Address") or run:GetAttribute("Title") or run:GetAttribute(Names.Attr.MissionId)
 			AlarmController:Run(
 				AlarmController.DispatchSeconds,
 				if mine then AlarmLogic.FULL else AlarmLogic.QUIET,
