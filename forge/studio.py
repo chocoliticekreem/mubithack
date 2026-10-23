@@ -41,6 +41,9 @@ PROBE_CODE = 'return game:GetService("ServerStorage"):WaitForChild("ForgeProbe",
 
 
 SELECT_RETRIES = 5
+DROPOUT_TEXT = "No Roblox Studio instances are connected"
+DROPOUT_RETRIES = 4
+DROPOUT_WAIT_SECONDS = 2.0
 SELECT_RETRY_SECONDS = 1.5
 
 
@@ -268,18 +271,25 @@ class Studio:
         if tool != "list_roblox_studios" and "studio_id" not in args:
             args["studio_id"] = self.studio_id or await self.select()
         limit = timeout or self.call_timeout
-        try:
-            with anyio.fail_after(limit):
-                result = await self._session.call_tool(tool, args, read_timeout_seconds=limit)
-        except TimeoutError as e:
-            raise StudioError(f"{tool} timed out after {limit:.0f}s") from e
-        except StudioError:
-            raise
-        except Exception as e:  # MCP protocol errors, broken pipe, etc.
-            raise StudioError(f"{tool} failed: {type(e).__name__}: {e}") from e
-        if getattr(result, "is_error", False):
-            raise StudioError(f"{tool} error: {content_text(result.content) or result}")
-        return result
+        for attempt in range(DROPOUT_RETRIES + 1):
+            try:
+                with anyio.fail_after(limit):
+                    result = await self._session.call_tool(tool, args, read_timeout_seconds=limit)
+            except TimeoutError as e:
+                raise StudioError(f"{tool} timed out after {limit:.0f}s") from e
+            except StudioError:
+                raise
+            except Exception as e:  # MCP protocol errors, broken pipe, etc.
+                raise StudioError(f"{tool} failed: {type(e).__name__}: {e}") from e
+            if not getattr(result, "is_error", False):
+                return result
+            text = content_text(result.content) or str(result)
+            # StudioMCP briefly loses the Studio connection; the window comes back within seconds
+            if DROPOUT_TEXT in text and attempt < DROPOUT_RETRIES:
+                await asyncio.sleep(DROPOUT_WAIT_SECONDS)
+                continue
+            raise StudioError(f"{tool} error: {text}")
+        raise StudioError(f"{tool} error: Studio stayed disconnected")  # pragma: no cover
 
     async def call(self, tool: str, **args: Any) -> str:
         """Raw tool call; returns the text content (structured content as JSON if no text)."""

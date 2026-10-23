@@ -172,3 +172,25 @@ async def test_select_retries_when_the_first_list_is_empty(monkeypatch):
     replies = iter(['{"studios":[]}', '{"studios":[]}', '{"studios":[{"id":"s1","name":"Forge.rbxlx"}]}'])
     s = _fake_studio({"list_roblox_studios": lambda a: FakeResult([TextContent(text=next(replies))])})
     assert await s.select("Forge") == "s1"
+
+
+async def test_a_brief_studio_dropout_is_retried(monkeypatch):
+    monkeypatch.setattr(st, "DROPOUT_WAIT_SECONDS", 0)
+    replies = iter([True, True, False])
+    s = _fake_studio({
+        "list_roblox_studios": FakeResult([TextContent(text='{"studios":[{"id":"s1","name":"P"}]}')]),
+        "execute_luau": lambda a: (FakeResult([TextContent(text=st.DROPOUT_TEXT + ". Ask the user...")], is_error=True)
+                                   if next(replies) else FakeResult([TextContent(text="ok")])),
+    })
+    assert await s.execute_luau("return 1") == "ok"
+
+
+async def test_a_real_error_is_not_retried(monkeypatch):
+    monkeypatch.setattr(st, "DROPOUT_WAIT_SECONDS", 0)
+    s = _fake_studio({
+        "list_roblox_studios": FakeResult([TextContent(text='{"studios":[{"id":"s1","name":"P"}]}')]),
+        "execute_luau": FakeResult([TextContent(text="syntax error")], is_error=True),
+    })
+    with pytest.raises(st.StudioError, match="syntax error"):
+        await s.execute_luau("bad")
+    assert [c[0] for c in s._session.calls].count("execute_luau") == 1
