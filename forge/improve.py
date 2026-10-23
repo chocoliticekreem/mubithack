@@ -267,22 +267,31 @@ def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | N
 
 async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
                    llm: LLM, harness, playtest: Playtest, resync: Resync, goal: str, players=None,
-                   steps: int = 15, max_fixes: int = 3, session_id: str,
-                   log: Callable[[str], None] = print) -> list[dict]:
+                   steps: int = 15, max_fixes: int = 3, session_id: str, edit_human: bool = False,
+                   retries: int = 1, log: Callable[[str], None] = print) -> list[dict]:
     """Fix real anomalies in code, one at a time: fixer -> compile -> resync -> replay -> verifier.
 
-    A fix is kept only when the verifier says `fixed`; otherwise the file is restored and resynced.
-    Human-owned files (the runtime and a seeded game's base_files) are never edited: the fixer's
-    patch is saved to improve/patches/ for a person to review."""
+    The game folder is versioned (forge/versions.py): the state before the first fix is a version,
+    and every kept fix is a new one, so any of them can be restored later (`forge rollback`).
+    A rejected fix gets `retries` more attempts; each retry tells the fixer why the last one was
+    rejected (a correction in the fixer's Mubit task). If none is verified `fixed`, the file is
+    restored and Studio resynced. Human-owned files (a seeded game's base_files) only get a saved
+    patch unless `edit_human` is set; the Forge runtime is never edited."""
     from forge import roles
     from forge import sync as fsync
     from forge.loop import RUNTIME_FILES
     from forge.memory import read_lessons
+    from forge.versions import GameVersions
 
     store = ImproveStore(settings, slug)
     root = store.run.game_dir
     spec = store.run.load_spec() if store.run.spec_path.exists() else {}
-    protected = set(RUNTIME_FILES) | {p for p in spec.get("base_files") or [] if isinstance(p, str)}
+    protected = set(RUNTIME_FILES)
+    if not edit_human:
+        protected |= {p for p in spec.get("base_files") or [] if isinstance(p, str)}
+    versions = GameVersions(root)
+    start = versions.snapshot(f"before fixes ({session_id})")
+    log(f"[versions] {start}: the game before this cycle's fixes")
     context = (f"Game: {spec.get('pitch', slug)}\nRound digests before the fix:\n"
                + "\n".join(json.dumps(d) for d in before[-2:]))[:4000]
     results: list[dict] = []
@@ -295,36 +304,54 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
         old = (root / rel).read_text(encoding="utf-8")
         problem = (f"Playtest anomaly ({a['kind']}, {a['severity']}, system {a['system']}): {a['title']}\n"
                    f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
-        new = await asyncio.to_thread(roles.fix_file, llm, rel, old, problem, context,
-                                      read_lessons(settings), session_id=session_id)
-        rec = {"anomaly": a["title"], "path": rel}
+        rec: dict = {"anomaly": a["title"], "path": rel, "attempts": []}
         if rel in protected:
+            new = await asyncio.to_thread(roles.fix_file, llm, rel, old, problem, context,
+                                          read_lessons(settings), session_id=session_id)
             patch = store.dir / "patches" / (rel.replace("/", "__") + f".{len(results)}.luau")
             patch.parent.mkdir(parents=True, exist_ok=True)
             patch.write_text(new, encoding="utf-8")
             results.append({**rec, "status": "suggested", "patch": str(patch)})
             log(f"[fix] {a['title']}: {rel} is human-owned, patch saved to {patch.name}")
             continue
-        (root / rel).write_text(new, encoding="utf-8")
-        errors = [e for p, e in fsync.check(root) if p == rel]
-        if errors:
-            (root / rel).write_text(old, encoding="utf-8")
-            results.append({**rec, "status": "compile_failed", "error": errors[0][:300]})
-            log(f"[fix] {a['title']}: {rel} failed to compile, restored")
-            continue
-        await resync(root)
-        after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
-                              steps=steps, llm=llm, harness=harness)
-        v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
-                                    session_id=session_id)
-        if v["verdict"] == "fixed":
-            results.append({**rec, "status": "kept", "verdict": v})
-            log(f"[fix] {a['title']}: {rel} fixed and verified, kept {v['request_id']}")
-        else:
-            (root / rel).write_text(old, encoding="utf-8")
+
+        status, why = "rolled_back", ""
+        for attempt in range(1 + max(0, retries)):
+            ask = problem if not why else (
+                f"{problem}\n\n## Your previous fix was rejected\n{why}\n"
+                "Try a different approach; the file below is the original.")
+            new = await asyncio.to_thread(roles.fix_file, llm, rel, old, ask, context,
+                                          read_lessons(settings), session_id=session_id)
+            (root / rel).write_text(new, encoding="utf-8")
+            errors = [e for p, e in fsync.check(root) if p == rel]
+            if errors:
+                rec["attempts"].append({"status": "compile_failed", "error": errors[0][:300]})
+                why = f"It did not compile: {errors[0][:500]}"
+                log(f"[fix] {a['title']}: attempt {attempt + 1} failed to compile")
+                continue
             await resync(root)
-            results.append({**rec, "status": "rolled_back", "verdict": v})
-            log(f"[fix] {a['title']}: {rel} {v['verdict']}, rolled back {v['request_id']}")
+            after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
+                                  steps=steps, llm=llm, harness=harness)
+            v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
+                                        session_id=session_id)
+            rec["attempts"].append({"status": v["verdict"], "verdict": v})
+            if v["verdict"] == "fixed":
+                status = "kept"
+                rec["version"] = versions.snapshot(
+                    f"fix: {a['title']} in {rel} (verifier: fixed, {v['request_id']})")
+                log(f"[fix] {a['title']}: {rel} fixed and verified, kept as {rec['version']}")
+                break
+            why = f"The verifier said {v['verdict']}: {v['evidence']}" + (
+                f" Regressions: {'; '.join(v['regressions'])}" if v["regressions"] else "")
+            log(f"[fix] {a['title']}: attempt {attempt + 1} {v['verdict']} {v['request_id']}")
+        if status != "kept":
+            (root / rel).write_text(old, encoding="utf-8")
+            if any(x["status"] != "compile_failed" for x in rec["attempts"]):
+                await resync(root)
+            if all(x["status"] == "compile_failed" for x in rec["attempts"]):
+                status = "compile_failed"
+            log(f"[fix] {a['title']}: no attempt verified, {rel} restored")
+        results.append({**rec, "status": status})
     return results
 
 
@@ -346,7 +373,8 @@ def pending_report_anomalies(store: ImproveStore) -> list[dict]:
 async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtest: Playtest,
                     faults: list[dict], goal: str, rounds: int = 3, players=None, steps: int = 15,
                     log: Callable[[str], None] = print, fix: bool = False, max_fixes: int = 3,
-                    extra_anomalies: list[dict] | None = None, resync: Resync | None = None) -> dict:
+                    extra_anomalies: list[dict] | None = None, resync: Resync | None = None,
+                    edit_human: bool = False) -> dict:
     store = ImproveStore(settings, slug)
     spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
     n = len(store.scores()) + 1
@@ -402,7 +430,8 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
                                      steps=steps, llm=llm, harness=harness)
         code_fixes = await fix_code(settings, slug, real, baseline, llm=llm, harness=harness,
                                     playtest=playtest, resync=resync, goal=goal, players=players,
-                                    steps=steps, max_fixes=max_fixes, session_id=session_id, log=log)
+                                    steps=steps, max_fixes=max_fixes, session_id=session_id,
+                                    edit_human=edit_human, log=log)
     cycle = {
         "cycle": n, "ts": now_iso(), "session_id": session_id, "goal": goal,
         "planted": len(faults), "detected": len(sc["detected"]), "missed": len(sc["missed"]),
