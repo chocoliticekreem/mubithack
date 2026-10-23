@@ -34,6 +34,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = ReplicatedStorage:WaitForChild("Config")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local SquadConfig = require(Config:WaitForChild("SquadConfig") :: ModuleScript)
@@ -400,11 +401,7 @@ local function onEmote(player: Player, emote: any, targetUserId: any)
 	sound(rootOf(player), SquadConfig.EmoteSoundId)
 	SquadService.Emoted:Fire(player, emote :: string, target)
 	if target then
-		for _, p in Players:GetPlayers() do
-			if inLobby(p) then
-				Net.notify(p, `{tagOf(player)} blames {tagOf(target)}!`, "blame")
-			end
-		end
+		Popup.show(target, `{tagOf(player)} blames {tagOf(target)}!`, "blame", player)
 	end
 end
 
@@ -562,7 +559,9 @@ function SquadService:Down(player: Player, cause: string, culprit: Player?)
 	fx("down", player.UserId, cause, culprit and culprit.UserId)
 	sound(root, SquadConfig.DownSoundId)
 	local why = if culprit then ` ({tagOf(culprit)}'s fault)` else ""
-	Net.notify("all", `{tagOf(player)} is down!{why}`, "bad")
+	-- your own downed stays a screen toast; everyone near sees a small popup over you
+	Net.notify(player, `You're down!{why}`, "bad")
+	Popup.show(player, `DOWN!{why}`, "bad", culprit)
 
 	task.delay(SquadConfig.BleedOutSeconds, function()
 		if downToken[player] ~= token or player:GetAttribute(Names.Attr.Downed) ~= true or not player.Parent then
@@ -625,10 +624,10 @@ function SquadService:Revive(player: Player, by: Player?, method: string?)
 		pcall(Ragdoll.knockback, char, dir * SquadConfig.SlapImpulse + Vector3.new(0, SquadConfig.SlapImpulse * 0.4, 0))
 		sound(a, SquadConfig.SlapSoundId)
 		Telemetry.count("slap_revives")
-		Net.notify("all", `{tagOf(by)} SLAPPED {tagOf(player)} awake! (+{blame} blame)`, "blame")
+		Popup.show(player, `SLAPPED awake by {tagOf(by)}!`, "blame", by)
 	elseif by then
 		sound(rootOf(player), SquadConfig.ReviveSoundId)
-		Net.notify("all", `{tagOf(by)} revived {tagOf(player)} with oxygen!`, "good")
+		Popup.show(player, `Revived by {tagOf(by)}!`, "good", by)
 	end
 	if by then
 		Telemetry.count("player_revives")

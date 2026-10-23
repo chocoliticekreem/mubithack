@@ -112,31 +112,8 @@ local function confetti(pos: Vector3)
 		EmissionDirection = Enum.NormalId.Top,
 	})
 	sound("SoundCheer", p, 1, 1)
-	-- floating "SAVED!" pop
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(220, 70)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 5, 0)
-	gui.AlwaysOnTop = true
-	gui.LightInfluence = 0
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.LuckiestGuy
-	label.TextScaled = true
-	label.Text = "SAVED!"
-	label.TextColor3 = Palette.UiGood
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 3
-	stroke.Color = Palette.UiInk
-	stroke.Parent = label
-	label.Parent = gui
-	gui.Parent = p
-	TweenService:Create(gui, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		StudsOffsetWorldSpace = Vector3.new(0, 10, 0),
-	}):Play()
-	TweenService:Create(label, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		TextTransparency = 1,
-	}):Play()
+	-- (the big floating "SAVED!" is gone: RescueService sends one small "X rescued the dog!" popup
+	-- over the NPC through Shared/Popup -> ClientLib/WorldPopup)
 end
 
 local function myRoot(): BasePart?

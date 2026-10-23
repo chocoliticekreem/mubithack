@@ -42,6 +42,7 @@ local HandsMath = require(ReplicatedStorage:WaitForChild("HandsMath") :: ModuleS
 local HandsConfig =
 	require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HandsConfig") :: ModuleScript) :: any
 local Viewmodel = require(script.Parent:WaitForChild("Viewmodel") :: ModuleScript)
+local WorldPopup = require(script.Parent:WaitForChild("WorldPopup") :: ModuleScript)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -245,36 +246,15 @@ local POP_TEXT: { [string]: { any } } = {
 	both = { "USE BOTH HANDS!", Color3.fromHex("#FFB12B") },
 }
 
-local function pop(kind: string, position: Vector3)
+local function pop(kind: string, position: Vector3, victimId: number?)
 	local spec = POP_TEXT[kind]
 	if not spec then
 		return
 	end
-	local att = Instance.new("Attachment")
-	att.Name = "HandsPop"
-	att.WorldPosition = position
-	att.Parent = workspace.Terrain
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(220, 70)
-	gui.AlwaysOnTop = true
-	gui.LightInfluence = 0
-	gui.MaxDistance = 120
-	gui.Parent = att
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.FredokaOne
-	label.TextScaled = true
-	label.Text = spec[1]
-	label.TextColor3 = spec[2]
-	label.TextStrokeTransparency = 0
-	label.TextStrokeColor3 = Palette.NumberInk or Color3.new(0, 0, 0)
-	label.Rotation = math.random(-12, 12)
-	label.Parent = gui
-	local info = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(gui, info, { StudsOffsetWorldSpace = Vector3.new(0, 2.5, 0) }):Play()
-	TweenService:Create(label, info, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-	Debris:AddItem(att, 0.8)
+	-- subtle world text over the victim (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	local victim = if victimId and victimId > 0 then Players:GetPlayerByUserId(victimId) else nil
+	local subject: any = if victim and victim.Character then victim.Character else WorldPopup.subjectAt(position, 5)
+	WorldPopup.show(subject, spec[1], { color = spec[2], mine = kind == "both" or kind == "heavy" })
 end
 PhysicsHands.pop = pop
 
@@ -1289,7 +1269,7 @@ function PhysicsHands.startRemote(onFx: ((string, Vector3, number) -> ())?)
 				if type(kind) ~= "string" or typeof(position) ~= "Vector3" then
 					return
 				end
-				pop(kind, position)
+				pop(kind, position, tonumber(extra))
 				if onFx then
 					onFx(kind, position, tonumber(extra) or 0)
 				end

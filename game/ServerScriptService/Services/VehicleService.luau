@@ -51,6 +51,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript)
 local TruckBuilder = require(
@@ -538,7 +539,7 @@ local function breakDoor(t: Truck, d: Door)
 	oneShot(panel, soundId("", "DoorBreak"), 1.2, 0.8)
 	count("truck_doors_lost")
 	if t.driver then
-		Net.notify(t.driver, "Your door fell off. Very aerodynamic.", "info")
+		Popup.show(t.driver, "Door fell off. Very aerodynamic.", "info", t.driver)
 	end
 	refreshPrompts(t)
 end
@@ -1075,7 +1076,7 @@ local function hitPlayers(t: Truck, d: Player, v: Vector3, now: number)
 			end
 			count("truck_run_over")
 			VehicleService.RanOver:Fire(d, p)
-			Net.notify("all", `{d.DisplayName} ran over {p.DisplayName}! ROAD RAGE`, "blame")
+			Popup.show(p, `Run over by {d.DisplayName}! ROAD RAGE`, "blame", d)
 		end
 	end
 end

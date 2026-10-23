@@ -2,7 +2,7 @@
 -- BlameService [owner: G3]. The per-round ledger behind the Blame screen. Listens to every gameplay signal,
 -- keeps one stats row per player (Types.PlayerStats + ledger extras, see Lib/Blame/Awards), turns them into
 -- awards with Lib/Blame/Awards and shouts funny kill-feed callouts ("02 hosed 03 into a pool!") as
--- Shared/Notify "blame" toasts to the actor's squad (players sharing the actor's InstanceId).
+-- small Shared/Popup world text over the victim (or actor), for players near it (was a squad-wide toast).
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10):
 --   BlameService:GetStats(player: Player): Types.PlayerStats
@@ -34,6 +34,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BlameConfig") :: ModuleScript) :: any
@@ -146,12 +147,8 @@ local function callout(event: string, actor: Player, victim: Player?)
 	lastSaid[key] = now
 	calloutRoll += 1
 	local text = Awards.callout(event, helmetOf(actor), if victim then helmetOf(victim) else nil, calloutRoll)
-	local scope = scopeOf(actor)
-	for _, p in Players:GetPlayers() do
-		if scopeOf(p) == scope then
-			Net.notify(p, text, "blame")
-		end
-	end
+	-- small world text over the victim (or the actor), only for players near it (Shared/Popup)
+	Popup.show(victim or actor, text, "blame", actor)
 	Telemetry.count("blame_callouts")
 end
 

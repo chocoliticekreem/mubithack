@@ -43,6 +43,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
@@ -482,7 +483,7 @@ local function soak(sprayer: Player, origin: Vector3, aim: Vector3, kind: string
 				if Ragdoll.enable(vchar, ToolConfig.HoseRagdollSeconds) then
 					Telemetry.count("hose_knockdowns")
 					fx("sploosh", root.Position, 1)
-					Net.notify(victim, `{sprayer.DisplayName} hosed you off your feet!`, "blame")
+					Popup.show(victim, `Hosed by {sprayer.DisplayName}!`, "blame", sprayer)
 				end
 				soakSince[victim] = now
 			end
@@ -736,7 +737,7 @@ local function hitDoor(player: Player, door: BasePart)
 	fx("crack", door.Position, 1)
 	Telemetry.count("doors_broken")
 	ToolService.DoorBroken:Fire(player, door)
-	Net.notify(player, "CRACK! Door down", "good")
+	-- (the Tool/Fx "CRACK!" pop over the door already says it; no screen toast)
 end
 
 local function nearestDoor(root: BasePart, reach: number, lockedOnly: boolean): BasePart?
@@ -783,7 +784,7 @@ local function bonk(player: Player, root: BasePart): boolean
 			end
 			fx("bonk", vroot.Position + Vector3.new(0, 2, 0), 1)
 			Telemetry.count("axe_teammate_hits")
-			Net.notify(victim, `BONK! {player.DisplayName} got you with the axe`, "blame")
+			Popup.show(victim, `{player.DisplayName}'s axe!`, "blame", player)
 			any = true
 		end
 	end
@@ -830,7 +831,7 @@ local function onDoorPrompt(player: Player, door: BasePart)
 		lastSwing[player] = now
 		hitDoor(player, door)
 	else
-		Net.notify(player, "Locked! Use the axe", "info")
+		Popup.show(door, "Locked! Use the axe", "info", player)
 	end
 end
 
@@ -957,7 +958,7 @@ function ToolService:Refill(player: Player, litres: number?)
 	player:SetAttribute(Names.Attr.Water, new)
 	Telemetry.count("refills")
 	if new >= size then
-		Net.notify(player, "Tank full!", "good")
+		Popup.show(player, "Tank full!", "good", player)
 	end
 end
 

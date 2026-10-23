@@ -27,6 +27,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local FireConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("FireConfig") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local TEX_FIRE = "rbxasset://textures/particles/fire_main.dds"
 local TEX_SMOKE = "rbxasset://textures/particles/smoke_main.dds"
@@ -345,41 +346,8 @@ local function poof(origin: Vector3)
 		local out = origin + Vector3.new(math.cos(ang) * 3.2, 2.2, math.sin(ang) * 3.2)
 		TweenService:Create(b, info, { Position = out, Size = Vector3.one * 1.8, Transparency = 1 }):Play()
 	end
-	local anchor = Instance.new("Part")
-	anchor.Anchored = true
-	anchor.CanCollide = false
-	anchor.CanQuery = false
-	anchor.CanTouch = false
-	anchor.Transparency = 1
-	anchor.Size = Vector3.one * 0.2
-	anchor.Position = origin + Vector3.new(0, 1.5, 0)
-	anchor.Parent = holder
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromScale(3, 1.5)
-	gui.LightInfluence = 0
-	gui.AlwaysOnTop = false
-	gui.MaxDistance = 80
-	gui.Parent = anchor
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(1, 1)
-	label.AnchorPoint = Vector2.new(0.5, 0.5)
-	label.Position = UDim2.fromScale(0.5, 0.5)
-	label.Text = ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)]
-	label.TextScaled = true
-	label.Font = Enum.Font.FredokaOne
-	label.TextColor3 = Palette.UiCream
-	label.TextStrokeColor3 = Palette.UiInk
-	label.TextStrokeTransparency = 0
-	label.Rotation = math.random(-15, 15)
-	label.Parent = gui
-	TweenService:Create(anchor, TweenInfo.new(1.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = origin + Vector3.new(0, 4, 0),
-	}):Play()
-	TweenService:Create(label, TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		TextTransparency = 1,
-		TextStrokeTransparency = 1,
-	}):Play()
+	-- the "poof!" itself is a small popup (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	WorldPopup.show(origin, ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)], { height = 1.5 })
 	holder.Parent = workspace
 	task.delay(1.3, function()
 		holder:Destroy()

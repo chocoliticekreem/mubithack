@@ -39,6 +39,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
@@ -379,7 +380,7 @@ local function hurtPeople(rec: Rec, centre: Vector3, size: Vector3, top: number,
 				away = if away.Magnitude > 0.1 then away.Unit else Vector3.new(1, 0, 0)
 				knock(char, Cfg.RagdollSeconds, away * 30 + Vector3.new(0, 18, 0))
 				count("structure_hurt_players")
-				Net.notify(p, "BONK! The building fell on you!", "bad")
+				Popup.show(p, "BONK! Building fell on you", "bad", p)
 			end
 		end
 	end
@@ -553,7 +554,10 @@ local function startCollapse(rec: Rec, ids: { number })
 	local centre, size = bboxOf(parts)
 	local warn = warnSeconds(false)
 	fx("creak", centre, { size = size, warn = warn, kind = kind })
-	notify(rec, LINES[kind] or LINES.wall, "bad")
+	if os.clock() - rec.lastNotify >= 4 then -- collapse warnings: small text over the creaking piece
+		rec.lastNotify = os.clock()
+		Popup.show(centre, LINES[kind] or LINES.wall, "bad")
+	end
 	task.spawn(function()
 		local base: { [BasePart]: CFrame } = {}
 		for i, p in parts do

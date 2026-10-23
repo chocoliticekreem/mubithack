@@ -34,6 +34,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
@@ -347,8 +348,8 @@ local function onSlap(player: Player, rawModel: any, rawVel: any, rawKind: any)
 	Telemetry.count(if kind == "axe" then "hands_axe_bonks" else "hands_slaps")
 	fx(if kind == "axe" then "bonk" else "slap", hit, if victim then victim.UserId else 0)
 	if victim then
-		local verb = if kind == "axe" then "BONKED you with the axe" else "SLAPPED you"
-		Net.notify(victim, `{player.DisplayName} {verb}!`, "blame")
+		-- the SLAP!/BONK! word is Hands/Fx; this small line just says who
+		Popup.show(victim, `{player.DisplayName} {if kind == "axe" then "bonked" else "slapped"} {victim.DisplayName}`, "blame", player)
 	end
 	HandsService.Slapped:Fire(player, victim, model, kind)
 end

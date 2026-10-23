@@ -39,6 +39,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local RescueConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("RescueConfig") :: ModuleScript)
@@ -416,7 +417,7 @@ local function carry(list: { Player }, npc: Npc, skipReach: boolean?): boolean
 	Telemetry.count("npcs_picked")
 	if #list > 1 then
 		Telemetry.count("rescue_pair_lifts")
-		notifySquad(npc, `{helmetTag(list[1])} and {helmetTag(list[2])} lifted the PANDA!`, "good")
+		Popup.show(npc.model, `{helmetTag(list[1])} and {helmetTag(list[2])} lifted the PANDA!`, "good", list[1])
 	end
 	fx("picked", npc.root.Position, { kind = npc.kind, id = npc.id })
 	return true
@@ -446,11 +447,11 @@ local function onPick(player: Player, npc: Npc)
 	end
 	if RescueConfig.PandaSoloIfAlone and #squadOf(npc) <= 1 then
 		carry({ player }, npc, false)
-		Net.notify(player, "Oof. This panda is HEAVY. (Bring a friend next time.)", "info")
+		Popup.show(npc.model, "Oof. This panda is HEAVY.", "info", player)
 		return
 	end
 	Builder.shout(npc.model, "??? (1/2)")
-	Net.notify(player, "The PANDA is too heavy! A buddy must hold [E] on it too!", "info")
+	Popup.show(npc.model, "Too heavy! A buddy must hold [E] too", "info", player)
 end
 
 -- drop / throw / deliver ---------------------------------------------------------------------------
@@ -556,7 +557,7 @@ local function deliverNpc(npc: Npc, credit: Player?, spot: BasePart?): boolean
 		elseif #helpers >= 2 then `{helmetTag(helpers[1])} & {helmetTag(helpers[2])} SAVED THE {name}!`
 		elseif npc.thrower == who and npc.thrownAt and os.clock() - npc.thrownAt < 4 then `{helmetTag(who)} YEETED the {string.lower(npc.kind)} to safety!`
 		else `{helmetTag(who)} rescued the {string.lower(npc.kind)}!`
-	notifySquad(npc, text, "good")
+	Popup.show(npc.model, text, "good", who) -- small, over the rescued NPC (HUD counts the rescue)
 	return true
 end
 
@@ -717,7 +718,7 @@ local function tickCarried(npc: Npc, fires: { Fire }, dt: number)
 	if #npc.carriers >= 2 then
 		local a, b = rootOf(npc.carriers[1]) :: BasePart, rootOf(npc.carriers[2]) :: BasePart
 		if (a.Position - b.Position).Magnitude > RescueConfig.PandaPairSnap then
-			notifySquad(npc, "The panda slipped! Stay together!", "bad")
+			Popup.show(npc.model, "The panda slipped! Stay together!", "bad", npc.carriers[1])
 			drop(npc.carriers[1], true)
 			return
 		end

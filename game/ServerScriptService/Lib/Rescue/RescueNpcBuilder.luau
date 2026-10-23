@@ -95,10 +95,11 @@ end
 local function bubble(root: BasePart, kind: string): BillboardGui
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Shout"
-	gui.Size = UDim2.fromOffset(150, 44)
+	-- subtle like ClientLib/WorldPopup: small, occluded by walls, only up close (HUD markers find them from afar)
+	gui.Size = UDim2.fromOffset(120, 24)
 	gui.StudsOffsetWorldSpace = Vector3.new(0, root.Size.Y / 2 + (if kind == "Panda" then 2.2 else 1.6), 0)
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = 160
+	gui.AlwaysOnTop = false
+	gui.MaxDistance = 70
 	gui.LightInfluence = 0
 	local text = Instance.new("TextLabel")
 	text.Name = "Text"

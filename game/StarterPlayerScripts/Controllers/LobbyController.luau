@@ -7,7 +7,7 @@
 --   * Countdown: Lobby/Countdown(padId, seconds, title). Above BigCountdownFrom a banner; from 5..1 a
 --     huge centre number with a tick sound and a screen pulse (red + shake at 3..2..1); 0 = "GO GO GO!",
 --     the alarm hook (AlarmController:Blare/Play/Trigger if present) and a quick fade.
---   * Lobby/Fx: "slide" (fire pole), "welcome" / "toast" (big centre toast).
+--   * Lobby/Fx: "slide" (fire pole), "welcome" / "toast" (compact centre toast).
 -- Everything hides while the local Player's InstanceId ~= "" (in a mission).
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -157,7 +157,7 @@ local function buildUi()
 	banner.Visible = false
 	ui.banner = banner
 
-	local toast = label(gui, "Toast", UDim2.fromScale(0.15, 0.16), UDim2.fromScale(0.7, 0.1), "", C.Cream, Enum.Font.LuckiestGuy, 4)
+	local toast = label(gui, "Toast", UDim2.fromScale(0.3, 0.16), UDim2.fromScale(0.4, 0.045), "", C.Cream, Enum.Font.LuckiestGuy, 2) -- compact (FeedbackConfig)
 	toast.Visible = false
 	toast.ZIndex = 45
 	ui.toast = toast
