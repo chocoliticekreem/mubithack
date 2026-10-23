@@ -6,6 +6,8 @@
 --   ToolService:ResetDoors(locationId: string)
 -- Signals: DoorBroken(player, door: BasePart), WaterUsed(player, litres: number),
 --          HoseHit(sprayer: Player, victim: Player)      -- K0 addition (friendly fire, P1.5)
+--          HoseRecoil(sprayer: Player, impulse: Vector3) -- v1.5: push-back on the sprayer while spraying;
+--                                                           applied with Ragdoll.knockback (ToolConfig.HoseRecoil)
 -- Remotes: Tool/Spray (C->S, aim: Vector3 unit, 12/s burst 4)
 -- Writes: Player attrs Water, TankSize, Spraying; Door attrs Locked, Broken
 -- Test hooks (DevHook only): _spray(player, aim), _selftest()
@@ -19,6 +21,7 @@ ToolService.Priority = 50
 ToolService.DoorBroken = Signal.new() :: Signal.Signal<Player, BasePart>
 ToolService.WaterUsed = Signal.new() :: Signal.Signal<Player, number>
 ToolService.HoseHit = Signal.new() :: Signal.Signal<Player, Player>
+ToolService.HoseRecoil = Signal.new() :: Signal.Signal<Player, Vector3>
 
 local services: { [string]: any } = {}
 

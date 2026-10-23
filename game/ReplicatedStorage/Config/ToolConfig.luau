@@ -5,4 +5,5 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	TankSize = 100, -- litres in the backpack tank
 	LitresPerSpray = 1.2, -- per Tool/Spray event; the client sends 10/s, so 12 L/s
+	HoseRecoil = 3, -- v1.5: studs/s push-back on the sprayer per Tool/Spray event (ToolService.HoseRecoil)
 })
