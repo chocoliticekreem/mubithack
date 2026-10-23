@@ -15,6 +15,7 @@ session open from planting to the last round.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from collections import Counter
 from pathlib import Path
@@ -206,6 +207,8 @@ class ImproveStore:
         path.write_text(json.dumps(cycle, indent=2, ensure_ascii=False), encoding="utf-8")
         row = {k: cycle[k] for k in ("cycle", "ts", "planted", "detected", "missed",
                                      "unmatched", "fixed_verified")}
+        row.update({"open": cycle.get("open", 0), "code_kept": cycle.get("code_kept", 0),
+                    "code_tried": len(cycle.get("code_fixes") or [])})
         self.scores_path.write_text(json.dumps(self.scores() + [row], indent=2), encoding="utf-8")
         return path
 
@@ -231,9 +234,119 @@ async def _rounds(settings, playtest: Playtest, n: int, start: int, *, goal: str
     return out
 
 
+# ---------------------------------------------------------------- code fixes for real anomalies
+
+FIX_SEVERITIES = ("high", "medium")
+Resync = Callable[[Path], Awaitable[None]]
+
+
+def studio_resync(harness, port: int | None = None) -> Resync:
+    """Stop play, push the game folder into Studio (no prune), start play again."""
+    async def resync(root: Path) -> None:
+        studio = harness.studio
+        st = await studio.state()
+        if st.get("playing") is True:
+            await studio.stop()
+        await studio.sync(root, port, prune=False)
+        await harness.ensure_ready()
+    return resync
+
+
+def _anomaly_text(a: dict) -> str:
+    return " ".join((a["title"], a["system"], a.get("expected", ""), a.get("observed", "")))
+
+
+def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | None:
+    """The game file most likely to hold the anomaly (paths and names first, then keywords)."""
+    from mubit_tester.ai import find_candidate_files
+
+    ranked = find_candidate_files(dataclasses.replace(settings, base_game_dir=game_dir),
+                                  _anomaly_text(anomaly), limit=1)
+    return ranked[0][0] if ranked else None
+
+
+async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
+                   llm: LLM, harness, playtest: Playtest, resync: Resync, goal: str, players=None,
+                   steps: int = 15, max_fixes: int = 3, session_id: str,
+                   log: Callable[[str], None] = print) -> list[dict]:
+    """Fix real anomalies in code, one at a time: fixer -> compile -> resync -> replay -> verifier.
+
+    A fix is kept only when the verifier says `fixed`; otherwise the file is restored and resynced.
+    Human-owned files (the runtime and a seeded game's base_files) are never edited: the fixer's
+    patch is saved to improve/patches/ for a person to review."""
+    from forge import roles
+    from forge import sync as fsync
+    from forge.loop import RUNTIME_FILES
+    from forge.memory import read_lessons
+
+    store = ImproveStore(settings, slug)
+    root = store.run.game_dir
+    spec = store.run.load_spec() if store.run.spec_path.exists() else {}
+    protected = set(RUNTIME_FILES) | {p for p in spec.get("base_files") or [] if isinstance(p, str)}
+    context = (f"Game: {spec.get('pitch', slug)}\nRound digests before the fix:\n"
+               + "\n".join(json.dumps(d) for d in before[-2:]))[:4000]
+    results: list[dict] = []
+    for a in [x for x in anomalies if x["severity"] in FIX_SEVERITIES][:max(0, max_fixes)]:
+        rel = candidate_file(settings, root, a)
+        if rel is None:
+            results.append({"anomaly": a["title"], "status": "no_file"})
+            log(f"[fix] {a['title']}: no matching file")
+            continue
+        old = (root / rel).read_text(encoding="utf-8")
+        problem = (f"Playtest anomaly ({a['kind']}, {a['severity']}, system {a['system']}): {a['title']}\n"
+                   f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
+        new = await asyncio.to_thread(roles.fix_file, llm, rel, old, problem, context,
+                                      read_lessons(settings), session_id=session_id)
+        rec = {"anomaly": a["title"], "path": rel}
+        if rel in protected:
+            patch = store.dir / "patches" / (rel.replace("/", "__") + f".{len(results)}.luau")
+            patch.parent.mkdir(parents=True, exist_ok=True)
+            patch.write_text(new, encoding="utf-8")
+            results.append({**rec, "status": "suggested", "patch": str(patch)})
+            log(f"[fix] {a['title']}: {rel} is human-owned, patch saved to {patch.name}")
+            continue
+        (root / rel).write_text(new, encoding="utf-8")
+        errors = [e for p, e in fsync.check(root) if p == rel]
+        if errors:
+            (root / rel).write_text(old, encoding="utf-8")
+            results.append({**rec, "status": "compile_failed", "error": errors[0][:300]})
+            log(f"[fix] {a['title']}: {rel} failed to compile, restored")
+            continue
+        await resync(root)
+        after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
+                              steps=steps, llm=llm, harness=harness)
+        v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
+                                    session_id=session_id)
+        if v["verdict"] == "fixed":
+            results.append({**rec, "status": "kept", "verdict": v})
+            log(f"[fix] {a['title']}: {rel} fixed and verified, kept {v['request_id']}")
+        else:
+            (root / rel).write_text(old, encoding="utf-8")
+            await resync(root)
+            results.append({**rec, "status": "rolled_back", "verdict": v})
+            log(f"[fix] {a['title']}: {rel} {v['verdict']}, rolled back {v['request_id']}")
+    return results
+
+
+def pending_report_anomalies(store: ImproveStore) -> list[dict]:
+    """Triaged anomalies from tester reports filed since the last improve cycle."""
+    rows = store.scores()
+    since = rows[-1]["ts"] if rows else ""
+    path = store.dir / "reports.jsonl"
+    if not path.exists():
+        return []
+    out = []
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        rec = json.loads(ln) if ln.strip() else None
+        if rec and rec.get("ts", "") > since:
+            out += (rec.get("triage") or {}).get("anomalies") or []
+    return out
+
+
 async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtest: Playtest,
                     faults: list[dict], goal: str, rounds: int = 3, players=None, steps: int = 15,
-                    log: Callable[[str], None] = print) -> dict:
+                    log: Callable[[str], None] = print, fix: bool = False, max_fixes: int = 3,
+                    extra_anomalies: list[dict] | None = None, resync: Resync | None = None) -> dict:
     store = ImproveStore(settings, slug)
     spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
     n = len(store.scores()) + 1
@@ -277,17 +390,32 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         await clear(harness, faults, old)
 
     store.learn([by_id[fid].get("lesson", "") for fid in sc["missed"]])
+
+    real = [found["anomalies"][i] for i in sc["unmatched_anomalies"]] + list(extra_anomalies or [])
+    code_fixes: list[dict] = []
+    if fix and real:
+        resync = resync or studio_resync(harness)
+        baseline = before
+        if faults:  # the rounds above had faults planted; measure the clean game first
+            await resync(store.run.game_dir)
+            baseline = await _rounds(settings, playtest, 1, 1, goal=goal, players=players,
+                                     steps=steps, llm=llm, harness=harness)
+        code_fixes = await fix_code(settings, slug, real, baseline, llm=llm, harness=harness,
+                                    playtest=playtest, resync=resync, goal=goal, players=players,
+                                    steps=steps, max_fixes=max_fixes, session_id=session_id, log=log)
     cycle = {
         "cycle": n, "ts": now_iso(), "session_id": session_id, "goal": goal,
         "planted": len(faults), "detected": len(sc["detected"]), "missed": len(sc["missed"]),
         "unmatched": len(sc["unmatched_anomalies"]),
         "fixed_verified": sum(1 for v in verdicts if v["verdict"] == "fixed"),
         "score": sc, "audit": found, "correction": correction, "verdicts": verdicts,
-        "before": before,
+        "before": before, "open": sum(1 for a in real if a["severity"] in FIX_SEVERITIES),
+        "code_fixes": code_fixes, "code_kept": sum(1 for f in code_fixes if f["status"] == "kept"),
     }
     path = store.save_cycle(cycle)
     log(f"[cycle {n}] detected {cycle['detected']}/{cycle['planted']}, unmatched anomalies "
-        f"{cycle['unmatched']}, fixed+verified {cycle['fixed_verified']} -> {path}")
+        f"{cycle['unmatched']}, fixed+verified {cycle['fixed_verified']}, open {cycle['open']}, "
+        f"code fixes kept {cycle['code_kept']}/{len(code_fixes)} -> {path}")
     return cycle
 
 

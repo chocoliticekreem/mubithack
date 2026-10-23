@@ -63,6 +63,8 @@ forge/                 Python package (uv), entry point `forge`
   improve.py           self-improving loop (docs/MUBIT_LOOP.md): run_cycle(settings, slug, *, llm, harness,
                        playtest, faults, goal, rounds, players, steps) -> cycle dict; round_digest, audit,
                        verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
+                       run_cycle(..., fix=True) runs fix_code(): fixer, compile, resync, replay,
+                       verifier, then keep or roll back; base_files only get improve/patches/
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
   prompts/auditor.md, prompts/verifier.md, prompts/triage.md   Mubit tasks: anomaly detection,
                        fix verification, tester-report triage (improve.file_report)
@@ -225,6 +227,7 @@ forge improve <slug> [--cycles N --rounds R --only ids]  # faults -> playtests -
 forge scores <slug>                                  # detected / missed / fixed per improve cycle
 forge report <slug> "<text>" [--run ID] [--by NAME]  # tester report -> triage -> auditor correction
 forge reports <slug>
+forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
@@ -250,6 +253,7 @@ correct(slug, path, note, use_studio=True, studio=None) -> str          # forge 
 improve(slug, cycles=1, rounds=3, steps=15, only=None, studio=None) -> str
 tester_report(slug, text, run_ids=None, reporter=None) -> str           # forge report (job)
 tester_reports(slug) -> str
+fix(slug, cycles=3, rounds=2, steps=15, max_fixes=3, reports=True, studio=None) -> str   # forge fix (job)
 job(job_id, tail=60) / jobs() / cancel_job(job_id)                      # runs/jobs/<id>.{json,log}
 games() / game(slug) / read_file(slug, path) / scores(slug) / playbook(slug) / lessons() / calls(slug)
 seed(slug) / promote(slug, path) / sync(slug=None, studio=None)

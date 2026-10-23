@@ -48,7 +48,7 @@ words, for example "make a lava obby game and keep improving it".
 
 | Server | What it does |
 |---|---|
-| `forge` (`forge server`) | Builds and improves games. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`, `tester_report`, `tester_reports`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
+| `forge` (`forge server`) | Builds and improves games. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`, `fix`, `tester_report`, `tester_reports`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
 | `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
 | `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
 
@@ -99,6 +99,21 @@ forge server                                 # the forge MCP server over stdio
 forge improve flame-and-blame --cycles 3 --rounds 3 --steps 15 --studio Forge-ai
 forge improve flame-and-blame --only hose-drains-instantly   # one fault
 forge scores flame-and-blame                                  # detected / missed / fixed per cycle
+```
+
+**Fixing the game itself:** `forge fix <slug>` (MCP: `fix`) runs the loop on the real game with no
+planted faults. It plays a few rounds and collects the auditor's anomalies, plus anomalies from new
+tester reports with `--reports`. For each high or medium one, it finds the most likely file, and the
+**fixer** rewrites it (a call in the fixer's Mubit task). The file is compile-checked, Studio is
+resynced, a round is replayed, and the **verifier** decides. `fixed` keeps the change; anything else
+rolls it back and resyncs. It repeats until no high or medium anomaly is left (the quality bar) or
+`--cycles` run out. Human-owned files (a seeded game's `base_files`) are never edited: the fixer's
+patch is saved to `runs/<slug>/improve/patches/` for a person to review. `forge improve --fix` does
+the same after a planted-fault cycle, on a clean baseline round.
+
+```bash
+forge fix my-game --cycles 5 --reports --studio Forge-ai
+forge scores my-game        # adds open anomalies and code fixes kept/tried per cycle
 ```
 
 **Real testers:** `forge report <slug> "<what they saw>" [--run <playtest run id>] [--by name]`
