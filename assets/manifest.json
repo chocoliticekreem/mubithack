@@ -63,7 +63,7 @@
       "id": "FirefighterGlove",
       "kind": "mesh",
       "source": "generate",
-      "prompt": "thick olive firefighter glove with chunky fingers, cartoon, low poly",
+      "prompt": "chunky olive green firefighter work glove, thick cartoon fingers, open hand, cuff with reflective yellow band, low poly",
       "params": {
         "size": [
           1.4,
@@ -73,9 +73,32 @@
         "maxTriangles": 3000,
         "segmentation": "none"
       },
-      "notes": "02 §9 viewmodel glove (GloveOlive #8C7A3A). Always on screen, so worth the quota.",
-      "assetId": null,
-      "status": "todo"
+      "notes": "02 §9 viewmodel glove (GloveOlive). v1: open olive hand, chunky fingers, yellow reflective cuff band. Reads well; mirror it for the left hand.",
+      "assetId": "105361624691016",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "c657bdf4-7bb8-465c-b0b3-90f1e7fe4c86",
+        "date": "2026-10-23",
+        "tag": "Assistant-8ea2554c-72ab-445e-9555-012ff5f2fde6",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://124924867883189",
+            "size": [
+              0.6889195442199707,
+              0.8999999761581421,
+              0.4486769735813141
+            ],
+            "textureId": "rbxassetid://136993841087902"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://124924867883189",
+      "extra": {
+        "Model": "rbxassetid://105361624691016",
+        "Texture": "rbxassetid://136993841087902"
+      }
     },
     {
       "id": "HoseNozzle",
@@ -99,19 +122,40 @@
       "id": "FireAxe",
       "kind": "mesh",
       "source": "generate",
-      "prompt": "cartoon firefighter axe with red head and wooden handle, low poly",
+      "prompt": "firefighter pick-head axe, cartoon, long thin wooden handle like a broom stick, red metal head with one silver cutting blade on one side and a pointed spike on the other side, low poly",
       "params": {
         "size": [
-          0.6,
-          3.2,
+          0.5,
+          4,
           1.4
         ],
         "maxTriangles": 2500,
         "segmentation": "none"
       },
-      "notes": "02 §8 axe door break + viewmodel.",
+      "notes": "02 §8 axe. v3: long straight wooden handle, red double-bit head with silver edges, chunky low poly. It ignores 'pick on the back' (every attempt was double-bit or a hatchet). The ids were read from the Studio instance because a playtest interrupted the CLI. Rejected: v1 short hatchet (75034553685862), v2 double-bit with a short handle (99956078812263).",
       "assetId": null,
-      "status": "todo"
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "b807a73f-849d-41b7-aecd-4425ae839bd5",
+        "date": "2026-10-23",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://84234882137629",
+            "textureId": "rbxassetid://100638037589867",
+            "size": [
+              0.5,
+              0.92,
+              0.14
+            ]
+          }
+        ]
+      },
+      "contentId": "rbxassetid://84234882137629",
+      "extra": {
+        "Texture": "rbxassetid://100638037589867"
+      }
     },
     {
       "id": "FirefighterBody",
@@ -189,19 +233,42 @@
       "id": "TruckLightBar",
       "kind": "mesh",
       "source": "generate",
-      "prompt": "fire truck roof light bar with two red and one white light, cartoon, low poly",
+      "prompt": "cartoon fire truck roof light bar, black base with one red light, one white light and one blue light, chunky, low poly",
       "params": {
         "size": [
-          6,
-          0.8,
-          1.2
+          8,
+          1,
+          1.4
         ],
         "maxTriangles": 2000,
         "segmentation": "none"
       },
-      "notes": "02 §6 truck detail. The lamps stay Neon parts so they can flash.",
-      "assetId": null,
-      "status": "todo"
+      "notes": "02 §4 light bar. v1: black housing with red / white / blue lenses, matching TruckBuilder's LightRed/LightWhite/LightBlue. Has two small feet underneath.",
+      "assetId": "119243793846784",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "f7017f75-d4d5-4d20-b7f4-c486bc2e83cd",
+        "date": "2026-10-23",
+        "tag": "Assistant-a0ca8c16-fad0-4a66-b16b-e652da434b98",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://121256273633935",
+            "size": [
+              1.859074592590332,
+              1,
+              0.6858614683151245
+            ],
+            "textureId": "rbxassetid://114632202470546"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://121256273633935",
+      "extra": {
+        "Model": "rbxassetid://119243793846784",
+        "Texture": "rbxassetid://114632202470546"
+      }
     },
     {
       "id": "TruckLadder",
@@ -238,6 +305,209 @@
       "notes": "02 §6 truck side hose reel = refill point (tag Refill stays on the code-built part).",
       "assetId": null,
       "status": "todo"
+    },
+    {
+      "id": "TruckCab",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "front cab only of a cartoon fire engine, chunky boxy red cab, big windshield, round headlights, chrome grille and bumper, no rear body, no wheels, low poly toy style",
+      "params": {
+        "size": [
+          10,
+          6.5,
+          8
+        ],
+        "maxTriangles": 8000,
+        "segmentation": "none"
+      },
+      "notes": "Hero truck asset (02 §4 FireTruck, TruckRed #C8232B). generate_mesh ignores 'cab only / no wheels': both attempts came back as a whole stubby truck. This one (v2) is a chunky toy cab with one roll-up locker and wheels, no text (the number goes on as a SurfaceGui). Use it as the front half and put TruckBody behind it, or on its own as a compact truck. The ids were read from the Studio instance because a playtest started before the CLI could record publishedAssetId, so there's no _Model. Rejected v1 (full truck with mirrored '67') is kept as FireTruckHero.",
+      "assetId": null,
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "be0a289a-108a-4214-bb5d-da43d6f797ca",
+        "date": "2026-10-23",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://130074675420046",
+            "textureId": "rbxassetid://95012451656764",
+            "size": [
+              6.7,
+              6.5,
+              7.9
+            ]
+          }
+        ]
+      },
+      "contentId": "rbxassetid://130074675420046",
+      "extra": {
+        "Texture": "rbxassetid://95012451656764"
+      }
+    },
+    {
+      "id": "FireTruckHero",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "cartoon chunky red fire engine cab, front of a stylized toy fire truck, big windshield, round headlights, chrome grille and bumper, white number 67 on the side, low poly",
+      "params": {
+        "size": [
+          10,
+          6.5,
+          8
+        ],
+        "maxTriangles": 8000,
+        "segmentation": "none"
+      },
+      "notes": "Whole cartoon fire truck in one mesh (came out of the v1 TruckCab prompt). Reads great from the driver's side; the '67' texture is mirrored on the right side and the back, so cover those with a SurfaceGui or only show the left. Good for the station bay / title shot / far LOD. Mesh is 4.7x5.2x8 studs as generated; scale the MeshPart to ~10x10x27.",
+      "assetId": "128008128697813",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "d9503c06-f03f-4ed4-9fb5-5fb4a83f6a8b",
+        "date": "2026-10-23",
+        "tag": "Assistant-b27e3f68-0472-4ad5-ba55-621d514e9416",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://83753081484186",
+            "size": [
+              4.684535503387451,
+              5.226863861083984,
+              7.999999523162842
+            ],
+            "textureId": "rbxassetid://101690839472027"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://83753081484186",
+      "extra": {
+        "Model": "rbxassetid://128008128697813",
+        "Texture": "rbxassetid://101690839472027"
+      }
+    },
+    {
+      "id": "TruckDoor",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "thin flat slab-shaped red truck door, like a cartoon car door seen from the side, large square window in the top half, small chrome handle near the back edge, low poly",
+      "params": {
+        "size": [
+          0.5,
+          4.4,
+          3.8
+        ],
+        "maxTriangles": 2000,
+        "segmentation": "none"
+      },
+      "notes": "Hero truck asset. v3 (thin-slab prompt). The mesh comes out almost cubic (0.5^3): the door art (window + chrome handle) is on the +X face, so set MeshPart.Size to about 0.4 x 3.4 x 3.8 to flatten it into a door slab for DoorPanel_L/R. Rejected: v0 untextured block, v2 toy box with two handles.",
+      "assetId": "80278831555145",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "fe952518-625d-4157-b395-bda82f550449",
+        "date": "2026-10-23",
+        "tag": "Assistant-402dd90e-e3c7-4979-af00-b7b41224eca3",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://111623595519070",
+            "size": [
+              0.5,
+              0.5062777996063232,
+              0.4686683118343353
+            ],
+            "textureId": "rbxassetid://71672768254041"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://111623595519070",
+      "extra": {
+        "Model": "rbxassetid://80278831555145",
+        "Texture": "rbxassetid://71672768254041"
+      }
+    },
+    {
+      "id": "TruckBody",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "long red rectangular rear equipment box of a cartoon fire truck, longer than tall, three chrome roll-up compartment shutters along each side, white horizontal stripe, flat top, no wheels, no cab, low poly toy style",
+      "params": {
+        "size": [
+          10,
+          5,
+          12
+        ],
+        "maxTriangles": 8000,
+        "segmentation": "none"
+      },
+      "notes": "Hero truck asset (TruckRed, chrome roll-up shutters, white stripe). v2: long box with 3 shutters a side and a rear bumper. Its front face has small headlights, which are hidden against the cab. Rejected v1 (short toy cart with a water cannon on top). Replaces Body/BodyTop/Locker_*.",
+      "assetId": "139013593307092",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "53d78a1b-ead6-46d6-81cd-0ee72b7adbfe",
+        "date": "2026-10-23",
+        "tag": "Assistant-0293063e-c4a3-4c2e-a489-250c774a492d",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://77235722530917",
+            "size": [
+              4.463232517242432,
+              5,
+              9.747961044311523
+            ],
+            "textureId": "rbxassetid://109976087011011"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://77235722530917",
+      "extra": {
+        "Model": "rbxassetid://139013593307092",
+        "Texture": "rbxassetid://109976087011011"
+      }
+    },
+    {
+      "id": "TruckWheel",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "chunky cartoon fire truck road wheel, smooth black tire with simple tread, big red rim with shiny chrome hub cap and lug nuts, low poly",
+      "params": {
+        "size": [
+          1.6,
+          3.6,
+          3.6
+        ],
+        "maxTriangles": 2500,
+        "segmentation": "none"
+      },
+      "notes": "Hero truck asset. v2: knobby black tyre with a red rim and chrome hub on the outer (+X) face. The inner face is plain, so mirror it for the left side. Rejected v1 (monster-truck tyre with a small grey rim).",
+      "assetId": "128961822093770",
+      "status": "done",
+      "generation": {
+        "tool": "generate_mesh",
+        "id": "327a5db9-ab42-4429-bdea-94048a9c26b3",
+        "date": "2026-10-23",
+        "tag": "Assistant-6a2f21f2-052f-4329-863f-05ad4340ad48",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://122819056173970",
+            "size": [
+              1.600000023841858,
+              1.607365608215332,
+              0.7790127396583557
+            ],
+            "textureId": "rbxassetid://94717857082799"
+          }
+        ]
+      },
+      "contentId": "rbxassetid://122819056173970",
+      "extra": {
+        "Model": "rbxassetid://128961822093770",
+        "Texture": "rbxassetid://94717857082799"
+      }
     },
     {
       "id": "FireTruck",
