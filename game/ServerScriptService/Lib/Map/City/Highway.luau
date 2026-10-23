@@ -88,6 +88,19 @@ local function tunnel(ctx: any, parent: Instance)
 		local board = SK.part(m, "PortalSign", CF(t.x, y0 + CLEAR + 2.5, z + e[2] * 1.3), V(30, 3.6, 0.3), Color3.fromHex("#2E7D4F"))
 		local face = if e[2] < 0 then Enum.NormalId.Front else Enum.NormalId.Back
 		SK.sign(board, string.upper(t.name or "Ridge Tunnel"), face, C.Trim)
+		-- knockable traffic cones on the shoulders by the mouth (PhysicsFxService: name "Cone")
+		for _, s in { -1, 1 } do
+			for k = 1, 3 do
+				local cone = Instance.new("Model")
+				cone.Name = "Cone"
+				local p = CF(t.x + s * (hw - 2.2), y0, z + e[2] * (4 + k * 6))
+				SK.part(cone, "Base", p * CF(0, 0.15, 0), V(1.8, 0.3, 1.8), Color3.fromHex("#E76F51"))
+				SK.cyl(cone, "Body", p * CF(0, 1.4, 0), 2.2, 1.1, Color3.fromHex("#E76F51"))
+				SK.cyl(cone, "Band", p * CF(0, 1.6, 0), 0.4, 1.2, C.Trim)
+				cone:AddTag("Knockable")
+				cone.Parent = m
+			end
+		end
 		-- hazard stripes on the wall ends
 		for _, s in { -1, 1 } do
 			SK.part(m, "WallStripe", CF(t.x + s * (hw - 0.2), y0 + 4, z - e[2] * 1.5), V(0.4, 8, 3), Color3.fromHex("#E9C46A"), { collide = false })
