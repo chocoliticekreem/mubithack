@@ -31,6 +31,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
@@ -222,58 +223,13 @@ local function droplets(count: number)
 end
 
 local function screenText(text: string, color: Color3)
-	local l = Instance.new("TextLabel")
-	l.AnchorPoint = Vector2.new(0.5, 0.5)
-	l.Position = UDim2.fromScale(0.5, 0.4)
-	l.Size = UDim2.fromScale(0.05, 0.03)
-	l.BackgroundTransparency = 1
-	l.Text = text
-	l.TextScaled = true
-	l.Font = POP_FONT
-	l.TextColor3 = color
-	l.Rotation = Random.new():NextNumber(-12, 12)
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 4
-	stroke.Parent = l
-	l.Parent = screen()
-	TweenService:Create(l, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromScale(0.4, 0.16) }):Play()
-	task.delay(0.6, function()
-		TweenService:Create(l, TweenInfo.new(0.3), { TextTransparency = 1, Position = UDim2.fromScale(0.5, 0.3) }):Play()
-		TweenService:Create(stroke, TweenInfo.new(0.3), { Transparency = 1 }):Play()
-	end)
-	Debris:AddItem(l, 1)
+	-- was huge centre-screen text; now a small popup over you (ClientLib/WorldPopup)
+	WorldPopup.show(LocalPlayer.Character, text, { color = color, mine = true })
 end
 
-local function worldPop(text: string, pos: Vector3, color: Color3)
-	local a = Instance.new("Attachment")
-	a.WorldPosition = pos
-	a.Parent = workspace.Terrain
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromOffset(10, 4)
-	bb.AlwaysOnTop = true
-	bb.LightInfluence = 0
-	bb.MaxDistance = 120
-	bb.Adornee = a
-	bb.Parent = a
-	local l = Instance.new("TextLabel")
-	l.Size = UDim2.fromScale(1, 1)
-	l.BackgroundTransparency = 1
-	l.Text = text
-	l.TextScaled = true
-	l.Font = POP_FONT
-	l.TextColor3 = color
-	l.Rotation = Random.new():NextNumber(-10, 10)
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 3
-	stroke.Parent = l
-	l.Parent = bb
-	TweenService:Create(bb, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(220, 80) }):Play()
-	TweenService:Create(a, TweenInfo.new(0.9), { WorldPosition = pos + Vector3.new(0, 3, 0) }):Play()
-	task.delay(0.5, function()
-		TweenService:Create(l, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
-		TweenService:Create(stroke, TweenInfo.new(0.4), { Transparency = 1 }):Play()
-	end)
-	Debris:AddItem(a, 1)
+local function worldPop(text: string, pos: Vector3, color: Color3, mine: boolean?)
+	-- subtle world text (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	WorldPopup.show(WorldPopup.subjectAt(pos, 4), text, { color = color, mine = mine })
 end
 
 local function nearMe(pos: Vector3, studs: number): number
@@ -750,13 +706,13 @@ local function onFx(kind: any, position: any, extra: any)
 	elseif kind == "refill" then
 		soundAt(ToolConfig.SoundRefill, pos, 0.7)
 		if mine then
-			worldPop("GLUG GLUG", pos + Vector3.new(0, 3, 0), Palette.WaterSpray)
+			worldPop("GLUG GLUG", pos + Vector3.new(0, 3, 0), Palette.WaterSpray, true)
 		end
 		return
 	end
 	local pop = POPS[kind]
 	if pop then
-		worldPop(pop.text, pos, pop.color)
+		worldPop(pop.text, pos, pop.color, mine)
 	end
 	if kind == "chop" then
 		soundAt(ToolConfig.SoundAxeThunk, pos, 0.9)

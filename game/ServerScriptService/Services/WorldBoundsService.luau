@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript) :: any
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 
 local WorldBoundsService = {}
 WorldBoundsService.Priority = 2
@@ -102,7 +103,7 @@ local function pullBack(player: Player, root: BasePart)
 	)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.CFrame = CFrame.new(inside) * (root.CFrame - root.CFrame.Position)
-	pcall(Net.notify, player, JOKES[math.random(1, #JOKES)], "info")
+	Popup.show(player, JOKES[math.random(1, #JOKES)], "info", player)
 end
 
 local function toStation(player: Player, root: BasePart)

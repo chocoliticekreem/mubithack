@@ -37,6 +37,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("TrafficConfig") :: ModuleScript) :: any
 local TrafficLib = ServerScriptService:WaitForChild("Lib"):WaitForChild("Traffic")
@@ -555,23 +556,7 @@ local function driverOf(truck: Model): Player?
 end
 
 local function yell(parent: BasePart, text: string)
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Yell"
-	gui.Size = UDim2.fromOffset(220, 60)
-	gui.StudsOffset = Vector3.new(0, 4, 0)
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = 220
-	local t = Instance.new("TextLabel")
-	t.Size = UDim2.fromScale(1, 1)
-	t.BackgroundTransparency = 1
-	t.Font = Enum.Font.FredokaOne
-	t.TextScaled = true
-	t.Text = text
-	t.TextColor3 = Color3.fromHex("#FFF1D6")
-	t.TextStrokeTransparency = 0
-	t.TextStrokeColor3 = Color3.fromHex("#2A1410")
-	t.Parent = gui
-	gui.Parent = parent
+	Popup.show(parent, text, "info") -- small world text for players nearby (ClientLib/WorldPopup)
 end
 
 local function popDriver(car: Car, at: CFrame, push: Vector3)
@@ -690,7 +675,7 @@ local function wreck(car: Car, truck: Truck)
 	if who and now - lastToast > Cfg.RamToastCooldown then
 		lastToast = now
 		local what = if car.kind == "icecream" then "the ice-cream truck" elseif car.kind == "bus" then "a whole BUS" else `a {car.kind}`
-		Net.notify("all", `{who.DisplayName} rammed {what}! Insurance is crying.`, "blame")
+		Popup.show(who, `Rammed {what}! Insurance is crying.`, "blame", who)
 	end
 	task.delay(Cfg.WreckSeconds, function()
 		removeCar(car, "wreck")

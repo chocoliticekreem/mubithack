@@ -44,6 +44,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
@@ -183,7 +184,7 @@ local function say(player: Player, ps: PState, text: string, kind: string?)
 		return
 	end
 	ps.lastNotify = now
-	Net.notify(player, text, kind or "info")
+	Popup.show(player, text, kind or "info", player) -- small, over you (was a screen toast)
 end
 
 local function fresh(id: string): Data
@@ -471,7 +472,7 @@ local function equipHand(player: Player, ps: PState)
 			reelHolder[reel] = player
 			mirrorWater(player)
 			if not hoseLine("attach", player, reel) then
-				Net.notify(player, "The hose is tangled up, try again", "info")
+				Popup.show(player, "Hose tangled, try again", "info", player)
 			end
 		elseif type(player:GetAttribute(Names.Attr.Water)) ~= "number" then
 			-- a loose nozzle with no truck behind it (Give without a truck): the old personal tank
@@ -872,8 +873,7 @@ local function bonkTick()
 			Telemetry.count("inv_bonks")
 			fx("bonk", vroot.Position + Vector3.new(0, 2.5, 0), f.what)
 			InventoryService.Bonked:Fire(f.thrower, victim, f.what)
-			Net.notify(victim, `BONK! {f.thrower.DisplayName} beaned you with the {f.what}`, "blame")
-			Net.notify(f.thrower, `BONK! You beaned {victim.DisplayName} with the {f.what}`, "blame")
+			Popup.show(victim, `{f.thrower.DisplayName}'s {f.what}!`, "blame", f.thrower)
 		end
 	end
 end
@@ -1086,7 +1086,7 @@ local function disconnectSupply(hydrant: BasePart, text: string?, snapped: boole
 		end
 	end
 	if text and s.by.Parent then
-		Net.notify(s.by, text, if snapped then "bad" else "info")
+		Popup.show(s.by, text, if snapped then "bad" else "info", s.by)
 	end
 end
 
@@ -1155,7 +1155,7 @@ local function onHydrant(player: Player, hydrant: BasePart)
 	truck:SetAttribute("SupplyLine", true)
 	Telemetry.count("inv_supply_lines")
 	fx("supply", hydrant.Position, "")
-	Net.notify(player, "Supply line connected! Filling the truck tank", "good")
+	Popup.show(player, "Supply line on! Filling the truck", "good", player)
 end
 
 local function hookHydrant(inst: Instance)

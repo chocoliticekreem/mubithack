@@ -3,7 +3,7 @@
 -- The server publishes each car's pose as attributes (Pose: CFrame, Speed, State) at ~10 Hz and never
 -- moves the parts; here every frame we interpolate between the last snapshots (InterpDelay in the past,
 -- short extrapolation when they run out) and set the anchored Hitbox's CFrame locally (the welded body
--- follows). Plus: a little suspension bob, a hop + "HONK!" + horn on Traffic/Honk, "AAAH!" bubbles for
+-- follows). Plus: a little suspension bob, a hop + "HONK!" + horn on Traffic/Honk, "AAAH!" popups (ClientLib/WorldPopup) for
 -- panicking drivers, and local collisions (you bump into cars you see; off while you drive a truck so
 -- the server's ram check flings them instead of your truck stopping dead).
 -- State "Wrecked" = server physics owns the car: hands off.
@@ -16,6 +16,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("TrafficConfig") :: ModuleScript) :: any
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local TrafficController = {}
 TrafficController.Priority = 120
@@ -46,34 +47,12 @@ local function say(rec: Rec, text: string, seconds: number)
 	if not root then
 		return
 	end
-	local gui = rec.bubble
-	if not gui or not gui.Parent then
-		local g = Instance.new("BillboardGui")
-		g.Name = "TrafficBubble"
-		g.Size = UDim2.fromOffset(150, 46)
-		g.StudsOffset = Vector3.new(0, rec.rootY + 3.5, 0)
-		g.MaxDistance = 180
-		g.AlwaysOnTop = false
-		local t = Instance.new("TextLabel")
-		t.Name = "Text"
-		t.Size = UDim2.fromScale(1, 1)
-		t.BackgroundTransparency = 1
-		t.Font = Enum.Font.FredokaOne
-		t.TextScaled = true
-		t.TextColor3 = Color3.fromHex("#FFC531")
-		t.TextStrokeTransparency = 0
-		t.TextStrokeColor3 = Color3.fromHex("#2A1410")
-		t.Parent = g
-		g.Parent = root
-		rec.bubble = g
-		gui = g
-	end
-	local label = (gui :: BillboardGui):FindFirstChild("Text") :: TextLabel?
-	if label then
-		label.Text = text
-	end
-	(gui :: BillboardGui).Enabled = true
-	rec.bubbleUntil = os.clock() + seconds
+	-- subtle world text over the car (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	WorldPopup.show(root, text, {
+		color = Color3.fromHex("#FFC531"),
+		height = rec.rootY + 2.5,
+		seconds = math.min(seconds, 1.4),
+	})
 end
 
 local function pushSnap(rec: Rec)

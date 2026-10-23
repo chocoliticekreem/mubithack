@@ -58,6 +58,8 @@ end
 -- it before any Start runs. Clients' Net.event("Shared", "Notify") then never waits on a lazy remote.
 local Net = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Net") :: ModuleScript)
 Net.event("Shared", "Notify")
+-- Shared/Popup (S->C, nearby players: small world text over a subject) is fired by Shared/Popup.luau.
+Net.event("Shared", "Popup")
 -- Shared/Ragdoll (S->C, owner only: seconds, impulse?) is fired by Shared/Ragdoll.luau from any service.
 Net.event("Shared", "Ragdoll")
 

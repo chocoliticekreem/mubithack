@@ -24,6 +24,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local SquadConfig = require(Config:WaitForChild("SquadConfig") :: ModuleScript)
 local LobbyConfig = require(Config:WaitForChild("LobbyConfig") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local SquadController = {}
 SquadController.Priority = 60
@@ -88,48 +89,13 @@ local function bubble(character: Model?, text: string, color: Color3, seconds: n
 	if not character then
 		return
 	end
-	local head = headOf(character)
-	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not head or not pg then
-		return
-	end
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "SquadPop"
-	bb.Adornee = head
-	bb.AlwaysOnTop = true
-	bb.LightInfluence = 0
-	bb.Size = UDim2.fromOffset(0, 0)
-	bb.StudsOffsetWorldSpace = Vector3.new(0, if big then 3.2 else 2.6, 0)
-	bb.MaxDistance = 150
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundColor3 = Palette.UiCream
-	label.BackgroundTransparency = if big then 1 else 0.05
-	label.Font = Enum.Font.LuckiestGuy
-	label.TextScaled = true
-	label.TextColor3 = color
-	label.Text = text
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = if big then 3 else 2
-	stroke.Color = Palette.UiInk
-	stroke.ApplyStrokeMode = if big then Enum.ApplyStrokeMode.Contextual else Enum.ApplyStrokeMode.Border
-	stroke.Parent = label
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.35, 0)
-	corner.Parent = label
-	label.Parent = bb
-	bb.Parent = pg
-	local w = if big then 180 else math.clamp(#text * 13 + 30, 70, 240)
-	local h = if big then 70 else 40
-	TweenService:Create(bb, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(w, h) }):Play()
-	task.delay(seconds, function()
-		if bb.Parent then
-			local t = TweenService:Create(bb, TweenInfo.new(0.2), { Size = UDim2.fromOffset(0, 0) })
-			t:Play()
-			t.Completed:Wait()
-			bb:Destroy()
-		end
-	end)
+	-- subtle world text over the head (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	WorldPopup.show(character, text, {
+		color = if color == Palette.UiInk then nil else color,
+		big = big,
+		mine = character == LocalPlayer.Character,
+		seconds = math.min(seconds, 1.4),
+	})
 end
 
 local function puff(character: Model?, color: Color3)

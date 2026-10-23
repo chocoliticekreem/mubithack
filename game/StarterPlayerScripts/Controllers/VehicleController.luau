@@ -30,6 +30,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript)
 local TruckDrive = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TruckDrive") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local VehicleController = {}
 VehicleController.Priority = 60
@@ -115,27 +116,8 @@ local function rayParams(truck: Model): RaycastParams
 end
 
 local function pop(root: BasePart, text: string, color: Color3, offset: Vector3)
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "TruckPop"
-	gui.Size = UDim2.fromOffset(170, 64)
-	gui.StudsOffsetWorldSpace = offset
-	gui.AlwaysOnTop = true
-	local t = Instance.new("TextLabel")
-	t.BackgroundTransparency = 1
-	t.Size = UDim2.fromScale(1, 1)
-	t.Font = Enum.Font.LuckiestGuy
-	t.TextScaled = true
-	t.Text = text
-	t.TextColor3 = color
-	t.TextStrokeTransparency = 0
-	t.Rotation = math.random(-12, 12)
-	t.Parent = gui
-	gui.Parent = root
-	TweenService:Create(gui, TweenInfo.new(0.7), { StudsOffsetWorldSpace = offset + Vector3.new(0, 4, 0) }):Play()
-	TweenService:Create(t, TweenInfo.new(0.7), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-	task.delay(0.75, function()
-		gui:Destroy()
-	end)
+	-- subtle world text over the truck (ClientLib/WorldPopup: caps, dedupe, feedback setting)
+	WorldPopup.show(root, text, { color = color, height = math.max(offset.Y - 2, 2) })
 end
 
 ---------------------------------------------------------------------------- driving physics

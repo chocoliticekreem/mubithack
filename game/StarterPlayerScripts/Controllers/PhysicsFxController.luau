@@ -9,8 +9,8 @@
 --     on a slip our feet fly up (spin + hop, FallingDown) right away and Physics/Slip asks the server
 --     for the proper ragdoll + "WHOOPS!" pop.
 --   * Wobbly carry: while Player attr Carrying is set and we walk, a side-to-side stumble sway.
---   * Pops: renders Physics/Pop (word, position, kind) as big cartoon world text that bounces up and
---     fades (BillboardGui on an Attachment under workspace.Terrain).
+--   * Pops: renders Physics/Pop (word, position, kind) as small world text above whoever it hit
+--     (ClientLib/WorldPopup).
 -- Remotes: Physics/Land, Physics/Slip (C->S), Physics/Pop (S->C) - declared by PhysicsFxService.
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
@@ -24,6 +24,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("PhysicsConfig") :: ModuleScript) :: any
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -37,7 +38,6 @@ local peakFall = 0
 local wasAirborne = false
 local lastSlip = 0
 local wobbleT = 0
-local livePops = 0
 
 local POP_COLORS = {
 	Color3.fromRGB(255, 214, 64),
@@ -74,42 +74,17 @@ local function onWetFloor(root: BasePart): boolean
 end
 
 -- pops ------------------------------------------------------------------------------------------------
-local function pop(word: string, position: Vector3, kind: string?)
-	local cam = workspace.CurrentCamera
-	if not cam or livePops >= Cfg.PopMaxOnScreen then
+local function pop(word: string, position: Vector3, _kind: string?)
+	-- subtle world text over whoever it happened to (ClientLib/WorldPopup: caps, dedupe, setting)
+	local subject = WorldPopup.subjectAt(position, 5)
+	if not WorldPopup.show(subject, word, { color = POP_COLORS[math.random(1, #POP_COLORS)] }) then
 		return
 	end
-	if (cam.CFrame.Position - position).Magnitude > Cfg.PopMaxDistance then
-		return
-	end
-	livePops += 1
-	local att = Instance.new("Attachment")
-	att.Name = "PhysicsPop"
-	att.WorldPosition = position
-	att.Parent = workspace.Terrain
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromScale(6, 2.4)
-	gui.AlwaysOnTop = true
-	gui.LightInfluence = 0
-	gui.MaxDistance = Cfg.PopMaxDistance
-	gui.StudsOffsetWorldSpace = Vector3.zero
-	gui.Parent = att
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.AnchorPoint = Vector2.new(0.5, 0.5)
-	label.Position = UDim2.fromScale(0.5, 0.5)
-	label.Size = UDim2.fromScale(0.2, 0.2)
-	label.Font = Enum.Font.LuckiestGuy
-	label.TextScaled = true
-	label.Text = word
-	label.TextColor3 = POP_COLORS[math.random(1, #POP_COLORS)]
-	label.Rotation = math.random(-14, 14)
-	label.Parent = gui
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 3
-	stroke.Color = Color3.fromRGB(30, 20, 20)
-	stroke.Parent = label
 	if Cfg.PopSoundId ~= "" then
+		local att = Instance.new("Attachment")
+		att.Name = "PhysicsPop"
+		att.WorldPosition = position
+		att.Parent = workspace.Terrain
 		local s = Instance.new("Sound")
 		s.SoundId = Cfg.PopSoundId
 		s.Volume = 0.6
@@ -117,26 +92,8 @@ local function pop(word: string, position: Vector3, kind: string?)
 		s.RollOffMaxDistance = 120
 		s.Parent = att
 		s:Play()
+		Debris:AddItem(att, 2)
 	end
-	local secs = Cfg.PopSeconds
-	-- boing in (overshoot), drift up, fade out
-	TweenService:Create(label, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.fromScale(1, 1),
-	}):Play()
-	TweenService:Create(gui, TweenInfo.new(secs, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		StudsOffsetWorldSpace = Vector3.new(0, if kind == "land" then 2 else 4, 0),
-	}):Play()
-	task.delay(secs * 0.55, function()
-		if label.Parent then
-			local info = TweenInfo.new(secs * 0.45)
-			TweenService:Create(label, info, { TextTransparency = 1 }):Play()
-			TweenService:Create(stroke, info, { Transparency = 1 }):Play()
-		end
-	end)
-	task.delay(secs + 0.05, function()
-		livePops = math.max(0, livePops - 1)
-	end)
-	Debris:AddItem(att, secs + 0.5)
 end
 
 -- per-frame: landings, slips, wobbly carry --------------------------------------------------------------

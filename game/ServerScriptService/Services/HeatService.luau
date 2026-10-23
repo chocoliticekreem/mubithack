@@ -26,6 +26,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local HeatConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HeatConfig") :: ModuleScript) :: any
 local HeatMath =
@@ -126,7 +127,10 @@ local function overheat(player: Player, s: PState)
 			end
 		end
 	end
-	Net.notify("all", string.format(STEAK_LINES[math.random(1, #STEAK_LINES)], player.DisplayName), "blame")
+	-- your own overheat stays a screen toast; nearby players see a small popup over you
+	local line = string.format(STEAK_LINES[math.random(1, #STEAK_LINES)], player.DisplayName)
+	Net.notify(player, line, "bad")
+	Popup.show(player, line, "blame")
 end
 
 -- Applies a new heat value and runs threshold transitions (sweaty slow-down, overheat).

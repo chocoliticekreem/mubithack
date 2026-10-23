@@ -147,6 +147,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript) :: any
@@ -578,7 +579,7 @@ local function blame(h: Hose, culprit: Player, now: number, text: string)
 	end
 	h.lastBlame[culprit] = now
 	HoseLine.Kinked:Fire(h.owner, culprit)
-	pcall(Net.notify, h.owner, text, "blame")
+	Popup.show(culprit, text, "blame", h.owner) -- over whoever is on the hose
 end
 
 tick = function(dt: number)
@@ -607,7 +608,7 @@ tick = function(dt: number)
 		local state = HoseLine.stretchState(dist, h.length, endGap, Cfg)
 		if state == "snap" then
 			count("hose_snapped")
-			pcall(Net.notify, owner, "Your hose popped off!", "bad")
+			Popup.show(owner, "Hose popped off!", "bad", owner)
 			HoseLine.detach(owner)
 			continue
 		elseif state == "yank" and now - h.born > 0.6 and now - h.lastYank > Cfg.YankCooldown then
@@ -667,7 +668,7 @@ tick = function(dt: number)
 				end
 				count("hose_trips")
 				if p ~= owner then
-					pcall(Net.notify, p, `You tripped over {owner.DisplayName}'s hose!`, "blame")
+					Popup.show(p, `Tripped on {owner.DisplayName}'s hose!`, "blame", owner)
 				end
 			end
 		end

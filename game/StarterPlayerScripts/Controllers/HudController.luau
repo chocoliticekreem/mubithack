@@ -11,7 +11,10 @@
 --   every Player's Helmet / Downed / Carrying / Heat    -> squad strip (top right)
 --   nearest Burning / trapped Rescuable / Truck         -> on-screen markers + off-screen edge arrows (HudMarkers gui)
 --   Mission/Alarm (missionId, locationName)             -> alarm banner
---   Shared/Notify (text, kind)                          -> toast stack (max 5); kind "blame" = big gold wobbly callout
+--   Shared/Notify (text, kind)                          -> compact toast stack, top-centre under the timer: max 2
+--                                                          visible, 2.5 s, repeats within 2 s dropped (FeedbackConfig,
+--                                                          Lib/PopupLogic). Important events only; minor juice is
+--                                                          world text above heads (ClientLib/WorldPopup, started here).
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,13 +27,15 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local BlameConfig = require(ConfigFolder:WaitForChild("BlameConfig") :: ModuleScript) :: any
 local LobbyConfig = require(ConfigFolder:WaitForChild("LobbyConfig") :: ModuleScript) :: any
+local FeedbackConfig = require(ConfigFolder:WaitForChild("FeedbackConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
+local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 
 local HudController = {}
 HudController.Priority = 50
 
 local player = Players.LocalPlayer
-local MAX_TOASTS = 5
 local STUDS_PER_M = 3.5
 local Attr = Names.Attr :: any
 local Tag = Names.Tag :: any
@@ -350,18 +355,18 @@ local function build(): Ui
 		strokeThickness = 3,
 	})
 
-	-- toast stack (bottom centre)
+	-- toast stack (top centre, just under the timer pill; compact, max 2)
 	local toasts = Instance.new("Frame")
 	toasts.Name = "Toasts"
 	toasts.BackgroundTransparency = 1
-	toasts.AnchorPoint = Vector2.new(0.5, 1)
-	toasts.Position = UDim2.new(0.5, 0, 1, -100)
-	toasts.Size = UDim2.fromOffset(560, 280)
+	toasts.AnchorPoint = Vector2.new(0.5, 0)
+	toasts.Position = UDim2.new(0.5, 0, 0, tonumber(FeedbackConfig.ToastTop) or 74)
+	toasts.Size = UDim2.fromOffset(420, 70)
 	local layout = Instance.new("UIListLayout")
-	layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	layout.VerticalAlignment = Enum.VerticalAlignment.Top
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 8)
+	layout.Padding = UDim.new(0, 4)
 	layout.Parent = toasts
 	toasts.Parent = gui
 
@@ -423,50 +428,76 @@ end
 -- toasts -----------------------------------------------------------------------------------
 
 local toastOrder = 0
+local toastState: PopupLogic.State? = nil
+local toastFrames: { [number]: Frame } = {}
+
+local function dropToast(id: number)
+	local f = toastFrames[id]
+	toastFrames[id] = nil
+	if f then
+		f:Destroy()
+	end
+end
+
 local function toast(text: string, kind: string)
 	local u = ui
 	if not u then
 		return
 	end
+	local secs = tonumber(FeedbackConfig.ToastSeconds) or 2.5
+	if not toastState then
+		local n = tonumber(FeedbackConfig.ToastMax) or 2
+		toastState = PopupLogic.new({
+			cap = n,
+			perSubject = n,
+			dedupeSeconds = tonumber(FeedbackConfig.ToastDedupeSeconds) or 2,
+			lifeSeconds = secs,
+		})
+	end
+	local d = PopupLogic.admit(toastState :: PopupLogic.State, os.clock(), "screen", text)
+	if not d.show then
+		return
+	end
+	for _, id in d.evict do
+		dropToast(id)
+	end
 	toastOrder += 1
-	local blame = kind == "blame"
-	local h = if blame then 54 else 42
-	local frame = UiKit.panel(u.toasts, `Toast{toastOrder}`, UDim2.fromOffset(if blame then 540 else 480, h), UDim2.fromScale(0, 0))
+	local size = tonumber(FeedbackConfig.ToastTextSize) or 17
+	local frame = Instance.new("Frame")
+	frame.Name = `Toast{toastOrder}`
 	frame.LayoutOrder = toastOrder
-	frame.BackgroundColor3 = UiKit.kindColor(kind)
-	frame.Rotation = if blame then (if toastOrder % 2 == 0 then 2.5 else -2.5) else 0
-	local label = UiKit.label(frame, "Text", text, UDim2.new(1, -16, 1, 0), UDim2.fromOffset(8, 0), {
-		font = UiKit.Header,
-		textSize = if blame then 26 else 22,
-		color = if kind == "info" or blame then Palette.UiInk else Palette.UiCream,
-		stroke = kind ~= "info" and not blame,
-	})
-	label.TextScaled = #text > 40
-	UiKit.pop(frame, if blame then 0.35 else 0.2)
-	if blame then
-		UiKit.shake(label, 0.35, 5)
-		sfx("BlameToast", 0.7)
-	else
-		sfx("Toast", 0.4)
-	end
-	local frames = {}
-	for _, c in u.toasts:GetChildren() do
-		if c:IsA("Frame") then
-			table.insert(frames, c)
-		end
-	end
-	table.sort(frames, function(a, b)
-		return a.LayoutOrder < b.LayoutOrder
-	end)
-	for i = 1, #frames - MAX_TOASTS do
-		frames[i]:Destroy()
-	end
-	task.delay(if blame then 4.5 else 3.5, function()
-		if frame.Parent then
+	frame.AutomaticSize = Enum.AutomaticSize.X
+	frame.Size = UDim2.fromOffset(0, size + 12)
+	frame.BackgroundColor3 = Palette.UiInk
+	frame.BackgroundTransparency = 0.35
+	frame.BorderSizePixel = 0
+	UiKit.corner(frame, 10)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 12)
+	pad.PaddingRight = UDim.new(0, 12)
+	pad.Parent = frame
+	local label = Instance.new("TextLabel")
+	label.Name = "Text"
+	label.AutomaticSize = Enum.AutomaticSize.X
+	label.Size = UDim2.fromScale(0, 1)
+	label.BackgroundTransparency = 1
+	label.Font = UiKit.Header
+	label.TextSize = size
+	label.Text = text
+	label.TextColor3 = if kind == "info" then Palette.UiCream else UiKit.kindColor(kind)
+	label.Parent = frame
+	frame.Parent = u.toasts
+	toastFrames[d.id] = frame
+	UiKit.pop(frame, 0.15)
+	sfx("Toast", 0.3)
+	local id = d.id
+	task.delay(secs, function()
+		if toastFrames[id] == frame then
 			UiKit.tween(frame, 0.2, { BackgroundTransparency = 1 })
 			UiKit.tween(label, 0.2, { TextTransparency = 1 })
 			task.wait(0.2)
-			frame:Destroy()
+			dropToast(id)
+			PopupLogic.release(toastState :: PopupLogic.State, id)
 		end
 	end)
 end
@@ -849,6 +880,7 @@ function HudController:Init(_controllers: { [string]: any }) end
 
 function HudController:Start()
 	ui = build()
+	WorldPopup.start()
 	-- remotes: never let a missing one kill the HUD loop
 	task.spawn(function()
 		local ok, err = pcall(function()

@@ -37,6 +37,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local ConfigDir = ReplicatedStorage:WaitForChild("Config")
@@ -128,32 +129,8 @@ local function playSound(parent: Instance, soundId: string, volume: number?)
 end
 
 -- "HONK!" / "DING!" pop-up over a part, visible to everyone nearby.
-local function popText(adornee: BasePart, str: string, color: Color3, height: number)
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "LobbyPop"
-	bb.Size = UDim2.new(6, 0, 2, 0)
-	bb.StudsOffsetWorldSpace = Vector3.new(0, height, 0)
-	bb.AlwaysOnTop = true
-	bb.MaxDistance = 120
-	bb.LightInfluence = 0
-	local t = Instance.new("TextLabel")
-	t.BackgroundTransparency = 1
-	t.Size = UDim2.fromScale(1, 1)
-	t.Text = str
-	t.TextScaled = true
-	t.Font = Enum.Font.LuckiestGuy
-	t.TextColor3 = color
-	t.Rotation = math.random(-12, 12)
-	local s = Instance.new("UIStroke")
-	s.Thickness = 3
-	s.Parent = t
-	t.Parent = bb
-	bb.Parent = adornee
-	TweenService:Create(bb, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		StudsOffsetWorldSpace = Vector3.new(0, height + 3, 0),
-	}):Play()
-	TweenService:Create(t, TweenInfo.new(0.9), { TextTransparency = 1 }):Play()
-	Debris:AddItem(bb, 1)
+local function popText(adornee: BasePart, str: string, _color: Color3, _height: number)
+	Popup.show(adornee, str, "blame") -- small world text for players nearby (ClientLib/WorldPopup)
 end
 
 ------------------------------------------------------------------ squads as Types.Squad
@@ -640,8 +617,7 @@ function LobbyService:ReturnToLobby(players: { Player })
 		if r then
 			r:FireClient(p, "welcome", LobbyConfig.WelcomeText)
 		end
-		Net.notify(p, LobbyConfig.WelcomeText, "good")
-		count("lobby_returns")
+		count("lobby_returns") -- (the "welcome" Lobby/Fx says it; no duplicate screen toast)
 		for sid, s in active do
 			local idx = table.find(s.members, p.UserId)
 			if idx then
@@ -749,7 +725,7 @@ local function setupTruck(station: Model)
 		popText(hp, lines[math.random(1, #lines)], Color3.fromHex("FFE14A"), hp.Size.Y / 2 + 6)
 		count("lobby_honk")
 		if math.random() < 0.3 then
-			Net.notify(player, "The station dog is unimpressed.", "info")
+			Popup.show(player, "The station dog is unimpressed.", "info", player)
 		end
 	end)
 end
@@ -774,11 +750,7 @@ local function setupBell()
 			bell.CFrame = home
 		end)
 		count("lobby_bell")
-		for _, p in Players:GetPlayers() do
-			if inLobby(p) then
-				Net.notify(p, `{player.DisplayName} rang the bell. Nobody knows why.`, "info")
-			end
-		end
+		Popup.show(player, `{player.DisplayName} rang the bell. Nobody knows why.`, "info", player)
 	end)
 end
 

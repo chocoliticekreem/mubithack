@@ -24,6 +24,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("InventoryConfig") :: ModuleScript) :: any
 local ItemDefs = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 
 local InventoryController = {}
 InventoryController.Priority = 65
@@ -427,31 +428,15 @@ local function worldPop(kind: string, pos: Vector3, _text: string)
 	if not cam or (cam.CFrame.Position - pos).Magnitude > 120 then
 		return
 	end
-	local a = Instance.new("Attachment")
-	a.WorldPosition = pos
-	a.Parent = workspace.Terrain
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(240, 60)
-	gui.AlwaysOnTop = true
-	gui.Adornee = a
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 1.5, 0)
-	gui.Parent = a
 	local big = kind == "bonk" or kind == "fumble" or kind == "snap"
-	local label = UiKit.label(gui, "Pop", POP_TEXT[kind] or kind, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
-		font = UiKit.Header,
-		textSize = if big then 40 else 24,
-		color = if kind == "bonk" or kind == "snap" then Palette.FireBody else Palette.UiCream,
-		stroke = true,
-	})
-	label.Rotation = math.random(-12, 12)
-	UiKit.pop(label, 0.25)
-	UiKit.tween(gui, 0.9, { StudsOffsetWorldSpace = Vector3.new(0, 4.5, 0) })
-	task.delay(0.55, function()
-		UiKit.tween(label, 0.35, { TextTransparency = 1 })
-	end)
-	task.delay(1, function()
-		a:Destroy()
-	end)
+	-- subtle world text (ClientLib/WorldPopup: caps, dedupe, feedback setting); routine grab/drop/stow
+	-- are sound-only now
+	if kind ~= "grab" and kind ~= "drop" and kind ~= "stow" then
+		WorldPopup.show(WorldPopup.subjectAt(pos, 4), POP_TEXT[kind] or kind, {
+			color = if kind == "bonk" or kind == "snap" then Palette.FireBody else nil,
+			big = big,
+		})
+	end
 	local sound = if kind == "grab" then Cfg.SoundGrab
 		elseif kind == "drop" then Cfg.SoundDrop
 		elseif kind == "throw" then Cfg.SoundThrow

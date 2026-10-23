@@ -44,6 +44,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
@@ -348,11 +349,11 @@ local function zap(victim: Player, culprit: Player?, pos: Vector3)
 	end
 	fx("electrocution", pos, { victim = victim.UserId })
 	if culprit and culprit ~= victim then
-		Net.notify("all", `{culprit.DisplayName} electrocuted {victim.DisplayName}! SHOCKING BEHAVIOR`, "blame")
+		Popup.show(victim, `Zapped by {culprit.DisplayName}! SHOCKING`, "blame", culprit)
 	elseif culprit == victim then
-		Net.notify("all", `{victim.DisplayName} electrocuted themselves. Self own!`, "blame")
+		Popup.show(victim, "Self-zap! Self own!", "blame", victim)
 	else
-		Net.notify(victim, "BZZZT! Live puddle!", "bad")
+		Popup.show(victim, "BZZZT! Live puddle!", "bad", victim)
 	end
 end
 
@@ -521,7 +522,7 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 		end
 	end
 	if culprit then
-		Net.notify("all", `KABOOM! Courtesy of {culprit.DisplayName}`, "blame")
+		Popup.show(center, `KABOOM! Courtesy of {culprit.DisplayName}`, "blame", culprit)
 	end
 	return true
 end
@@ -693,7 +694,7 @@ local function fireTornado(instanceId: string, root: Instance, params: { [string
 				hurt(p, HazardConfig.TornadoHeat, "fire_tornado")
 				count("tornado_flings")
 				HazardService.Flung:Fire(p, "fire_tornado")
-				Net.notify("all", `{p.DisplayName} got YEETED by the fire tornado!`, "blame")
+				Popup.show(p, "YEETED by the fire tornado!", "blame", p)
 			end
 		end
 		-- loose parts + NPCs: sucked in and spun
@@ -1004,7 +1005,7 @@ local function backdraft(instanceId: string, root: Instance, params: { [string]:
 			end
 		end
 	end
-	Net.notify("all", `BACKDRAFT! {displayName(culprit)} opened the wrong door. DOOR DASHER`, "blame")
+	Popup.show(d, `BACKDRAFT! {displayName(culprit)} opened the wrong door`, "blame", culprit)
 	return true
 end
 

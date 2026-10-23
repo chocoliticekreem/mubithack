@@ -1347,13 +1347,14 @@ and get a harmless default, so nobody waits on anybody.
 | `Rescue/Drop` | C→S | none | 2/s | RescueService | RescueController |
 | `Mission/Alarm` | S→C all | `missionId: string, locationName: string` | | MissionService | AlarmController, HudController |
 | `Mission/Results` | S→C all | `ResultsPayload` | | MissionService (awards from BlameService) | ResultsController |
-| `Shared/Notify` | S→C | `text: string, kind: "info" \| "good" \| "bad" \| "blame"` | | anyone via `Net.notify` | HudController |
+| `Shared/Notify` | S→C | `text: string, kind: "info" \| "good" \| "bad" \| "blame"` | | anyone via `Net.notify` | HudController (important events only: compact, max 2, top-centre) |
+| `Shared/Popup` | S→C nearby | `subject: Instance \| false, pos: Vector3, text: string, kind, actorUserId: number, subjectUserId: number` | | anyone via `Shared/Popup.show(subject, text, kind?, actor?)` | ClientLib/WorldPopup (small world text over the subject; minor juice) |
 | `Hazard/Zapped` (v2) | S→C all | `victim: number, culprit: number?` (UserIds) | | HazardService | HazardController |
 
 Carry, revive, refill and door interactions are **ProximityPrompts** handled on the server (no
 remotes). Axe swings use server-side `Tool.Activated`. The **builders create** the one ProximityPrompt on each
 Door/Hydrant/TruckRefill part (MapKit, TruckBuilder); the **system lane owns its behaviour** (ToolService).
-`Shared/Notify` is declared by `Main.server.luau` before any `Start` (it has no single owner).
+`Shared/Notify` and `Shared/Popup` are declared by `Main.server.luau` before any `Start` (no single owner).
 
 ### Server service APIs (call through `services.X`, always nil-guarded)
 
