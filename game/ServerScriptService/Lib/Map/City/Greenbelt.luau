@@ -244,6 +244,12 @@ local function outskirts(ctx: any, parent: Instance)
 						SK.wedge(barn, "Roof1", cf * CF(-6.5, 20, 0) * ANG(0, math.rad(90), 0), V(31, 8, 14), C.RoofSlate)
 						SK.wedge(barn, "Roof2", cf * CF(6.5, 20, 0) * ANG(0, math.rad(-90), 0), V(31, 8, 14), C.RoofSlate)
 						SK.part(barn, "Door", cf * CF(0, 6, -15.2), V(10, 12, 0.4), C.Trim)
+						-- barn-door X brace, hayloft door and a white corner trim (cheap, non-colliding detail)
+						local trim = { collide = false, query = false, cast = false }
+						SK.part(barn, "DoorBrace", cf * CF(0, 6, -15.45) * ANG(0, 0, math.rad(50)), V(15, 0.8, 0.2), Color3.fromHex("#A8322A"), trim)
+						SK.part(barn, "DoorBrace", cf * CF(0, 6, -15.45) * ANG(0, 0, math.rad(-50)), V(15, 0.8, 0.2), Color3.fromHex("#A8322A"), trim)
+						SK.part(barn, "Hayloft", cf * CF(0, 18.5, -15.75), V(5, 4, 0.4), C.Trim, trim)
+						SK.part(barn, "Eave", cf * CF(0, 16.2, -15.7), V(26.4, 0.6, 0.4), C.Trim, trim)
 						SK.cyl(barn, "Silo", cf * CF(20, 18, 6), 36, 10, Color3.fromHex("#B7B1A8"))
 						SK.ball(barn, "SiloDome", cf * CF(20, 36, 6), 10, C.Red)
 						barn.Parent = m

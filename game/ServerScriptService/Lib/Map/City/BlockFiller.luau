@@ -761,6 +761,78 @@ end
 ---------------------------------------------------------------------------------------------------
 local Scenery = {}
 
+-- Cheap facade detail for the filler buildings (no textures/decals/SurfaceGuis): one thin inset
+-- window strip per floor per visible face (capped), a roof cap + parapet in a varied roof colour,
+-- one rooftop feature (AC boxes / water tower / antenna), an entrance canopy, and optionally a
+-- ground-floor shop front. Body spans x in [-w/2, w/2], z in [0, d], y in [y0, y0 + h] of frame F.
+-- Roughly 8-20 parts per building; all non-colliding, non-queryable and shadowless except the cap.
+local ROOF_COLORS = { C.RoofSlate, C.MetalDark, Color3.fromHex("#6B705C"), Color3.fromHex("#9AA0A6"), Color3.fromHex("#5C5470"), C.Concrete }
+local DETAIL = { collide = false, query = false, cast = false }
+local GLASS_DETAIL = { collide = false, query = false, cast = false, material = Enum.Material.Glass }
+
+local function dress(m: Instance, F: CFrame, w: number, d: number, h: number, rng: Random, o: any)
+	o = o or {}
+	local y0 = o.y0 or GY
+	local band = o.band or C.GlassDark
+	local base = o.base or (if o.shop then 11 else 6)
+	local fh = o.floor or 10
+	local span = h - base - 3
+	if span > 4 then
+		local n = math.clamp(math.floor(span / fh), 1, o.maxBands or 6)
+		local step = span / n
+		local bh = math.min(3.2, step * 0.45)
+		local sides = if o.sides == false then 0 else math.min(n, 4)
+		for i = 1, n do
+			local y = y0 + base + step * (i - 0.5)
+			if o.front ~= false then
+				SK.part(m, "WindowBand", F * CF(0, y, -0.15), V(w - 3, bh, 0.3), band, GLASS_DETAIL)
+			end
+			-- sides get fewer, evenly picked bands (they are seen at an angle)
+			if sides > 0 and (i - 1) % math.max(1, math.round(n / sides)) == 0 then
+				for _, sx in { -1, 1 } do
+					SK.part(m, "WindowBand", F * CF(sx * (w / 2 + 0.15), y, d / 2), V(0.3, bh, d - 3), band, GLASS_DETAIL)
+				end
+			end
+		end
+	end
+	local top = y0 + h
+	if o.roof ~= false then
+		local rc = o.roofColor or pick(rng, ROOF_COLORS)
+		SK.part(m, "RoofCap", F * CF(0, top + 0.15, d / 2), V(w - 1.6, 0.3, d - 1.6), rc, { cast = false })
+		if o.parapet ~= false then
+			local pc = o.parapetColor or C.Trim
+			SK.part(m, "Parapet", F * CF(0, top + 1, 0.4), V(w, 2, 0.8), pc, DETAIL)
+			SK.part(m, "Parapet", F * CF(0, top + 1, d - 0.4), V(w, 2, 0.8), pc, DETAIL)
+			SK.part(m, "Parapet", F * CF(-w / 2 + 0.4, top + 1, d / 2), V(0.8, 2, d - 1.6), pc, DETAIL)
+			SK.part(m, "Parapet", F * CF(w / 2 - 0.4, top + 1, d / 2), V(0.8, 2, d - 1.6), pc, DETAIL)
+		end
+		local r = if o.kit == false then 1 else rng:NextNumber()
+		if r < 0.4 then
+			SK.part(m, "RoofAC", F * CF(-w * 0.2, top + 1.8, d * 0.4), V(math.min(8, w * 0.25), 3, 5), C.Metal, DETAIL)
+			SK.part(m, "RoofAC", F * CF(w * 0.15, top + 1.3, d * 0.65), V(5, 2.2, math.min(7, d * 0.25)), C.Metal, DETAIL)
+		elseif r < 0.7 and w > 18 and d > 18 then
+			local tx, tz = w * 0.22 * (if rng:NextNumber() < 0.5 then -1 else 1), d * 0.6
+			SK.part(m, "WaterTowerLegs", F * CF(tx, top + 2, tz), V(5, 4, 5), C.Wood, DETAIL)
+			SK.cyl(m, "WaterTower", F * CF(tx, top + 7.5, tz), 7, 7, Color3.fromHex("#8A5A3C"), DETAIL)
+			SK.cyl(m, "WaterTowerCap", F * CF(tx, top + 11.3, tz), 0.6, 7.8, C.RoofSlate, DETAIL)
+		elseif r < 0.9 then
+			SK.part(m, "RoofHut", F * CF(w * 0.2, top + 2.5, d * 0.55), V(math.min(10, w * 0.3), 5, math.min(8, d * 0.3)), C.MetalDark, DETAIL)
+			SK.cyl(m, "Antenna", F * CF(-w * 0.2, top + 7, d * 0.5), 14, 0.5, C.Red, DETAIL)
+		end
+	end
+	if o.shop then
+		SK.part(m, "ShopGlass", F * CF(0, y0 + 3.6, -0.2), V(w - 4, 5.6, 0.3), C.GlassDark, GLASS_DETAIL)
+		local aw = o.awning or pick(rng, C.Awnings)
+		SK.wedge(m, "ShopAwning", F * CF(0, y0 + 8.2, -1.6), V(w - 2, 1.4, 3.2), aw, DETAIL)
+		SK.part(m, "ShopSign", F * CF(0, y0 + 10, -0.25), V(math.min(w * 0.5, 24), 1.8, 0.4), C.Trim, DETAIL)
+	elseif o.canopy ~= false then
+		local cw = math.min(14, w * 0.4)
+		SK.part(m, "Canopy", F * CF(0, y0 + 8, -2), V(cw, 0.5, 4), o.canopyColor or C.MetalDark, DETAIL)
+		SK.part(m, "Entrance", F * CF(0, y0 + 3.6, -0.2), V(cw - 4, 7, 0.3), C.GlassDark, GLASS_DETAIL)
+	end
+end
+BlockFiller._dress = dress
+
 function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
 	local w, d = math.min(maxW, rng:NextInteger(22, 30)), math.min(maxD, rng:NextInteger(18, 24))
@@ -774,6 +846,7 @@ function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	SK.wedge(m, "Roof1", F * CF(0, GY + h + rise / 2, d / 4 - 0.5), V(w + 2, rise, d / 2 + 1), rc)
 	SK.wedge(m, "Roof2", F * CF(0, GY + h + rise / 2, 3 * d / 4 + 0.5) * FLIP, V(w + 2, rise, d / 2 + 1), rc)
 	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.35), V(4, 7, 0.4), C.Wood)
+	SK.part(m, "Chimney", F * CF(w * 0.3, GY + h + 4, d * 0.7), V(2.6, 9, 2.6), C.BrickDark, DETAIL)
 	-- windows as one dark strip per storey (cheap LOD shell)
 	SK.part(m, "WindowFake", F * CF(0, GY + 5, -0.1), V(w * 0.8, 3.6, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	if h > 12 then
@@ -796,15 +869,17 @@ function Scenery.tower(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	local m = Instance.new("Model")
 	m.Name = "Tower"
 	local color = pick(rng, { Color3.fromHex("#8E9AAF"), Color3.fromHex("#CBC0D3"), Color3.fromHex("#DEE2FF"), Color3.fromHex("#B7B1A8"), C.Walls[4] })
-	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2), V(w, h, d), color)
-	local glass = pick(rng, { C.Glass, Color3.fromHex("#6FA8C8"), Color3.fromHex("#88B9C4") })
-	SK.part(m, "Curtain", F * CF(0, GY + 4 + (h - 8) / 2, -0.2), V(w - 4, h - 8, 0.4), glass, { material = Enum.Material.Glass, transparency = 0.1 })
-	SK.part(m, "Curtain", F * CF(-w / 2 - 0.2, GY + 4 + (h - 8) / 2, d / 2), V(0.4, h - 8, d - 4), glass, { material = Enum.Material.Glass, transparency = 0.1 })
-	SK.part(m, "Curtain", F * CF(w / 2 + 0.2, GY + 4 + (h - 8) / 2, d / 2), V(0.4, h - 8, d - 4), glass, { material = Enum.Material.Glass, transparency = 0.1 })
-	SK.part(m, "Lobby", F * CF(0, GY + 3.5, -0.4), V(10, 7, 0.4), C.GlassDark)
-	SK.part(m, "RoofBox", F * CF(w * 0.2, GY + h + 2.5, d * 0.6), V(w * 0.3, 5, d * 0.3), C.MetalDark)
-	if rng:NextNumber() < 0.4 then
-		SK.cyl(m, "Antenna", F * CF(-w * 0.2, GY + h + 8, d * 0.5), 16, 0.6, C.Red)
+	local glass = pick(rng, { Color3.fromHex("#4F7FA0"), Color3.fromHex("#5D7F99"), C.GlassDark, Color3.fromHex("#3F6E80") })
+	local roofColor = pick(rng, ROOF_COLORS)
+	-- tall towers step back: a full-footprint base and a narrower upper tier (one extra part)
+	local h1 = if h > 95 then math.floor(h * 0.62) else h
+	SK.part(m, "Body", F * CF(0, GY + h1 / 2, d / 2), V(w, h1, d), color)
+	dress(m, F, w, d, h1, rng, { band = glass, floor = 7, maxBands = 8, roofColor = roofColor, parapet = h1 == h, kit = h1 == h, canopyColor = glass })
+	if h1 < h then
+		local w2, d2, h2 = math.floor(w * 0.72), math.floor(d * 0.72), h - h1
+		local F2 = F * CF(0, 0, (d - d2) / 2)
+		SK.part(m, "Upper", F2 * CF(0, GY + h1 + h2 / 2, d2 / 2), V(w2, h2, d2), color)
+		dress(m, F2, w2, d2, h2, rng, { y0 = GY + h1, base = 2, band = glass, floor = 7, maxBands = 6, roofColor = roofColor, canopy = false })
 	end
 	m.Parent = parent
 end
@@ -819,6 +894,9 @@ function Scenery.warehouse(ctx: any, parent: Instance, F: CFrame, maxW: number, 
 	for k = -1, 1 do
 		SK.part(m, "Dock", F * CF(k * w * 0.28, GY + 5, -0.2), V(10, 10, 0.4), Color3.fromHex("#5F6B73"))
 	end
+	dress(m, F, w, d, h, rng, { base = 11, floor = 20, maxBands = 1, sides = false, roof = false, canopy = false })
+	SK.part(m, "RoofAC", F * CF(-w * 0.25, GY + h + 2.5, d * 0.5), V(8, 3, 6), C.Metal, DETAIL)
+	SK.part(m, "Vent", F * CF(w * 0.2, GY + h + 2, d * 0.4), V(4, 2, 4), C.MetalDark, DETAIL)
 	m.Parent = parent
 end
 
@@ -1030,14 +1108,19 @@ function Scenery.facade(ctx: any, parent: Instance, F: CFrame, maxW: number, max
 	local m = Instance.new("Model")
 	m.Name = "Facade"
 	local color = pick(rng, FACADE_COLORS)
-	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2), V(w, h, d), color)
-	SK.part(m, "Glass", F * CF(0, GY + 6 + (h - 10) / 2, -0.2), V(w - 4, h - 10, 0.4), pick(rng, FACADE_GLASS), {
-		material = Enum.Material.Glass,
-		transparency = 0.05,
-		collide = false,
-		query = false,
-	})
-	SK.part(m, "Cornice", F * CF(0, GY + h + 0.6, d / 2), V(w + 1.2, 1.2, d + 1.2), pick(rng, C.Awnings), { cast = false })
+	local glass = pick(rng, FACADE_GLASS)
+	-- downtown slabs get a shop-front ground floor; tall ones step back once
+	local shop = hubDist < 900 and rng:NextNumber() < 0.6
+	local h1 = if h > 95 then math.floor(h * 0.65) else h
+	SK.part(m, "Body", F * CF(0, GY + h1 / 2, d / 2), V(w, h1, d), color)
+	SK.part(m, "Cornice", F * CF(0, GY + h1 + 0.6, d / 2), V(w + 1.2, 1.2, d + 1.2), pick(rng, C.Awnings), { cast = false })
+	dress(m, F, w, d, h1 + 1.2, rng, { band = glass, floor = 8, maxBands = 7, shop = shop, parapet = false, roof = h1 == h })
+	if h1 < h then
+		local w2, d2, h2 = math.floor(w * 0.7), math.floor(d * 0.7), h - h1
+		local F2 = F * CF(0, 0, (d - d2) / 2)
+		SK.part(m, "Upper", F2 * CF(0, GY + h1 + 1.2 + h2 / 2, d2 / 2), V(w2, h2, d2), color)
+		dress(m, F2, w2, d2, h2, rng, { y0 = GY + h1 + 1.2, base = 2, band = glass, floor = 8, maxBands = 5, canopy = false })
+	end
 	m.Parent = parent
 end
 
@@ -1049,12 +1132,7 @@ function Scenery.midrise(ctx: any, parent: Instance, F: CFrame, maxW: number, ma
 	local m = Instance.new("Model")
 	m.Name = "Midrise"
 	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2), V(w, h, d), pick(rng, C.Walls))
-	SK.part(m, "Storefront", F * CF(0, GY + 4.5, -0.3), V(w - 2, 9, 0.6), pick(rng, C.Awnings), { collide = false })
-	SK.part(m, "Windows", F * CF(0, GY + 12 + (h - 16) / 2, -0.2), V(w - 6, h - 16, 0.4), C.GlassDark, {
-		material = Enum.Material.Glass,
-		collide = false,
-		query = false,
-	})
+	dress(m, F, w, d, h, rng, { floor = 9, maxBands = 4, shop = true, parapetColor = pick(rng, { C.Trim, C.BrickDark, C.Concrete }) })
 	m.Parent = parent
 end
 
@@ -1071,7 +1149,12 @@ function Scenery.duplex(ctx: any, parent: Instance, F: CFrame, maxW: number, max
 	local rc = pick(rng, { C.RoofBrown, C.RoofSlate, C.RoofTerra })
 	SK.wedge(m, "Roof1", G * CF(0, GY + h + 3, d / 4 - 0.5), V(w + 2, 6, d / 2 + 1), rc)
 	SK.wedge(m, "Roof2", G * CF(0, GY + h + 3, 3 * d / 4 + 0.5) * FLIP, V(w + 2, 6, d / 2 + 1), rc)
-	SK.part(m, "Front", G * CF(0, GY + 3.5, -0.15), V(w * 0.7, 7, 0.3), C.GlassDark, { collide = false, query = false })
+	-- two front doors under one porch canopy, a window strip per storey (front + both sides)
+	for _, sx in { -1, 1 } do
+		SK.part(m, "Door", G * CF(sx * w * 0.12, GY + 3.5, -0.2), V(3.6, 7, 0.4), pick(rng, { C.Wood, C.Red, Color3.fromHex("#3D5A80") }), DETAIL)
+	end
+	SK.part(m, "Porch", G * CF(0, GY + 7.6, -1.6), V(w * 0.45, 0.4, 3.2), C.Trim, DETAIL)
+	dress(m, G, w, d, h, rng, { base = 9, floor = 7, maxBands = 1, roof = false, canopy = false })
 	m.Parent = parent
 	-- a knockable mailbox at the kerb (PhysicsFxService: name ends with "mailbox")
 	local mb = Instance.new("Model")
@@ -1096,6 +1179,10 @@ function Scenery.shed(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD:
 	})
 	SK.part(m, "RollDoor", F * CF(0, GY + 6, 7.8), V(math.min(16, w - 6), 12, 0.4), Color3.fromHex("#E76F51"), { collide = false })
 	SK.part(m, "Yard", F * CF(0, GY + 0.03, 4), V(w, 0.1, 8), C.AsphaltDark, { collide = false, cast = false })
+	-- a clerestory strip, a door canopy over the roll door and a roof vent
+	dress(m, F * CF(0, 0, 8), w, d, h, rng, { base = math.max(13, h - 6), floor = 20, maxBands = 1, sides = false, roof = false, canopy = false })
+	SK.part(m, "Canopy", F * CF(0, GY + 12.6, 6.4), V(math.min(18, w - 4), 0.4, 3), C.MetalDark, DETAIL)
+	SK.part(m, "Vent", F * CF(w * 0.2, GY + h + 1, d / 2 + 8), V(4, 2, 4), C.Metal, DETAIL)
 	m.Parent = parent
 end
 
