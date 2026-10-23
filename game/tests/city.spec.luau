@@ -27,6 +27,11 @@ local cfg = {
 	DamRiverZ = 168,
 	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
 	Tunnel = { x = -1350, z0 = -840, z1 = -570 },
+	HighwaySites = {
+		{ side = "S", at = -675, kind = "gas" },
+		{ side = "N", at = 675, kind = "diner" },
+		{ side = "E", at = 675, kind = "storage", w = 120 },
+	},
 	StationDriveway = { x = 20, z = 175 },
 	SitesPerSuburbBlock = 2,
 	KindMissions = {
