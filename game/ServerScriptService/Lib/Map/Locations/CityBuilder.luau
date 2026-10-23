@@ -934,6 +934,17 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			table.insert(ctx.keepClear, V(p.x, 0, p.z))
 		end
 	end
+	-- highway service stops: no verge lamps/trees or outskirts fields on their lots
+	for _, run in plan.corridors or {} do
+		if run.highway then
+			local c0, c1 = math.min(run.near, run.far), math.max(run.near, run.far)
+			if run.axis == "x" then
+				table.insert(ctx.blocked, { x0 = c0, z0 = run.a0, x1 = c1, z1 = run.a1 })
+			else
+				table.insert(ctx.blocked, { x0 = run.a0, z0 = c0, x1 = run.a1, z1 = c1 })
+			end
+		end
+	end
 	-- and off the exit gantry posts
 	for _, sp in Highway.gantrySpots(cfg, plan.lines) do
 		table.insert(ctx.keepClear, V(sp[1], 0, sp[2]))

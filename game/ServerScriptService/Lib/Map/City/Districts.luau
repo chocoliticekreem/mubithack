@@ -848,6 +848,45 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 	-- 4b. avenue corridors: frontage lots along both sides of the avenue ring (cheap facades + a few
 	-- incident sites), so the city runs on between the neighbourhoods
 	local corridors = Districts.corridors(cfg, r, districts, lines, river)
+	-- highway service stops: one site lot on the outer side of Highway 67 (cfg.HighwaySites), built
+	-- like a one-lot corridor run (flag `highway`: the outskirts fields keep off it)
+	for _, hs in cfg.HighwaySites or {} do
+		local hw = (cfg.HighwayWidth or 48) / 2
+		local isZ = hs.side == "N" or hs.side == "S"
+		local out = if hs.side == "S" or hs.side == "E" then 1 else -1
+		local line = if out > 0 then lines[#lines] else lines[1]
+		local edge = if isZ then (if out > 0 then cfg.Bounds.maxZ else cfg.Bounds.minZ) else (if out > 0 then cfg.Bounds.maxX else cfg.Bounds.minX)
+		local near = line + out * hw
+		local front = near + out * cfg.SidewalkWidth
+		local depth = math.min(104, math.abs(edge - front) - 8)
+		local w = hs.w or 110
+		local ac = front + out * depth / 2
+		local face = if isZ then (if out > 0 then "N" else "S") else (if out > 0 then "W" else "E")
+		-- the district whose cell column/row the stop sits in
+		local best, bd = districts[1], math.huge
+		for _, d in districts do
+			local dd = math.abs((if isZ then d.x else d.z) - hs.at) + math.abs((if isZ then d.z else d.x) - line)
+			if dd < bd then
+				best, bd = d, dd
+			end
+		end
+		table.insert(corridors, {
+			district = best.id,
+			theme = "farmland",
+			axis = if isZ then "z" else "x",
+			line = line,
+			side = out,
+			street = "Highway 67",
+			a0 = hs.at - w / 2,
+			a1 = hs.at + w / 2,
+			near = near,
+			far = front + out * depth,
+			highway = true,
+			lots = {
+				{ kind = hs.kind, x = if isZ then hs.at else ac, z = if isZ then ac else hs.at, w = w, d = depth, face = face, site = true },
+			},
+		} :: any)
+	end
 	for _, run in corridors do
 		for _, l in run.lots do
 			if l.site then
