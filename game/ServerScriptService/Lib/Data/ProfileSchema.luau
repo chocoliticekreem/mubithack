@@ -75,6 +75,7 @@ ProfileSchema.Settings = {
 	musicVolume = { default = 0.6, kind = "number", min = 0, max = 1 },
 	sfxVolume = { default = 1, kind = "number", min = 0, max = 1 },
 	showXpPopups = { default = true, kind = "boolean" },
+	graphicsQuality = { default = 0, kind = "number", min = 0, max = 3 }, -- 0 Auto, 1 Low, 2 High, 3 Ultra (ShaderController)
 }
 
 local SECONDS_PER_WEEK = 7 * 24 * 3600
