@@ -156,7 +156,7 @@ function BlockFiller.furnish(parent: Instance, rng: Random, along: (number) -> C
 			elseif k == hydrantAt or (o.hydrantEvery and k % o.hydrantEvery == 0) then
 				hydrant(parent, cf)
 			elseif rng:NextNumber() < 0.55 then
-				BlockFiller.trashCan(parent, cf * CF(rng:NextNumber(-1, 1), 0, 0))
+				BlockFiller.trashCan(parent, cf * CF(rng:NextNumber(-1, 1), 0, 0), o.canColor)
 			elseif o.benches then
 				BlockFiller.parkBench(parent, cf)
 			end
@@ -1310,12 +1310,12 @@ BlockFiller.BandGround = BAND_GROUND
 
 -- kerbside furniture per neighbourhood theme (BlockFiller.furnish opts)
 local FURNISH = {
-	downtown = { busStop = true, benches = true },
-	suburb = { busStop = true },
-	industrial = {},
-	park = { benches = true },
-	farmland = {},
-	woods = {},
+	downtown = { busStop = true, benches = true, canColor = Color3.fromHex("#3B3940") },
+	suburb = { busStop = true, canColor = Color3.fromHex("#2F6B4F") },
+	industrial = { canColor = Color3.fromHex("#3D5A80") },
+	park = { benches = true, canColor = Color3.fromHex("#6B4A2F") },
+	farmland = { canColor = Color3.fromHex("#8A4A35") },
+	woods = { canColor = Color3.fromHex("#6B4A2F") },
 }
 
 -- The neighbourhood round one district's loop: themed ground, the loop's outer sidewalk (curb cuts at
