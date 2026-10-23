@@ -27,13 +27,14 @@ Studio, because hand-made objects aren't in git. The game's file layout per syst
 .venv/bin/forge doctor            # Studio ✓ needed; if none: forge place --open, then enable MCP
 .venv/bin/forge watch --studio Forge   # run in background; every save → luau-compile → Studio
 ```
-If `forge watch` isn't running, push manually: `mcp__Roblox_Studio__execute_luau` (Edit) with
-the output of `python3 game/tools/sync.py pull` after starting `sync.py serve --root game`.
+If `forge watch` can't run, push once with `.venv/bin/forge sync --studio <name>`. It checks the
+files, rebuilds the manifest, serves them and pulls them in, and it never deletes anything.
 
 ## Playtest over MCP (do it yourself, never ask the human to press Play)
-1. `list_roblox_studios` → `studio_id`. Use your **local** place (`Forge.rbxlx`). A name with
-   `placeId` is the shared published place (Firefighter Mubit). Only playtest or read there; never
-   push files except `forge sync` from `main`.
+1. `list_roblox_studios` → `studio_id`. Pick by id; the name is just a label. A local file shows as
+   `Forge.rbxlx`. A name with `placeId` is the **shared** published place (Firefighter Mubit, Team
+   Create), which may hold teammates' live work. In the shared place, only playtest or read, and
+   push only with `forge sync` from `main`.
 2. `start_stop_play {is_start: true}`. Then poll `get_studio_state` until `Server` is listed.
 3. Wait a few seconds, then read **the ForgeProbe report** with `execute_luau` (datamodel `Server`):
    `return game:GetService("ServerStorage").ForgeProbe:Invoke("report")`. It returns JSON with
@@ -52,6 +53,9 @@ the output of `python3 game/tools/sync.py pull` after starting `sync.py serve --
 | Change didn't show up | `forge watch` printed ✗ (syntax error), or a playtest was running (the change is queued until Stop). |
 | `forge watch` refuses: "published (Team Create) place" | You picked the shared place. Open your local one: `forge place --open`, then `--studio Forge`. |
 | Second start/stop fails | A known Studio bug. Retry once and check `get_studio_state`. |
+| A new file didn't arrive with a manual `sync.py pull` | The manifest was stale. Use `forge sync`, or run `sync.py manifest --root game` first. |
+| A deleted file is still in Studio | A no-prune sync never deletes. In your local place `forge watch` prunes. In the shared place, delete just that instance with `execute_luau` (Edit). |
+| Errors about sound or asset permissions in the report | The place uses assets it isn't allowed to load. They're unrelated to your change, so ignore them unless you added that asset. |
 | Counters missing from the report | Call `require(game.ReplicatedStorage.ForgeTelemetry).count("name", 1)` on the server. |
 
 ## Luau rules
