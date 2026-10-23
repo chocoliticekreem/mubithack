@@ -28,4 +28,43 @@ Spec.test("grip opposes sliding", function()
 	Spec.eq(D.grip(10, 2), -20)
 end)
 
+Spec.test("body leans out of the turn, scaled by speed", function()
+	Spec.eq(D.rollTarget(1, 0, 70, 0.2), 0)
+	Spec.near(D.rollTarget(1, 70, 70, 0.2), -0.2)
+	Spec.near(D.rollTarget(-1, 35, 70, 0.2), 0.1)
+end)
+
+Spec.test("wheelie only on the throttle press from low speed", function()
+	Spec.near(D.wheelie(1, 0, 0, 70, 1.6), 1.6)
+	Spec.eq(D.wheelie(1, 1, 0, 70, 1.6), 0) -- held, not pressed
+	Spec.eq(D.wheelie(1, 0, 40, 70, 1.6), 0) -- already fast
+	Spec.eq(D.wheelie(-1, 0, 0, 70, 1.6), 0)
+end)
+
+Spec.test("bumps kick the nose up above the threshold", function()
+	Spec.eq(D.bump(5, 9, 0.05), 0)
+	Spec.near(D.bump(29, 9, 0.05), 1)
+end)
+
+Spec.test("landing squash needs air time and impact speed, then the spring recovers", function()
+	Spec.eq(D.squash(0.1, 80), 0)
+	Spec.eq(D.squash(1, 5), 0)
+	Spec.near(D.squash(1, 57), 1)
+	Spec.near(D.squashSpring(0, 0.3, 0.5), 0.5)
+	Spec.eq(D.squashSpring(0.3, 0.3, 0.5), 1)
+	Spec.truthy(D.squashSpring(0.15, 0.3, 0.5) < 1)
+end)
+
+Spec.test("siren pitch climbs with speed and wails", function()
+	Spec.near(D.sirenPitch(0, 70, 0, 0.5, 0.85, 0.35, 0.1), 0.85)
+	Spec.near(D.sirenPitch(70, 70, 0, 0.5, 0.85, 0.35, 0.1), 1.2)
+	Spec.near(D.sirenPitch(0, 70, 0.5, 0.5, 0.85, 0.35, 0.1), 0.95) -- quarter wail = peak
+end)
+
+Spec.test("chase FOV widens with speed", function()
+	Spec.eq(D.fov(0, 70, 72, 20), 72)
+	Spec.eq(D.fov(140, 70, 72, 20), 92)
+	Spec.truthy(D.fov(35, 70, 72, 20) < 82)
+end)
+
 return Spec.finish()
