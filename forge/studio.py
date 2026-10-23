@@ -11,6 +11,8 @@ documented, so the parsers below are defensive (JSON when possible, plain text o
 
 from __future__ import annotations
 
+import asyncio
+
 import base64
 import json
 import re
@@ -36,6 +38,10 @@ POLL_INTERVAL = 1.0
 DATAMODELS = ("Edit", "Server", "Client")
 
 PROBE_CODE = 'return game:GetService("ServerStorage"):WaitForChild("ForgeProbe", 5):Invoke("report")'
+
+
+SELECT_RETRIES = 5
+SELECT_RETRY_SECONDS = 1.5
 
 
 class StudioError(RuntimeError):
@@ -290,6 +296,11 @@ class Studio:
 
     async def select(self, name_hint: str | None = None) -> str:
         studios = await self.list_studios()
+        for _ in range(SELECT_RETRIES):  # the first list after StudioMCP starts is often empty
+            if studios:
+                break
+            await asyncio.sleep(SELECT_RETRY_SECONDS)
+            studios = await self.list_studios()
         if not studios:
             raise StudioError(f"No Roblox Studio is connected to MCP. {OPEN_STUDIO_HINT}")
         chosen = studios[0]
