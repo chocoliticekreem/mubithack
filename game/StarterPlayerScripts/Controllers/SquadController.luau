@@ -4,7 +4,8 @@
 --     PupilWeld, local only) and dizzy stars circling over the head (local parts under the camera).
 --   - Local player Downed: small bleed-out banner (attr DownedUntil) and your own Revive/Slap prompts
 --     hidden (you can't revive yourself).
---   - Lobby emotes on number keys: 1 wave, 2 facepalm, 3 blame-point at the teammate you look at.
+--   - Lobby emotes on Z wave, X facepalm, C blame-point at the teammate you look at (1 / 2 belong to
+--     the inventory swap).
 --     Sends Squad/Emote; poses arms locally on every client from Squad/Fx.
 --   - Squad/Fx pops: "SLAP!", "BONK", oxygen hiss puff, emote speech bubbles, camera shake.
 -- Reads: Player attrs Downed, DownedUntil, InstanceId, Helmet; Workspace attr RoundState;
@@ -40,9 +41,9 @@ local hintLabel: TextLabel? = nil
 local lastEmote = 0
 
 local EMOTE_KEYS: { [Enum.KeyCode]: string } = {
-	[Enum.KeyCode.One] = "wave",
-	[Enum.KeyCode.Two] = "facepalm",
-	[Enum.KeyCode.Three] = "blame",
+	[Enum.KeyCode.Z] = "wave",
+	[Enum.KeyCode.X] = "facepalm",
+	[Enum.KeyCode.C] = "blame",
 }
 
 -- Same rules as Lib/Squad/SquadRules (server-only folder), inlined for the client.
@@ -371,15 +372,15 @@ local function makeGui()
 	local hint = Instance.new("TextLabel")
 	hint.Name = "EmoteHint"
 	hint.AnchorPoint = Vector2.new(0, 1)
-	hint.Position = UDim2.new(0, 16, 1, -16)
-	hint.Size = UDim2.fromOffset(300, 28)
+	hint.Position = UDim2.new(0, 16, 1, -60) -- above OnboardingController's [H] HELP chip (bottom left)
+	hint.Size = UDim2.fromOffset(260, 22)
 	hint.BackgroundTransparency = 1
 	hint.Font = Enum.Font.GothamBold
 	hint.TextScaled = true
 	hint.TextXAlignment = Enum.TextXAlignment.Left
 	hint.TextColor3 = Palette.UiCream
 	hint.TextStrokeTransparency = 0.4
-	hint.Text = "[1] Wave   [2] Facepalm   [3] Blame!"
+	hint.Text = "[Z] Wave   [X] Facepalm   [C] Blame!"
 	hint.Visible = false
 	hint.Parent = sg
 
@@ -400,6 +401,7 @@ local function stepUi()
 	if hintLabel then
 		hintLabel.Visible = inLobby() and LocalPlayer:GetAttribute(Names.Attr.Downed) ~= true
 			and LocalPlayer:GetAttribute("HelpOpen") ~= false -- OnboardingController: emotes live in Help (H)
+			and UserInputService.KeyboardEnabled -- key hints mean nothing on a touch-only phone
 	end
 end
 

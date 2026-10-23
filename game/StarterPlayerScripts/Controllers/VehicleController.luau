@@ -291,10 +291,36 @@ local function camStep(dt: number)
 	camPos = cur
 	camDip = math.max(0, camDip - dt * 5)
 
-	-- don't let buildings swallow the camera
+	-- don't let buildings swallow the camera: sweep a small sphere from the look target back to the
+	-- camera and stop in front of the first thing it touches (a thin ray slipped past wall edges and
+	-- the near plane still clipped into the bay's back wall). While obstructed the spring position is
+	-- pulled in too, so the camera eases back out instead of starting inside the wall.
+	local final = cur
 	local dir = cur - target
-	local hit = workspace:Raycast(target, dir, rayParams(truck))
-	local final = if hit then hit.Position + hit.Normal * 1.2 else cur
+	local dist = dir.Magnitude
+	if dist > 0.5 then
+		local unit = dir / dist
+		local params = rayParams(truck)
+		local radius = tonumber((VehicleConfig :: any).CamCollideRadius) or 1.5
+		local hit: RaycastResult? = nil
+		for _ = 1, 4 do
+			local ok, res = pcall(workspace.Spherecast, workspace, target, radius, dir, params)
+			hit = if ok then res else workspace:Raycast(target, dir, params)
+			local inst = hit and hit.Instance
+			-- see-through / walk-through things (trigger zones, glass, smoke, neon rings) don't block
+			if inst and inst:IsA("BasePart") and (not inst.CanCollide or inst.Transparency > 0.6) then
+				params:AddToFilter(inst)
+				hit = nil
+			else
+				break
+			end
+		end
+		if hit then
+			local safe = math.max(2, hit.Distance - 0.4)
+			final = target + unit * safe
+			camPos = final
+		end
+	end
 	cam.CFrame = CFrame.lookAt(final, target)
 	local wantFov = TruckDrive.fov(speed, VehicleConfig.MaxSpeed, VehicleConfig.FovBase, VehicleConfig.FovAdd)
 	cam.FieldOfView += (wantFov - cam.FieldOfView) * math.min(1, dt * 4)
@@ -630,7 +656,29 @@ local function makeRespawnButton()
 	hint.TextColor3 = Color3.fromRGB(255, 244, 196)
 	hint.Font = Enum.Font.GothamBold
 	hint.TextScaled = true
+	hint.TextWrapped = true
 	hint.Visible = false
+	local maxText = Instance.new("UITextSizeConstraint")
+	maxText.MaxTextSize = 22
+	maxText.Parent = hint
+	-- Fit between the screen's left edge and HudController's bottom-right water tank + heat gauge
+	-- (~170 px at UIScale 1); wrap to two lines on narrow / phone screens instead of running under them.
+	local function layoutHints()
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		local vp = cam.ViewportSize
+		local s = math.clamp(math.min(vp.X / 1280, vp.Y / 720), 0.55, 1.4)
+		local reserve = 172 * s + 10
+		local w = math.max(200, math.min(math.floor(640 * math.max(s, 0.8)), math.floor(vp.X - 2 * reserve)))
+		local h = if w < 460 then math.floor(48 * math.max(s, 0.8)) else math.floor(34 * math.max(s, 0.8))
+		hint.Size = UDim2.fromOffset(w, h)
+	end
+	layoutHints()
+	if workspace.CurrentCamera then
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(layoutHints)
+	end
 	local hc = Instance.new("UICorner")
 	hc.CornerRadius = UDim.new(0, 10)
 	hc.Parent = hint

@@ -16,6 +16,7 @@
 --                                                          Lib/PopupLogic). Important events only; minor juice is
 --                                                          world text above heads (ClientLib/WorldPopup, started here).
 local CollectionService = game:GetService("CollectionService")
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -340,8 +341,9 @@ local function build(): Ui
 	local banner = Instance.new("Frame")
 	banner.Name = "AlarmBanner"
 	banner.AnchorPoint = Vector2.new(0.5, 0)
-	banner.Position = UDim2.new(0.5, 0, 0, -140)
+	banner.Position = UDim2.new(0.5, 0, 0, -220)
 	banner.Size = UDim2.new(1.2, 0, 0, 84)
+	banner.Visible = false -- parked off-screen it still peeked under the top bar (rotation + safe inset)
 	banner.Rotation = -2
 	banner.BackgroundColor3 = Palette.UiRed
 	banner.BorderSizePixel = 0
@@ -502,12 +504,16 @@ local function toast(text: string, kind: string)
 	end)
 end
 
+local bannerShows = 0
 local function showBanner(locationName: string)
 	local u = ui
 	if not u then
 		return
 	end
 	u.bannerText.Text = `ALARM! FIRE AT {string.upper(locationName)}!`
+	bannerShows += 1
+	local mine = bannerShows
+	u.banner.Visible = true
 	UiKit.tween(u.banner, 0.35, { Position = UDim2.new(0.5, 0, 0, 90) }, Enum.EasingStyle.Back)
 	task.spawn(function()
 		for i = 1, 6 do
@@ -516,7 +522,12 @@ local function showBanner(locationName: string)
 		end
 	end)
 	task.delay(3, function()
-		UiKit.tween(u.banner, 0.3, { Position = UDim2.new(0.5, 0, 0, -140) })
+		UiKit.tween(u.banner, 0.3, { Position = UDim2.new(0.5, 0, 0, -220) })
+		task.delay(0.35, function()
+			if bannerShows == mine then
+				u.banner.Visible = false
+			end
+		end)
 	end)
 end
 
@@ -678,7 +689,9 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	m.dist.Text = `{metres}m`
 	m.root.Visible = metres > 3
 	local margin = 40
-	if onScreen and v.X > margin and v.X < vp.X - margin and v.Y > margin and v.Y < vp.Y - margin then
+	-- keep markers out from under the Roblox top bar (HudMarkers is full-bleed: y = 0 is the screen top)
+	local topClear = GuiService:GetGuiInset().Y + 28
+	if onScreen and v.X > margin and v.X < vp.X - margin and v.Y > topClear and v.Y < vp.Y - margin then
 		m.root.Position = UDim2.fromOffset(v.X, v.Y)
 		m.tip.Rotation = 90 -- point down at the target
 		return
@@ -691,7 +704,7 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	if math.abs(dx) < 1e-3 and math.abs(dy) < 1e-3 then
 		dy = 1
 	end
-	local rx, ry = vp.X * 0.44, vp.Y * 0.40
+	local rx, ry = vp.X * 0.44, math.min(vp.Y * 0.40, vp.Y / 2 - topClear)
 	local k = 1 / math.sqrt((dx / rx) ^ 2 + (dy / ry) ^ 2)
 	m.root.Position = UDim2.fromOffset(cx + dx * k, cy + dy * k)
 	m.tip.Rotation = math.deg(math.atan2(dy, dx))

@@ -80,31 +80,42 @@ local function build()
 	local g = Instance.new("ScreenGui")
 	g.Name = "ProfileHud"
 	g.ResetOnSpawn = false
-	g.IgnoreGuiInset = true
+	-- respect the Roblox top bar / core UI (y = 0 is just under it)
+	g.IgnoreGuiInset = false
+	g.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 	g.DisplayOrder = 5
 
 	local scale = Instance.new("UIScale")
 	scale.Parent = g
+	local levelPanel: Frame? = nil
 	local function rescale()
 		local cam = Workspace.CurrentCamera
 		if cam then
-			scale.Scale = math.max(0.6, math.min(cam.ViewportSize.X / 1280, cam.ViewportSize.Y / 720))
+			local s = math.max(0.6, math.min(cam.ViewportSize.X / 1280, cam.ViewportSize.Y / 720))
+			scale.Scale = s
+			-- narrow windows (the 0.6 floor kicks in): the centred objective card (520 px, top) would run
+			-- into this panel, so drop it below the card instead
+			if levelPanel then
+				local narrow = cam.ViewportSize.X < (1128 * s + 16)
+				levelPanel.Position = if narrow then UDim2.fromOffset(16, 100) else UDim2.fromOffset(16, 42)
+			end
 		end
 	end
-	rescale()
 	if Workspace.CurrentCamera then
 		(Workspace.CurrentCamera :: Camera):GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	end
 
 	local p = Instance.new("Frame")
 	p.Name = "LevelPanel"
-	p.Position = UDim2.fromOffset(16, 100) -- clear of the Roblox top bar + HUD band
+	p.Position = UDim2.fromOffset(16, 42) -- under the Roblox top bar (safe-inset gui) + clear of the HUD band
 	p.Size = UDim2.fromOffset(280, 64)
 	p.BackgroundColor3 = Palette.UiCream
 	p.Visible = false
 	p.Parent = g
 	corner(p, 12)
 	stroke(p, 3)
+	levelPanel = p
+	rescale()
 
 	local badge = Instance.new("Frame")
 	badge.Name = "Badge"
