@@ -148,10 +148,63 @@ local function gantries(ctx: any, parent: Instance)
 	m.Parent = parent
 end
 
+-- Roadside billboards in the four outer corners beyond the highway, angled at the bend.
+local BILLBOARDS = {
+	{ "WELCOME TO BLAZEVILLE", "POP. 67 (AND FALLING)", "#C8232B" },
+	{ "MEGA DONUT", "NEXT EXIT. PROBABLY.", "#E76F51" },
+	{ "FIRE STATION 67", "WE'LL BE RIGHT THERE*  *eventually", "#3D5A80" },
+	{ "DRIVE SAFE", "OR DON'T. WE HAVE TRUCKS.", "#2A9D8F" },
+}
+
+local function billboards(ctx: any, parent: Instance)
+	local cfg = ctx.cfg
+	local lines = ctx.plan.lines
+	local hw = cfg.HighwayWidth / 2
+	local y0 = cfg.GroundY
+	local m = Instance.new("Model")
+	m.Name = "Billboards"
+	local k = 0
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			k += 1
+			local info = BILLBOARDS[k]
+			local gx, gz = (if sx < 0 then lines[1] else lines[#lines]), (if sz < 0 then lines[1] else lines[#lines])
+			local off = hw + 50
+			local p = V(gx + sx * off, 0, gz + sz * off)
+			-- face the corner of the highway (diagonally inward)
+			local cf = CFrame.lookAt(V(p.X, y0, p.Z), V(gx, y0, gz))
+			for _, s in { -1, 1 } do
+				SK.part(m, "BillboardLeg", cf * CF(s * 14, 13, 1), V(1.4, 26, 1.4), C.MetalDark)
+			end
+			local board = SK.part(m, "Billboard", cf * CF(0, 26, 0), V(40, 14, 1), Color3.fromHex(info[3]))
+			local gui = Instance.new("SurfaceGui")
+			gui.Face = Enum.NormalId.Front
+			gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+			gui.PixelsPerStud = 12
+			gui.MaxDistance = 900
+			gui.LightInfluence = 0.3
+			for i, text in { info[1], info[2] } do
+				local t = Instance.new("TextLabel")
+				t.Size = UDim2.fromScale(0.92, if i == 1 then 0.5 else 0.3)
+				t.Position = UDim2.fromScale(0.04, if i == 1 then 0.08 else 0.62)
+				t.BackgroundTransparency = 1
+				t.TextScaled = true
+				t.Font = Enum.Font.FredokaOne
+				t.TextColor3 = C.Trim
+				t.Text = text
+				t.Parent = gui
+			end
+			gui.Parent = board
+			SK.part(m, "BillboardTrim", cf * CF(0, 33.4, 0), V(41, 0.8, 1.4), C.Trim, { neon = true, collide = false, cast = false })
+		end
+	end
+	m.Parent = parent
+end
+
 function Highway.build(ctx: any, parent: Instance): Model
 	local m = Instance.new("Model")
 	m.Name = "Highway67"
-	for _, step in { tunnel, gantries } do
+	for _, step in { tunnel, gantries, billboards } do
 		local ok, err = pcall(step, ctx, m)
 		if not ok then
 			warn(`[Highway] {err}`)
