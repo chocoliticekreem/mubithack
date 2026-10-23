@@ -1060,6 +1060,12 @@ local function hookReel(inst: Instance)
 	end
 	promptHooked[p] = true
 	p.ActionText = "Grab Hose"
+	-- same chunky "[E] Grab Hose" sticker as the lockers (InventoryController), instant, and reachable
+	-- standing on the ground behind the tailgate (the reel sits ~7.5 studs in from the rear)
+	p.Style = Enum.ProximityPromptStyle.Custom
+	p:SetAttribute(ATTR_PROMPT, true)
+	p.HoldDuration = 0
+	p.MaxActivationDistance = math.max(p.MaxActivationDistance, 12)
 	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Stow Hose / Refill Foam)
 	p.Triggered:Connect(function(player: Player)
 		onReel(player, reel)
