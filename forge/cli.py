@@ -205,6 +205,18 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_archive(args) -> int:
+    from forge.archive import archive
+    s = load_settings()
+    slugs = args.slugs or [g for g in RunStore.list_games(s) if (s.runs_dir / g / "improve").exists()]
+    out = Path(args.out) if args.out else s.repo_root / "evidence"
+    for g in archive(s, slugs, out):
+        print(f"{g['slug']}: {g['versions']} versions, {len(g['cycles'])} cycles, {g['playtests']} playtests, "
+              f"{g['calls']} Mubit calls, {g['traces']} traces")
+    print(f"-> {out} (commit it on a branch to keep it)")
+    return 0
+
+
 def cmd_place(args) -> int:
     import subprocess
     s = load_settings()
@@ -551,6 +563,10 @@ def build_parser() -> argparse.ArgumentParser:
     db.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to share on your network")
     db.add_argument("--open", action="store_true", help="open it in the browser")
 
+    ar = sub.add_parser("archive", help="copy the record of a game's improvement (cycles, traces, versions) to evidence/")
+    ar.add_argument("slugs", nargs="*", help="games (default: every game with improve cycles)")
+    ar.add_argument("--out", help="folder (default evidence/ in the repo)")
+
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
     ve.add_argument("slug")
 
@@ -585,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
