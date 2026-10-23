@@ -845,12 +845,73 @@ function Scenery.field(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	SK.wedge(parent, "Bleachers", c * CF(maxW / 2 - 6, 4, 0) * ANG(0, math.rad(90), 0), V(60, 8, 8), Color3.fromHex("#3D5A80"))
 end
 
+local function pine(parent: Instance, cf: CFrame, rng: Random, scale: number?)
+	local sc = (scale or 1) * rng:NextNumber(0.8, 1.4)
+	local m = Instance.new("Model")
+	m.Name = "Pine"
+	SK.cyl(m, "Trunk", cf * CF(0, 2 * sc, 0), 4 * sc, 1.2 * sc, C.Trunk)
+	local green = pick(rng, { Color3.fromHex("#2F5D34"), Color3.fromHex("#3B6B3A"), Color3.fromHex("#294F2E") })
+	for t = 0, 1 do
+		local w = (8 - t * 3.4) * sc
+		SK.part(m, "Tier", cf * CF(0, (5 + t * 4.4) * sc, 0) * ANG(0, math.rad(45 * t), 0), V(w, 4.4 * sc, w), green)
+	end
+	m.Parent = parent
+end
+BlockFiller.pine = pine
+
+function Scenery.woods(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local n = math.clamp(math.floor(maxW * maxD / 900), 3, 9)
+	for _ = 1, n do
+		pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 4, maxW / 2 - 4), GY, rng:NextNumber(4, math.max(5, maxD - 4))), rng)
+	end
+end
+
+function Scenery.grove(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	for _ = 1, 3 do
+		BlockFiller.tree(parent, F * CF(rng:NextNumber(-maxW / 2 + 6, maxW / 2 - 6), GY, rng:NextNumber(8, math.max(9, maxD - 6))), rng, 1.2)
+	end
+	bench(parent, F * CF(0, GY, 4) * FLIP)
+end
+
+function Scenery.farmland(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local crop = pick(rng, { Color3.fromHex("#E2C35A"), Color3.fromHex("#8DBE52"), Color3.fromHex("#D98B3A") })
+	local rows = math.max(2, math.floor(maxW / 9))
+	for k = 1, rows do
+		local x = -maxW / 2 + (k - 0.5) * maxW / rows
+		SK.part(parent, "CropRow", F * CF(x, GY + 1, maxD / 2), V(3.5, 2, maxD - 6), crop, { material = Enum.Material.Grass })
+	end
+	if rng:NextNumber() < 0.3 then
+		SK.part(parent, "HayBale", F * CF(maxW * 0.3, GY + 1.6, 3), V(5, 3.2, 3.2), Color3.fromHex("#D9B44A"))
+	end
+end
+
+function Scenery.barn(_ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local w, d = math.min(maxW - 6, 30), math.min(maxD - 6, 34)
+	local m = Instance.new("Model")
+	m.Name = "Barn"
+	local red = Color3.fromHex("#A8322A")
+	SK.part(m, "Body", F * CF(0, GY + 8, d / 2), V(w, 16, d), red)
+	SK.wedge(m, "Roof1", F * CF(-w / 4, GY + 20, d / 2) * ANG(0, math.rad(90), 0), V(d + 1, 8, w / 2 + 1), C.RoofSlate)
+	SK.wedge(m, "Roof2", F * CF(w / 4, GY + 20, d / 2) * ANG(0, math.rad(-90), 0), V(d + 1, 8, w / 2 + 1), C.RoofSlate)
+	SK.part(m, "Door", F * CF(0, GY + 6, -0.2), V(10, 12, 0.4), C.Trim)
+	m.Parent = parent
+end
+
 ---------------------------------------------------------------------------------------------------
 -- block assembly
 ---------------------------------------------------------------------------------------------------
+local FACE_YAW = { N = 0, S = math.pi, E = -math.pi / 2, W = math.pi / 2 }
+
+-- Lot frame: lot centre on the ground, -Z toward the lot's street (face N/S/E/W).
+function BlockFiller.lotFrame(x: number, z: number, face: string): CFrame
+	return CF(x, 0, z) * ANG(0, FACE_YAW[face] or 0, 0)
+end
+
 local function lotFrame(block: any, lot: any): CFrame
-	local cf = CF(block.x + lot.x, 0, block.z + lot.z)
-	return if lot.face == "S" then cf * FLIP else cf
+	return BlockFiller.lotFrame(block.x + lot.x, block.z + lot.z, lot.face)
 end
 
 -- Builds the incident site for one lot (apron, truck spot, arrival zone, hydrant, building).
@@ -882,10 +943,24 @@ function BlockFiller.buildSiteLot(ctx: any, parent: Instance, site: any, lf: CFr
 	return model
 end
 
+local function scenery(ctx: any, parent: Instance, lot: any, lf: CFrame, whole: boolean)
+	local fn = Scenery[lot.kind]
+	if not fn then
+		return
+	end
+	local setback = if lot.kind == "house" then 14 elseif lot.kind == "tower" then 8 else 4
+	local F = lf * CF(0, 0, -lot.d / 2 + setback)
+	local ok, err = pcall(fn, ctx, parent, F, lot.w - 6, lot.d - setback - (if whole then 4 else 6))
+	if not ok then
+		warn(`[BlockFiller] {lot.kind} failed: {err}`)
+	end
+end
+
+-- One square block (a procedural core sub-block, or the whole zoo core): kerb ring + lots.
 function BlockFiller.fillBlock(ctx: any, parent: Instance, block: any): Model
 	local cfg = ctx.cfg
 	local m = Instance.new("Model")
-	m.Name = `Block_{block.bx}{block.bz}`
+	m.Name = `Block_{block.id}`
 	m:SetAttribute("Theme", block.theme)
 	m:SetAttribute("District", block.district)
 	-- curb cuts in front of every site apron
@@ -894,29 +969,107 @@ function BlockFiller.fillBlock(ctx: any, parent: Instance, block: any): Model
 		if lot.site then
 			table.insert(gaps, {
 				side = lot.face,
-				at = lot.x,
+				at = if lot.face == "N" or lot.face == "S" then lot.x else lot.z,
 				w = math.min(lot.w - 6, 48),
 				cut = "drive",
 			})
 		end
 	end
-	BlockFiller.base(m, cfg, block.x, block.z, cfg.BlockSize / 2, gaps, true)
+	BlockFiller.base(m, cfg, block.x, block.z, block.size / 2, gaps, true)
 	for _, lot in block.lots do
 		local lf = lotFrame(block, lot)
-		local site = ctx.siteFor(block, lot)
+		local site = ctx.siteFor(lot)
 		if lot.site and site then
 			BlockFiller.buildSiteLot(ctx, m, site, lf, lot)
 		else
-			local fn = Scenery[lot.kind]
-			if fn then
-				local setback = if lot.kind == "house" then 14 elseif lot.kind == "tower" then 8 else 4
-				local whole = lot.d > cfg.BlockSize / 2
-				local F = lf * CF(0, 0, -lot.d / 2 + setback)
-				local ok, err = pcall(fn, ctx, m, F, lot.w - 6, lot.d - setback - (if whole then 4 else 6))
-				if not ok then
-					warn(`[BlockFiller] {lot.kind} failed: {err}`)
-				end
+			scenery(ctx, m, lot, lf, lot.d > block.size / 2)
+		end
+	end
+	m.Parent = parent
+	return m
+end
+
+local BAND_GROUND = {
+	suburb = { Color3.fromHex("#7FAF4A"), Enum.Material.Grass },
+	downtown = { Color3.fromHex("#CFC6B8"), Enum.Material.SmoothPlastic },
+	industrial = { Color3.fromHex("#9A968E"), Enum.Material.Concrete },
+	farmland = { Color3.fromHex("#C9B66B"), Enum.Material.Ground },
+	woods = { Color3.fromHex("#4F7A3A"), Enum.Material.Grass },
+	park = { Color3.fromHex("#6FA84A"), Enum.Material.Grass },
+}
+BlockFiller.BandGround = BAND_GROUND
+
+-- The neighbourhood round one district's loop: themed ground, the loop's outer sidewalk (curb cuts at
+-- site aprons, gaps at the gates) and every band lot. gateHalf: half width of the gate gaps.
+function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any }, gateHalf: number): Model
+	local cfg = ctx.cfg
+	local m = Instance.new("Model")
+	m.Name = `{d.id}_Band`
+	local cx, cz = d.x, d.z
+	local outer = cfg.LoopOffset + cfg.StreetWidth / 2 -- loop's outer edge
+	local inner = outer + cfg.SidewalkWidth -- band ground starts here
+	local H = cfg.DistrictHalf
+	local look = BAND_GROUND[d.band] or BAND_GROUND.park
+	local function slab(x0: number, z0: number, x1: number, z1: number, top: number, color: Color3, mat: Enum.Material?, name: string)
+		if x1 - x0 < 0.1 or z1 - z0 < 0.1 then
+			return
+		end
+		SK.part(m, name, CF(cx + (x0 + x1) / 2, (top - 0.1) / 2, cz + (z0 + z1) / 2), V(x1 - x0, top + 0.1, z1 - z0), color, { material = mat })
+	end
+	-- ground: N/S strips span the corners, W/E strips between them; split at the gates
+	for _, sgn in { -1, 1 } do
+		local z0, z1 = if sgn < 0 then -H else inner, if sgn < 0 then -inner else H
+		slab(-H, z0, -gateHalf, z1, GY, look[1], look[2], "BandGround")
+		slab(gateHalf, z0, H, z1, GY, look[1], look[2], "BandGround")
+		local x0, x1 = if sgn < 0 then -H else inner, if sgn < 0 then -inner else H
+		slab(x0, -inner, x1, -gateHalf, GY, look[1], look[2], "BandGround")
+		slab(x0, gateHalf, x1, inner, GY, look[1], look[2], "BandGround")
+	end
+	-- sidewalk round the loop's outer edge with gaps: gates + curb cuts
+	local cuts: { [string]: { any } } = { N = {}, S = {}, W = {}, E = {} }
+	local sideOf = { S = "N", N = "S", E = "W", W = "E" } -- a lot facing S sits on the loop's north side
+	for _, lot in lots do
+		if lot.site then
+			local side = sideOf[lot.face]
+			local at = if side == "N" or side == "S" then lot.x - cx else lot.z - cz
+			table.insert(cuts[side], { at = at, w = math.min(lot.w - 6, 48) })
+		end
+	end
+	local sy, ry = cfg.SidewalkY, cfg.RoadY
+	for side, list in cuts do
+		table.insert(list, { at = 0, w = 2 * gateHalf, gate = true })
+		table.sort(list, function(a, b)
+			return a.at < b.at
+		end)
+		local horizontal = side == "N" or side == "S"
+		local sgn = if side == "N" or side == "W" then -1 else 1
+		local fixedA, fixedB = sgn * outer, sgn * inner
+		local f0, f1 = math.min(fixedA, fixedB), math.max(fixedA, fixedB)
+		local function seg(a: number, b: number, top: number, color: Color3, name: string)
+			if horizontal then
+				slab(a, f0, b, f1, top, color, nil, name)
+			else
+				slab(f0, a, f1, b, top, color, nil, name)
 			end
+		end
+		local cursor = -inner
+		for _, c in list do
+			local a, b = c.at - c.w / 2, c.at + c.w / 2
+			seg(cursor, a, sy, C.Sidewalk, "Sidewalk")
+			if not c.gate then
+				seg(a, b, ry + 0.15, C.Concrete, "CurbCut")
+			end
+			cursor = b
+		end
+		seg(cursor, inner, sy, C.Sidewalk, "Sidewalk")
+	end
+	for _, lot in lots do
+		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
+		local site = ctx.siteFor(lot)
+		if lot.site and site then
+			BlockFiller.buildSiteLot(ctx, m, site, lf, lot)
+		else
+			scenery(ctx, m, lot, lf, false)
 		end
 	end
 	m.Parent = parent

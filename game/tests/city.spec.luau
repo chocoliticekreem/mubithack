@@ -22,10 +22,10 @@ local cfg = {
 	SpurWidth = 32,
 	SidewalkWidth = 6,
 	ApronDepth = 36,
-	RiverWidth = 40,
+	RiverWidth = 24,
 	RiverInset = 80,
-	SpillwayOffset = 60,
-	StationDriveway = { x = 0, z = 130 },
+	DamRiverZ = 168,
+	StationDriveway = { x = 20, z = 175 },
 	SitesPerSuburbBlock = 2,
 	KindMissions = {
 		house = { "house_fire" },
@@ -41,7 +41,7 @@ local cfg = {
 	DistrictExtraMissions = { Farm = { "tornado_field" } },
 }
 
-local ON_MAIN = { Town = true, Farm = true, Forest = true }
+local ON_MAIN = { Town = true, Farm = true, Forest = true, Apartment = true, School = true, Storage = true, Zoo = true, Dam = true }
 
 local function segDist(px: number, pz: number, a: any, b: any): number
 	local dx, dz = b.x - a.x, b.z - a.z
@@ -137,7 +137,10 @@ end)
 
 Spec.test("builder districts: no cross streets inside, their roads join the loop", function()
 	Spec.eq(g.nodes["Town_C"], nil, "Town core is the builder's")
-	Spec.truthy(g.nodes["Apartment_C"], "Apartment core is procedural")
+	Spec.eq(g.nodes["Apartment_C"], nil, "Apartment core is the builder's")
+	-- the dam chain: over its river, along the riverside road, up the ramp to the pull-out
+	Spec.truthy(g.nodes["Dam_Ch3"], "dam plateau node")
+	Spec.truthy(RoadGraph.shortestPath(g, "Station", "Dam_Ch3"), "route up the dam")
 	local inn = g.nodes["Town_W1in"]
 	Spec.truthy(inn, "Town west entry")
 	Spec.eq(inn.x, -216)
@@ -163,8 +166,8 @@ Spec.test("sites: unique ids, attributes, every mission has a site", function()
 	for _, m in Catalog do
 		Spec.truthy((cover[m.id] or 0) > 0, `no site for {m.id}`)
 	end
-	Spec.truthy((cover.house_fire or 0) >= 15, "plenty of house fires")
-	Spec.truthy(seen.Town and seen.Farm and seen.Forest and seen.dam, "district sites")
+	Spec.truthy((cover.house_fire or 0) >= 10, "plenty of house fires")
+	Spec.truthy(seen.Town and seen.Farm and seen.Forest and seen.Dam and seen.Zoo, "district sites")
 end)
 
 Spec.test("truck spots: on the site's apron, beside a road; buildings off the roads", function()
@@ -205,7 +208,7 @@ Spec.test("band lots stay off the loop street and inside the district", function
 end)
 
 Spec.test("creek: carved out of the ground; every road crossing it is a bridge", function()
-	Spec.truthy(#plan.river >= 3, "creek segments")
+	Spec.truthy(#plan.river >= 2, "creek segments")
 	Spec.truthy(#plan.bridges >= 5, `bridges {#plan.bridges}`)
 	local ground = Districts.subtractRects({ x0 = -1500, z0 = -1500, x1 = 1500, z1 = 1500 }, plan.river)
 	local area = 0
@@ -245,6 +248,11 @@ Spec.test("no builders: procedural cores everywhere, still connected", function(
 	local p2 = Districts.planCity(cfg, {}, Catalog, 1)
 	Spec.truthy(RoadGraph.connected(p2.graph))
 	Spec.truthy(#p2.blocks >= 6 * 4, `blocks {#p2.blocks}`)
+	local seen = {}
+	for _, s in p2.sites do
+		seen[s.kind] = true
+	end
+	Spec.truthy(seen.school and seen.storage and seen.apartment and seen.zoo and seen.dam, "procedural sites")
 end)
 
 Spec.test("deterministic for a seed", function()

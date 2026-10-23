@@ -96,13 +96,20 @@ Districts.Layout = {
 }
 
 -- How a reused builder's own roads meet the loop. Offsets from the district centre (builder frame =
--- world axes). entries: { side, offset } on the loop (W/E: offset along z, N/S: offset along x).
--- through: link the first two doors. inner: an extra node off door 1. truck: TruckSpot to add when the
--- builder has none ({ x, z, yawDeg }).
+-- world axes). entries: { side, offset } on the loop (W/E: offset along z, N/S: offset along x); each
+-- gets a "door" node at the core edge. through: link the first two doors. inner: an extra node off
+-- door 1. chain: nodes after door 1 ({ x, z, drawn? }; drawn = CityBuilder paves it). truck: TruckSpot
+-- to add when the builder has none ({ x, z, yawDeg }).
 Districts.Spurs = {
 	Town = { entries = { { "W", 56 }, { "E", 56 } }, through = true, inner = { 0, 56 }, truck = { 0, 60, 90 } },
+	Apartment = { entries = { { "W", 56 }, { "E", 56 } }, through = true, inner = { 0, 56 } },
+	School = { entries = { { "W", 56 }, { "E", 56 } }, through = true, inner = { 0, 56 } },
+	Storage = { entries = { { "W", 118 }, { "E", 118 } }, through = true, inner = { 0, 118 } },
+	Zoo = { entries = { { "W", 180 }, { "E", 180 } }, through = true, inner = { 0, 180 } },
 	Farm = { entries = { { "W", 70 }, { "E", 70 } }, through = true, inner = { 15, 70 } },
 	Forest = { entries = { { "W", 66 } }, inner = { 14, 42 } },
+	-- dam: over the river to the riverside road, east to the foot of the ramp, up to the plateau pull-out
+	Dam = { entries = { { "S", 0 } }, chain = { { 0, 152, true }, { 144, 152 }, { 170, -20 } } },
 }
 
 Districts.StreetNames = {
@@ -468,6 +475,17 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 				RoadGraph.addEdge(g, id, doors[1], own)
 				table.insert(candidates, id)
 			end
+			local chainEnd: string? = nil
+			if spur.chain then
+				local prev = doors[1]
+				for k, c in spur.chain do
+					local id = nid(`Ch{k}`)
+					RoadGraph.addNode(g, id, cx + c[1], cz + c[2])
+					RoadGraph.addEdge(g, prev, id, if c[3] then street else own)
+					prev = id
+				end
+				chainEnd = prev
+			end
 			local truck = nil
 			if spur.truck then
 				truck = { x = cx + spur.truck[1], z = cz + spur.truck[2], yaw = spur.truck[3] }
@@ -481,6 +499,7 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 					node, best = id, dd
 				end
 			end
+			node = chainEnd or node
 			table.insert(sites, {
 				siteId = p.builder :: string,
 				kind = "district",
@@ -536,9 +555,11 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 			RoadGraph.addNode(g, nid("Spill"), cx, cz + 40)
 			RoadGraph.addEdge(g, nid("S"), nid("Spill"), RoadGraph.roadInfo(cfg, "spur", p.road))
 		elseif p.core == "station" then
+			-- StationBuilder paves its own apron from the bays down to the loop's south side
 			local sd = cfg.StationDriveway
+			local kerb = RoadGraph.splitAtPoint(g, sd.x, cz + L, nid("Bays")) :: string
 			RoadGraph.addNode(g, "Station", sd.x, sd.z)
-			RoadGraph.addEdge(g, "Station", nid("S"), RoadGraph.roadInfo(cfg, "avenue", p.road))
+			RoadGraph.addEdge(g, "Station", kerb, RoadGraph.roadInfo(cfg, "builder", p.road))
 		end
 		-- the neighbourhood round the loop
 		for _, l in Districts.bandLots(p.band, r, cfg, d, gateInfo.width) do
@@ -590,17 +611,26 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 		end
 	end
 
-	-- 4. Mill Creek: out of the dam, along the east greenbelt, off the south edge
+	-- 4. Mill Creek: the dam's own river (DamRiverZ below the dam) leaves the dam core westward, then
+	-- runs down the east greenbelt to the south edge
 	local dam = byId.Dam
 	local rw = cfg.RiverWidth / 2
 	local rx = cell / 2 + cfg.RiverInset -- east greenbelt, between the avenue and the east districts
-	local turnZ = dam.z + cfg.DistrictHalf + 40
-	local sx = dam.x + cfg.SpillwayOffset -- the spillway, east of the dam road
+	local rz = dam.z + cfg.DamRiverZ
 	local river: { Rect } = {
-		{ x0 = sx - rw, z0 = dam.z - 50, x1 = sx + rw, z1 = turnZ + rw }, -- spillway, south through the hamlet
-		{ x0 = rx - rw, z0 = turnZ - rw, x1 = sx - rw, z1 = turnZ + rw }, -- west along the greenbelt
-		{ x0 = rx - rw, z0 = turnZ + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }, -- south to the edge
+		{ x0 = rx - rw, z0 = rz - rw, x1 = dam.x - cfg.CoreHalf + 2, z1 = rz + rw }, -- west out of the dam
+		{ x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }, -- south to the edge
 	}
+	-- no band lots in the water
+	for i = #bandLots, 1, -1 do
+		local l = bandLots[i].lot
+		for _, rv in river do
+			if l.x + l.w / 2 > rv.x0 and l.x - l.w / 2 < rv.x1 and l.z + l.d / 2 > rv.z0 and l.z - l.d / 2 < rv.z1 then
+				table.remove(bandLots, i)
+				break
+			end
+		end
+	end
 
 	RoadGraph.computeHalves(g)
 

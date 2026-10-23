@@ -13,8 +13,9 @@
 -- lots out to DistrictHalf, and a gate street from each loop side out to the road between cells
 -- (~230 studs of driving, welcome arch at the district edge). The hub's gates are 4-lane avenues
 -- radiating from the station. Mill Creek runs from the dam down the east greenbelt (bridges).
--- StationBuilder is built at StationOrigin, in the hub core, bay doors facing +Z (south) onto a
--- forecourt that runs down to the hub loop; keep the station inside x -150..150, z -190..60.
+-- StationBuilder is built at StationOrigin, in the hub core, bay doors facing +Z (south): its lot
+-- (local X -164..164, Z -164..68) fills the core and its street kerb (local Z 68) meets the hub loop's
+-- south side (world z 200). Node "Station" sits on its apron in front of the bays.
 -- WorldBoundsService reads Bounds for the world walls.
 --
 -- Pure numbers + a CFrame + a Vector3. game/tests/city.spec.luau mirrors the layout numbers it needs.
@@ -23,7 +24,7 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	-- v2 switch. true: MapService builds "City" (Slot 0) and skips the standalone builders it absorbs
 	-- (ReplacedLocations); Station is built at StationOrigin. false: the v1/v1.5 slot layout, untouched.
-	Enabled = false, -- DRAFT: flips to true once CityBuilder + MapService wiring land
+	Enabled = true,
 
 	CellSize = 900, -- 3 x 3 cells; road lines between them at -1350, -450, 450, 1350
 	DistrictHalf = 310, -- each neighbourhood is 620 x 620; 280 studs of greenbelt + road between two
@@ -47,14 +48,15 @@ return Config.define({
 	RoadY = 0.3, -- road surface top
 	SidewalkY = 0.7, -- sidewalk top
 	GroundY = -0.1, -- grass top between districts
-	RiverWidth = 40, -- Mill Creek
+	RiverWidth = 24, -- Mill Creek (continues DamBuilder's river)
 	RiverInset = 80, -- creek centre east of the x = 450 avenue
-	SpillwayOffset = 60, -- creek leaves the dam this far east of the dam road
+	DamRiverZ = 168, -- DamBuilder's river centre, local z (Z 160..176)
+	SpillwayOffset = 60, -- procedural dam only (no DamBuilder): spillway x offset
 	RiverDepth = 6,
 
 	-- Station (hub core)
-	StationOrigin = CFrame.new(0, 0, -40),
-	StationDriveway = { x = 0, z = 130 }, -- road-graph node "Station" (forecourt)
+	StationOrigin = CFrame.new(0, 0, 132), -- kerb (local Z 68) on the hub loop's inner edge, z = 200
+	StationDriveway = { x = 20, z = 175 }, -- road-graph node "Station" (apron in front of the bays)
 
 	-- Location builders the city absorbs as districts (built inside City, not on their own slot).
 	ReplacedLocations = { "Town", "Farm", "Forest", "School", "Storage", "Apartment", "Zoo", "Dam", "Field" },
@@ -84,8 +86,8 @@ return Config.define({
 	SitesPerSuburbBlock = 2, -- per core sub-block; the rest of the houses are cheap LOD shells
 
 	-- Street furniture
-	LampSpacing = 90, -- per road edge, alternating sides
-	TreeSpacing = 46, -- along roads (highway: x 2.5)
+	LampSpacing = 120, -- per road edge, alternating sides (highway: x 2)
+	TreeSpacing = 60, -- along roads (highway: x 2.5)
 	Crosswalks = true,
 	TrafficLights = true,
 	TrafficCycle = 7, -- seconds per green phase (amber 1.5 s at the end)
