@@ -302,6 +302,46 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- improve (docs/MUBIT_LOOP.md)
+
+async def _improve(args) -> None:
+    from forge.improve import ImproveStore, default_faults, load_faults, run_cycle
+    from forge.llm import make_llm
+    from forge.studio import Studio
+    from mubit_tester.ai import multi_playtest
+    from mubit_tester.harness import Harness
+
+    s = load_settings()
+    faults = default_faults(load_faults(args.slug, Path(args.faults_file) if args.faults_file else None),
+                            args.only.split(",") if args.only else None)
+    llm = make_llm(s, log_path=ImproveStore(s, args.slug).dir / "calls.jsonl")
+    async with Studio(s) as studio:
+        await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
+        harness = Harness(studio)
+        for _ in range(args.cycles):
+            await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=multi_playtest,
+                            faults=faults, goal=args.goal, rounds=args.rounds,
+                            players=args.players, steps=args.steps)
+
+
+def cmd_improve(args) -> int:
+    asyncio.run(_improve(args))
+    return cmd_scores(args)
+
+
+def cmd_scores(args) -> int:
+    from forge.improve import ImproveStore
+    rows = ImproveStore(load_settings(), args.slug).scores()
+    if not rows:
+        print(f"no improve cycles for {args.slug} yet")
+        return 0
+    print(f"{'cycle':>5} {'planted':>7} {'detected':>8} {'missed':>6} {'unmatched':>9} {'fixed':>5}  ts")
+    for r in rows:
+        print(f"{r['cycle']:>5} {r['planted']:>7} {r['detected']:>8} {r['missed']:>6} "
+              f"{r['unmatched']:>9} {r['fixed_verified']:>5}  {r['ts']}")
+    return 0
+
+
 # ---------------------------------------------------------------- seed / promote
 
 def cmd_seed(args) -> int:
@@ -391,6 +431,20 @@ def build_parser() -> argparse.ArgumentParser:
     pr = sub.add_parser("promote", help="copy a Forge-made file from runs/<slug>/game back into game/")
     pr.add_argument("slug")
     pr.add_argument("path", help="e.g. ServerScriptService/Services/FlareUpService.luau")
+
+    im = sub.add_parser("improve", help="plant faults -> playtests -> auditor -> fix -> verifier (Mubit)")
+    im.add_argument("slug")
+    im.add_argument("--goal", default="Play a full round: put out fires, rescue everyone, refill water")
+    im.add_argument("--cycles", type=int, default=1)
+    im.add_argument("--rounds", type=int, default=3, help="playtest rounds before the audit")
+    im.add_argument("--steps", type=int, default=15, help="AI player steps per round")
+    im.add_argument("--players", type=int, default=None)
+    im.add_argument("--only", help="comma-separated fault ids (default: every default fault)")
+    im.add_argument("--faults-file", help="faults JSON (default forge/faults/<slug>.json)")
+    im.add_argument("--studio", help="Studio name part (default FORGE_STUDIO)")
+
+    sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
+    sc.add_argument("slug")
     return p
 
 
@@ -398,7 +452,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
-               "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote, "play": cmd_play, "play-correct": cmd_play_correct,
+               "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
+               "improve": cmd_improve, "scores": cmd_scores, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0

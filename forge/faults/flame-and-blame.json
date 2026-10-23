@@ -1,0 +1,45 @@
+{
+  "note": "Known-bad config values planted live through ForgeTest `config`. They need the G1/G3 services to read these keys at use time (FireService, ToolService, RescueService).",
+  "faults": [
+    {
+      "id": "hose-drains-instantly",
+      "module": "ToolConfig", "key": "LitresPerSpray", "value": 100,
+      "systems": ["water", "hose", "tools"],
+      "match": ["empty", "drain", "runs out", "instantly", "tank", "water_used"],
+      "symptom": "The hose tank empties after a single spray: water_used jumps to the tank size at once and spraying stops working.",
+      "lesson": "Compare water_used per spray event with TankSize: one spray emptying the tank is a broken water economy."
+    },
+    {
+      "id": "water-does-not-cool",
+      "module": "FireConfig", "key": "CoolPerLitre", "value": 0,
+      "systems": ["fire", "water", "hose"],
+      "match": ["extinguish", "never go out", "no effect", "fires_extinguished", "cool"],
+      "symptom": "Spraying water at fires has no effect: water_used rises every round while fires_extinguished stays 0.",
+      "lesson": "If water_used rises but fires_extinguished stays 0, the link between water and fire is broken."
+    },
+    {
+      "id": "fire-never-spreads",
+      "module": "FireConfig", "key": "SpreadHeatPerSecond", "value": 0,
+      "systems": ["fire"],
+      "match": ["spread", "fires_spread", "never"],
+      "symptom": "Fire never spreads: fires_spread is 0 in every round, so only the start fires ever burn.",
+      "lesson": "fires_spread at 0 across all rounds means fire spread is off, not that players are good."
+    },
+    {
+      "id": "wildfire", "default": false,
+      "module": "FireConfig", "key": "SpreadHeatPerSecond", "value": 300,
+      "systems": ["fire", "balance", "round"],
+      "match": ["out of control", "too fast", "overwhelm", "always", "cap", "MaxBurning"],
+      "symptom": "Fire spreads so fast it hits the MaxBurning cap within seconds; no round can be won.",
+      "lesson": "fires_spread far above fires_extinguished in every round, with goal_met false, means spread is overtuned."
+    },
+    {
+      "id": "nobody-to-rescue",
+      "module": "RescueConfig", "key": "Count", "value": 0,
+      "systems": ["rescue"],
+      "match": ["no civilians", "nobody", "rescued", "spawn", "no npc"],
+      "symptom": "No civilians or pets spawn, so rescued is 0 every round and rescue goals can never be met.",
+      "lesson": "rescued at 0 in every round, with no carry events, means rescuables are not spawning."
+    }
+  ]
+}
