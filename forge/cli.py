@@ -1,5 +1,5 @@
 """`forge doctor | new | run | correct | status | watch | sync | place | play | play-correct | play-list |
-test <tool> | mcp`.
+assets <list|generate|search|upload|sync> | test <tool> | mcp`.
 
 `forge test <tool> ...` mirrors every `mubit-tester` MCP tool (docs/TESTER.md): the subcommands and
 their options are generated from the tools' input schemas, and run through the same code path.
@@ -291,6 +291,11 @@ def cmd_test(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_assets(args) -> int:
+    from forge.assets import cmd_assets as run
+    return run(args)
+
+
 def cmd_mcp(args) -> int:
     from mubit_tester.server import main as mcp_main
     mcp_main()
@@ -374,6 +379,8 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("note", help="what it should have done")
 
     sub.add_parser("play-list", help="list past playtest runs")
+    from forge.assets import add_cli_parser as _add_assets_parser
+    _add_assets_parser(sub)
     _add_test_parsers(sub)
     sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
 
@@ -392,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote, "play": cmd_play, "play-correct": cmd_play_correct,
-               "play-list": cmd_play_list, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
+               "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

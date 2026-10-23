@@ -724,7 +724,7 @@ halve the flame Rate, and turn `Shadows` off on fire lights except the nearest 4
 
 Persistence warning: `place/*.rbxlx` is gitignored, so anything generated or inserted in Studio is
 lost unless it's saved. For every generated or inserted asset, either **(a)** record its asset ID
-in `ReplicatedStorage/Art/Assets.luau` and load it at runtime with `InsertService:LoadAsset`
+in `assets/manifest.json` (→ `ReplicatedStorage/Config/AssetIds.luau` via `forge assets sync`, see `07-assets.md`) and load it at runtime with `InsertService:LoadAsset`
 (works for assets the experience owner owns), or **(b)** export the model to `.rbxm` under
 `game/assets/` and commit it (the sync tool needs to learn `.rbxm`; that's lane B). Strip all
 `Script`s from marketplace models before use.
