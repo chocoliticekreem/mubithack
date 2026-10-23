@@ -398,7 +398,7 @@ class Studio:
 
     # ---- sync
 
-    async def sync(self, root: Path, port: int | None = None) -> str:
+    async def sync(self, root: Path, port: int | None = None, prune: bool = True) -> str:
         """Write manifest, serve `root` on 127.0.0.1:port, run pull_luau in the Edit datamodel."""
         from forge import sync as fsync
 
@@ -417,7 +417,7 @@ class Studio:
         st = await self.state()
         if st.get("playing"):
             await self.stop()
-        return await self.execute_luau(fsync.pull_luau(port), "Edit")
+        return await self.execute_luau(fsync.pull_luau(port, prune=prune), "Edit")
 
 
 def _shutdown_server(server: Any) -> None:

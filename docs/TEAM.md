@@ -83,6 +83,22 @@ python3 game/tools/make_place.py --out place/Forge.rbxlx && open place/Forge.rbx
 - Superpowers flow for features: brainstorming → writing-plans → subagent-driven-development, with
   plans in `docs/superpowers/plans/`.
 
+## The shared Roblox place
+
+The game is published as **Firefighter Mubit** (placeId 130153199199668) with Team Create, so
+friends can join and play. **Git is the source of truth, not the place.**
+
+- **Develop in your own local place**: `forge place --open` builds `place/Forge.rbxlx`, then run
+  `forge watch --studio Forge`. Never point `forge watch` at the shared place. It refuses unless you
+  pass `--shared`, because two people pushing their own trees overwrite each other, and pruning
+  deletes the other person's new scripts.
+- **Update the shared place only from `main`**: after a PR merges, one person runs
+  `git switch main && git pull && forge sync --studio Firefighter` with the shared place open in
+  Studio. It's one-shot and doesn't prune. Add `--prune` only to clean out deleted files. Then
+  publish in Studio (File → Publish to Roblox).
+- **Don't edit scripts inside the shared place.** Edits made there aren't in git, and the next sync
+  overwrites them.
+
 ## Auto-sync files → Studio
 
 Leave `forge watch` running in a terminal while you work. Every time you save a `.luau` file under

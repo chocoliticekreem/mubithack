@@ -1,4 +1,4 @@
-"""`forge doctor | new | run | correct | status | watch | place`."""
+"""`forge doctor | new | run | correct | status | watch | sync | place`."""
 
 from __future__ import annotations
 
@@ -145,7 +145,17 @@ def cmd_watch(args) -> int:
     root = Path(args.root) if args.root else s.base_game_dir
     if args.slug:
         root = RunStore(s, args.slug).game_dir
-    asyncio.run(watch(s, root, args.studio))
+    asyncio.run(watch(s, root, args.studio, shared_ok=args.shared))
+    return 0
+
+
+def cmd_sync(args) -> int:
+    from forge.watch import sync_once
+    s = load_settings()
+    root = Path(args.root) if args.root else s.base_game_dir
+    if args.slug:
+        root = RunStore(s, args.slug).game_dir
+    print(asyncio.run(sync_once(s, root, args.studio, prune=args.prune)))
     return 0
 
 
@@ -192,6 +202,13 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("slug", nargs="?", help="a generated game (runs/<slug>/game); default: --root or game/")
     w.add_argument("--root", help="game folder to watch (default game/)")
     w.add_argument("--studio", help="pick the Studio whose name contains this (e.g. Forge.rbxlx)")
+    w.add_argument("--shared", action="store_true", help="allow watching a published Team Create place (no prune)")
+
+    sy = sub.add_parser("sync", help="one-shot push of a game folder into Studio (e.g. main -> shared place)")
+    sy.add_argument("slug", nargs="?")
+    sy.add_argument("--root", help="game folder (default game/)")
+    sy.add_argument("--studio", help="pick the Studio whose name contains this")
+    sy.add_argument("--prune", action="store_true", help="also delete synced scripts that no longer exist on disk")
 
     pl = sub.add_parser("place", help="build a .rbxlx from a game folder (baseplate + spawn + scripts)")
     pl.add_argument("--root", help="game folder (default game/)")
@@ -203,7 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
-               "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch,
+               "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place}[args.cmd]
     try:
         return handler(args) or 0

@@ -31,7 +31,9 @@ If `forge watch` isn't running, push manually: `mcp__Roblox_Studio__execute_luau
 the output of `python3 game/tools/sync.py pull` after starting `sync.py serve --root game`.
 
 ## Playtest over MCP (do it yourself, never ask the human to press Play)
-1. `list_roblox_studios` → `studio_id` (the one named `Forge.rbxlx` unless told otherwise).
+1. `list_roblox_studios` → `studio_id`. Use your **local** place (`Forge.rbxlx`). A name with
+   `placeId` is the shared published place (Firefighter Mubit). Only playtest or read there; never
+   push files except `forge sync` from `main`.
 2. `start_stop_play {is_start: true}`. Then poll `get_studio_state` until `Server` is listed.
 3. Wait a few seconds, then read **the ForgeProbe report** with `execute_luau` (datamodel `Server`):
    `return game:GetService("ServerStorage").ForgeProbe:Invoke("report")`. It returns JSON with
@@ -48,6 +50,7 @@ the output of `python3 game/tools/sync.py pull` after starting `sync.py serve --
 | `require` in `execute_luau` returns a fresh, empty module | `execute_luau` runs in its own VM. Reach live modules through `ServerStorage.DevHook:Invoke("Module", "Method", ...)`. |
 | Studio freezes or MCP drops | Long loops without yielding. Add `task.wait()` in loops and chunk big builds. |
 | Change didn't show up | `forge watch` printed ✗ (syntax error), or a playtest was running (the change is queued until Stop). |
+| `forge watch` refuses: "published (Team Create) place" | You picked the shared place. Open your local one: `forge place --open`, then `--studio Forge`. |
 | Second start/stop fails | A known Studio bug. Retry once and check `get_studio_state`. |
 | Counters missing from the report | Call `require(game.ReplicatedStorage.ForgeTelemetry).count("name", 1)` on the server. |
 

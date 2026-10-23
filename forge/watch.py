@@ -42,11 +42,34 @@ def _ts() -> str:
     return time.strftime("%H:%M:%S")
 
 
+def is_shared(name: str) -> bool:
+    """A published place (Team Create) shows its placeId in the studio name."""
+    return "placeId" in name
+
+
+async def sync_once(settings: Settings, root: Path, studio_name: str | None = None,
+                    prune: bool = False) -> str:
+    """One-shot push (used to update the shared published place from main)."""
+    root = root.resolve()
+    errors = fsync.check(root)
+    if errors:
+        raise SystemExit("not synced, luau-compile errors:\n" + "\n".join(f"  {p}: {m.strip()}" for p, m in errors))
+    async with Studio(settings) as studio:
+        await studio.select(studio_name)
+        return await studio.sync(root, settings.sync_port, prune=prune)
+
+
 async def watch(settings: Settings, root: Path, studio_name: str | None = None,
-                interval: float = 0.5, debounce: float = 0.3) -> None:
+                interval: float = 0.5, debounce: float = 0.3, shared_ok: bool = False) -> None:
     root = root.resolve()
     async with Studio(settings) as studio:
         sid = await studio.select(studio_name)
+        name = next((str(s.get("name", "")) for s in await studio.list_studios() if s.get("id") == sid), "")
+        if is_shared(name) and not shared_ok:
+            raise SystemExit(
+                f"'{name}' is a published (Team Create) place. Watching it would overwrite teammates' "
+                "scripts. Develop in your own local place (forge place --open) and update the shared "
+                "place from main with `forge sync --studio <name>`. Pass --shared to override.")
         print(f"[{_ts()}] watching {root} -> studio {sid} (port {settings.sync_port}); Ctrl-C to stop", flush=True)
         last = snapshot(root)
         pending = ["(initial sync)"]
@@ -66,7 +89,7 @@ async def watch(settings: Settings, root: Path, studio_name: str | None = None,
                         if st.get("playing"):
                             await asyncio.sleep(1.0)
                             continue  # keep pending until the playtest stops
-                        result = await studio.sync(root, settings.sync_port)
+                        result = await studio.sync(root, settings.sync_port, prune=not shared_ok)
                         print(f"[{_ts()}] ✓ {', '.join(pending)[:100]}  ->  {str(result).strip()[:120]}", flush=True)
                         pending = []
                     except StudioError as e:
