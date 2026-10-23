@@ -236,6 +236,10 @@ end
 ---------------------------------------------------------------------------------------------------
 -- roads
 ---------------------------------------------------------------------------------------------------
+-- Lamp light budget: only every CityConfig.LampLightEvery-th lamp carries a (wider) PointLight; the
+-- rest just glow (neon head). Keeps the city to ~100 street PointLights instead of ~300.
+local lampCounter = 0
+
 local function streetLamp(parent: Instance, cf: CFrame)
 	-- cf: base on the ground, -Z = toward the road
 	local m = Instance.new("Model")
@@ -243,12 +247,16 @@ local function streetLamp(parent: Instance, cf: CFrame)
 	SK.cyl(m, "Pole", cf * CF(0, 9, 0), 18, 0.7, C.MetalDark)
 	SK.part(m, "Arm", cf * CF(0, 17.8, -2), V(0.4, 0.4, 4.4), C.MetalDark)
 	local head = SK.part(m, "Head", cf * CF(0, 17.4, -4), V(1.6, 0.6, 2.4), Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
-	local light = Instance.new("PointLight")
-	light.Color = Color3.fromHex("#FFC97A")
-	light.Range = 34
-	light.Brightness = 1.3
-	light.Shadows = false
-	light.Parent = head
+	lampCounter += 1
+	local every = CityConfig.LampLightEvery or 1
+	if lampCounter % every == 0 then
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromHex("#FFC97A")
+		light.Range = math.min(60, 34 + 8 * (every - 1))
+		light.Brightness = 1.4
+		light.Shadows = false
+		light.Parent = head
+	end
 	m.Parent = parent
 end
 
@@ -790,6 +798,7 @@ end
 function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local t0 = os.clock()
 	table.clear(CityBuilder.Sites)
+	lampCounter = 0
 	model:SetAttribute("DisplayName", "Blazeville")
 	local cfg = CityConfig
 	if origin.Position.Magnitude > 0.01 then

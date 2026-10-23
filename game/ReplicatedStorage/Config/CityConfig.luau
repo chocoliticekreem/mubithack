@@ -87,6 +87,7 @@ return Config.define({
 
 	-- Street furniture
 	LampSpacing = 120, -- per road edge, alternating sides (highway: x 2)
+	LampLightEvery = 3, -- only every 3rd street lamp carries a PointLight (range 50); the rest glow (neon)
 	TreeSpacing = 60, -- along roads (highway: x 2.5)
 	Crosswalks = true,
 	TrafficLights = true,
