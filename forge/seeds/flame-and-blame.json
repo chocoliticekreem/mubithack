@@ -16,5 +16,9 @@
     "During an Active round, flare-ups ignite new fires in the Town (ForgeProbe counter flareups > 0)",
     "No errors or [Boot] warnings in the ForgeProbe report",
     "FlareUpService boots without any other file being edited"
-  ]
+  ],
+  "playtest": {
+    "start_round": true,
+    "round_seconds": 150
+  }
 }

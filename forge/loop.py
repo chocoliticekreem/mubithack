@@ -211,6 +211,8 @@ def _load_check_fn(settings: Settings) -> Callable[[Path], list]:
 RUNTIME_FILES = ("ServerScriptService/ForgeProbe.server.luau", "ReplicatedStorage/ForgeTelemetry.luau",
                  # the mubit-tester harness: lets AI testers drive every player in a Studio playtest
                  "ServerScriptService/ForgeTest.server.luau", "StarterPlayerScripts/ForgeTestAgent.client.luau")
+# Seconds after play starts before a spec with playtest.start_round starts its round (services boot first).
+START_ROUND_DELAY = 10.0
 # An iteration whose critic score is this far below the best version so far is rolled back to it.
 ROLLBACK_DROP = 1.0
 RUNTIME_DIRS = ("tools",)
@@ -453,6 +455,19 @@ class Run:
             if ok:
                 wait = play_seconds()
                 self.ui.line("studio", f"playtest running ({wait:.0f}s)", True, f"{secs:4.1f}s")
+                if (self.spec.get("playtest") or {}).get("start_round"):
+                    # games with a lobby: start a round through the ForgeTest harness so the playtest
+                    # measures the core loop, not the lobby (per-game setting in the spec)
+                    from mubit_tester.harness import build_call_luau
+
+                    args = {"state": "Active"}
+                    secs_round = (self.spec.get("playtest") or {}).get("round_seconds")
+                    if secs_round:
+                        args["seconds"] = int(secs_round)
+                    await asyncio.sleep(min(wait, START_ROUND_DELAY))
+                    ok2, val2, _ = await step("start_round", studio.execute_luau(build_call_luau("round", args), "Server"))
+                    self.ui.line("studio", "start round", ok2, self.ui.dim(str(val2)[:60]))
+                    wait = max(0.0, wait - START_ROUND_DELAY)
                 await asyncio.sleep(wait)
                 ok, val, _ = await step("probe_report", studio.probe_report())
                 if ok and isinstance(val, dict) and val.get("error") and "uptime" not in val:
