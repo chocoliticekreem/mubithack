@@ -17,7 +17,7 @@ return Config.define({
 	-- integrity weights per kind (windows never count)
 	Weight = { wall = 1, partition = 0.5, roof = 1, floor = 0.8, ground = 0.3, window = 0 },
 	-- damage
-	BurnRate = 0.02, -- hp/s per FireLevel while a chunk burns (level 3: ~17 s to nothing)
+	BurnRate = 0.008, -- hp/s per FireLevel while a chunk burns (level 3: ~17 s to nothing)
 	CharredHp = 0.15, -- a burnt-out chunk keeps this much
 	FailHp = { roof = 0.2, floor = 0.2 }, -- roofs cave in / upper floors give way at or below this hp
 	SupportMin = 0.4, -- a chunk whose supports average below this falls

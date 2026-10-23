@@ -496,13 +496,16 @@ local function nearest(list: { BasePart }, pos: Vector3, within: number): BasePa
 	return best
 end
 
-local function lightFires(run: Live): number
+local function lightFires(run: Live, limit: number?): number
 	local Fire = services.FireService
 	if not (Fire and type(Fire.Ignite) == "function") then
 		return 0
 	end
 	local fires = run.def.fires or {}
 	local want = fires.count or GameConfig.StartFires
+	if limit then
+		want = math.min(want, limit)
+	end
 	local mode = fires.starts or "FireStart"
 	if mode == "Scripted" then
 		return 0 -- the mission's hazard (cigarette, campfire) lights its own fires
@@ -718,6 +721,14 @@ local function onArrived(run: Live)
 		notify(run.players, `ON SCENE! Grab your gear from the truck.`, "good")
 	end
 	playSound(run.players, "RollOut")
+	safe("flare-up", function()
+		local Fire = services.FireService
+		local already = if Fire and type(Fire.CountBurning) == "function" then (Fire:CountBurning(run.id) or 0) else 0
+		local want = (run.def.fires and run.def.fires.count) or GameConfig.StartFires or 3
+		if already < want then
+			run.firesLit += lightFires(run, want - already)
+		end
+	end)
 	-- v2 gear comes off the truck (InventoryService); until that lands, hand out the v1 loadout here
 	if services.InventoryService == nil then
 		giveLoadout(run.players)
@@ -1201,9 +1212,9 @@ local function startDispatch(players: { Player }, def: any, seconds: number?): s
 			Nav:SetWaypoint(players, target, run.label)
 		end
 	end)
-	-- it gets worse while you drive
+	-- one small fire smoulders while you drive; the rest flare up when you arrive (GameConfig.DispatchFires)
 	safe("start fires", function()
-		run.firesLit = lightFires(run)
+		run.firesLit = lightFires(run, GameConfig.DispatchFires or 1)
 	end)
 	safe("spawn rescues", function()
 		spawnRescues(run)
