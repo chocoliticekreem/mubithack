@@ -228,9 +228,10 @@ local function rescueCounts(run: Live): (number, number)
 	local rescued, trapped = 0, 0
 	for _, m in CollectionService:GetTagged(Names.Tag.Rescuable) do
 		if m:GetAttribute(Names.Attr.InstanceId) == run.id or m:IsDescendantOf(run.model) then
-			if m:GetAttribute(Names.Attr.RescueState) == "Rescued" then
+			local state = m:GetAttribute(Names.Attr.RescueState)
+			if state == "Rescued" then
 				rescued += 1
-			else
+			elseif state ~= "Toasted" then -- toasted NPCs are lost, not still trapped
 				trapped += 1
 			end
 		end
