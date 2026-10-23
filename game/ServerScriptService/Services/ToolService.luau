@@ -50,6 +50,7 @@ local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
+local AxeBuilder = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("Tools"):WaitForChild("AxeBuilder") :: ModuleScript)
 
 local ToolService = {}
 ToolService.Priority = 50
@@ -86,7 +87,7 @@ local Pushed: RemoteEvent? = nil
 local Fx: RemoteEvent? = nil
 local puddleFolder: Folder? = nil
 
-local swing: (player: Player) -> () -- defined in the axe section; the Axe tool calls it
+local swing: (player: Player) -> () -- defined in the axe section (proximity swing; test hook _swing)
 
 -- optional HoseLine (another lane) ------------------------------------------------------------
 local hoseLineCache: any = nil
@@ -208,47 +209,10 @@ local function makeExtinguisher(): Tool
 	return tool
 end
 
-local function makeAxe(player: Player): Tool
-	local tool = Instance.new("Tool")
-	tool.Name = "Axe"
-	tool.ToolTip = "Click: break doors (and bonk friends)"
-	tool.CanBeDropped = false
-	tool.RequiresHandle = true
-	local handle = toolPart("Handle", Vector3.new(0.4, 3.2, 0.4), Palette.BookshelfWood, Enum.Material.Wood)
-	handle.Parent = tool
-	local head = toolPart("Head", Vector3.new(0.3, 0.9, 1.4), Palette.TruckChrome, Enum.Material.Metal)
-	head.CFrame = handle.CFrame * CFrame.new(0, 1.3, -0.5)
-	head.Parent = tool
-	weld(handle, head)
-	local back = toolPart("Back", Vector3.new(0.35, 0.5, 0.5), Palette.HelmetRed)
-	back.CFrame = handle.CFrame * CFrame.new(0, 1.3, 0.35)
-	back.Parent = tool
-	weld(handle, back)
-	-- swing trail: only visible while the head moves fast, so it reads as a big comedic whoosh
-	local t0 = Instance.new("Attachment")
-	t0.Name = "Trail0"
-	t0.Position = Vector3.new(0, 0.45, -1.1)
-	t0.Parent = head
-	local t1 = Instance.new("Attachment")
-	t1.Name = "Trail1"
-	t1.Position = Vector3.new(0, -0.45, -1.1)
-	t1.Parent = head
-	local trail = Instance.new("Trail")
-	trail.Attachment0 = t0
-	trail.Attachment1 = t1
-	trail.Lifetime = 0.18
-	trail.MinLength = 0.05
-	trail.Color = ColorSequence.new(Color3.new(1, 1, 1))
-	trail.Transparency = NumberSequence.new(0.2, 1)
-	trail.LightEmission = 0.5
-	trail.FaceCamera = true
-	trail.Parent = head
-	tool.Grip = CFrame.new(0, -1, 0)
-	-- Tool.Activated fires on the server too, so the axe needs no remote
-	tool.Activated:Connect(function()
-		swing(player)
-	end)
-	return tool
+-- The ONE physical axe (Lib/Tools/AxeBuilder): floppy metal head on a ball socket, swung by
+-- ClientLib/AxeArm; door damage comes from the head's speed (HandsService Hands/AxeHit -> HitDoor).
+local function makeAxe(_player: Player): Tool
+	return AxeBuilder.make()
 end
 
 local function removeTools(player: Player)

@@ -17,7 +17,10 @@
 --   Release (C->S: part, side)
 --   Slap    (C->S: victim Model, hand velocity Vector3, kind "hand"|"axe")
 --   Push    (C->S: part, hand velocity Vector3)          -- loose props get shoved; unlocked doors open
---   AxeHit  (C->S: door BasePart, head speed number)     -- swing speed = door damage (HandsMath.axeHits)
+--   AxeHit  (C->S: door BasePart, head speed number)     -- swing speed = door damage (HandsMath.axeHits);
+--           validated: holds the Axe, near the door, and the replicated axe Head is at the door
+--   AxeArm  (Unreliable C->S, AxeMath.encode packet, ~20/s)  -- the holder's sprung axe grip pose
+--   AxeArms (Unreliable S->C all, flat {userId, 8 numbers, ...}) -- every client poses that arm the same
 --   Fx      (S->C all: kind "slap"|"bonk"|"tonk"|"heavy", position, victimUserId | 0) (door hits pop via ToolService)
 -- Writes: part attr HeldBy (UserId) on grabbed assemblies; NPC attr Slapped = true.
 -- Calls (nil-guarded): PhysicsFxService:Impulse(target, vector, player) for slaps and prop shoves
@@ -25,7 +28,7 @@
 --   ToolService:HitDoor(player, door, hits) / ToolService:PushDoor(door), SquadService:Revive(victim,
 --   by, "slap") for a Downed teammate, InventoryService:GetHand(player).
 -- Counters: hands_grabs, hands_grab_denied, hands_slaps, hands_slap_revives, hands_axe_bonks,
---   hands_axe_hits, hands_axe_tonks, hands_pushes, hands_doors_pushed
+--   hands_axe_hits, hands_axe_tonks, hands_axe_far, hands_pushes, hands_doors_pushed
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -39,6 +42,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local HandsMath = require(ReplicatedStorage:WaitForChild("HandsMath") :: ModuleScript)
+local AxeMath = require(ReplicatedStorage:WaitForChild("AxeMath") :: ModuleScript)
 local HandsConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HandsConfig") :: ModuleScript) :: any
 
 local HandsService = {}
@@ -59,6 +63,9 @@ local lastGrab: { [Player]: number } = {}
 local lastPush: { [Player]: number } = {}
 local lastAxe: { [Player]: number } = {}
 local lastSlap: { [Player]: { [Model]: number } } = {}
+local axeLatest: { [Player]: { number } } = {}
+local axeDirty: { [Player]: boolean } = {}
+local AxeArmsRemote: any = nil
 
 local function slapTimes(player: Player): { [Model]: number }
 	local t = lastSlap[player]
@@ -419,6 +426,19 @@ local function onAxeHit(player: Player, rawDoor: any, rawSpeed: any)
 	if not Net.near(player, door.Position, reach) then
 		return
 	end
+	-- the real (replicated) axe head must actually be at the door
+	local char = player.Character
+	local tool = char and char:FindFirstChild("Axe")
+	local head = tool and tool:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		local lp = door.CFrame:PointToObjectSpace(head.Position)
+		local half = door.Size / 2
+		local slack = tonumber(HandsConfig.AxeHeadSlack) or 4
+		if not AxeMath.nearBox({ x = lp.X, y = lp.Y, z = lp.Z }, { x = half.X, y = half.Y, z = half.Z }, slack) then
+			Telemetry.count("hands_axe_far")
+			return
+		end
+	end
 	local now = os.clock()
 	if now - (lastAxe[player] or 0) < HandsConfig.AxeHitCooldown then
 		return
@@ -471,6 +491,40 @@ local function relayLoop()
 	end
 end
 
+-- axe arm relay (the holder's grip pose -> everyone, so 3P shows the same swing as 1P) ---------------
+local function onAxeArm(player: Player, raw: any)
+	local pose, pitch, flags = AxeMath.decode(raw)
+	if not pose then
+		return
+	end
+	local packet = AxeMath.encode(pose, pitch, flags)
+	axeLatest[player] = packet
+	axeDirty[player] = true
+end
+
+local function axeRelayLoop()
+	while true do
+		task.wait(1 / math.max(1, tonumber(HandsConfig.AxeArmSendHz) or 20))
+		if next(axeDirty) == nil or not AxeArmsRemote then
+			continue
+		end
+		local flat: { number } = {}
+		for player in axeDirty do
+			local pkt = axeLatest[player]
+			if pkt and player.Parent then
+				table.insert(flat, player.UserId)
+				for _, n in pkt do
+					table.insert(flat, n)
+				end
+			end
+		end
+		table.clear(axeDirty)
+		if #flat > 0 then
+			AxeArmsRemote:FireAllClients(flat)
+		end
+	end
+end
+
 -- service ----------------------------------------------------------------------------------------
 local function unreliable(folder: Instance, name: string): any
 	local found = folder:FindFirstChild(name)
@@ -493,6 +547,9 @@ function HandsService:Start()
 	local folder = releaseRemote.Parent :: Instance
 	local poseRemote = unreliable(folder, "Pose")
 	PosesRemote = unreliable(folder, "Poses")
+	local axeArmRemote = unreliable(folder, "AxeArm")
+	AxeArmsRemote = unreliable(folder, "AxeArms")
+	Net.onServer(axeArmRemote :: any, { rate = (tonumber(HandsConfig.AxeArmSendHz) or 20) + 10, burst = 6 }, onAxeArm)
 
 	Net.onServer(poseRemote :: any, { rate = HandsConfig.PoseHz + 5, burst = 5 }, onPose)
 	Net.onServer(releaseRemote, { rate = 10, burst = 6 }, onRelease)
@@ -531,8 +588,11 @@ function HandsService:Start()
 		lastPush[player] = nil
 		lastAxe[player] = nil
 		lastSlap[player] = nil
+		axeLatest[player] = nil
+		axeDirty[player] = nil
 	end)
 	task.spawn(relayLoop)
+	task.spawn(axeRelayLoop)
 end
 
 function HandsService:GetHolder(part: BasePart): Player?

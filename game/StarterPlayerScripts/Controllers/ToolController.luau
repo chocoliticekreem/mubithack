@@ -624,7 +624,8 @@ local function hookTool(inst: Instance)
 	hookedTools[inst] = true
 	local tool = inst :: Tool
 	if name == "Axe" then
-		tool.Activated:Connect(function()
+		-- press = wind-up, release = the chop (ClientLib/AxeArm): the whoosh is on release
+		tool.Deactivated:Connect(function()
 			shake(0.18, 0.25)
 			local handle = tool:FindFirstChild("Handle")
 			if handle then

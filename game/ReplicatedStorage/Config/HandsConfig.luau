@@ -72,9 +72,36 @@ return Config.define({
 	PushCooldown = 0.25,
 	PushDoorSpeed = 10, -- shoving an unlocked closed door this hard swings it open
 
-	-- the floppy axe: hold LMB to wind up, release to swing; the head is on a ball socket
-	AxeWindupSeconds = 0.55,
-	AxeStrikeSeconds = 0.22,
+	-- the ONE axe (ClientLib/AxeArm + AxeMath): the real Tool. Its metal Head hangs on a ball socket at
+	-- the top of the handle (built by ToolService), the holder's R15 arm is posed by IK toward a GRIP
+	-- pose in aim space (head origin, root yaw, camera pitch; x right, y up, -z forward; degrees).
+	-- Hold the tool button to wind up, release to chop. Same pose on every client = same arm in 1P/3P.
+	AxePoses = {
+		Ready = { x = 0.95, y = -1.25, z = -1.55, rx = -38, ry = 8, rz = 22 },
+		Windup = { x = 1.25, y = 0.05, z = -0.55, rx = 70, ry = 10, rz = 8 },
+		Strike = { x = 0.35, y = -1.15, z = -2.05, rx = -95, ry = -4, rz = 2 },
+	},
+	AxeWindupSeconds = 0.5, -- hold this long for a full wind-up
+	AxeStrikeSeconds = 0.3, -- the chop (wind-up -> strike)
+	AxeRecoverSeconds = 0.35, -- strike -> ready
+	AxeMinCharge = 0.35, -- a tap still chops a bit
+	AxeArmHz = 7, -- grip pose spring (lag + a little overshoot)
+	AxeArmDamping = 0.55,
+	AxeArmStrikeHz = 14, -- stiffer while chopping
+	AxeArmStrikeDamping = 0.6,
+	AxeRunBob = 0.12, -- studs of grip bounce at full run (shakes the head)
+	AxePitchScale = 0.85, -- how much the camera pitch tilts the arm
+	AxeElbowPole = Vector3.new(0.8, -1, 0.6), -- root space: the elbow bends down, out and back
+	AxeArmSendHz = 20, -- arm packet rate (client -> server -> others)
+	AxeArmBlendSeconds = 0.15, -- fade the IK arm in/out on equip
+	AxeHeadSlack = 4, -- server: studs between the replicated head and the door box
+	-- head joint (applied by ToolService on the Tool; read at build time)
+	AxeHeadDeg = 40, -- ball socket cone
+	AxeHeadTwistDeg = 12,
+	AxeHeadRestitution = 0.25,
+	AxeHeadSpring = 12, -- AlignOrientation responsiveness back to rest (weak: it still flops)
+	AxeHeadSpringTorque = 40,
+	AxeHeadDensityV2 = 2.0,
 	AxeMinSpeed = 22, -- head speed (studs/s) for 1 door hit
 	AxeStrongSpeed = 38, -- 2 hits
 	AxeCritSpeed = 55, -- 3 hits (a perfect swing breaks a door outright)
