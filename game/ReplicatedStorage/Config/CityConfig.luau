@@ -59,7 +59,11 @@ return Config.define({
 	-- Ridge Tunnel: Highway 67's west side (x = -1350) runs through a grassy hill here (Lib/Map/City/Highway)
 	Tunnel = { x = -1350, z0 = -840, z1 = -570, name = "Ridge Tunnel" }, -- between the Farm gate (z -900) and Oak Blvd (z -450)
 	-- highway service stops: incident-site lots on the outer side of Highway 67 (side N|S|E|W, at = along)
-	HighwaySites = { { side = "S", at = -675, kind = "gas" }, { side = "N", at = 675, kind = "diner" } },
+	HighwaySites = {
+		{ side = "S", at = -675, kind = "gas" },
+		{ side = "N", at = 675, kind = "diner" },
+		{ side = "E", at = 675, kind = "storage", w = 120 }, -- a truck-stop lock-up east of the zoo
+	},
 
 	-- Station (hub core)
 	StationOrigin = CFrame.new(0, 0, 132), -- kerb (local Z 68) on the hub loop's inner edge, z = 200
@@ -93,7 +97,7 @@ return Config.define({
 	SitesPerSuburbBlock = 2, -- per core sub-block; the rest of the houses are cheap LOD shells
 
 	-- Street furniture
-	LampSpacing = 130, -- per road edge, alternating sides (highway: x 2)
+	LampSpacing = 140, -- per road edge, alternating sides (highway: x 2)
 	LampLightEvery = 3, -- only every 3rd street lamp carries a PointLight (range 50); the rest glow (neon)
 	TreeSpacing = 90, -- along roads (highway: x 2.5)
 	Crosswalks = true,
@@ -101,5 +105,5 @@ return Config.define({
 	TrafficCycle = 7, -- seconds per green phase (amber 1.5 s at the end)
 
 	-- Budget (counter city_parts, attribute PartCount on Workspace.Map.City)
-	PartBudget = 30000, -- the bigger city (corridors, furniture) sits at ~28k in a mock build; warn above 30k
+	PartBudget = 30000, -- the bigger city (corridors, furniture) sits at ~29.5-29.9k in mock builds; warn above 30k
 })
