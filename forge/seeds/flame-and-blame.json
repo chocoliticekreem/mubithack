@@ -1,0 +1,20 @@
+{
+  "title": "Flame and Blame",
+  "slug": "flame-and-blame",
+  "pitch": "Co-op chaotic firefighters on Roblox: alarm, burning town block, hose, axe, rescues, Blame awards.",
+  "core_loop": "Lobby at Station 67 -> alarm -> teleport to the Town -> hose spreading fires, axe locked doors, carry civilians and pets to truck 67 -> 3-minute timer -> Blame results -> back to the station.",
+  "modules": [
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "purpose": "New server service (ModuleScript) that ServerScriptService/Main.server.luau boots automatically; edit no other file. Return a table FlareUpService with Priority = 60; Init(self, services) only stores the services table (no calls, no yields); Start(self) starts ONE task.spawn loop; _selftest(self): (boolean, string) returns true, \"ok\". Loop: every 8 seconds, while workspace:GetAttribute(\"RoundState\") == \"Active\", take id = workspace:GetAttribute(\"MissionId\"), pick a part with services.MapService:RandomFlammable(id, rng) (rng = Random.new(os.time())) and call services.FireService:Ignite(part, nil); when Ignite returns true, call require(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\")).count(\"flareups\", 1). Nil-guard services.MapService and services.FireService (peers can be missing). Use task.wait, never wait(); create no Instances.",
+      "depends": [
+        "ReplicatedStorage/Shared/Names.luau"
+      ]
+    }
+  ],
+  "acceptance": [
+    "During an Active round, flare-ups ignite new fires in the Town (ForgeProbe counter flareups > 0)",
+    "No errors or [Boot] warnings in the ForgeProbe report",
+    "FlareUpService boots without any other file being edited"
+  ]
+}

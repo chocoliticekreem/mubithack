@@ -56,7 +56,9 @@ forge/                 Python package (uv), entry point `forge`
   sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
-  cli.py               `forge new|run|correct|status|doctor|play|mcp`   [owner: loop]
+  cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote`   [owner: loop]
+  seed.py              seed(settings, slug, spec_path=None) -> RunStore; promote(settings, slug, rel) -> Path
+  seeds/<slug>.json    Forge spec for a seeded run (flame-and-blame: FlareUpService)
   play.py              AI playtester (observe → act → report)           [owner: play]
   mcp_server.py        stdio MCP server "forge" exposing the playtester [owner: play]
 game/                  the Roblox place, file-mapped like Script Sync
@@ -72,7 +74,12 @@ runs/lessons.md        shared lessons, injected into every coder/fixer user mess
 ```
 
 Generated games live in `runs/<game>/game/` (same layout as `game/`). The base `game/` folder holds
-the always-present runtime (ForgeProbe, DevHook), which is copied into each generated game.
+the always-present runtime (ForgeProbe, DevHook) and, since the weekend kickoff, the human-built Flame and
+Blame tree. `forge new` copies only the runtime (`RUNTIME_FILES` = ForgeProbe.server.luau, ForgeTelemetry.luau,
+plus `tools/`). `forge seed <slug>` copies all of `game/` into `runs/<slug>/game` and records every human
+file in `spec["base_files"]`; the fixer never edits those (`Run.base_files` = runtime + `spec["base_files"]`),
+only `forge correct` may (a human asked). `forge promote <slug> <path>` copies a Forge-made file back into
+`game/` for a PR. `FORGE_STUDIO=<name part>` picks which connected Studio `forge new|run|correct` use.
 
 ## Contracts
 
@@ -185,6 +192,8 @@ forge new "<idea>" [--iterations N] [--no-studio]   # design + build + playtest 
 forge run <slug> [--iterations N] [--no-studio]     # continue iterating an existing game
 forge correct <slug> <path> "<note>"                # human correction → fixer call → resync
 forge status [<slug>]                                # iterations, scores, call counts per role
+forge seed <slug> [--spec FILE]                      # runs/<slug>/game <- game/ (+ spec base_files)
+forge promote <slug> <path>                          # runs/<slug>/game/<path> -> game/<path>
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
