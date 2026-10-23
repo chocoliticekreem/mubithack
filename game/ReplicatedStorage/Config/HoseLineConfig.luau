@@ -5,11 +5,11 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	-- length and chain
-	LengthTruck = 60, -- studs of hose from a truck reel (any source not tagged Hydrant)
-	LengthHydrant = 35, -- studs of hose from a hydrant
-	SegmentTarget = 4, -- preferred studs per physical segment
+	LengthTruck = 200, -- studs of hose from a truck reel (any source not tagged Hydrant)
+	LengthHydrant = 120, -- studs of hose from a hydrant
+	SegmentTarget = 6, -- preferred studs per physical segment
 	MinSegments = 4,
-	MaxSegments = 16, -- hard cap per hose (performance)
+	MaxSegments = 32, -- hard cap per hose (performance)
 	MaxHosesPerInstance = 4, -- cap per mission instance (Player attr InstanceId; "" = lobby)
 	MaxHoses = 24, -- cap per server; attach() returns false beyond either cap
 	Thickness = 0.55, -- segment diameter (physics part)
