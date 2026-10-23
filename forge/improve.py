@@ -99,13 +99,14 @@ def audit(llm: LLM, spec: dict, playbook: str, digests: list[dict], *, session_i
 
 
 def verify_message(anomaly: dict, change: str, before: list[dict], after: list[dict]) -> str:
-    return "\n\n".join([
-        "## Anomaly\n" + json.dumps(anomaly, ensure_ascii=False),
-        "## Change\n" + change,
-        _digests_block("Before", before),
-        _digests_block("After", after),
-        "Return only the verdict JSON object.",
-    ])
+    table, hard = telemetry_changes(before, after)
+    parts = ["## Anomaly\n" + json.dumps(anomaly, ensure_ascii=False), "## Change\n" + change,
+             _digests_block("Before", before), _digests_block("After", after),
+             "## Telemetry changes (computed, peak per counter)\n" + "\n".join(table)]
+    if hard:
+        parts.append("## Flagged regressions (computed)\n" + "\n".join(f"- {h}" for h in hard))
+    parts.append("Return only the verdict JSON object.")
+    return "\n\n".join(parts)
 
 
 def verify(llm: LLM, anomaly: dict, change: str, before: list[dict], after: list[dict], *,
@@ -234,6 +235,58 @@ async def _rounds(settings, playtest: Playtest, n: int, start: int, *, goal: str
     return out
 
 
+# ---------------------------------------------------------------- guards on fixes (general, not per game)
+
+# A fix for one anomaly should be local. Removing more than this many of a file's lines (and at least
+# DESTRUCTIVE_MIN_LINES) is treated as a rewrite that throws away working code, and is rejected unseen.
+DESTRUCTIVE_SHARE = 0.25
+DESTRUCTIVE_MIN_LINES = 40
+
+
+def removed_lines(old: str, new: str) -> int:
+    import difflib
+
+    return sum(1 for ln in difflib.ndiff(old.splitlines(), new.splitlines()) if ln.startswith("- "))
+
+
+def destructive(old: str, new: str) -> str | None:
+    """Why this fix is too destructive to try, or None."""
+    total = len(old.splitlines())
+    gone = removed_lines(old, new)
+    if gone >= DESTRUCTIVE_MIN_LINES and gone > total * DESTRUCTIVE_SHARE:
+        return (f"Your fix removed {gone} of the file's {total} lines. A fix for one anomaly must be local: "
+                "keep every unrelated function, part and comment exactly as it was and change only the lines "
+                "the root cause needs.")
+    return None
+
+
+def _peaks(digests: list[dict]) -> dict:
+    out: dict = {}
+    for d in digests:
+        for k, v in (d.get("counters") or {}).items():
+            if isinstance(v, (int, float)):
+                out[k] = max(out.get(k, v), v)
+    return out
+
+
+def telemetry_changes(before: list[dict], after: list[dict]) -> tuple[list[str], list[str]]:
+    """(table lines for the verifier, hard regressions). Hard regressions: a counter that was present
+    and non-zero before and is missing or zero after, or more server errors than before."""
+    b, a = _peaks(before), _peaks(after)
+    lines, hard = [], []
+    for k in sorted(set(b) | set(a)):
+        bv, av = b.get(k), a.get(k)
+        lines.append(f"- {k}: {bv if bv is not None else 'absent'} -> {av if av is not None else 'absent'}")
+        if bv and not av:
+            hard.append(f"counter {k} went from {bv} to {av if av is not None else 'absent'}")
+    be = max((d.get("errors") or {}).get("count", 0) for d in before) if before else 0
+    ae = max((d.get("errors") or {}).get("count", 0) for d in after) if after else 0
+    lines.append(f"- server errors: {be} -> {ae}")
+    if ae > be:
+        hard.append(f"server errors rose from {be} to {ae}")
+    return lines, hard
+
+
 # ---------------------------------------------------------------- code fixes for real anomalies
 
 FIX_SEVERITIES = ("high", "medium")
@@ -342,6 +395,13 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                     why = "Your reply could not be used: return the full file in one ```luau block."
                     log(f"[fix] {a['title']}: attempt {attempt + 1} fixer reply unusable ({str(e)[:80]})")
                     continue
+                too_big = destructive(old, new)
+                if too_big:
+                    rec["attempts"].append({"status": "too_destructive", "error": too_big,
+                                            "removed_lines": removed_lines(old, new)})
+                    why = too_big
+                    log(f"[fix] {a['title']}: attempt {attempt + 1} rejected unseen: {too_big[:90]}")
+                    continue
                 (root / rel).write_text(new, encoding="utf-8")
                 errors = [e for p, e in fsync.check(root) if p == rel]
                 if errors:
@@ -354,6 +414,10 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                                       steps=steps, llm=llm, harness=harness)
                 v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
                                             session_id=session_id)
+                _, hard = telemetry_changes(before, after)
+                if v["verdict"] == "fixed" and hard:
+                    v = {**v, "verdict": "regression", "regressions": v["regressions"] + hard,
+                         "evidence": v["evidence"] + " Overruled by computed regressions: " + "; ".join(hard)}
                 rec["attempts"].append({"status": v["verdict"], "verdict": v})
                 if v["verdict"] == "fixed":
                     status = "kept"
@@ -371,13 +435,55 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             raise
         if status != "kept":
             (root / rel).write_text(old, encoding="utf-8")
-            if any(x["status"] not in ("compile_failed", "fixer_error") for x in rec["attempts"]):
+            if any(x["status"] not in ("compile_failed", "fixer_error", "too_destructive")
+                   for x in rec["attempts"]):
                 await resync(root)
             if all(x["status"] == "compile_failed" for x in rec["attempts"]):
                 status = "compile_failed"
             log(f"[fix] {a['title']}: no attempt verified, {rel} restored")
+            if found and studio is not None:
+                # correction for the investigator's Mubit task: its conclusion led to rejected fixes
+                redo = await investigate(settings, slug, a, llm=llm, studio=studio, session_id=session_id,
+                                         verified=f"A fix to {rel} based on your conclusion was rejected: {why}",
+                                         max_steps=1, log=log)
+                rec["reinvestigation"] = redo
         results.append({**rec, "status": status})
+    await learn_from_fixes(settings, results, llm=llm, session_id=session_id, log=log)
     return results
+
+
+REFLECT_HEADER = ("Fix loop outcomes. Turn the REJECTED attempts below into general lessons about fixing game code "
+                  "(how to keep fixes local, what to check before changing a file, how a fix can break other "
+                  "systems). Write rules that apply to any game, not to this game's names, places or numbers.")
+
+
+async def learn_from_fixes(settings: Settings, results: list[dict], *, llm: LLM, session_id: str,
+                           log: Callable[[str], None] = print) -> bool:
+    """Rejected fix attempts -> the reflector (Mubit task) updates the shared lessons every fixer and
+    investigator call reads. Returns True when lessons were updated."""
+    from forge import roles
+    from forge.memory import read_lessons, write_lessons
+
+    rejected = [(r, t) for r in results for t in r.get("attempts", [])
+                if t.get("status") not in ("fixed", None)]
+    if not rejected:
+        return False
+    lines = [REFLECT_HEADER, ""]
+    for r, t in rejected:
+        detail = (t.get("verdict") or {}).get("evidence") or t.get("error") or ""
+        lines.append(f"- anomaly '{r['anomaly']}' in {r.get('path')}: {t['status']}. {str(detail)[:500]}")
+    kept = [r for r in results if r.get("status") == "kept"]
+    if kept:
+        lines += ["", "Kept (verified) fixes: " + "; ".join(f"{r['anomaly']} in {r['path']}" for r in kept)]
+    try:
+        new = await asyncio.to_thread(roles.reflect, llm, read_lessons(settings), "\n".join(lines),
+                                      session_id=session_id)
+    except LLMError as e:
+        log(f"[reflector] lessons not updated: {str(e)[:100]}")
+        return False
+    write_lessons(settings, new)
+    log(f"[reflector] lessons updated from {len(rejected)} rejected fix attempt(s)")
+    return True
 
 
 # ---------------------------------------------------------------- investigator (root cause before a fix)
