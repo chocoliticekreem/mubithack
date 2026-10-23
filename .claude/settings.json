@@ -25,7 +25,8 @@
       "Bash(python3 game/tools/sync.py:*)",
       "Bash(python3 game/tools/make_place.py:*)",
       "mcp__plugin_mubit-tester_mubit-tester",
-      "mcp__plugin_mubit-tester_roblox-studio"
+      "mcp__plugin_mubit-tester_roblox-studio",
+      "mcp__forge"
     ]
   },
   "extraKnownMarketplaces": {

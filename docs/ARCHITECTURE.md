@@ -66,7 +66,7 @@ forge/                 Python package (uv), entry point `forge`
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
   prompts/auditor.md, prompts/verifier.md   Mubit tasks: anomaly detection, fix verification
   play.py              AI playtester (observe → act → report)           [owner: play]
-  mcp_server.py        stdio MCP server "forge" exposing the playtester [owner: play]
+  mcp_server.py        stdio MCP server "forge" (`forge server`): build/iterate/correct/improve as jobs [owner: GF]
 game/                  the Roblox place, file-mapped like Script Sync
   ServerScriptService/ X.server.luau → Script, X.luau → ModuleScript, dirs → Folders
   ReplicatedStorage/
@@ -239,21 +239,25 @@ def list_reports(settings) -> list[dict]
 async def correct_step(settings, run_id: str, step: int, note: str, *, llm=None) -> dict
     # {run_id, step, before, after, request_id}; a new call in the playtester's Mubit task
 
-# forge/mcp_server.py  (MCPServer "forge", stdio; mcp SDK 2.x)
-playtest(goal: str, steps: int = 20, studio: str | None = None) -> str   # markdown report
-playtest_correct(run_id: str, step: int, note: str) -> str
-playtest_report(run_id: str) -> str
-playtest_list() -> str
-forge_doctor() -> str                                                     # captured `forge doctor`
-# shared with the CLI: run_playtest, run_correct, get_report, get_list, format_report, doctor_text
+# forge/mcp_server.py  (MCPServer "forge", stdio, `forge server`; registered in .mcp.json)
+doctor() -> str
+new_game(idea, iterations=3, use_studio=True, studio=None) -> str       # starts job "new-..."
+iterate(slug, iterations=1, use_studio=True, studio=None) -> str        # forge run
+correct(slug, path, note, use_studio=True, studio=None) -> str          # forge correct
+improve(slug, cycles=1, rounds=3, steps=15, only=None, studio=None) -> str
+job(job_id, tail=60) / jobs() / cancel_job(job_id)                      # runs/jobs/<id>.{json,log}
+games() / game(slug) / read_file(slug, path) / scores(slug) / playbook(slug) / lessons() / calls(slug)
+seed(slug) / promote(slug, path) / sync(slug=None, studio=None)
+# The playtester tools (playtest, playtest_correct, ...) are the mubit-tester server's now.
 ```
 stdout is the MCP wire: tool bodies run under `redirect_stdout(sys.stderr)`, so progress prints in
 play.py are fine. Errors are re-raised as `ToolError(<type>: <message>)` so the client sees them.
-Registered in `.mcp.json` as `forge` → `scripts/forge-mcp.sh` (cds to the repo, execs
-`.venv/bin/forge mcp`); tools are allowed in `.claude/settings.json`.
+Jobs are `forge` CLI subprocesses in their own session: they survive client timeouts, log to
+`runs/jobs/<id>.log`, and end the log with `__exit <code>`.
 ```
 forge play "<goal>" [--steps N] [--studio NAME]   # same markdown as the MCP tool
 forge play-correct <run_id> <step> "<note>"
 forge play-list
-forge mcp                                         # or: python -m forge.mcp_server
+forge mcp                                         # the mubit-tester server
+forge server                                      # the forge server (or: python -m forge.mcp_server)
 ```

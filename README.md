@@ -38,14 +38,17 @@ forge place --open                           # build place/Forge.rbxlx and open 
 forge watch                                  # auto-sync game/ into Studio on every save
 ```
 
-AI playtester (also exposed to Claude Code as the `forge` MCP server in `.mcp.json`, tools
-`mcp__forge__playtest`, `playtest_correct`, `playtest_report`, `playtest_list`, `forge_doctor`):
+Forge from Claude Code (or any MCP client): the `forge` MCP server in `.mcp.json` (`forge server`).
+Open this repo in Claude Code and approve it, then ask for a game. Tools:
 
-```bash
-forge play "spawn, walk to the fire truck and pick up the hose" --steps 20 --studio Forge
-forge play-correct <run_id> 4 "it should have pressed E at the truck, not jumped"   # Mubit training signal
-forge play-list
-```
+| Build | Jobs | Read | Ship |
+|---|---|---|---|
+| `doctor`, `new_game`, `iterate`, `correct`, `improve` | `job`, `jobs`, `cancel_job` | `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls` | `seed`, `promote`, `sync` |
+
+Building takes minutes, so `new_game`/`iterate`/`correct`/`improve` start a background job (log in
+`runs/jobs/`) and return its id; poll `job(id)`. Playing and inspecting the game in Studio is the
+`mubit-tester` plugin's MCP server (`docs/TESTER.md`); from the shell: `forge play "<goal>"`,
+`forge play-correct <run_id> <step> "<note>"`, `forge play-list`.
 
 Then open the [Mubit console](https://app.mubit.ai/console/). **Tasks** shows each role collecting
 examples and training. **Requests** lets you rate calls Good/Bad. **Try models** compares the adapter

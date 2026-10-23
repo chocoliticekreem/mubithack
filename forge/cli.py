@@ -324,6 +324,12 @@ async def _improve(args) -> None:
                             players=args.players, steps=args.steps)
 
 
+def cmd_server(args) -> int:
+    from forge.mcp_server import main as server_main
+    server_main()
+    return 0
+
+
 def cmd_improve(args) -> int:
     asyncio.run(_improve(args))
     return cmd_scores(args)
@@ -443,6 +449,8 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--faults-file", help="faults JSON (default forge/faults/<slug>.json)")
     im.add_argument("--studio", help="Studio name part (default FORGE_STUDIO)")
 
+    sub.add_parser("server", help="run the forge MCP server over stdio (build games from any MCP client)")
+
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
     return p
@@ -453,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "play": cmd_play, "play-correct": cmd_play_correct,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
