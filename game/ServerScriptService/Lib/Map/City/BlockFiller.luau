@@ -1073,6 +1073,13 @@ function Scenery.duplex(ctx: any, parent: Instance, F: CFrame, maxW: number, max
 	SK.wedge(m, "Roof2", G * CF(0, GY + h + 3, 3 * d / 4 + 0.5) * FLIP, V(w + 2, 6, d / 2 + 1), rc)
 	SK.part(m, "Front", G * CF(0, GY + 3.5, -0.15), V(w * 0.7, 7, 0.3), C.GlassDark, { collide = false, query = false })
 	m.Parent = parent
+	-- a knockable mailbox at the kerb (PhysicsFxService: name ends with "mailbox")
+	local mb = Instance.new("Model")
+	mb.Name = "Mailbox"
+	SK.part(mb, "Post", F * CF(-w / 2 + 2, GY + 1.6, 2), V(0.4, 3.2, 0.4), C.Wood)
+	SK.part(mb, "Box", F * CF(-w / 2 + 2, GY + 3.6, 2), V(1.2, 1.2, 2), pick(rng, C.Awnings))
+	mb:AddTag("Knockable")
+	mb.Parent = parent
 	if rng:NextNumber() < 0.35 then
 		BlockFiller.tree(parent, F * CF(w / 2 + 5, GY, 6), rng)
 	end
