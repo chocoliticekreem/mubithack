@@ -11,6 +11,8 @@
 -- v2 (docs/game/08 "Inventory"): when InventoryService is running it owns where tools come from, so
 --   GiveLoadout only resets the tank/foam attrs (no Backpack tools), and the Hydrant / TruckRefill
 --   prompts are InventoryService's (nozzle off the reel, supply lines), not hooked here.
+--   ToolService:HitDoor(player, door, hits?)             -- v2: HandsService axe-head impact (1..DoorHits)
+--   ToolService:PushDoor(door): boolean                  -- v2: hand shove opens an unlocked closed door
 -- Signals: DoorBroken(player, door: BasePart), WaterUsed(player, litres: number),
 --          HoseHit(sprayer: Player, victim: Player)       -- once per pair per HoseHitCooldown
 --          HoseRecoil(sprayer: Player, impulse: Vector3)  -- every hose spray event (-aim * HoseRecoil * pressure).
@@ -970,6 +972,25 @@ function ToolService:ResetDoors(locationId: string)
 			resetDoor(d)
 		end
 	end
+end
+
+-- v2 physics hands (HandsService validates first): an axe-head impact worth `hits` door hits, and a
+-- hand shove that swings an unlocked closed door open. PushDoor returns true when it opened.
+function ToolService:HitDoor(player: Player, door: BasePart, hits: number?)
+	for _ = 1, math.clamp(math.floor(tonumber(hits) or 1), 1, math.max(1, ToolConfig.DoorHits)) do
+		if door:GetAttribute(Names.Attr.Broken) == true then
+			break
+		end
+		hitDoor(player, door)
+	end
+end
+
+function ToolService:PushDoor(door: BasePart): boolean
+	if door:GetAttribute(Names.Attr.Broken) == true or door:GetAttribute(Names.Attr.Locked) == true or not door.CanCollide then
+		return false
+	end
+	toggleDoor(door)
+	return true
 end
 
 -- test hooks -------------------------------------------------------------------------------
