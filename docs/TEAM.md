@@ -12,10 +12,10 @@ in a small PR that says so in its title.
 | Lane | Owner | Owns | Goal for the demo |
 |---|---|---|---|
 | **K0 Kickoff** (frozen `[K]`) | Arvin | `game/ReplicatedStorage/Shared/*`, `Main.server`/`Main.client`, `game/tests/` runner, CI | Contracts in `docs/game/03` §10; every API stubbed |
-| **G1 Fire & tools** | Anson | FireService, ToolService, `Lib/Fire/`, FireConfig, ToolConfig, FireFxController, ToolController | Fire spreads; hose + tank + refill; axe breaks locked doors |
-| **G2 World & truck** | Arvin | MapService, VehicleService, AtmosphereService, `Lib/Map/**`, Map/Vehicle/AtmosphereConfig, Vehicle/AlarmController | Station 67 + a 4-house town from code; truck 67 at the scene |
-| **G3 Loop & people** | _Dev C (add your name)_ | Mission/Rescue/Squad/BlameService, `Lib/Rescue/`, `Lib/Squad/`, `Lib/Blame/`, Game/Rescue/BlameConfig, Hud/Results/RescueController, `ClientLib/UiKit` | 3-minute round, carry civilians and pets to the truck, Blame screen |
-| **GF Forge + Mubit demo** | Anson | `forge/**`, `tests/test_*.py`, `docs/ARCHITECTURE.md`, `runs/flame-and-blame/`, new Forge-made files in `game/` | Forge builds a v1 module; a human correction becomes a recorded fixer call; Mubit console |
+| **G1 Fire & tools** | Anson | FireService, ToolService, `Lib/Fire/`, FireConfig, ToolConfig, FireFxController, ToolController; v1.5: HeatService, Heat/PhysicsConfig, `Shared/Ragdoll` body, FirstPerson/PhysicsFxController | Fire spreads; hose + tank + refill; axe breaks locked doors |
+| **G2 World & truck** | Arvin | MapService (+ v1.5 instances), VehicleService, AtmosphereService, `Lib/Map/**`, Map/Vehicle/AtmosphereConfig, Vehicle/AlarmController | Station 67 + a 4-house town from code; truck 67 at the scene |
+| **G3 Loop & people** | _Dev C (add your name)_ | Mission/Rescue/Squad/BlameService, `Lib/Rescue/`, `Lib/Squad/`, `Lib/Blame/`, Game/Rescue/BlameConfig, Hud/Results/RescueController, `ClientLib/UiKit`; v1.5: LobbyService, LobbyController, LobbyConfig, MissionCatalog | 3-minute round, carry civilians and pets to the truck, Blame screen |
+| **GF Forge + Mubit demo** | Anson | `forge/**`, `tests/test_*.py`, `docs/ARCHITECTURE.md`, `runs/flame-and-blame/`, new Forge-made files in `game/`; v1.5: HazardService, FinaleService, HazardController, HazardConfig | Forge builds a v1 module; a human correction becomes a recorded fixer call; Mubit console |
 
 File-level ownership is `docs/game/03-tech-architecture.md` §1. Integration lead (shared place, recordings): Arvin.
 The weekend plan: `docs/superpowers/plans/2026-10-23-flame-and-blame-v1.md`.

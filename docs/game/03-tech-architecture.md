@@ -30,8 +30,10 @@ game/
   README.md                                   [RT]
   tools/  sync.py  make_place.py  pull.luau   [RT]  (not synced into Studio)
   tests/                                      pure-Luau unit tests run by `luau` in CI (§7), not synced
+    Spec.luau  run.sh  config.spec.luau       [K]   tiny spec runner: `bash game/tests/run.sh`
     fire_sim.spec.luau                        [G1]
     awards.spec.luau                          [G3]
+    mission_catalog.spec.luau                 [G3]  v1.5: MissionCatalog shape
 
   ServerScriptService/
     ForgeProbe.server.luau                    [RT]  error/counter collector + ServerStorage.DevHook
@@ -45,7 +47,10 @@ game/
       RescueService.luau                      [G3]  civilians/pets: spawn, carry, deliver, revive
       SquadService.luau                       [G3]  helmet numbers 1-4, spawn at station, first-person, downed
       BlameService.luau                       [G3]  listens to every signal, builds awards
-      HazardService.luau                      [GF]  v2: wet floor + fuse box electrocution, fire tornado
+      AtmosphereService.luau                  [G2]  Lighting presets (per location / mission in v1.5)
+      LobbyService.luau                       [G3]  v1.5: station lobby, Mission Board, squads, launch
+      HeatService.luau                        [G1]  v1.5: per-player Heat 0-100 near fire -> Downed
+      HazardService.luau                      [GF]  v1.5 contract: electrocution, fire tornado, explosion, tidal wave
       FinaleService.luau                      [GF]  v2: dam detonator + tidal wave
     Lib/                                      helper modules, one folder per owning system
       Fire/FireSim.luau                       [G1]  pure step function (unit-testable)
@@ -66,6 +71,7 @@ game/
       Config.luau                                   Config.define helper (§3)
       Names.luau                                    every cross-system tag and attribute name
       Types.luau                                    cross-system types (RoundState, Award, ...)
+      Ragdoll.luau                                  v1.5: Ragdoll.enable/knockback (contract [K], body [G1])
       Palette.luau                                  colour tokens from docs/game/02 §1
     Config/                                   one file per system, owned by that system's lane
       GameConfig.luau                         [G3]  round length, max players, phases
@@ -76,6 +82,11 @@ game/
       RescueConfig.luau                       [G3]
       BlameConfig.luau                        [G3]
       HazardConfig.luau                       [GF]
+      AtmosphereConfig.luau                   [G2]  presets + LocationPresets (v1.5)
+      MissionCatalog.luau                     [G3]  v1.5: data-only list of the trailer missions
+      LobbyConfig.luau                        [G3]  v1.5
+      HeatConfig.luau                         [G1]  v1.5
+      PhysicsConfig.luau                      [G1]  v1.5: first person, ragdoll, knockback
 
   StarterPlayerScripts/
     Main.client.luau                          [K]   bootstrap: auto-discovers Controllers/*Controller
@@ -87,7 +98,10 @@ game/
       ToolController.luau                     [G1]  hose aim + spray input, water beam, axe feel
       VehicleController.luau                  [G2]  truck camera, siren light, horn
       AlarmController.luau                    [G2]  station alarm light + screen flash
-      HazardController.luau                   [GF]  v2: zap flash, tornado fx
+      HazardController.luau                   [GF]  v1.5 contract: zap flash, tornado/explosion/wave fx
+      LobbyController.luau                    [G3]  v1.5: Mission Board UI, squad roster, launch
+      FirstPersonController.luau              [G1]  v1.5: camera lock, viewmodel gloves, head bob, shake
+      PhysicsFxController.luau                [G1]  v1.5: applies Shared/Ragdoll + hose recoil locally
     ClientLib/
       UiKit.luau                              [G3]  shared UI builders (frames, labels, tweens)
 ```
@@ -97,10 +111,10 @@ its helpers), so one feature usually touches one lane only.
 
 | Lane | Systems | Demo goal (v1, `TARGET_GAME.md`) |
 |---|---|---|
-| **G1 Fire & tools** | FireService, ToolService, FireConfig, ToolConfig, FireFxController, ToolController, Lib/Fire | Fires spread; hose with a tank that refills; axe breaks locked doors |
-| **G2 World & truck** | MapService, VehicleService, Map builders, MapConfig, VehicleConfig, VehicleController, AlarmController | Station plus a town block of 3-5 houses, built from code; truck at the station |
-| **G3 Loop & people** | MissionService, RescueService, SquadService, BlameService, configs, Hud/Results/Rescue controllers, UiKit | 3-minute round, carry civilians and pets to the truck, Blame results screen |
-| **GF Forge** | New files only: HazardService, FinaleService, Forest/Dam builders, HazardController, HazardConfig | v2 chaos features, each landing as new files |
+| **G1 Fire & tools** | FireService, ToolService, FireConfig, ToolConfig, FireFxController, ToolController, Lib/Fire; v1.5: HeatService, HeatConfig, PhysicsConfig, `Shared/Ragdoll` body, FirstPerson/PhysicsFxController | Fires spread; hose with a tank that refills; axe breaks locked doors |
+| **G2 World & truck** | MapService (+ v1.5 instances), VehicleService, AtmosphereService, Map builders, MapConfig, VehicleConfig, AtmosphereConfig, VehicleController, AlarmController | Station plus a town block of 3-5 houses, built from code; truck at the station |
+| **G3 Loop & people** | MissionService, RescueService, SquadService, BlameService, configs, Hud/Results/Rescue controllers, UiKit; v1.5: LobbyService, LobbyController, LobbyConfig, MissionCatalog | 3-minute round, carry civilians and pets to the truck, Blame results screen |
+| **GF Forge** | New files only: HazardService (v1.5 contract), FinaleService, Forest/Dam builders, HazardController, HazardConfig | v2 chaos features, each landing as new files |
 
 Naming rules, which tooling relies on:
 - **Every ModuleScript name is unique across the whole game.** DevHook (`ForgeProbe`) finds
@@ -1453,6 +1467,150 @@ return {}
 | `rounds_completed` | MissionService |
 | `map_build_ms` | MapService |
 | `net_dropped` | Net |
+
+### v1.5 additions (lobby, parallel squads, Heat, first person, physics, hazards)
+
+Contracts added after K0, stubbed in `main` with harmless defaults (every stub `Enabled`, `_selftest`
+returns `true, "stub"`). Owners replace the bodies, never the signatures.
+
+**Lobby and parallel missions.** The fire station is the lobby. Players spawn there; the Mission
+Board (`MissionBoard` part: SurfaceGui + ProximityPrompt) lists `Config/MissionCatalog`; squads of
+1-4 queue on `SquadPad`s; the leader picks a mission and launches; `MissionService:StartMission`
+builds that mission's location as its **own instance** (`MapService:BuildInstance`) in a free slot
+(`MapConfig.InstanceFirstSlot` .. `+ MaxInstances - 1`, 400-stud slots), so several squads play
+different missions at the same time in one server. On `MissionEnded` the squad returns to the
+station (`LobbyService:ReturnToLobby`). `LobbyConfig.UseLobby = false` keeps v1's single
+auto-round until G3 flips it.
+
+Rules for instances:
+- An instance Model lives at `Workspace.Instances.<instanceId>` with attrs `InstanceId`,
+  `LocationId`, and (written by MissionService) `RoundState`, `RoundEndsAt`, `MissionId`. The
+  Workspace-level round attrs stay for v1's single round.
+- APIs that take a `locationId` (`FireService:CountBurning`, `RescueService:Spawn`,
+  `ToolService:ResetDoors`, `VehicleService:ParkAt`) also accept an `instanceId`. Services that index
+  `LocationBuilt` also index `InstanceBuilt`.
+- `Player.InstanceId == ""` means "in the lobby". Every per-mission system filters players by it.
+- Lighting is server-global: with parallel squads the server keeps the lobby look; per-instance looks
+  are applied client-side (v2) from `AtmosphereConfig`.
+
+| New tag | On | Written by | Read by |
+|---|---|---|---|
+| `MissionBoard` | station board part (SurfaceGui + ProximityPrompt) | StationBuilder | LobbyService, LobbyController |
+| `SquadPad` | squad queue pad, attr `PadId` | StationBuilder | LobbyService |
+| `Hazard` | hazard source (fuse box lever, gas tank, detonator), attr `HazardId` | location builders | HazardService |
+
+| New attribute | On | Type | Writer |
+|---|---|---|---|
+| `SquadId` | Player | string, `""` = none | LobbyService |
+| `InstanceId` | Player; instance Model | string, `""` = in the lobby | MissionService; MapService |
+| `PadId` | SquadPad | number 1..N | StationBuilder |
+| `Heat` | Player | number 0-100 | HeatService |
+| `LocationPreset` | Lighting | string (locationId whose look is applied) | AtmosphereService |
+| `HazardId` | Hazard part/Model | `Types.HazardId` | builders |
+| `Power` | FuseBox | boolean (true = live) | builders (initial), HazardService |
+| `Ragdolled` | character Model | boolean | Ragdoll / PhysicsFxController |
+
+| New remote | Direction | Args | Limit | Server owner | Client user |
+|---|---|---|---|---|---|
+| `Lobby/Board` | S→C all | `squads: { Types.Squad }` | | LobbyService | LobbyController |
+| `Lobby/Choose` | C→S | `missionId: string` | 2/s | LobbyService | LobbyController |
+| `Lobby/Launch` | C→S | none (leader only) | 1/s | LobbyService | LobbyController |
+| `Shared/Ragdoll` | S→C owner | `seconds: number, impulse: Vector3?` | | `Main.server` declares; `Shared/Ragdoll.luau` fires | PhysicsFxController |
+| `Hazard/Zapped` | S→C all | `victim: number, culprit: number?` (UserIds) | | HazardService | HazardController |
+| `Hazard/Fx` | S→C all | `hazardId: string, position: Vector3, params: table` | | HazardService | HazardController |
+
+```lua
+-- MapService [G2] (v1.5)
+MapService:BuildInstance(locationId: string, instanceId: string): Model?  -- free slot; nil = no builder/slot
+MapService:DestroyInstance(instanceId: string): boolean
+MapService:GetInstance(instanceId: string): Model?
+MapService:GetInstances(): { [string]: Model }
+MapService.InstanceBuilt: Signal<Model, string, string>  -- (model, instanceId, locationId)
+
+-- LobbyService [G3]                  Priority 55
+LobbyService:GetSquads(): { Types.Squad }
+LobbyService:GetSquad(squadId: string): Types.Squad?
+LobbyService:Join(player: Player, padId: number): string?       -- squadId
+LobbyService:Leave(player: Player)
+LobbyService:Choose(player: Player, missionId: string): boolean  -- leader only, enabled missions only
+LobbyService:Launch(squadId: string, missionId: string): string? -- instanceId
+LobbyService:ReturnToLobby(players: { Player })
+LobbyService.SquadChanged: Signal<string>                        -- squadId
+LobbyService.Launched: Signal<string, string, string>            -- (squadId, missionId, instanceId)
+
+-- MissionService [G3] (v1.5; v1's StartRound/EndRound stay for the single auto-round)
+MissionService:StartMission(squad: { Player }, missionId: string): string?  -- instanceId
+MissionService:EndMission(instanceId: string, reason: Types.EndReason)
+MissionService:GetMission(instanceId: string): Types.MissionRun?
+MissionService:GetMissions(): { Types.MissionRun }
+MissionService.MissionStarted: Signal<string, string>            -- (instanceId, missionId)
+MissionService.MissionEnded: Signal<string, Types.ResultsPayload> -- (instanceId, results)
+
+-- HeatService [G1]                   Priority 55
+HeatService:GetHeat(player: Player): number
+HeatService:AddHeat(player: Player, amount: number, source: string?)
+HeatService:Cool(player: Player, amount: number, by: Player?)   -- teammate spray / extinguisher
+HeatService:Reset(player: Player?)                              -- nil = everyone
+HeatService.Overheated: Signal<Player>                          -- at 100: SquadService:Down(player, "heat")
+
+-- ToolService [G1] (v1.5)
+ToolService.HoseRecoil: Signal<Player, Vector3>                 -- (sprayer, impulse) -> Ragdoll.knockback
+
+-- HazardService [GF]                 Priority 70
+HazardService:Trigger(instanceId: string, hazardId: Types.HazardId, params: { [string]: any }?): boolean
+HazardService:Clear(instanceId: string)
+HazardService:GetActive(instanceId: string): { Types.HazardId }
+HazardService.Triggered: Signal<string, string>                 -- (instanceId, hazardId)
+HazardService.Zapped: Signal<Player, Player?>                   -- (victim, culprit)
+HazardService.Flung: Signal<Player, string>                     -- (victim, hazardId)
+-- params: electrocution {fuseBox?, culprit?} | fire_tornado {position?, seconds?}
+--         explosion {position, radius?, culprit?} | tidal_wave {direction?, seconds?} | cigarette {npc?}
+
+-- FinaleService [GF]                 Priority 75 (dam_finale)
+FinaleService:Arm(instanceId: string)
+FinaleService:Detonate(instanceId: string, by: Player?): boolean  -- -> HazardService:Trigger(id, "tidal_wave")
+FinaleService:GetPlanted(instanceId: string): number
+FinaleService.ChargePlanted: Signal<string, Player>
+FinaleService.Detonated: Signal<string, Player?>
+
+-- AtmosphereService [G2] (v1.5)
+AtmosphereService:ApplyLocation(locationId: string, tweenTime: number?): boolean  -- AtmosphereConfig.LocationPresets
+AtmosphereService:ApplyMission(missionId: string, tweenTime: number?): boolean    -- MissionCatalog `atmosphere`
+```
+
+```lua
+-- ReplicatedStorage/Shared/Ragdoll.luau (contract [K], body [G1]); callable on server or client
+Ragdoll.enable(character: Model, seconds: number): boolean       -- server: attr Ragdolled + Shared/Ragdoll to the owner
+Ragdoll.knockback(character: Model, impulse: Vector3): boolean   -- studs/s, clamped to PhysicsConfig.MaxImpulse
+Ragdoll.isRagdolled(character: Model): boolean
+-- Used by: hose friendly fire + recoil (ToolService), explosions, electrocution, tornado, tidal wave
+-- (HazardService), slaps, axe hits.
+
+-- Client controllers (v1.5)
+FirstPersonController:SetEnabled(on: boolean)        -- camera lock, viewmodel gloves, head bob (PhysicsConfig)
+FirstPersonController:Shake(magnitude: number, seconds: number)
+FirstPersonController:GetViewmodel(): Model?
+-- LobbyController: Mission Board UI + squad roster; PhysicsFxController: applies Shared/Ragdoll and
+-- hose recoil locally; HazardController: Hazard/Zapped + Hazard/Fx effects.
+```
+
+**MissionCatalog** (`ReplicatedStorage/Config/MissionCatalog.luau` [G3]) is pure data: an array of
+`Types.MissionDef` (`id, title, blurb, locationId, enabled, players{min,max}, seconds, atmosphere,
+objectives[], fires{count, starts}, rescues[{kind, count, variant?}], hazards[], tools[], stars[]`).
+Missions: `house_fire` (Town, the only one enabled in v1), `apartment_trampoline`, `school_alarm`,
+`farm_haystack`, `forest_walkie`, `storage_fusebox`, `tornado_field`, `dam_finale`, `panda_zoo`. A
+mission is enabled in the PR that ships its location builder. `game/tests/mission_catalog.spec.luau`
+validates the shape.
+
+New types in `Shared/Types.luau`: `SquadState`, `Squad`, `HazardId`, `MissionRun`,
+`MissionObjective`, `MissionRescue`, `StarRule`, `MissionDef`; `ResultsPayload` gains optional
+`missionId` and `instanceId`. New configs: `LobbyConfig` [G3], `HeatConfig` [G1], `PhysicsConfig`
+[G1], `HazardConfig` [GF]; `MapConfig.InstanceFirstSlot/MaxInstances`, `ToolConfig.HoseRecoil`,
+`AtmosphereConfig.LocationPresets`.
+
+New counters: `map_instances_built` (MapService), `squads_launched` (LobbyService),
+`missions_started`, `missions_completed` (MissionService), `heat_downs` (HeatService),
+`hazards_triggered`, `electrocutions` (HazardService).
 
 ### Readiness checklist for K0
 
