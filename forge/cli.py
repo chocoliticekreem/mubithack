@@ -409,6 +409,16 @@ def cmd_feature(args) -> int:
     return 0
 
 
+def cmd_polish(args) -> int:
+    from forge.feature import polish_feature
+    _sigterm_as_interrupt()
+    cycles = asyncio.run(polish_feature(load_settings(), args.slug, cycles=args.cycles))
+    for c in cycles:
+        print(f"cycle {c['cycle']}: open {c['open']}, kept {c['code_kept']}/{len(c.get('code_fixes') or [])}, "
+              f"feature counters seen: {c.get('feature_verified')}")
+    return 0
+
+
 def cmd_fix(args) -> int:
     _sigterm_as_interrupt()  # a killed run still restores the file it was testing
     asyncio.run(_improve(args, faults_on=False, fix=True))
@@ -603,6 +613,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="then N end-to-end cycles: AI testers in a round, auditor vs acceptance, fix, verify")
     fe.add_argument("--no-studio", action="store_true")
 
+    po = sub.add_parser("polish", help="end-to-end cycles on a game's latest feature (testers in a round, auditor vs acceptance, fix, verify)")
+    po.add_argument("slug")
+    po.add_argument("--cycles", type=int, default=3)
+
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
     ve.add_argument("slug")
 
@@ -637,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
