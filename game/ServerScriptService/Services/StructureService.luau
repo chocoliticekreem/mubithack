@@ -1,11 +1,13 @@
 --!strict
 -- StructureService [owner: Structure agent]. HOUSES BURN DOWN. Every building (a Model tagged IncidentSite,
--- else the outermost Model with a BuildingId attr) is a structure of chunks: Wall*/Partition* walls,
+-- else the outermost Model with a BuildingId attr) IN AN ACTIVE RUN (InstanceId on it or an ancestor; never
+-- the fire station / lobby) is a structure of chunks: Wall*/Partition* walls,
 -- Roof*/Ceiling*/Gable*/Ridge* roof, Floor* floors and Window-tagged panes. Fire wears chunks down; when a
 -- section's supports fail it creaks for WarnSeconds, then COLLAPSES for real (joints broken, unanchored,
 -- dust cloud, trim and furniture ride down with it). Windows blow out (glass), roofs cave in, upper floors
 -- give way into the room below, smoke pours from broken windows, and at TotalLossAt the house drops to a
--- smoking blackened shell (TOTAL LOSS). People under a collapse get hurt. Rubble is capped, settles, anchors.
+-- smoking blackened shell (TOTAL LOSS). People under a collapse get hurt. Rubble is capped, settles, anchors
+-- and stays on the plot (Lib/Physics/Rubble: zero start velocity, clamped, leashed, crumbles past 40 studs).
 -- The maths is Lib/Fire/Structure (pure, spec-tested); this file owns the Roblox side.
 --
 -- Public API:
@@ -141,6 +143,25 @@ local function scopeOf(model: Instance): string?
 	return nil
 end
 
+-- Only buildings in an ACTIVE RUN burn down: a bound incident site (attr InstanceId = runId, set by
+-- MapService:BindSite) or a v1.5 mission instance. The fire station and lobby buildings never are, even
+-- if something lights a fire there (the lobby HUD showed "BUILDING 23%").
+local function inActiveRun(model: Instance): boolean
+	local node: Instance? = model
+	local station = false
+	while node and node ~= workspace do
+		local inst = node:GetAttribute(Names.Attr.InstanceId)
+		if type(inst) == "string" and inst ~= "" then
+			return not station or model:HasTag(INCIDENT_SITE)
+		end
+		if node:GetAttribute(Names.Attr.LocationId) == "Station" or node:GetAttribute("StationOrigin") ~= nil then
+			station = true
+		end
+		node = node.Parent
+	end
+	return false
+end
+
 -- World-space AABB half extents of a rotated box.
 local function halfExtents(cf: CFrame, size: Vector3): Vector3
 	local h = size / 2
@@ -208,12 +229,15 @@ local function track(rec: Rec, p: BasePart)
 	end
 end
 
-local function index(model: Model): Rec?
+local function index(model: Model, force: boolean?): Rec?
 	if recs[model] then
 		return recs[model]
 	end
 	if notStructure[model] then
 		return nil
+	end
+	if not force and not inActiveRun(model) then
+		return nil -- not cached: the site may be bound to a run later
 	end
 	local boxes: { Structure.Box } = {}
 	local parts: { BasePart } = {}
@@ -950,7 +974,7 @@ end
 
 -- Char `n` chunks of `kind` (default roof) in a building, as if the fire burnt them out.
 function StructureService:_char(model: Model, kind: string?, n: number?): number
-	local rec = recs[model] or index(model)
+	local rec = recs[model] or index(model, true)
 	if not rec then
 		return 0
 	end
@@ -1007,7 +1031,7 @@ function StructureService:_selftest(): (boolean, string)
 	m.Parent = workspace
 	local result, message = true, "ok"
 	local ok, err = pcall(function()
-		local rec = index(m)
+		local rec = index(m, true)
 		if not rec then
 			result, message = false, "not indexed"
 			return

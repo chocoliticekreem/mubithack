@@ -405,8 +405,25 @@ local function ensureBar()
 	bar, fill, text = panel, f, l
 end
 
+-- The integrity bar is only for MY run's building: the structure (or an ancestor) carries my InstanceId.
+local function runOf(inst: Instance): string?
+	local node: Instance? = inst
+	while node and node ~= workspace do
+		local id = node:GetAttribute("InstanceId")
+		if type(id) == "string" and id ~= "" then
+			return id
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
 local shown = -1
 local function refreshBar()
+	local myRun = Players.LocalPlayer:GetAttribute("InstanceId")
+	if type(myRun) ~= "string" or myRun == "" then
+		myRun = nil -- in the lobby: no building bar at all
+	end
 	local me = myPos()
 	local best: Model? = nil
 	local bestD = Cfg.HudDistance
@@ -414,7 +431,7 @@ local function refreshBar()
 		for _, m in CollectionService:GetTagged(Cfg.Tag) do
 			local v = m:GetAttribute("Integrity")
 			local centre = m:GetAttribute("Center")
-			if typeof(v) == "number" and v < 100 and typeof(centre) == "Vector3" then
+			if typeof(v) == "number" and v < 100 and typeof(centre) == "Vector3" and myRun and runOf(m) == myRun then
 				local d = (centre - me).Magnitude
 				if d < bestD then
 					best, bestD = m, d
