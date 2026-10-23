@@ -34,6 +34,8 @@ forge run lava-escape --iterations 2         # keep improving
 forge correct lava-escape ServerScriptService/Round.server.luau "rounds never end when everyone dies"
 forge status
 forge new "..." --no-studio                  # compile-only loop, no Studio needed
+forge place --open                           # build place/Forge.rbxlx and open it in Studio
+forge watch                                  # auto-sync game/ into Studio on every save
 ```
 
 Then open the [Mubit console](https://app.mubit.ai/console/). **Tasks** shows each role collecting

@@ -1,4 +1,4 @@
-"""`forge doctor | new | run | correct | status`."""
+"""`forge doctor | new | run | correct | status | watch | place`."""
 
 from __future__ import annotations
 
@@ -137,6 +137,30 @@ def cmd_status(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- watch / place
+
+def cmd_watch(args) -> int:
+    from forge.watch import watch
+    s = load_settings()
+    root = Path(args.root) if args.root else s.base_game_dir
+    if args.slug:
+        root = RunStore(s, args.slug).game_dir
+    asyncio.run(watch(s, root, args.studio))
+    return 0
+
+
+def cmd_place(args) -> int:
+    import subprocess
+    s = load_settings()
+    root = Path(args.root) if args.root else s.base_game_dir
+    out = Path(args.out)
+    tool = s.base_game_dir / "tools" / "make_place.py"
+    subprocess.run([sys.executable, str(tool), "--root", str(root), "--out", str(out)], check=True)
+    if args.open:
+        subprocess.run(["open", "-a", "/Applications/RobloxStudio.app", str(out)], check=False)
+    return 0
+
+
 # ---------------------------------------------------------------- main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,13 +187,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", help="iterations, scores, call counts per role")
     st.add_argument("slug", nargs="?")
+
+    w = sub.add_parser("watch", help="auto-sync a game folder into the open Studio on every save")
+    w.add_argument("slug", nargs="?", help="a generated game (runs/<slug>/game); default: --root or game/")
+    w.add_argument("--root", help="game folder to watch (default game/)")
+    w.add_argument("--studio", help="pick the Studio whose name contains this (e.g. Forge.rbxlx)")
+
+    pl = sub.add_parser("place", help="build a .rbxlx from a game folder (baseplate + spawn + scripts)")
+    pl.add_argument("--root", help="game folder (default game/)")
+    pl.add_argument("--out", default="place/Forge.rbxlx")
+    pl.add_argument("--open", action="store_true", help="open it in Roblox Studio")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
-               "correct": cmd_correct, "status": cmd_status}[args.cmd]
+               "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch,
+               "place": cmd_place}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

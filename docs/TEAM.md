@@ -67,8 +67,26 @@ cp .env.example .env          # paste the shared MUBIT_API_KEY
 python3 game/tools/make_place.py --out place/Forge.rbxlx && open place/Forge.rbxlx
 # Studio: Assistant → ⋯ → Manage MCP Servers → Enable Studio as MCP server
 .venv/bin/forge doctor        # every line ✓
+.venv/bin/forge watch --studio Forge   # leave running: every save syncs into Studio
 .venv/bin/python -m pytest -q
 ```
+
+## Auto-sync files → Studio
+
+Leave `forge watch` running in a terminal while you work. Every time you save a `.luau` file under
+`game/` it:
+1. syntax-checks the files with `luau-compile`. If there's an error it prints it and doesn't push.
+2. pushes changed files into the open Studio over the MCP. New files are created and deleted files
+   are removed. This takes about 1 s.
+3. never interrupts a playtest. Changes wait until you press Stop, then push.
+
+`forge watch <slug>` does the same for a generated game in `runs/<slug>/game`.
+`forge place --open` builds a fresh `place/Forge.rbxlx` from `game/` and opens it.
+
+Alternative: Studio's built-in **Script Sync** (right-click ServerScriptService, ReplicatedStorage
+and StarterPlayerScripts → Sync to → pick the `game/` folder; it can't be switched on from code).
+It's two-way, so edits made inside Studio are written back to disk. Use either Script Sync or
+`forge watch` for a given place, not both. Forge's own loop uses `forge watch`'s sync.
 
 ## Sync points
 
