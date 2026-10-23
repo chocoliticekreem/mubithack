@@ -1,11 +1,16 @@
 --!strict
 -- TrafficService [owner: Traffic]. Cartoon city traffic (docs/game/08 "City").
 --
--- Cars follow lane centrelines of CityBuilder's road graph, pick random turns at junctions, obey
--- traffic lights (any Instance under Workspace.Map.City with attribute LightState, or tagged
--- "TrafficLight") and otherwise stop-sign rules, keep their distance, honk at people in the road,
--- and PULL OVER for fire trucks with the siren on (a few panic-swerve). A truck that rams a car at
--- speed sends it flying with real physics and the driver pops out yelling.
+-- Cars follow lane centrelines of CityBuilder's road graph (offsets from the graph's lane data,
+-- junction boxes sized from the drawn road widths), pick random turns at junctions and RESERVE their
+-- path through each junction (Lib/Traffic/Junction: conflicting paths go one after another, first
+-- come first served, through road first at unsignalled junctions, never enter without room on the
+-- exit lane, so junctions can't gridlock). Signalled junctions follow CityBuilder's TrafficPhase.
+-- Cars keep their distance along their PATH, honk at people in the road, drive round parked trucks
+-- and stalled cars, PULL OVER for moving fire trucks with the siren on (a few panic-swerve), and
+-- unstick themselves: reroute after RerouteAfter s at a line, go anyway after ForceAfter, ghost
+-- through after GhostAfter, recycled when stuck out of view. A truck that rams a car at speed sends
+-- it flying with real physics and the driver pops out yelling.
 --
 -- Simulation is KINEMATIC on the server (no physics until a car is hit), at TrafficConfig.SimHz.
 -- The server never moves a car's parts while it drives: it publishes the pose as model attributes
@@ -14,18 +19,20 @@
 -- No road graph (Workspace.Map.City.RoadGraphJson / RoadGraph folder) = no traffic, no errors.
 --
 -- Reads: Workspace.Map.City.RoadGraphJson (StringValue, JSON) or .RoadGraph (RoadNode parts attr NodeId,
---   RoadEdge ObjectValues with A/B), or CityBuilder.Graph; LightState attrs; tag Truck + attr SirenOn;
+--   RoadEdge ObjectValues with A/B), or CityBuilder.Graph; City attr TrafficPhase + TrafficLight models
+--   (or LightState attrs); tag Truck + attr SirenOn;
 --   VehicleService.SirenChanged(truck, on) (nil-guarded), VehicleService:GetDriver / truck attr Driver.
 -- Writes: Workspace.Traffic (Folder) / TrafficCar_<kind> Models (tag TrafficCar) with attributes
 --   Pose: CFrame (ground point, facing travel), Speed: number, State: "Drive"|"Yield"|"Panic"|"Wrecked",
---   Kind, RootY, HalfLen (CarBuilder).
+--   Blink: "L"|"R"|"" (indicators), Brake: boolean (brake lights), Kind, RootY, HalfLen (CarBuilder).
 -- Remotes: Traffic/Honk (S->C all: car: Model)
 -- Signals: Rammed(driver: Player?, car: Model, kind: string)
 -- Calls (nil-guarded): PhysicsFxService:Impulse(part, vector) / :Pop(kind, pos, word)
 -- API: TrafficService:GetCars(): {Model}, :GetStats(): {[string]: number}, :Clear()
 -- Counters: traffic_graph_loaded, traffic_spawned, traffic_despawned, traffic_yields, traffic_panics,
---   traffic_honks, traffic_rammed
--- Test hooks (DevHook only): _selftest(), _loadGraph(json: string), _spawnNear(player, n?)
+--   traffic_honks, traffic_rammed, traffic_forced, traffic_rerouted, traffic_ghosted, traffic_passes,
+--   traffic_recycled
+-- Test hooks (DevHook only): _selftest(), _why(), _loadGraph(json: string), _spawnNear(player, n?)
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -44,6 +51,7 @@ local TrafficLib = ServerScriptService:WaitForChild("Lib"):WaitForChild("Traffic
 local RoadNet = require(TrafficLib:WaitForChild("RoadNet") :: ModuleScript)
 local Driver = require(TrafficLib:WaitForChild("Driver") :: ModuleScript)
 local CarBuilder = require(TrafficLib:WaitForChild("CarBuilder") :: ModuleScript)
+local Junction = require(TrafficLib:WaitForChild("Junction") :: ModuleScript)
 
 local TrafficService = {}
 TrafficService.Priority = 130
@@ -53,6 +61,8 @@ local CAR_TAG = "TrafficCar"
 local LIGHT_TAG = "TrafficLight"
 
 type Seg = RoadNet.Seg
+-- a car's claim on the junction ahead: requested (waiting) or granted (reserved, crossing)
+type Req = { node: string, seg: Seg, t: number, granted: boolean, eligible: boolean }
 type Car = {
 	model: Model,
 	root: BasePart,
@@ -64,9 +74,20 @@ type Car = {
 	laneId: number,
 	nextLane: number?,
 	cleared: boolean,
-	holding: string?,
-	stopWaited: number,
-	atSignal: boolean,
+	req: Req?,
+	waitT: number, -- seconds held at a junction line (not at a red)
+	rerouteT: number,
+	why: string, -- what held the car this step: "red" | "yield" | "junction" | "leader" | "obstacle" | ""
+	excused: boolean, -- stopped for a good reason (red light / siren), directly or via the car ahead
+	leader: any, -- Car ahead on my path (path-based)
+	passing: boolean,
+	passT: number,
+	passX: number,
+	passZ: number,
+	passHalf: number,
+	queued: boolean, -- stopped in a queue that resolves itself (behind a junction wait / red / queue)
+	ghostT: number,
+	immuneT: number, -- ignore sirens (after a too-long yield)
 	v: number,
 	lat: number,
 	latTarget: number,
@@ -74,7 +95,7 @@ type Car = {
 	state: string,
 	stateT: number,
 	clearT: number,
-	stuck: number,
+	stuck: number, -- seconds at ~0 speed without an excuse
 	lastHonk: number,
 	seed: number,
 	x: number,
@@ -83,9 +104,13 @@ type Car = {
 	hx: number,
 	hz: number,
 	pose: CFrame,
+	blink: string,
+	brake: boolean,
 	pubPose: CFrame?,
 	pubV: number,
 	pubState: string,
+	pubBlink: string,
+	pubBrake: boolean,
 	dead: boolean,
 }
 
@@ -97,12 +122,15 @@ local graphKey = ""
 local folder: Folder? = nil
 local cars: { Car } = {}
 local byModel: { [Model]: Car } = {}
+local signalled: { [string]: boolean } = {}
 local lightFor: { [number]: Instance } = {}
-local occupancy: { [string]: number } = {}
+local junctions: { [string]: { [Car]: boolean } } = {}
+local phase: string? = nil
 local sirenOverride: { [Model]: boolean } = {}
 local rng = Random.new()
 local lastToast = 0
 local HonkRemote: RemoteEvent? = nil
+local stats = { stuckMax = 0, forced = 0, rerouted = 0, ghosted = 0, passed = 0, recycled = 0 }
 
 local function count(name: string, n: number?)
 	Telemetry.count(name, n or 1)
@@ -307,90 +335,117 @@ local function lookOf(inst: Instance): Vector3
 	return Vector3.zero
 end
 
--- Match each incoming lane of a signalled junction to the light that controls it.
+-- Signalled junctions: every TrafficLight (CityBuilder Model named "TrafficLight", or tagged
+-- "TrafficLight", or anything with a LightState attribute) belongs to the nearest junction node
+-- within LightMatchRadius. Those junctions follow the City model's TrafficPhase ("XGreen" | "XAmber"
+-- | "ZGreen" | "ZAmber": X = traffic driving along X); a light's own LightState (if any) overrides it
+-- for that junction's lanes.
 local function scanLights()
 	local n = net
 	if not n then
 		return
 	end
 	local lights: { Instance } = {}
+	local seen: { [Instance]: boolean } = {}
 	for _, inst in CollectionService:GetTagged(LIGHT_TAG) do
 		if inst:IsDescendantOf(workspace) then
+			seen[inst] = true
 			table.insert(lights, inst)
 		end
 	end
-	if #lights == 0 then
-		local city = cityFolder()
-		if city then
-			for i, d in city:GetDescendants() do
-				if d:GetAttribute("LightState") ~= nil then
-					table.insert(lights, d)
-				end
-				if i % 4000 == 0 then
-					task.wait()
-				end
+	local city = cityFolder()
+	if city then
+		for i, d in city:GetDescendants() do
+			if not seen[d] and ((d.Name == "TrafficLight" and d:IsA("Model")) or d:GetAttribute("LightState") ~= nil) then
+				seen[d] = true
+				table.insert(lights, d)
+			end
+			if i % 4000 == 0 then
+				task.wait()
 			end
 		end
 	end
+	signalled = {}
 	lightFor = {}
-	if #lights == 0 then
-		return
-	end
-	local where: { { inst: Instance, pos: Vector3, look: Vector3, axis: string? } } = {}
 	for _, l in lights do
 		local p = posOf(l)
-		if p then
-			local ax = l:GetAttribute("Axis") or l:GetAttribute("Direction") or l:GetAttribute("Approach") or l:GetAttribute("Dir")
-			table.insert(where, { inst = l, pos = p, look = lookOf(l), axis = if type(ax) == "string" then string.lower(ax) else nil })
-		end
-	end
-	for _, lane in n.lanes do
-		if (n.degree[lane.to] or 0) < 3 then
+		if not p then
 			continue
 		end
-		local node = n.nodes[lane.to]
-		local laneAxis = if math.abs(lane.hx) > math.abs(lane.hz) then "x" else "z"
-		local best: Instance? = nil
-		local bestScore = math.huge
-		for _, w in where do
-			local dn = math.sqrt((w.pos.X - node.x) ^ 2 + (w.pos.Z - node.z) ^ 2)
-			if dn > Cfg.LightMatchRadius then
-				continue
-			end
-			local dEnd = math.sqrt((w.pos.X - lane.bx) ^ 2 + (w.pos.Z - lane.bz) ^ 2)
-			local score: number
-			if w.axis then
-				local a = w.axis :: string
-				local isX = string.find(a, "ew", 1, true) or a == "x" or string.find(a, "east", 1, true) or string.find(a, "west", 1, true)
-				local isZ = string.find(a, "ns", 1, true) or a == "z" or string.find(a, "north", 1, true) or string.find(a, "south", 1, true)
-				if (laneAxis == "x" and isZ and not isX) or (laneAxis == "z" and isX and not isZ) then
-					continue
+		local best: string? = nil
+		local bestD = Cfg.LightMatchRadius
+		for id, node in n.nodes do
+			if n.junction[id] then
+				local d = math.sqrt((p.X - node.x) ^ 2 + (p.Z - node.z) ^ 2)
+				if d < bestD then
+					best, bestD = id, d
 				end
-				score = dEnd
-			else
-				-- a light faces the traffic it controls: its LookVector points against the lane heading
-				local align = -(w.look.X * lane.hx + w.look.Z * lane.hz)
-				score = (1 - align) * 40 + dEnd
-			end
-			if score < bestScore then
-				bestScore = score
-				best = w.inst
 			end
 		end
 		if best then
-			lightFor[lane.id] = best
+			signalled[best] = true
+			if l:GetAttribute("LightState") ~= nil then
+				-- legacy per-light state: the light facing against the lane controls it
+				for _, lane in n.lanes do
+					if lane.to == best then
+						local look = lookOf(l)
+						local align = -(look.X * lane.hx + look.Z * lane.hz)
+						local cur = lightFor[lane.id]
+						if align > 0.7 and (not cur) then
+							lightFor[lane.id] = l
+						end
+					end
+				end
+			end
 		end
 	end
 end
 
+-- "green" | "yellow" | "red" for a lane into a signalled junction, nil = not signalled
+local function lightState(lane: RoadNet.Lane): string?
+	if not signalled[lane.to] then
+		return nil
+	end
+	local l = lightFor[lane.id]
+	if l and l.Parent then
+		local st = Driver.light(l:GetAttribute("LightState"))
+		if st then
+			return st
+		end
+	end
+	return Junction.lightState(phase, lane.hx, lane.hz) or "green"
+end
+
 -- Cars -------------------------------------------------------------------------------------------------
 
+-- Drop the car's junction request / reservation.
 local function release(car: Car)
-	local node = car.holding
-	if node then
-		occupancy[node] = math.max(0, (occupancy[node] or 1) - 1)
-		car.holding = nil
+	local req = car.req
+	if req then
+		local set = junctions[req.node]
+		if set then
+			set[car] = nil
+		end
+		car.req = nil
 	end
+end
+
+local function request(car: Car, node: string, seg: Seg, t: number): Req
+	local req = car.req
+	if req and req.node == node then
+		req.seg = seg
+		return req
+	end
+	release(car)
+	local made: Req = { node = node, seg = seg, t = t, granted = false, eligible = false }
+	car.req = made
+	local set = junctions[node]
+	if not set then
+		set = {}
+		junctions[node] = set
+	end
+	set[car] = true
+	return made
 end
 
 local function removeCar(car: Car, why: string?)
@@ -414,7 +469,7 @@ function TrafficService:Clear()
 	for i = #cars, 1, -1 do
 		removeCar(cars[i])
 	end
-	occupancy = {}
+	junctions = {}
 end
 
 local function placeCar(car: Car)
@@ -460,10 +515,21 @@ local function spawnCar(laneId: number, s: number): Car?
 		laneId = laneId,
 		nextLane = RoadNet.pickNext(n, laneId, rng:NextNumber(), Cfg.StraightBias),
 		cleared = false,
-		holding = nil,
-		stopWaited = 0,
-		atSignal = false,
-		v = seg.lane and (seg.lane :: any).speed * 0.6 or 10,
+		req = nil,
+		waitT = 0,
+		rerouteT = 0,
+		why = "",
+		excused = false,
+		leader = nil,
+		passing = false,
+		passT = 0,
+		passX = 0,
+		passZ = 0,
+		passHalf = 0,
+		queued = false,
+		ghostT = 0,
+		immuneT = 0,
+		v = seg.lane and (seg.lane :: any).speed * 0.5 or 10,
 		lat = 0,
 		latTarget = 0,
 		yaw = 0,
@@ -479,14 +545,20 @@ local function spawnCar(laneId: number, s: number): Car?
 		hx = hx,
 		hz = hz,
 		pose = cf,
+		blink = "",
+		brake = false,
 		pubPose = nil,
 		pubV = -1,
 		pubState = "",
+		pubBlink = "",
+		pubBrake = false,
 		dead = false,
 	}
 	m:SetAttribute("Pose", cf)
 	m:SetAttribute("Speed", car.v)
 	m:SetAttribute("State", "Drive")
+	m:SetAttribute("Blink", "")
+	m:SetAttribute("Brake", false)
 	m:AddTag(CAR_TAG)
 	m.Parent = f
 	byModel[m] = car
@@ -695,60 +767,193 @@ local function honk(car: Car, now: number)
 	end
 end
 
+-- Who is where, rebuilt once per sim step: cars per segment, and cars on a connector by the lane
+-- they came from (path-based leaders; exit-lane room).
+local bySeg: { [Seg]: { Car } } = {}
+local connFrom: { [number]: { Car } } = {}
+
+local function indexCars()
+	bySeg = {}
+	connFrom = {}
+	for _, c in cars do
+		if c.state == "Wrecked" or c.dead then
+			continue
+		end
+		local list = bySeg[c.seg]
+		if not list then
+			list = {}
+			bySeg[c.seg] = list
+		end
+		table.insert(list, c)
+		if c.seg.kind == "conn" then
+			local f = c.seg.from :: number
+			local l = connFrom[f]
+			if not l then
+				l = {}
+				connFrom[f] = l
+			end
+			table.insert(l, c)
+		end
+	end
+end
+
+local function connSpeed(car: Car, seg: Seg): number
+	local n = net :: RoadNet.Net
+	local a, b = n.lanes[seg.from :: number], n.lanes[seg.to :: number]
+	return Driver.turnSpeed(seg.radius or math.huge, math.min(a.speed, b.speed) * car.speedMul, Cfg)
+end
+
 local function segLimit(car: Car): number
 	local seg = car.seg
 	if seg.kind == "lane" then
 		return (seg.lane :: any).speed * car.speedMul
 	end
-	local n = net :: RoadNet.Net
-	local a, b = n.lanes[seg.from :: number], n.lanes[seg.to :: number]
-	local turn = RoadNet.turn(a, b)
-	local base = math.min(a.speed, b.speed) * car.speedMul
-	return if turn == "straight" then base else base * 0.55
+	return connSpeed(car, seg)
 end
 
--- Junction rule for a car on a lane approaching its end. Returns a speed cap.
-local function junctionCap(car: Car, dist: number): number
+-- Nearest car ahead along my PATH (this segment, the junction connector, the exit lane), not just
+-- whatever happens to be in front geometrically: crossing traffic never blocks the queue behind it.
+local function pathLeader(car: Car, look: number): (number, Car?)
+	local n = net :: RoadNet.Net
+	local best, who = math.huge, nil
+	local function consider(o: Car, along: number)
+		if o == car or o.dead or o.state == "Wrecked" or along > look then
+			return
+		end
+		local gap = along - car.halfLen - o.halfLen
+		if gap >= best then
+			return
+		end
+		if car.passing or o.passing or math.abs(o.lat - car.lat) > 3 then
+			-- someone is out of lane (passing / pulled over): only block if actually in front of me
+			local _, right = Driver.relative(car.x, car.z, car.hx, car.hz, o.x, o.z)
+			if math.abs(right) > 4.5 then
+				return
+			end
+		end
+		best, who = gap, o
+	end
+	local seg = car.seg
+	for _, o in bySeg[seg] or {} do
+		if o.s > car.s then
+			consider(o, o.s - car.s)
+		end
+	end
+	local rem = seg.len - car.s
+	if rem < look then
+		if seg.kind == "lane" then
+			for _, o in connFrom[car.laneId] or {} do
+				-- cars that just left my lane into the junction are still in front of me
+				if o.seg.to == car.nextLane or o.s < o.halfLen * 2 + 2 then
+					consider(o, rem + o.s)
+				end
+			end
+			local nl = car.nextLane
+			if nl then
+				local conn = RoadNet.connector(n, car.laneId, nl)
+				for _, o in bySeg[RoadNet.laneSeg(n, nl)] or {} do
+					consider(o, rem + conn.len + o.s)
+				end
+			end
+		else
+			for _, o in bySeg[RoadNet.laneSeg(n, seg.to :: number)] or {} do
+				consider(o, rem + o.s)
+			end
+		end
+	end
+	return best, who
+end
+
+-- Right-of-way at the junction ahead (Lib/Traffic/Junction). Returns a speed cap and sets car.why
+-- when the junction is what holds the car.
+local function junctionCap(car: Car, now: number): number
 	local n = net :: RoadNet.Net
 	local lane = car.seg.lane :: RoadNet.Lane
-	if car.cleared then
+	local nl = car.nextLane
+	if car.cleared or not nl then
 		return math.huge
 	end
 	local node = lane.to
-	if (n.degree[node] or 0) < 3 then
-		car.cleared = true
+	if not n.junction[node] or car.ghostT > 0 then
+		car.cleared = true -- bends and straight-throughs: nothing to arbitrate
 		return math.huge
 	end
-	local light = lightFor[lane.id]
-	if light and light.Parent then
-		local st = Driver.light(light:GetAttribute("LightState"))
-		if Driver.mustStopForLight(st, dist, car.v, Cfg.Brake) then
-			car.atSignal = true -- waiting at a red light is not being stuck
-			return Driver.stopSpeed(dist - 0.5, Cfg.Brake * 0.8)
-		end
-		if dist < 8 then
-			if (occupancy[node] or 0) < Cfg.LightCap then
-				occupancy[node] = (occupancy[node] or 0) + 1
-				car.holding = node
-				car.cleared = true
-				return math.huge
+	local distLine = car.seg.len - car.s - car.halfLen -- front bumper to the stop line
+	if distLine > car.v * car.v / (2 * Cfg.Brake * 0.8) + 14 then
+		return math.huge
+	end
+	local conn = RoadNet.connector(n, car.laneId, nl)
+	local headStart = if lane.major and not signalled[node] then Cfg.MajorHeadStart else 0
+	local req = request(car, node, conn, now - headStart)
+	local stopCap = Driver.stopSpeed(distLine - 0.3, Cfg.Brake * 0.8)
+	local light = lightState(lane)
+	if light and Driver.mustStopForLight(light, distLine, car.v, Cfg.Brake) then
+		req.eligible = false
+		car.why = "red"
+		return stopCap
+	end
+	-- don't block the box: only go when the exit lane has room for me
+	local exitSeg = RoadNet.laneSeg(n, nl)
+	local rears: { number } = {}
+	for _, o in bySeg[exitSeg] or {} do
+		table.insert(rears, o.s - o.halfLen)
+	end
+	local room = Junction.room(exitSeg.len, rears, car.halfLen * 2 + Cfg.MinGap)
+	local ready = distLine <= math.max(Cfg.GrantDist, car.v * Cfg.GrantTime)
+	req.eligible = room and ready
+	if not ready then
+		return stopCap
+	end
+	local force = car.waitT >= Cfg.ForceAfter
+	local ok = force
+	if not ok and room then
+		local active: { any } = {}
+		local waiting: { Junction.Request } = {}
+		for o in junctions[node] or {} do
+			local r = o.req
+			if o ~= car and r and not o.dead then
+				if r.granted then
+					table.insert(active, r.seg)
+				elseif r.eligible then
+					table.insert(waiting, r)
+				end
 			end
-			return Driver.stopSpeed(dist - 0.5, Cfg.Brake)
+		end
+		ok = Junction.mayEnter(req, active, waiting, Cfg.Clearance)
+	end
+	if ok then
+		req.granted = true
+		car.cleared = true
+		car.waitT = 0
+		if force then
+			stats.forced += 1
+			count("traffic_forced")
 		end
 		return math.huge
 	end
-	-- stop sign: come to a full stop at the line, wait, then go when the junction is free
-	if dist < 2.5 and car.v < 1 then
-		car.stopWaited += 1 / Cfg.SimHz
-		if car.stopWaited >= Cfg.StopWait and (occupancy[node] or 0) < Cfg.StopSignCap then
-			occupancy[node] = (occupancy[node] or 0) + 1
-			car.holding = node
-			car.cleared = true
-			return math.huge
-		end
-		car.atSignal = true
+	car.why = "junction"
+	return stopCap
+end
+
+-- Waiting at a free line too long: try another exit (the first one may be jammed).
+local function reroute(car: Car, now: number)
+	local n = net :: RoadNet.Net
+	if now - car.rerouteT < Cfg.RerouteAfter then
+		return
 	end
-	return Driver.stopSpeed(dist - 0.5, Cfg.Brake * 0.8)
+	car.rerouteT = now
+	local opts = RoadNet.nextLanes(n, car.laneId)
+	local alts: { number } = {}
+	for _, lid in opts do
+		if lid ~= car.nextLane then
+			table.insert(alts, lid)
+		end
+	end
+	if #alts > 0 then
+		car.nextLane = alts[rng:NextInteger(1, #alts)]
+		stats.rerouted += 1
+		count("traffic_rerouted")
+	end
 end
 
 local function advance(car: Car): boolean
@@ -768,27 +973,62 @@ local function advance(car: Car): boolean
 			car.s -= seg.len
 			car.seg = RoadNet.connector(n, car.laneId, nxt)
 		else
-			release(car)
 			local lid = seg.to :: number
 			car.s -= seg.len
 			car.laneId = lid
 			car.seg = RoadNet.laneSeg(n, lid)
 			car.nextLane = RoadNet.pickNext(n, lid, rng:NextNumber(), Cfg.StraightBias)
 			car.cleared = false
-			car.stopWaited = 0
+			car.waitT = 0
 		end
 	end
 	return true
 end
 
+-- Start driving round whatever blocks my lane at (ox, oz), if the corridor to my left is clear.
+local function tryPass(car: Car, ox: number, oz: number, ohalf: number): boolean
+	if car.passing or car.seg.kind ~= "lane" or car.seg.len - car.s < 45 then
+		return false
+	end
+	for _, o in cars do
+		if o ~= car and not o.dead and o.state ~= "Wrecked" then
+			local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, o.x, o.z)
+			local same = car.hx * o.hx + car.hz * o.hz > 0.3
+			if not Driver.passClear(fwd, right, same, Cfg) then
+				return false
+			end
+		end
+	end
+	car.passing = true
+	car.passT = 0
+	car.passX, car.passZ = ox, oz
+	car.passHalf = ohalf
+	car.latTarget = -Cfg.PassOffset
+	stats.passed += 1
+	count("traffic_passes")
+	return true
+end
+
 local function stepCar(car: Car, dt: number, trucks: { Truck }, peds: { Ped }, now: number): boolean
-	car.atSignal = false
-	-- 1. emergency yield ------------------------------------------------------------------------
+	local n = net :: RoadNet.Net
+	car.why = ""
+	car.ghostT = math.max(0, car.ghostT - dt)
+	car.immuneT = math.max(0, car.immuneT - dt)
+	-- 0. release the junction once my tail is out of it ---------------------------------------
+	local req = car.req
+	if req and req.granted and car.seg.kind == "lane" then
+		local onExit = car.laneId == req.seg.to
+		if (onExit and car.s > car.halfLen + 1) or (not onExit and car.laneId ~= req.seg.from) then
+			release(car)
+		end
+	end
+
+	-- 1. emergency yield (moving siren trucks only) ----------------------------------------------
 	local needYield = false
 	local mustHold = false
 	local cvx, cvz = car.hx * car.v, car.hz * car.v
 	for _, t in trucks do
-		if not t.siren then
+		if not t.siren or t.speed < Cfg.YieldMinSpeed or car.immuneT > 0 then
 			continue
 		end
 		local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, t.pos.X, t.pos.Z)
@@ -807,6 +1047,7 @@ local function stepCar(car: Car, dt: number, trucks: { Truck }, peds: { Ped }, n
 		if needYield then
 			car.stateT = 0
 			car.clearT = 0
+			car.passing = false
 			if rng:NextNumber() < Cfg.PanicChance then
 				car.state = "Panic"
 				count("traffic_panics")
@@ -817,7 +1058,13 @@ local function stepCar(car: Car, dt: number, trucks: { Truck }, peds: { Ped }, n
 			car.latTarget = Cfg.PullOverOffset
 		end
 	elseif car.state == "Yield" or car.state == "Panic" then
-		if needYield or mustHold then
+		if car.stateT > Cfg.YieldMax then
+			-- the truck is parked / circling: stop waiting for it
+			car.state = "Drive"
+			car.latTarget = 0
+			car.stateT = 0
+			car.immuneT = Cfg.YieldImmune
+		elseif needYield or mustHold then
 			car.clearT = 0
 		else
 			car.clearT += dt
@@ -830,95 +1077,194 @@ local function stepCar(car: Car, dt: number, trucks: { Truck }, peds: { Ped }, n
 	end
 
 	-- 2. target speed ----------------------------------------------------------------------------
-	local target = segLimit(car)
+	local limit = segLimit(car)
+	local target = limit
 	local brake = Cfg.Brake
-	local gap = math.huge
-	for _, o in cars do
-		if o == car or o.state == "Wrecked" then
-			continue
-		end
-		local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, o.x, o.z)
-		if fwd > Cfg.LookAhead + 15 then
-			continue
-		end
-		local g = Driver.leaderGap(fwd, right, car.hx, car.hz, o.hx, o.hz, car.halfLen, o.halfLen, Cfg)
-		if g and g < gap then
-			gap = g
+	local look = math.max(Cfg.LookAhead, car.v * car.v / (2 * Cfg.Brake) + 20)
+	local why = ""
+	-- cars on my path
+	local leaderGap, leader = math.huge, nil
+	if car.ghostT <= 0 then
+		leaderGap, leader = pathLeader(car, look)
+		-- cars out of their lane (passing towards me, pulled over) that sit right in front of me
+		for _, o in cars do
+			if o ~= car and o.passing and not o.dead and o.state ~= "Wrecked" then
+				local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, o.x, o.z)
+				if fwd > 0 and fwd < look and math.abs(right) < 4.5 then
+					local g = fwd - car.halfLen - o.halfLen
+					if g < leaderGap then
+						leaderGap, leader = g, o
+					end
+				end
+			end
 		end
 	end
+	car.leader = leader
+	if leaderGap < math.huge then
+		local cap = Driver.followSpeed(leaderGap, limit, Cfg)
+		if cap < target then
+			target = cap
+			why = "leader"
+		end
+	end
+	-- people and fire trucks in my lane (geometric: they are not on the road graph)
+	local obsGap, ox, oz, ohalf = math.huge, 0, 0, 0
 	local blockedByPed = false
-	for _, p in peds do
-		local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, p.pos.X, p.pos.Z)
-		if math.abs(p.pos.Y - car.y) > 10 then
-			continue
-		end
-		local g = Driver.pedGap(fwd, right, car.halfLen, Cfg)
-		if g then
-			if g < gap then
-				gap = g
+	if car.ghostT <= 0 then
+		for _, p in peds do
+			if math.abs(p.pos.Y - car.y) > 10 then
+				continue
 			end
-			if g < Cfg.HonkDistance and car.state == "Drive" then
-				blockedByPed = true
+			local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, p.pos.X, p.pos.Z)
+			local g = Driver.pedGap(fwd, right, car.halfLen, Cfg)
+			if g then
+				if g < obsGap then
+					obsGap, ox, oz, ohalf = g, p.pos.X, p.pos.Z, 1.5
+				end
+				if g < Cfg.HonkDistance and car.state == "Drive" then
+					blockedByPed = true
+				end
+			end
+		end
+		for _, t in trucks do
+			local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, t.pos.X, t.pos.Z)
+			if fwd > 0 and fwd < look + Cfg.TruckFront and math.abs(right) < Cfg.TruckHalfWidth + 2.5 then
+				local g = fwd - car.halfLen - Cfg.TruckFront
+				if g < obsGap then
+					obsGap, ox, oz, ohalf = g, t.pos.X, t.pos.Z, Cfg.TruckFront
+				end
+				if g < Cfg.HonkDistance and t.speed < 3 and car.state == "Drive" then
+					blockedByPed = true -- parked truck in my lane: HONK
+				end
 			end
 		end
 	end
-	for _, t in trucks do
-		local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, t.pos.X, t.pos.Z)
-		if fwd > 0 and fwd < Cfg.LookAhead + Cfg.TruckFront and math.abs(right) < Cfg.TruckHalfWidth + 2.5 then
-			local g = fwd - car.halfLen - Cfg.TruckFront
-			if g < gap then
-				gap = g
-			end
-			if g < Cfg.HonkDistance and t.speed < 3 and car.state == "Drive" then
-				blockedByPed = true -- parked truck in my lane: HONK
-			end
+	if obsGap < math.huge then
+		local cap = Driver.followSpeed(obsGap, limit, Cfg)
+		if cap < target then
+			target = cap
+			why = "obstacle"
 		end
 	end
-	if gap < math.huge then
-		target = math.min(target, Driver.followSpeed(gap, target, Cfg))
-	end
-	if blockedByPed then
+	if blockedByPed and car.v < 3 then
 		honk(car, now)
 	end
 	if car.seg.kind == "lane" and car.state == "Drive" then
-		target = math.min(target, junctionCap(car, car.seg.len - car.s))
+		car.why = ""
+		local cap = junctionCap(car, now)
+		if cap < target then
+			target = cap
+			why = car.why
+		end
+		if car.cleared and car.nextLane then
+			-- slow down to the speed of the turn before reaching it
+			local conn = RoadNet.connector(n, car.laneId, car.nextLane :: number)
+			target = math.min(target, Driver.entrySpeed(car.seg.len - car.s, connSpeed(car, conn), Cfg.Brake * 0.6))
+		end
 	end
 	if car.state == "Yield" then
 		target = 0
 		brake = Cfg.YieldBrake
+		why = "yield"
 	elseif car.state == "Panic" then
 		target = 0
 		brake = if car.stateT < Cfg.PanicSeconds then 14 else Cfg.YieldBrake
+		why = "yield"
 	end
+	if car.passing and (why == "obstacle" or why == "leader") and leaderGap > 1.5 and obsGap > 1.5 then
+		target = math.max(target, 4) -- creep while steering round it
+	end
+	car.why = why
 
 	-- 3. integrate ---------------------------------------------------------------------------------
+	local v0 = car.v
 	car.v = Driver.approach(car.v, target, Cfg.Accel, brake, dt)
 	car.s += car.v * dt
 	if not advance(car) then
 		return false
 	end
+	local lat0 = car.lat
 	if car.state == "Panic" and car.stateT < Cfg.PanicSeconds then
 		local wl, wy = Driver.panicWobble(car.stateT, car.seed)
 		car.lat = Cfg.PullOverOffset * math.min(1, car.stateT / Cfg.PanicSeconds) + wl
 		car.yaw = wy
 	else
-		local step = Cfg.LateralSpeed * dt
+		local step = (if car.passing or math.abs(car.lat) > Cfg.PullOverOffset + 0.5 then Cfg.PassLateralSpeed else Cfg.LateralSpeed) * dt
 		car.lat += math.clamp(car.latTarget - car.lat, -step, step)
 		if car.state == "Drive" then
-			car.yaw *= math.max(0, 1 - dt * 3)
-			if math.abs(car.yaw) < 0.01 then
+			-- lean into lane changes, settle otherwise
+			local want = math.clamp(-(car.lat - lat0) / dt / math.max(car.v, 6) * 0.6, -0.35, 0.35)
+			car.yaw += (want - car.yaw) * math.min(1, dt * 6)
+			if math.abs(car.yaw) < 0.005 then
 				car.yaw = 0
 			end
 		end
 	end
 	placeCar(car)
 
-	-- 4. stuck bookkeeping -----------------------------------------------------------------------
-	if car.v < 0.5 and car.state == "Drive" and not car.atSignal then
+	-- 4. passing bookkeeping ---------------------------------------------------------------------------
+	if car.passing then
+		car.passT += dt
+		local fwd = Driver.relative(car.x, car.z, car.hx, car.hz, car.passX, car.passZ)
+		local nearEnd = car.seg.kind ~= "lane" or car.seg.len - car.s < 25
+		if fwd < -(car.halfLen + car.passHalf + 6) or car.passT > Cfg.PassMaxSeconds or nearEnd then
+			car.passing = false
+			car.latTarget = 0
+		end
+	end
+
+	-- 5. stuck bookkeeping + unsticking ------------------------------------------------------------------
+	local ld = car.leader
+	local queued = why == "leader" and ld ~= nil and (ld.excused or ld.queued or ld.why == "junction")
+	car.excused = why == "red" or why == "yield" or car.state ~= "Drive" or (queued and ld ~= nil and ld.excused)
+	car.queued = queued
+	if car.v < 0.5 and not car.excused and not car.queued then
 		car.stuck += dt
 	else
 		car.stuck = 0
 	end
+	if why == "junction" and car.v < 0.5 then
+		car.waitT += dt
+	end
+	if car.state == "Drive" then
+		local stalledLeader = why == "leader" and ld ~= nil and not queued and not ld.excused
+		local action = Junction.unstick(if stalledLeader then "leader" elseif why == "leader" then "queue" else why, car.waitT, car.stuck, Cfg)
+		if action == "reroute" then
+			reroute(car, now)
+		elseif action == "pass" then
+			if why == "obstacle" then
+				tryPass(car, ox, oz, ohalf)
+			elseif ld then
+				tryPass(car, ld.x, ld.z, ld.halfLen)
+			end
+		elseif action == "ghost" then
+			car.ghostT = Cfg.GhostSeconds
+			car.stuck = 0
+			car.cleared = true
+			release(car)
+			stats.ghosted += 1
+			count("traffic_ghosted")
+		end
+	end
+	stats.stuckMax = math.max(stats.stuckMax, car.stuck)
+
+	-- 6. indicators + brake lights -------------------------------------------------------------------------
+	local blink = ""
+	if car.state == "Yield" and car.lat < car.latTarget - 0.5 then
+		blink = "R"
+	elseif car.passing and car.lat > car.latTarget + 0.5 then
+		blink = "L"
+	elseif not car.passing and car.lat < -1 then
+		blink = "R"
+	elseif car.seg.kind == "conn" then
+		if n.junction[car.seg.node :: string] then
+			blink = Junction.blink(car.seg.turn)
+		end
+	elseif car.nextLane and n.junction[(car.seg.lane :: RoadNet.Lane).to] and car.seg.len - car.s < Cfg.BlinkDistance then
+		blink = Junction.blink(RoadNet.turn(car.seg.lane :: RoadNet.Lane, n.lanes[car.nextLane :: number]))
+	end
+	car.blink = blink
+	car.brake = car.v < 0.3 or car.v < v0 - 0.2
 	return true
 end
 
@@ -943,6 +1289,14 @@ local function publish()
 			m:SetAttribute("State", car.state)
 			car.pubState = car.state
 		end
+		if car.blink ~= car.pubBlink then
+			m:SetAttribute("Blink", car.blink)
+			car.pubBlink = car.blink
+		end
+		if car.brake ~= car.pubBrake then
+			m:SetAttribute("Brake", car.brake)
+			car.pubBrake = car.brake
+		end
 	end
 end
 
@@ -962,14 +1316,18 @@ local function populate(people: { Vector3 }, budget: number)
 	if not n or not Cfg.Enabled then
 		return
 	end
-	-- despawn far and stuck-unseen cars
+	-- despawn far cars, and recycle truly stuck ones nobody can see
 	for i = #cars, 1, -1 do
 		local car = cars[i]
 		if car.state == "Wrecked" then
 			continue
 		end
 		local d = nearestDist(car.x, car.z, people)
-		if d > Cfg.DespawnRadius or (car.stuck > Cfg.StuckDespawn and d > Cfg.UnseenRadius) then
+		if d > Cfg.DespawnRadius then
+			removeCar(car)
+		elseif car.stuck > Cfg.StuckDespawn and d > Cfg.UnseenRadius then
+			stats.recycled += 1
+			count("traffic_recycled")
 			removeCar(car)
 		end
 	end
@@ -983,7 +1341,10 @@ local function populate(people: { Vector3 }, budget: number)
 		attempts += 1
 		local lid = rng:NextInteger(1, #n.lanes)
 		local lane = n.lanes[lid]
-		local s = rng:NextNumber() * lane.len
+		if n.deadEnd[lane.from] or n.deadEnd[lane.to] or lane.len < 40 then
+			continue
+		end
+		local s = 10 + rng:NextNumber() * (lane.len - 32)
 		local x, _, z = RoadNet.point(RoadNet.laneSeg(n, lid), s)
 		local d = nearestDist(x, z, people)
 		if d < Cfg.SpawnMin or d > Cfg.SpawnMax then
@@ -1013,11 +1374,16 @@ local function loadGraph(data: any, key: string): boolean
 	snapLanes(n)
 	scanLights()
 	count("traffic_graph_loaded")
-	local lit = 0
-	for _ in lightFor do
-		lit += 1
+	local sig, junc = 0, 0
+	for _ in signalled do
+		sig += 1
 	end
-	print(`[TrafficService] road graph: {n.edgeCount} edges, {#n.lanes} lanes, {lit} lanes with lights`)
+	for _, j in n.junction do
+		if j then
+			junc += 1
+		end
+	end
+	print(`[TrafficService] road graph: {n.edgeCount} edges, {#n.lanes} lanes, {junc} junctions ({sig} with lights)`)
 	return true
 end
 
@@ -1066,8 +1432,12 @@ function TrafficService:Start()
 		local trucks = gatherTrucks()
 		local peds, people = gatherPeople()
 		local now = os.clock()
+		local city = cityFolder()
+		local ph = city and city:GetAttribute("TrafficPhase")
+		phase = if type(ph) == "string" then ph else nil
 		while acc >= step do
 			acc -= step
+			indexCars()
 			for i = #cars, 1, -1 do
 				local car = cars[i]
 				if car and car.state ~= "Wrecked" and not car.dead then
@@ -1159,25 +1529,50 @@ function TrafficService:GetCars(): { Model }
 end
 
 function TrafficService:GetStats(): { [string]: number }
-	local yielding, wrecked = 0, 0
+	local yielding, wrecked, stopped, stuck, lit = 0, 0, 0, 0, 0
 	for _, c in cars do
 		if c.state == "Yield" or c.state == "Panic" then
 			yielding += 1
 		elseif c.state == "Wrecked" then
 			wrecked += 1
 		end
+		if c.v < 0.5 then
+			stopped += 1
+		end
+		if c.stuck > 6 then
+			stuck += 1
+		end
 	end
-	local lit = 0
-	for _ in lightFor do
+	for _ in signalled do
 		lit += 1
 	end
 	return {
 		cars = #cars,
 		yielding = yielding,
 		wrecked = wrecked,
+		stopped = stopped,
+		stuck = stuck,
 		lanes = if net then #(net :: RoadNet.Net).lanes else 0,
-		litLanes = lit,
+		signalled = lit,
+		stuckMax = stats.stuckMax,
+		forced = stats.forced,
+		rerouted = stats.rerouted,
+		ghosted = stats.ghosted,
+		passed = stats.passed,
+		recycled = stats.recycled,
 	}
+end
+
+-- Why every stopped car is stopped (DevHook diagnostics).
+function TrafficService._why(): { string }
+	local out: { string } = {}
+	for _, c in cars do
+		if c.v < 0.5 and c.state ~= "Wrecked" then
+			local node = if c.seg.kind == "lane" then (c.seg.lane :: any).to else c.seg.node
+			table.insert(out, `{c.kind} @{math.floor(c.x)},{math.floor(c.z)} {c.seg.kind}->{node} why={c.why} stuck={math.floor(c.stuck * 10) / 10} wait={math.floor(c.waitT * 10) / 10} q={c.queued} ex={c.excused} req={if c.req then (if c.req.granted then "G" else "W") else "-"}`)
+		end
+	end
+	return out
 end
 
 function TrafficService._loadGraph(json: string): boolean
@@ -1218,7 +1613,7 @@ function TrafficService._selftest(): (boolean, string)
 		return true, "no road graph yet (no traffic)"
 	end
 	local s = TrafficService:GetStats()
-	return true, `{s.cars} cars on {s.lanes} lanes ({s.litLanes} lit), {s.yielding} yielding`
+	return true, `{s.cars} cars on {s.lanes} lanes ({s.signalled} signalled junctions), {s.yielding} yielding, {s.stuck} stuck`
 end
 
 return TrafficService

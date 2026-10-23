@@ -43,6 +43,7 @@ local HandsConfig = require(ConfigFolder:WaitForChild("HandsConfig") :: ModuleSc
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local Viewmodel = require(ClientLib:WaitForChild("Viewmodel") :: ModuleScript)
 local PhysicsHands = require(ClientLib:WaitForChild("PhysicsHands") :: ModuleScript)
+local AxeArm = require(ClientLib:WaitForChild("AxeArm") :: ModuleScript)
 
 local FirstPersonController = {}
 FirstPersonController.Priority = 50
@@ -357,8 +358,17 @@ local function scanFire(root: BasePart?)
 end
 
 -- In first person the real Tool (welded to the invisible body's hand) is hidden locally, trail
--- included, so only the glove-held copy shows; others always see the real one.
+-- included, so only the glove-held copy shows; others always see the real one. The axe is never
+-- hidden: there is ONE axe, the real Tool (ClientLib/AxeArm), seen the same in 1P and 3P.
 local function hideToolLocally(tool: Tool?)
+	if tool and tool.Name == "Axe" then
+		for _, d in tool:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+		tool = nil
+	end
 	if state.hiddenTool and state.hiddenTool ~= tool then
 		for _, d in state.hiddenTool:GetDescendants() do
 			if d:IsA("BasePart") then
@@ -659,6 +669,12 @@ function FirstPersonController:Start()
 			FirstPersonController:Shake(0.6, 0.35) -- you got slapped
 		end
 	end)
+	-- the one physical axe: arm IK + head contact, local and every other player's (1P == 3P)
+	AxeArm.start({
+		shake = function(m: number, s: number)
+			FirstPersonController:Shake(m, s)
+		end,
+	})
 	if wantPhysicsHands() then
 		local ok, res = pcall(PhysicsHands.new)
 		if ok then

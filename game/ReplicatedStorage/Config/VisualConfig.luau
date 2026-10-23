@@ -17,7 +17,12 @@
 -- on the -Z face. TruckLightBar's lenses face -Z (red at +X). TruckDoor's art is on +X (manifest).
 
 local VisualConfig = {
-	UseHeroMeshes = false, -- master switch: false = everything part-built
+	-- master switch: false = everything part-built. Keep it OFF for the truck: FireTruckHero is a whole
+	-- closed toy truck (own short cab, windows, wheels, a baked-in driver) 4.7x5.2x8 native, so fitted
+	-- over our enterable cab you see the part-built cab/dash through its windows and sit inside its shell
+	-- in cab view ("a truck inside the truck"); it can't cover the open crew deck either. Checked live
+	-- 2026-10-23.
+	UseHeroMeshes = false,
 	RenderFidelity = "Automatic", -- Enum.RenderFidelity name (Automatic = LOD, mobile friendly)
 	CollisionFidelity = "Box", -- skins never collide; Box is the cheapest
 
@@ -81,7 +86,9 @@ local VisualConfig = {
 			"CabNose", "CabCowl", "CabBack", "CabRoof", "CabHeader", "CabSideFront_", "APillar_", "BPillar_",
 			"DoorSill_", "Windshield", "Visor", "SideWindow_", "MirrorArm_", "Mirror_", "MirrorGlass_",
 			"CabStep_", "Grille", "HeadlightRim_", "Headlight_", "Indicator_", "FrontBumper", "StripeFront",
-			"Stripe_", "Body", "Fender_Front_", "Fender_Mid_", "SideSkirt_",
+			"Stripe_", "Body", "Fender_Front_", "Fender_Mid_", "SideSkirt_", "StripeCab_", "CabRoofEdge",
+			"CabCorner_", "CabRoofCorner_", "AirHorn", "FuelTank_", "FuelStrap_", "Exhaust", "FenderLip_Front_",
+			"FenderLip_Mid_",
 		} :: { string },
 	},
 }

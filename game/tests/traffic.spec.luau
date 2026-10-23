@@ -3,13 +3,25 @@
 local Spec = require("./Spec")
 local RoadNet = require("../ServerScriptService/Lib/Traffic/RoadNet")
 local Driver = require("../ServerScriptService/Lib/Traffic/Driver")
+local Junction = require("../ServerScriptService/Lib/Traffic/Junction")
 
 local CFG = {
 	LaneOffset = 6,
 	RoadWidth = 24,
 	SpeedLimit = 32,
-	IntersectionTrim = 13,
+	JunctionMargin = 9,
+	StraightTrim = 2,
+	StreetLaneFrac = 0,
 	BendTrim = 6,
+	TurnAccel = 28,
+	MinTurnSpeed = 9,
+	PassOffset = 13,
+	PassLook = 90,
+	RerouteAfter = 4,
+	ForceAfter = 9,
+	GhostAfter = 11,
+	PassAfter = 1.5,
+	PassStalledAfter = 3.5,
 	MinGap = 5,
 	Headway = 0.9,
 	LookAhead = 48,
@@ -60,7 +72,7 @@ Spec.test("parse: default two-way lanes, right-hand traffic, trimmed at the junc
 	Spec.near(nb.ax, 6)
 	Spec.near(nb.bx, 6)
 	Spec.near(nb.az, 100 - 6, 1e-6, "dead end S trimmed by BendTrim")
-	Spec.near(nb.bz, 13, 1e-6, "junction C trimmed by IntersectionTrim")
+	Spec.near(nb.bz, 12 + 9, 1e-6, "junction C: crossing road half-width (24 / 2) + JunctionMargin")
 	-- southbound C->S is on the other side
 	local sb = laneFrom(net, "C", "S")
 	Spec.near(sb.ax, -6)
@@ -146,7 +158,7 @@ Spec.test("lane following: points stay on the centreline, heading along the lane
 	Spec.near(hx, 0)
 	Spec.near(hz, -1)
 	local _, _, zEnd = RoadNet.point(seg, 99999)
-	Spec.near(zEnd, 13, 1e-6, "clamped at the stop line")
+	Spec.near(zEnd, 21, 1e-6, "clamped at the stop line")
 end)
 
 Spec.test("connector: right turn curves from stop line to the next lane, heading turns", function()
@@ -288,6 +300,237 @@ Spec.test("driving a 4x4 grid for a long time: continuous path, never stuck with
 		px, pz = x, z
 	end
 	Spec.truthy(turns > 20, "visited many junctions")
+end)
+
+-- The city's real shapes: a 46-wide street crossing a 60-wide avenue, a 16-stud door spur off the
+-- street, a bend where the street turns.
+local function city(): any
+	local lanes2 = { { offset = 7, dir = 1, width = 14 }, { offset = -7, dir = -1, width = 14 } }
+	local lanes4 = {
+		{ offset = 6, dir = 1, width = 12 },
+		{ offset = -6, dir = -1, width = 12 },
+		{ offset = 18, dir = 1, width = 12 },
+		{ offset = -18, dir = -1, width = 12 },
+	}
+	return {
+		nodes = {
+			J = { 0, 0, 0 },
+			AW = { -300, 0, 0 },
+			AE = { 300, 0, 0 },
+			SN = { 0, 0, -300 },
+			SS = { 0, 0, 200 },
+			Bend = { 0, 0, 400 },
+			BendE = { 300, 0, 400 },
+			Door = { 16, 0, 200 },
+		},
+		edges = {
+			{ a = "AW", b = "J", width = 60, kind = "avenue", lanes = lanes4 },
+			{ a = "J", b = "AE", width = 60, kind = "avenue", lanes = lanes4 },
+			{ a = "SN", b = "J", width = 46, kind = "street", lanes = lanes2 },
+			{ a = "J", b = "SS", width = 46, kind = "street", lanes = lanes2 },
+			{ a = "SS", b = "Bend", width = 46, kind = "street", lanes = lanes2 },
+			{ a = "Bend", b = "BendE", width = 46, kind = "street", lanes = lanes2 },
+			{ a = "SS", b = "Door", width = 46, kind = "street", lanes = lanes2 },
+		},
+	}
+end
+
+Spec.test("widths: lanes stop outside the crossing box of the widened roads", function()
+	local net = RoadNet.parse(city(), CFG) :: any
+	Spec.truthy(net.junction.J, "J is a junction")
+	-- street lane SN->J (heading +Z) stops at the avenue's half width (30) + margin
+	local sb = laneFrom(net, "SN", "J")
+	Spec.near(sb.bz, -(30 + 9), 1e-6)
+	-- avenue lanes stop at the street's half width (23) + margin
+	local eb = laneFrom(net, "AW", "J")
+	Spec.near(eb.bx, -(23 + 9), 1e-6)
+	-- lane centrelines straight from the graph lane data
+	local offs: { [number]: boolean } = {}
+	for _, l in net.lanes do
+		if l.edge == 1 then
+			offs[math.floor(math.abs(l.az) + 0.5)] = true
+		end
+	end
+	Spec.truthy(offs[6] and offs[18], "avenue lanes at 6 and 18 studs")
+	-- the bend curves round its box (half width 23), it is not a junction
+	Spec.eq(net.junction.Bend, false)
+	local toBend = laneFrom(net, "SS", "Bend")
+	Spec.near(toBend.bz, 400 - 23, 1e-6)
+end)
+
+Spec.test("dead-end door spurs: not driven into, do not make a junction", function()
+	local net = RoadNet.parse(city(), CFG) :: any
+	Spec.truthy(net.deadEnd.Door)
+	Spec.eq(net.junction.SS, false, "SS has a stub, but only 2 real arms")
+	local south = laneFrom(net, "J", "SS")
+	Spec.near(south.bz, 200 - 2, 1e-6, "straight-through: barely trimmed")
+	for _, lid in RoadNet.nextLanes(net, south.id) do
+		Spec.eq(net.lanes[lid].to ~= "Door", true, "never into the door spur")
+	end
+	-- out of the spur you can still leave
+	local out = laneFrom(net, "Door", "SS")
+	Spec.truthy(#RoadNet.nextLanes(net, out.id) >= 1)
+end)
+
+Spec.test("through road is major at an unsignalled junction, the side road is minor", function()
+	local data = city()
+	table.remove(data.edges, 2) -- J becomes a T: avenue from the west ends, street runs north-south
+	local net = RoadNet.parse(data, CFG) :: any
+	Spec.truthy(net.junction.J)
+	Spec.eq(laneFrom(net, "SN", "J").major, false, "street is narrower than the widest road")
+	Spec.eq(laneFrom(net, "AW", "J").major, false, "avenue ends here: no collinear continuation")
+	local net2 = RoadNet.parse(city(), CFG) :: any
+	Spec.eq(laneFrom(net2, "AW", "J").major, true, "avenue continues straight through")
+	Spec.eq(laneFrom(net2, "SN", "J").major, false)
+end)
+
+Spec.test("one lane each way on a wide street sits in the middle of its half", function()
+	local cfg = table.clone(CFG)
+	cfg.StreetLaneFrac = 0.2
+	local net = RoadNet.parse(city(), cfg) :: any
+	local nb = laneFrom(net, "SN", "J")
+	Spec.near(math.abs(nb.ax), 46 * 0.2, 1e-6)
+	local av = laneFrom(net, "AW", "J")
+	Spec.truthy(math.abs(math.abs(av.az) - 6) < 1e-6 or math.abs(math.abs(av.az) - 18) < 1e-6, "avenues keep the painted lanes")
+end)
+
+Spec.test("turn curves are round arcs that fit the box; speed through them follows the radius", function()
+	local net = RoadNet.parse(city(), CFG) :: any
+	local inL = laneFrom(net, "SN", "J") -- heading +Z (south), right of that is -X
+	local right = laneFrom(net, "J", "AW")
+	local c = RoadNet.connector(net, inL.id, right.id)
+	Spec.eq(c.turn, "right")
+	Spec.truthy(c.radius > 20 and c.radius < 40, `radius {c.radius}`)
+	-- the arc's middle is ~radius from the corner centre (a circle, not a squashed curve)
+	local cx, cz = right.ax, inL.bz
+	local mx, _, mz = RoadNet.point(c, c.len / 2)
+	local r1 = math.sqrt((mx - cx) ^ 2 + (mz - cz) ^ 2)
+	Spec.truthy(math.abs(r1 - c.radius) < c.radius * 0.03, `round: {r1} vs {c.radius}`)
+	local v = Driver.turnSpeed(c.radius, 45, CFG)
+	Spec.truthy(v > 20 and v < 45, `turn speed {v}`)
+	Spec.eq(Driver.turnSpeed(math.huge, 45, CFG), 45)
+	Spec.eq(Driver.turnSpeed(0.5, 45, CFG), 9, "floor")
+	Spec.near(Driver.entrySpeed(0, 20, 30), 20)
+	Spec.truthy(Driver.entrySpeed(50, 20, 30) > 50)
+end)
+
+Spec.test("junction conflicts: crossing paths conflict, parallel/opposite ones do not", function()
+	local net = RoadNet.parse(city(), CFG) :: any
+	local function conn(f1: string, t1: string, f2: string, t2: string): any
+		return RoadNet.connector(net, laneFrom(net, f1, t1).id, laneFrom(net, f2, t2).id)
+	end
+	local nsStraight = conn("SN", "J", "J", "SS")
+	local snStraight = conn("SS", "J", "J", "SN")
+	local weStraight = conn("AW", "J", "J", "AE")
+	local nsRight = conn("SN", "J", "J", "AW")
+	local snRight = conn("SS", "J", "J", "AE")
+	local nsLeft = conn("SN", "J", "J", "AE")
+	Spec.eq(Junction.conflicts(nsStraight, snStraight, 6.5), false, "opposite straights pass each other")
+	Spec.eq(Junction.conflicts(nsStraight, weStraight, 6.5), true, "crossing straights")
+	Spec.eq(Junction.conflicts(nsRight, snRight, 6.5), false, "opposite right turns")
+	Spec.eq(Junction.conflicts(nsLeft, snStraight, 6.5), true, "left turn across oncoming")
+	Spec.eq(Junction.conflicts(nsStraight, nsRight, 6.5), false, "same entry lane: they just follow")
+	Spec.eq(Junction.conflicts(nsStraight, weStraight, 6.5), true, "cached answer is stable")
+end)
+
+Spec.test("junction arbitration: FIFO among conflicts, reservations block, never a full deadlock", function()
+	local net = RoadNet.parse(city(), CFG) :: any
+	local function conn(f1: string, t1: string, f2: string, t2: string): any
+		return RoadNet.connector(net, laneFrom(net, f1, t1).id, laneFrom(net, f2, t2).id)
+	end
+	local ns = conn("SN", "J", "J", "SS")
+	local we = conn("AW", "J", "J", "AE")
+	local sn = conn("SS", "J", "J", "SN")
+	Spec.eq(Junction.mayEnter({ seg = ns, t = 5 }, { we }, {}, 6.5), false, "crossing car inside")
+	Spec.eq(Junction.mayEnter({ seg = ns, t = 5 }, { sn }, {}, 6.5), true, "oncoming car inside is fine")
+	Spec.eq(Junction.mayEnter({ seg = ns, t = 5 }, {}, { { seg = we, t = 4 } }, 6.5), false, "older crossing request first")
+	Spec.eq(Junction.mayEnter({ seg = ns, t = 3 }, {}, { { seg = we, t = 4 } }, 6.5), true, "I was first")
+	-- property: whatever the requests, with the box empty the oldest may always go, and granting
+	-- round after round serves everyone
+	local all: { any } = {}
+	for _, l in net.lanes do
+		if l.to == "J" then
+			for _, lid in RoadNet.nextLanes(net, l.id) do
+				table.insert(all, RoadNet.connector(net, l.id, lid))
+			end
+		end
+	end
+	Spec.truthy(#all >= 10, `{#all} paths`)
+	local seed = 7
+	for _ = 1, 200 do
+		local reqs: { any } = {}
+		for i = 1, 6 do
+			seed = (seed * 1103515245 + 12345) % 2147483648
+			table.insert(reqs, { seg = all[seed % #all + 1], t = i + (seed % 3) * 0.1 })
+		end
+		local served = 0
+		for _ = 1, 20 do
+			local waiting = {}
+			for _, r in reqs do
+				if not r.done then
+					table.insert(waiting, r)
+				end
+			end
+			if #waiting == 0 then
+				break
+			end
+			local active: { any } = {}
+			local any = false
+			for _, r in waiting do
+				local others = {}
+				for _, w in waiting do
+					if w ~= r and not w.done then
+						table.insert(others, w)
+					end
+				end
+				if Junction.mayEnter(r, active, others, 6.5) then
+					r.done = true
+					any = true
+					served += 1
+					table.insert(active, r.seg)
+				end
+			end
+			Spec.truthy(any, "someone can always go when the box is empty")
+		end
+		Spec.eq(served, 6, "everyone got through")
+	end
+end)
+
+Spec.test("traffic phase drives the lights per axis", function()
+	Spec.eq(Junction.lightState("XGreen", 1, 0), "green")
+	Spec.eq(Junction.lightState("XGreen", 0, -1), "red")
+	Spec.eq(Junction.lightState("XAmber", -1, 0.1), "yellow")
+	Spec.eq(Junction.lightState("ZGreen", 0.1, 1), "green")
+	Spec.eq(Junction.lightState("ZAmber", 1, 0), "red")
+	Spec.eq(Junction.lightState(nil, 1, 0), nil)
+	Spec.eq(Junction.lightState("bogus", 1, 0), nil)
+end)
+
+Spec.test("don't block the box: room on the exit lane", function()
+	Spec.eq(Junction.room(100, {}, 14), true)
+	Spec.eq(Junction.room(100, { 20 }, 14), true)
+	Spec.eq(Junction.room(100, { 8, 40 }, 14), false, "queue reaches back to the junction")
+	Spec.eq(Junction.room(10, {}, 14), true, "short empty lane is fine")
+end)
+
+Spec.test("stuck detection: what a held car does next", function()
+	Spec.eq(Junction.unstick("red", 0, 60, CFG), "wait", "red lights are never 'stuck'")
+	Spec.eq(Junction.unstick("yield", 0, 60, CFG), "wait")
+	Spec.eq(Junction.unstick("junction", 1, 1, CFG), "wait")
+	Spec.eq(Junction.unstick("junction", 4.5, 4.5, CFG), "reroute")
+	Spec.eq(Junction.unstick("junction", 9.5, 9.5, CFG), "force", "deadlock breaker")
+	Spec.eq(Junction.unstick("obstacle", 0, 1, CFG), "wait")
+	Spec.eq(Junction.unstick("obstacle", 0, 2, CFG), "pass", "drive round a parked truck")
+	Spec.eq(Junction.unstick("leader", 0, 4, CFG), "pass", "drive round a stalled car")
+	Spec.eq(Junction.unstick("queue", 0, 0, CFG), "wait", "queues just wait")
+	Spec.eq(Junction.unstick("", 0, 12, CFG), "ghost", "last resort")
+	Spec.eq(Junction.blink("left"), "L")
+	Spec.eq(Junction.blink("right"), "R")
+	Spec.eq(Junction.blink("straight"), "")
+	Spec.eq(Driver.passClear(50, -13, false, CFG), false, "oncoming in the corridor")
+	Spec.eq(Driver.passClear(120, -13, false, CFG), true, "far away")
+	Spec.eq(Driver.passClear(50, 0, false, CFG), true, "in my own lane (the obstacle)")
+	Spec.eq(Driver.passClear(5, -12, true, CFG), false, "someone beside me")
 end)
 
 return Spec.finish()

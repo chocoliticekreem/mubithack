@@ -44,7 +44,14 @@ local function axeSpecs(id: string, handle: string, handleMat: Enum.Material, ba
 end
 
 local SPECS: { [string]: { PartSpec } } = {
-	Axe = axeSpecs("Axe", "#8A4A28", Enum.Material.Wood, "#7A3A2A"),
+	Axe = {
+		-- same look as the held axe (Lib/Tools/AxeBuilder): red head, silver edge, red pick
+		{ name = "Handle", size = Vector3.new(0.3, 3.2, 0.3), at = CFrame.new(), color = "#8A4A28", material = Enum.Material.Wood },
+		{ name = "Head", size = Vector3.new(0.32, 0.56, 0.62), at = CFrame.new(0, 1.43, -0.12), color = "#C0301E", material = Enum.Material.Metal },
+		{ name = "Edge", size = Vector3.new(0.18, 0.86, 0.26), at = CFrame.new(0, 1.43, -0.55), color = "#D6D8DC", material = Enum.Material.Metal },
+		{ name = "Back", size = Vector3.new(0.22, 0.26, 0.45), at = CFrame.new(0, 1.48, 0.4), color = "#C0301E", material = Enum.Material.Metal },
+		{ name = "Grip", size = Vector3.new(0.36, 0.8, 0.36), at = CFrame.new(0, -1.15, 0), color = "#1A1210" },
+	},
 	FireAxe = axeSpecs("FireAxe", "#C0301E", Enum.Material.SmoothPlastic, "#E8B83A"),
 	GoldenAxe = axeSpecs("GoldenAxe", "#3A2416", Enum.Material.Wood, "#F2C14E"),
 	GasMask = {

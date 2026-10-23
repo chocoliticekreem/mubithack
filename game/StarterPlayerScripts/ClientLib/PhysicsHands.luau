@@ -7,14 +7,15 @@
 --     the shoulder to each wrist.
 --   * Input (desktop): no tool -> LMB = left hand, RMB = right hand: hold to reach toward the
 --     crosshair and grab what's there, release to let go (throws keep momentum). Both hands on one
---     heavy thing lifts it. Holding a tool -> LMB uses it (ToolController sprays; the axe winds up
---     while held and swings on release) and RMB is the free left hand. Swing a hand into a teammate
---     to slap them (HandsService knocks them back; a downed teammate is slapped awake).
---   * Held tools: the equipped Tool's parts are cloned into a local physics item welded to the
---     right glove (the real Tool is hidden locally by FirstPersonController). The axe head hangs on
---     a BallSocketConstraint so it flops; its measured head speed when it hits a Door is the damage
---     (Hands/AxeHit -> HandsMath.axeHits). The hose nozzle bucks with recoil while spraying; the
---     extinguisher sputters.
+--     heavy thing lifts it. Holding a tool -> LMB uses it (ToolController sprays; the axe is
+--     ClientLib/AxeArm) and RMB is the free left hand. Swing a hand into a teammate to slap them
+--     (HandsService knocks them back; a downed teammate is slapped awake).
+--   * Held tools: the hose/extinguisher Tool's parts are cloned into a local physics item welded to
+--     the right glove (the real Tool is hidden locally by FirstPersonController); the nozzle bucks
+--     with recoil while spraying, the extinguisher sputters.
+--   * The AXE is never copied: there is ONE axe, the real Tool, on the character's real right hand,
+--     posed by ClientLib/AxeArm (same arm in 1P and 3P, replicated). Here the right glove is just
+--     drawn on that real hand's grip, its physics palm parked.
 --   * Replication: the local hand positions (HumanoidRootPart space) go to HandsService at
 --     HandsConfig.PoseHz; PhysicsHands.startRemote() aims every other player's shoulders at their
 --     replicated hands so everyone sees reaching, slapping and wind-ups.
@@ -43,6 +44,7 @@ local HandsConfig =
 	require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HandsConfig") :: ModuleScript) :: any
 local Viewmodel = require(script.Parent:WaitForChild("Viewmodel") :: ModuleScript)
 local WorldPopup = require(script.Parent:WaitForChild("WorldPopup") :: ModuleScript)
+local AxeArm = require(script.Parent:WaitForChild("AxeArm") :: ModuleScript)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -96,13 +98,9 @@ type Item = {
 	model: Model,
 	kind: string,
 	tool: Tool,
-	head: BasePart?, -- axe head (ball socket)
 	handle: BasePart?,
-	headRest: CFrame?, -- head frame relative to the handle at rest
-	socket: BallSocketConstraint?,
 	nozzle: Attachment?,
-	lastHeadPos: Vector3?,
-	prevManual: boolean?,
+	real: boolean?, -- the axe: the real Tool on the character's hand (ClientLib/AxeArm), no copy
 }
 
 local PhysicsHands = {}
@@ -119,12 +117,6 @@ export type PhysicsHands = typeof(setmetatable(
 		charNoCollide: { Instance },
 		noCollideFor: Model?,
 		t: number,
-		windStart: number?,
-		windCharge: number,
-		strikeT: number,
-		strikeFrom: number,
-		strikeShook: boolean,
-		axeCooldown: number,
 		sendAt: number,
 		kickAt: number,
 		soot: number,
@@ -367,12 +359,6 @@ function PhysicsHands.new(): PhysicsHands
 		charNoCollide = {},
 		noCollideFor = nil,
 		t = 0,
-		windStart = nil,
-		windCharge = 0,
-		strikeT = -1,
-		strikeFrom = 0,
-		strikeShook = true,
-		axeCooldown = 0,
 		sendAt = 0,
 		kickAt = 0,
 		soot = 0,
@@ -400,12 +386,6 @@ function PhysicsHands._refreshNoCollide(self: PhysicsHands, char: Model?)
 	for _, hand in self.hands do
 		for _, b in body do
 			table.insert(self.charNoCollide, noCollide(hand.palm, b, self.folder))
-		end
-	end
-	local item = self.item
-	if item and item.head then
-		for _, b in body do
-			table.insert(self.charNoCollide, noCollide(item.head, b, self.folder))
 		end
 	end
 end
@@ -525,25 +505,14 @@ function PhysicsHands._dropItem(self: PhysicsHands)
 	if not item then
 		return
 	end
-	if item.prevManual ~= nil and item.tool.Parent then
-		item.tool.ManualActivationOnly = item.prevManual
-	end
 	item.model:Destroy()
-	self.noCollideFor = nil -- rebuild without the old axe head
-	self.windStart = nil
-	self.strikeT = -1
-end
-
--- Put the floppy axe head back at rest on its handle (after a snap, or if it ever separates).
-local function resetHead(item: Item)
-	local head, handle, rest = item.head, item.handle, item.headRest
-	if not (head and handle and rest) then
-		return
+	if item.real then
+		-- the right palm was parked on the real axe hand: hand it back to the springs
+		local palm = self.hands.R.palm
+		palm.Anchored = not self.active
+		palm.CanCollide = self.active
+		self.hands.R.stuck = math.huge
 	end
-	head.CFrame = handle.CFrame * rest
-	head.AssemblyLinearVelocity = handle.AssemblyLinearVelocity
-	head.AssemblyAngularVelocity = Vector3.zero
-	item.lastHeadPos = nil
 end
 
 function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
@@ -562,6 +531,17 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 	end
 	local kind = toolKind(tool) :: string
 	local hand = self.hands.R
+	if kind == "axe" then
+		-- ONE axe: the real Tool stays on the real hand (ClientLib/AxeArm poses it); no copy
+		local m = Instance.new("Model")
+		m.Name = "HeldAxe"
+		self.item = { model = m, kind = kind, tool = tool, handle = handle :: BasePart, real = true }
+		hand.palm.Anchored = true
+		hand.palm.CanCollide = false
+		hand.pressed = false
+		self:_release(hand, false)
+		return
+	end
 	local model = Instance.new("Model")
 	model.Name = "HeldItem"
 	model.Parent = self.folder -- in the world before welding, so WeldConstraints record real offsets
@@ -595,13 +575,9 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 		end
 	end
 	local cHandle = clones[srcHandle]
-	local item: Item = { model = model, kind = kind, tool = tool, head = nil, handle = cHandle, nozzle = nil }
-	-- The axe: everything that isn't the handle is the head, hung on a ball socket at the handle top.
-	local headParts: { BasePart } = {}
+	local item: Item = { model = model, kind = kind, tool = tool, handle = cHandle, nozzle = nil }
 	for src, c in clones do
-		if src ~= srcHandle and kind == "axe" then
-			table.insert(headParts, c)
-		elseif src ~= srcHandle then
+		if src ~= srcHandle then
 			local w = Instance.new("WeldConstraint")
 			w.Part0 = cHandle
 			w.Part1 = c
@@ -612,65 +588,11 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 	w.Part0 = hand.palm
 	w.Part1 = cHandle
 	w.Parent = cHandle
-	if kind == "axe" and #headParts > 0 then
-		local head = headParts[1]
-		for _, p in headParts do
-			if p.Name == "Head" then
-				head = p
-			end
-		end
-		for _, p in headParts do
-			if p ~= head then
-				local hw = Instance.new("WeldConstraint")
-				hw.Part0 = head
-				hw.Part1 = p
-				hw.Parent = p
-			end
-			-- the head never collides (door hits are a swept spherecast, prop bonks an overlap probe),
-			-- so it can't snag on walls, props or our own gloves and tear the assembly apart
-			p.CanCollide = false
-		end
-		head.Massless = false
-		head.CustomPhysicalProperties = PhysicalProperties.new(HandsConfig.AxeHeadDensity, 0.5, 0, 1, 1)
-		-- socket at the top of the handle; the attachments' primary (X) axis runs up the handle
-		local topCF = cHandle.CFrame * CFrame.new(0, cHandle.Size.Y / 2 - 0.15, 0) * CFrame.Angles(0, 0, math.rad(90))
-		local a0 = Instance.new("Attachment")
-		a0.Name = "AxeSocket"
-		a0.Parent = cHandle
-		a0.WorldCFrame = topCF
-		local a1 = Instance.new("Attachment")
-		a1.Name = "AxeSocket"
-		a1.Parent = head
-		a1.WorldCFrame = topCF
-		local sock = Instance.new("BallSocketConstraint")
-		sock.Attachment0 = a0
-		sock.Attachment1 = a1
-		sock.LimitsEnabled = true
-		sock.UpperAngle = HandsConfig.AxeHeadFlopDeg
-		sock.TwistLimitsEnabled = true
-		sock.TwistLowerAngle = -25
-		sock.TwistUpperAngle = 25
-		sock.Restitution = 0
-		pcall(function()
-			(sock :: any).MaxFrictionTorque = HandsConfig.AxeHeadFriction -- damps the flop
-		end)
-		sock.Parent = head
-		noCollide(head, cHandle, model)
-		noCollide(head, hand.palm, model)
-		noCollide(head, self.hands.L.palm, model)
-		item.head = head
-		item.headRest = cHandle.CFrame:ToObjectSpace(head.CFrame)
-		item.socket = sock
-		-- clicks belong to the physical swing now, not ToolService's proximity swing
-		item.prevManual = tool.ManualActivationOnly
-		tool.ManualActivationOnly = true
-	end
 	local nozzle = cHandle:FindFirstChild("Nozzle")
 	if nozzle and nozzle:IsA("Attachment") then
 		item.nozzle = nozzle
 	end
 	self.item = item
-	self.noCollideFor = nil -- include the axe head in the body no-collide set
 end
 
 -- input ------------------------------------------------------------------------------------------
@@ -686,19 +608,7 @@ function PhysicsHands._button(self: PhysicsHands, which: number, down: boolean)
 	local hand: Hand
 	if item then
 		if which == 1 then
-			if item.kind == "axe" then
-				if down then
-					if self.strikeT < 0 then
-						self.windStart = self.t
-					end
-				elseif self.windStart then
-					self.strikeFrom = self.windCharge
-					self.windStart = nil
-					self.strikeT = 0
-					self.strikeShook = false
-				end
-			end
-			return -- hose/extinguisher/other: ToolController owns LMB through Tool.Activated
+			return -- the Tool owns LMB (ToolController sprays, ClientLib/AxeArm chops)
 		end
 		hand = self.hands.L
 	else
@@ -843,16 +753,7 @@ function PhysicsHands._basePose(self: PhysicsHands, hand: Hand, cam: CFrame, f: 
 	local rest: HandsMath.Pose
 	if side == "R" and item then
 		if item.kind == "axe" then
-			local charge = 0
-			if self.windStart then
-				charge = HandsMath.windupCharge(self.t - self.windStart, HandsConfig.AxeWindupSeconds)
-				self.windCharge = charge
-			end
-			local ap = HandsMath.axePose(charge, if self.strikeT >= 0 then self.strikeT else nil, HandsConfig.AxeStrikeSeconds, self.strikeFrom)
-			-- the fist holds the handle thumb-up (see gripAtt), so a pitch-up lays the axe back over
-			-- the shoulder: wind-ups pitch up, strikes pitch down
-			ap = { x = ap.x, y = ap.y, z = ap.z, rx = -ap.rx, ry = ap.ry, rz = ap.rz }
-			return tweak(ap, "axe", side)
+			return tweak(HandsMath.Poses.axeReady, "axe", side) -- unused: the glove sits on the real hand
 		elseif item.kind == "hose" then
 			return tweak(HandsMath.Poses.hose, "hose", side)
 		elseif item.kind == "extinguisher" then
@@ -896,7 +797,7 @@ function PhysicsHands._probe(self: PhysicsHands, hand: Hand, char: Model, relVel
 		return
 	end
 	hand.probeAt = self.t + 1 / 30
-	local probePart = if kind == "axe" and self.item and self.item.head then self.item.head :: BasePart else hand.palm
+	local probePart = hand.palm
 	local hits = workspace:GetPartBoundsInRadius(probePart.Position, HandsConfig.GrabRadius, overlap)
 	local now = self.t
 	for _, part in hits do
@@ -933,44 +834,6 @@ function PhysicsHands._probe(self: PhysicsHands, hand: Hand, char: Model, relVel
 	end
 end
 
--- Axe head vs doors: sweep the head between frames so a fast swing can't tunnel through.
-function PhysicsHands._axeCheck(self: PhysicsHands, item: Item, onShake: ((number, number) -> ())?)
-	local head = item.head
-	if not head then
-		return
-	end
-	local pos = head.Position
-	local last = item.lastHeadPos
-	item.lastHeadPos = pos
-	if not last or self.t < self.axeCooldown then
-		return
-	end
-	local delta = pos - last
-	local root = rootOf(charOf())
-	local rel = head.AssemblyLinearVelocity - (if root then root.AssemblyLinearVelocity else Vector3.zero)
-	local speed = rel.Magnitude
-	if speed < HandsConfig.AxeMinSpeed * 0.5 then
-		return
-	end
-	local dir = if delta.Magnitude > 1e-3 then delta else rel.Unit * 0.2
-	local hit = workspace:Spherecast(last, math.max(head.Size.Y, head.Size.Z) * 0.45, dir, rayParams)
-	if not hit then
-		return
-	end
-	local part = hit.Instance
-	if CollectionService:HasTag(part, Names.Tag.Door) and part:GetAttribute(Names.Attr.Broken) ~= true then
-		self.axeCooldown = self.t + HandsConfig.AxeHitCooldown
-		local r = remote("AxeHit")
-		if r then
-			r:FireServer(part, speed)
-		end
-		self.hands.R.hitStop = HandsConfig.HitStopSeconds
-		if onShake then
-			onShake(math.clamp(speed / HandsConfig.AxeCritSpeed, 0.15, 0.6), 0.2)
-		end
-	end
-end
-
 local rigParts: { BasePart } = {}
 local rigCFrames: { CFrame } = {}
 
@@ -991,7 +854,7 @@ function PhysicsHands._curlTarget(self: PhysicsHands, hand: Hand): number
 	return idle + 0.06 * math.sin(self.t * 1.7 + hand.sign * 1.3) + 0.03 * math.sin(self.t * 3.1 + hand.sign)
 end
 
-function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Frame, onShake: ((number, number) -> ())?)
+function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Frame, _onShake: ((number, number) -> ())?)
 	if not self.active then
 		return
 	end
@@ -1008,20 +871,6 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 	rayParams.FilterDescendantsInstances = { self.folder, char }
 	overlap.FilterDescendantsInstances = { self.folder, char }
 
-	if self.strikeT >= 0 then
-		self.strikeT += dt
-		if self.strikeT > HandsConfig.AxeStrikeSeconds * 3 then
-			self.strikeT = -1
-		end
-	end
-	local striking = self.strikeT >= 0 and self.strikeT < HandsConfig.AxeStrikeSeconds * 1.5
-	if striking and not self.strikeShook then
-		self.strikeShook = true
-		if onShake then
-			onShake(0.12 + 0.12 * self.strikeFrom, 0.2) -- the whoosh
-		end
-	end
-
 	local bob = f.bob or Vector2.zero
 	local sway = f.sway or Vector2.zero
 	local base = cam * CFrame.new(bob.X, bob.Y + (f.dip or 0), 0) * CFrame.Angles(sway.X, sway.Y, sway.Y * 0.6)
@@ -1034,15 +883,31 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 		self.visual.Parent = camObj
 	end
 	for side, hand in self.hands do
+		if side == "R" and item and item.real then
+			-- the axe: ONE real Tool on the real right hand (ClientLib/AxeArm). Draw the glove on its
+			-- grip; the physics palm is parked there (no collisions, no springs).
+			local handle = item.handle
+			if handle and handle.Parent then
+				local gripWorld = handle.CFrame * item.tool.Grip
+				local wristCF = gripWorld * (hand.wrist.CFrame:Inverse() * hand.gripAtt.CFrame):Inverse()
+				hand.palm.Anchored = true
+				hand.palm.CanCollide = false
+				hand.palm.CFrame = wristCF * hand.wrist.CFrame:Inverse()
+				hand.target = wristCF
+				hand.stuck = 0
+				local shoulder = base
+					* Vector3.new(HandsConfig.ShoulderX * hand.sign, HandsConfig.ShoulderY, HandsConfig.ShoulderZ)
+				hand.curl += (0.95 - hand.curl) * math.min(1, dt * 14)
+				Viewmodel.poseRig(hand.rig, wristCF, shoulder, cam.UpVector, hand.curl, rigParts, rigCFrames)
+			end
+			continue
+		end
 		-- reach ramp
 		local rate = dt / math.max(HandsConfig.ReachSeconds, 0.01)
 		hand.reachT = math.clamp(hand.reachT + (if hand.pressed then rate else -rate), 0, 1)
 
 		local p = self:_basePose(hand, cam, f, char)
 		local hz, zeta = HandsConfig.TargetHz, HandsConfig.TargetDamping
-		if side == "R" and striking then
-			hz, zeta = HandsConfig.StrikeHz, HandsConfig.StrikeDamping
-		end
 		local k, c = HandsMath.springCoeffs(hz, zeta)
 		if hand.hitStop > 0 then
 			hand.hitStop -= dt
@@ -1096,9 +961,6 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 			hand.palm.AssemblyLinearVelocity = root.AssemblyLinearVelocity
 			hand.palm.AssemblyAngularVelocity = Vector3.zero
 			hand.stuck = 0
-			if side == "R" and item and item.head then
-				resetHead(item)
-			end
 		end
 
 		-- slaps and shoves
@@ -1113,26 +975,9 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 	end
 	workspace:BulkMoveTo(rigParts, rigCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 
-	-- the floppy axe and the bucking nozzle
+	-- the bucking nozzle
 	if item then
-		if item.kind == "axe" then
-			local sock = item.socket
-			if
-				sock
-				and sock.Attachment0
-				and sock.Attachment1
-				and (sock.Attachment0.WorldPosition - sock.Attachment1.WorldPosition).Magnitude
-					> (tonumber(HandsConfig.AxeResetDistance) or 2)
-			then
-				resetHead(item)
-			end
-			self:_axeCheck(item, onShake)
-			local head = item.head
-			if head and striking then
-				local rel = head.AssemblyLinearVelocity - root.AssemblyLinearVelocity
-				self:_probe(self.hands.R, char, rel, "axe")
-			end
-		elseif f.spraying and self.t >= self.kickAt then
+		if f.spraying and self.t >= self.kickAt then
 			self.kickAt = self.t + 1 / HandsConfig.HoseKickHz
 			local rng = Random.new()
 			local amount = if item.kind == "hose"
@@ -1157,7 +1002,6 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 			local F = HandsMath.Flag
 			local flags = (if self.hands.L.grip then F.LeftGrip else 0)
 				+ (if self.hands.R.grip then F.RightGrip else 0)
-				+ (if self.windStart then F.Windup else 0)
 				+ (if self.hands.L.pressed or self.hands.R.pressed then F.Reach else 0)
 			r:FireServer(HandsMath.encodePose(toVec(l), toVec(rr), flags, HandsConfig.PoseMaxOffset))
 		end
@@ -1294,7 +1138,11 @@ function PhysicsHands.startRemote(onFx: ((string, Vector3, number) -> ())?)
 				continue
 			end
 			local w = e.weight * math.clamp(tonumber(HandsConfig.RemoteArmBlend) or 0.85, 0, 1)
+			local axeArm = AxeArm.drivesArm(char) -- that player's right arm holds the real axe
 			for _, side in { "L", "R" } do
+				if side == "R" and axeArm then
+					continue
+				end
 				local rs = (e :: any)[side] :: RemoteSide
 				rs.pos, rs.vel = HandsMath.springStep3(rs.pos, rs.vel, rs.target, k, c, dt)
 				local motor, elbow = shoulderMotor(char :: Model, side)

@@ -11,6 +11,13 @@
 --   RoadNet.laneSeg(net, laneId) -> Seg
 --   RoadNet.point(seg, s) -> (x, y, z, hx, hz)  -- position s studs along a segment, unit heading
 --
+-- Junction geometry follows the drawn road widths: a lane stops at the crossing box of the roads it
+-- meets (half the widest crossing road) + JunctionMargin (behind the crosswalk / stop line), bends
+-- curve round the box, straight-through nodes barely trim. Dead ends are not driven into when there
+-- is another way; short dead-end stubs (<= StubMaxLen, site door spurs) do not make a node a junction. Net extras: junction[node], deadEnd[node],
+-- half[node] (widest incident road / 2), lane.major (through road at an unsignalled junction).
+-- Connectors carry turn ("straight"|"left"|"right"|"uturn") and radius (studs, math.huge = straight).
+--
 -- Accepted graph shapes (tolerant, CityBuilder is still settling it):
 --   nodes: { [id] = {x,y,z} | {X=,Y=,Z=} | {x=,y=,z=} | {pos=...} }  or  { {id=, x=, y=, z=} | {id=, pos=} ... }
 --   edges: { {a, b} | {a=, b=} | {A=, B=} | {from=, to=} ... }, each optionally with
@@ -36,6 +43,7 @@ export type Lane = {
 	hz: number,
 	len: number,
 	speed: number,
+	major: boolean,
 }
 
 export type Seg = {
@@ -47,6 +55,10 @@ export type Seg = {
 	to: number?,
 	p: { number }?, -- kind "conn": 12 numbers, 4 control points x,y,z
 	lut: { number }?, -- kind "conn": cumulative arc length at t = i/N
+	turn: string?, -- kind "conn"
+	radius: number?, -- kind "conn"
+	poly: { number }?, -- kind "conn": sampled x,z pairs (Junction.poly, lazily)
+	conflict: { [any]: boolean }?, -- kind "conn": Junction conflict cache
 }
 
 export type Node = { x: number, y: number, z: number }
@@ -54,6 +66,9 @@ export type Node = { x: number, y: number, z: number }
 export type Net = {
 	nodes: { [string]: Node },
 	degree: { [string]: number },
+	junction: { [string]: boolean },
+	deadEnd: { [string]: boolean },
+	half: { [string]: number },
 	lanes: { Lane },
 	outOf: { [string]: { number } },
 	conns: { [string]: Seg },
@@ -65,13 +80,16 @@ export type Cfg = {
 	LaneOffset: number,
 	RoadWidth: number,
 	SpeedLimit: number,
-	IntersectionTrim: number,
 	BendTrim: number,
+	JunctionMargin: number,
+	StraightTrim: number?,
+	StreetLaneFrac: number?,
+	StubMaxLen: number?,
 }
 
 local RoadNet = {}
 
-local LUT_N = 10
+local LUT_N = 16
 
 local function num(v: any): number?
 	if type(v) == "number" and v == v then
@@ -136,7 +154,7 @@ end
 -- {offset, dir, speed?} records for one edge
 type LaneSpec = { off: number, dir: number, speed: number? }
 
-local function laneSpecs(e: any, cfg: Cfg): { LaneSpec }
+local function rawLaneSpecs(e: any, cfg: Cfg): { LaneSpec }
 	local L = e.lanes or e.Lanes
 	local out: { LaneSpec } = {}
 	local width = num(e.width) or num(e.Width) or cfg.RoadWidth
@@ -203,6 +221,22 @@ local function laneSpecs(e: any, cfg: Cfg): { LaneSpec }
 	return out
 end
 
+-- One lane each way on a wide road: centre each lane in its half (not hugging the centre line).
+local function laneSpecs(e: any, cfg: Cfg): { LaneSpec }
+	local out = rawLaneSpecs(e, cfg)
+	local frac = cfg.StreetLaneFrac or 0
+	local width = num(e.width) or num(e.Width)
+	if frac > 0 and width and #out == 2 and out[1].dir ~= out[2].dir then
+		for _, spec in out do
+			local want = width * frac
+			if math.abs(spec.off) < want then
+				spec.off = if spec.off >= 0 then want else -want
+			end
+		end
+	end
+	return out
+end
+
 function RoadNet.parse(data: any, cfg: Cfg): Net?
 	if type(data) ~= "table" then
 		return nil
@@ -247,10 +281,109 @@ function RoadNet.parse(data: any, cfg: Cfg): Net?
 		return nil
 	end
 
-	local net: Net = { nodes = nodes, degree = degree, lanes = {}, outOf = {}, conns = {}, segs = {}, edgeCount = #edges }
-	local function trimAt(n: string): number
-		return if (degree[n] or 0) >= 3 then cfg.IntersectionTrim else cfg.BendTrim
+	local deadEnd: { [string]: boolean } = {}
+	for n, d in degree do
+		if d == 1 then
+			deadEnd[n] = true
+		end
 	end
+	-- incident edges per node: unit direction away from the node, width, stub (leads to a dead end)
+	type Inc = { ei: number, ux: number, uz: number, width: number, stub: boolean }
+	local inc: { [string]: { Inc } } = {}
+	local half: { [string]: number } = {}
+	for ei, e in edges do
+		local A, B = nodes[e.a], nodes[e.b]
+		local dx, dz = B.x - A.x, B.z - A.z
+		local l = math.sqrt(dx * dx + dz * dz)
+		if l < 1 then
+			continue
+		end
+		local w = num(e.raw.width) or num(e.raw.Width) or cfg.RoadWidth
+		for _, side in { { e.a, e.b, 1 }, { e.b, e.a, -1 } } do
+			local n, other, sg = side[1] :: string, side[2] :: string, side[3] :: number
+			inc[n] = inc[n] or {}
+			local stub = deadEnd[other] == true and not deadEnd[n] and l <= (cfg.StubMaxLen or 40)
+			table.insert(inc[n], { ei = ei, ux = dx / l * sg, uz = dz / l * sg, width = w, stub = stub })
+			half[n] = math.max(half[n] or 0, w / 2)
+		end
+	end
+	local junction: { [string]: boolean } = {}
+	for n, list in inc do
+		local eff = 0
+		for _, f in list do
+			if not f.stub then
+				eff += 1
+			end
+		end
+		junction[n] = eff >= 3
+	end
+	local function incOf(n: string, ei: number): Inc?
+		for _, f in inc[n] or {} do
+			if f.ei == ei then
+				return f
+			end
+		end
+		return nil
+	end
+	-- how far edge ei's lanes stop short of node n
+	local function trimAt(n: string, ei: number): number
+		if deadEnd[n] then
+			return cfg.BendTrim
+		end
+		local me = incOf(n, ei)
+		if not me then
+			return cfg.BendTrim
+		end
+		local h = 0
+		for _, f in inc[n] do
+			if f.ei ~= ei and not f.stub and math.abs(me.ux * f.uz - me.uz * f.ux) > 0.5 then
+				h = math.max(h, f.width / 2)
+			end
+		end
+		if junction[n] then
+			return h + cfg.JunctionMargin
+		end
+		if h == 0 then
+			return cfg.StraightTrim or 2
+		end
+		return h
+	end
+	-- a lane arriving at n on edge ei is on the through road: a collinear edge continues it and
+	-- both are as wide as the widest road there
+	local function majorAt(n: string, ei: number): boolean
+		if not junction[n] then
+			return true
+		end
+		local me = incOf(n, ei) :: Inc
+		local widest = 0
+		for _, f in inc[n] do
+			if not f.stub then
+				widest = math.max(widest, f.width)
+			end
+		end
+		if me.width < widest - 0.5 then
+			return false
+		end
+		for _, f in inc[n] do
+			if f.ei ~= ei and not f.stub and me.ux * f.ux + me.uz * f.uz < -0.9 and f.width >= widest - 0.5 then
+				return true
+			end
+		end
+		return false
+	end
+
+	local net: Net = {
+		nodes = nodes,
+		degree = degree,
+		junction = junction,
+		deadEnd = deadEnd,
+		half = half,
+		lanes = {},
+		outOf = {},
+		conns = {},
+		segs = {},
+		edgeCount = #edges,
+	}
 	for ei, e in edges do
 		local A, B = nodes[e.a], nodes[e.b]
 		local dx, dz = B.x - A.x, B.z - A.z
@@ -260,7 +393,7 @@ function RoadNet.parse(data: any, cfg: Cfg): Net?
 		end
 		dx, dz = dx / elen, dz / elen
 		local rx, rz = -dz, dx
-		local ta, tb = trimAt(e.a), trimAt(e.b)
+		local ta, tb = trimAt(e.a, ei), trimAt(e.b, ei)
 		local maxTrim = math.max(0, elen - 4)
 		if ta + tb > maxTrim then
 			local k = maxTrim / (ta + tb)
@@ -305,6 +438,7 @@ function RoadNet.parse(data: any, cfg: Cfg): Net?
 				hz = hz,
 				len = len,
 				speed = spec.speed or espeed or cfg.SpeedLimit,
+				major = majorAt(to, ei),
 			}
 			table.insert(net.lanes, lane)
 			local list = net.outOf[from]
@@ -334,26 +468,33 @@ function RoadNet.turn(a: Lane, b: Lane): string
 	return if cross > 0 then "right" else "left"
 end
 
--- Lanes a car on `laneId` may continue onto. No U-turns unless it's a dead end.
+-- Lanes a car on `laneId` may continue onto. No U-turns and no dead-end stubs unless there is
+-- nothing else.
 function RoadNet.nextLanes(net: Net, laneId: number): { number }
 	local lane = net.lanes[laneId]
 	if not lane then
 		return {}
 	end
 	local out: { number } = {}
+	local stubs: { number } = {}
 	local uturns: { number } = {}
 	for _, lid in net.outOf[lane.to] or {} do
 		local cand = net.lanes[lid]
 		if cand.edge == lane.edge then
 			table.insert(uturns, lid)
+		elseif net.deadEnd[cand.to] then
+			table.insert(stubs, lid)
 		else
 			table.insert(out, lid)
 		end
 	end
-	if #out == 0 then
-		return uturns
+	if #out > 0 then
+		return out
 	end
-	return out
+	if #stubs > 0 then
+		return stubs
+	end
+	return uturns
 end
 
 function RoadNet.pickNext(net: Net, laneId: number, roll: number, straightBias: number?): number?
@@ -406,9 +547,21 @@ function RoadNet.connector(net: Net, fromId: number, toId: number): Seg
 	end
 	local a, b = net.lanes[fromId], net.lanes[toId]
 	local dist = math.sqrt((b.ax - a.bx) ^ 2 + (b.az - a.bz) ^ 2)
-	local k = math.max(dist * 0.45, 3)
-	if RoadNet.turn(a, b) == "uturn" then
-		k = math.max(k, dist * 0.9, 6)
+	local turn = RoadNet.turn(a, b)
+	-- cubic Bezier approximating a circular arc: handle = 4/3 tan(theta/4) r, r = chord / (2 sin(theta/2))
+	local dot = math.clamp(a.hx * b.hx + a.hz * b.hz, -1, 1)
+	local theta = math.acos(dot)
+	local k: number
+	local radius = math.huge
+	if theta < 0.15 then
+		k = math.max(dist / 3, 1)
+	else
+		radius = dist / (2 * math.sin(theta / 2))
+		k = math.max(4 / 3 * math.tan(theta / 4) * radius, 2)
+	end
+	if turn == "uturn" then
+		k = math.max(k, dist * 0.67, 6)
+		radius = math.max(dist / 2, 3)
 	end
 	local p = {
 		a.bx, a.by, a.bz,
@@ -425,7 +578,7 @@ function RoadNet.connector(net: Net, fromId: number, toId: number): Seg
 		lut[i + 1] = acc
 		px, pz = x, z
 	end
-	local seg: Seg = { kind = "conn", len = math.max(acc, 0.5), node = a.to, from = fromId, to = toId, p = p, lut = lut }
+	local seg: Seg = { kind = "conn", len = math.max(acc, 0.5), node = a.to, from = fromId, to = toId, p = p, lut = lut, turn = turn, radius = radius }
 	net.conns[key] = seg
 	return seg
 end
