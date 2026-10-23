@@ -28,6 +28,10 @@
 --          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5 (+ v2 BindSite)
 -- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms;
 --         Workspace.Instances.<instanceId> (attrs InstanceId, LocationId), counter map_instances_built
+-- v2 city (CityConfig.Enabled): "City" (CityBuilder, Slot 0) is built and the builders it absorbs
+--   (CityConfig.ReplacedLocations: Town, Farm, Forest...) are NOT built on their own slots; they are
+--   built inside the city, and GetLocation(<id>) returns that district Model. Other builders (except
+--   City / Station) keep their slot shifted by CityConfig.LegacyOffset, clear of the city.
 -- Test hooks (DevHook only): _selftest()
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -37,6 +41,21 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local MapConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MapConfig") :: ModuleScript)
+
+-- v2 city switch (nil-safe: no CityConfig = v1 layout)
+local function cityConfig(): any?
+	local mod = ReplicatedStorage:WaitForChild("Config"):FindFirstChild("CityConfig")
+	if not mod then
+		return nil
+	end
+	local ok, cfg = pcall(require, mod)
+	return if ok and type(cfg) == "table" and cfg.Enabled == true then cfg else nil
+end
+
+local function replacedByCity(id: string): boolean
+	local cfg = cityConfig()
+	return cfg ~= nil and table.find(cfg.ReplacedLocations or {}, id) ~= nil
+end
 
 local MapService = {}
 MapService.Priority = 0
@@ -115,6 +134,9 @@ function MapService:BuildLocation(id: string): Model?
 	if not b then
 		return nil
 	end
+	if replacedByCity(id) and locations.City then
+		return locations[id] -- lives inside the city (no standalone copy)
+	end
 	local old = mapFolder():FindFirstChild(id)
 	if old then
 		old:Destroy()
@@ -123,12 +145,27 @@ function MapService:BuildLocation(id: string): Model?
 	model.Name = id
 	model:SetAttribute(Names.Attr.LocationId, id)
 	local rng = Random.new(MapConfig.Seed + hash(id))
-	local ok, err = pcall(b.Build, model, MapConfig.SlotOrigin(b.Slot or 0), rng)
+	local origin = MapConfig.SlotOrigin(b.Slot or 0)
+	local city = cityConfig()
+	if city and id ~= "City" and id ~= "Station" then
+		origin = origin + city.LegacyOffset -- keep leftover slot builders clear of the city
+	end
+	local ok, err = pcall(b.Build, model, origin, rng)
 	if not ok then
 		warn(`[MapService] {id}.Build failed: {err}`)
 	end
 	model.Parent = mapFolder() -- parent once, after building (fast)
 	locations[id] = model
+	if id == "City" then
+		-- districts built from location builders answer GetLocation(<id>)
+		local districts = model:FindFirstChild("Districts")
+		for _, d in (if districts then districts:GetDescendants() else {}) do
+			local loc = d:GetAttribute(Names.Attr.LocationId)
+			if d:IsA("Model") and type(loc) == "string" and loc ~= "City" and d.Name == loc then
+				locations[loc] = d
+			end
+		end
+	end
 	table.clear(pristine) -- sites may have been rebuilt with the location: re-snapshot lazily
 	MapService.LocationBuilt:Fire(model, id)
 	return model
@@ -140,7 +177,9 @@ function MapService:BuildAll(): number
 	local t0 = os.clock()
 	local ids = {}
 	for id in builders do
-		table.insert(ids, id)
+		if not replacedByCity(id) then
+			table.insert(ids, id)
+		end
 	end
 	table.sort(ids)
 	for _, id in ids do

@@ -20,30 +20,33 @@ Owners are in brackets. Contracts in `docs/game/03` §10 still apply unless this
 Squads run in parallel at **different sites** in the same city. No map copies are needed.
 
 ## City [owner: CityBuilder agent]
-- `Lib/Map/Locations/CityBuilder.luau` (Id "City", Slot 0, replaces the separate Station/Town slots
-  in v2). A street grid of roughly **1200 x 1200 studs**: a 6x6 block grid, 24-stud two-lane roads,
-  sidewalks, intersections with traffic lights, and districts:
-  - downtown (apartments, shops)
-  - suburbs (houses like Maple Street)
-  - a school campus
-  - an industrial area with storage units
-  - a park and zoo
-  - a farm edge
-  - a forest edge
-  - the dam on the outskirts
-- It reuses the existing location builders where it can, by calling `XBuilder.Build(model, origin,
-  rng)` at a district origin (Town, Apartment, School, Storage, Farm, Forest, Dam, Zoo), plus
-  procedural filler blocks.
-- The **station** is placed by StationBuilder at the city's north edge, facing the main avenue.
+- `Lib/Map/Locations/CityBuilder.luau` (Id "City", Slot 0; `CityConfig.Enabled` makes MapService skip
+  the standalone slots of the builders it absorbs). **~3000 x 3000 studs** (`CityConfig.Bounds`, +Z =
+  south): a 3x3 grid of 900-stud cells. The **fire station hub** is the centre cell (StationBuilder at
+  `CityConfig.StationOrigin`, bays facing south onto the hub loop, 4-lane avenues radiating out); the 8
+  other cells each hold one neighbourhood, clearly apart (~280 studs of greenbelt + road between):
+  Farm (NW), Maple Street/Town (N), Mill Creek Dam (NE), Storage (W), Forest (E), School (SW),
+  Apartment (S), Zoo (SE). Highway 67 is the outer ring, 4-lane avenues the ring road round the hub.
+- Each neighbourhood: its location builder called as `XBuilder.Build(model, origin, rng)` at the cell
+  centre (400 x 400 core; procedural core if the builder is missing), a 2-lane loop street round it, a
+  themed band of lots (some are extra incident sites), gate streets out to the road between cells,
+  a welcome arch + name boards, a landmark, its own road style. Mill Creek runs from the dam's river
+  down the east greenbelt (bridges). Signposts at junctions point to every neighbourhood.
+- `MapService:GetLocation("Town")` etc. return the district Model inside the city.
 - **Incident sites**: every building that can host a mission is a Model tagged `IncidentSite` with:
   - attributes `SiteId` (string), `MissionTypes` (comma-separated MissionCatalog ids, e.g.
     `"house_fire"`), `Busy` (bool)
   - children: `FireStart` and `RescueSpawn` markers (as before), a `TruckSpot` part where a truck
     parks, and an `ArrivalZone` part (invisible, about 40 studs) that counts as "arrived".
-- **Road graph** for GPS: a Folder `Workspace.Map.City.RoadGraph` holding `RoadNode` parts
-  (attribute `NodeId`) and `RoadEdge` ObjectValues (`A`, `B`). Alternatively the builder exports
-  `CityBuilder.Graph = {nodes = {[id] = Vector3}, edges = {{a, b}}}` and writes it as a JSON
-  StringValue `Workspace.Map.City.RoadGraphJson`.
+- **Road graph** for GPS and traffic: a Folder `Workspace.Map.City.RoadGraph` holding `RoadNode` parts
+  (attribute `NodeId`) and `RoadEdge` ObjectValues (attrs `A`, `B`, `Kind`, `Style`, `Width`,
+  `SpeedLimit`, `Lanes`). `CityBuilder.Graph = {nodes = {[id] = Vector3}, edges = {...}}` and the JSON
+  StringValue `Workspace.Map.City.RoadGraphJson`: `{nodes = {[id] = {x, y, z}}, pairs = {{a, b}},
+  edges = {{a, b, kind, style, width, speedLimit, laneCount, length, drawn, lanes = {{offset, dir,
+  width}}}}}`. Right-hand traffic: lane `offset` is measured to the right of a -> b, `dir` 1 drives
+  a -> b, -1 drives b -> a. Kinds: highway, avenue (4 lanes), street, spur (2 lanes), builder (a
+  location's own road, not drawn by the city). The City model's `TrafficPhase` attr ("XGreen",
+  "XAmber", "ZGreen", "ZAmber") + `TrafficPhaseEndsAt` mirror the traffic lights.
 
 ## Station v2 [owner: Station agent]
 - `StationBuilder.luau` is rebuilt as a big station: **4 bays** (`TruckBay` parts tagged `TruckBay`,
