@@ -322,6 +322,22 @@ local function flop(velocity: Vector3, seconds: number, shake: number, sound: st
 	end)
 end
 
+-- Out of hose: a gentle pull back toward the truck. You stay on your feet.
+local function tug(velocity: Vector3)
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root or typeof(velocity) ~= "Vector3" then
+		return
+	end
+	local v = root.AssemblyLinearVelocity
+	root.AssemblyLinearVelocity = Vector3.new(velocity.X, v.Y, velocity.Z)
+	playSound(Cfg.SoundYank, root)
+	local fp = controllers.FirstPersonController
+	if fp and type(fp.Shake) == "function" then
+		pcall(fp.Shake, fp, 0.3, 0.2)
+	end
+end
+
 -- Remotes are declared lazily by the server on the first attach: wait for them without a timeout
 -- (and without WaitForChild's infinite-yield warning).
 local function onChild(parent: Instance, name: string, fn: (Instance) -> ())
@@ -359,7 +375,7 @@ function HoseLineController:Start()
 		onChild(net, "HoseLine", function(ns)
 			onChild(ns, "Yank", function(r)
 				(r :: RemoteEvent).OnClientEvent:Connect(function(v: Vector3)
-					flop(v, 0.35, 0.6, Cfg.SoundYank)
+					tug(v)
 				end)
 			end)
 			onChild(ns, "Trip", function(r)

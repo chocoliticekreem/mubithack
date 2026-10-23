@@ -9,11 +9,11 @@ return Config.define({
 	MaxBurningPerLocation = 120, -- per mission instance; spread pauses at the cap for that instance only
 	MaxBurning = 480, -- server-wide safety net (parallel instances each get their own 120 first)
 	SpreadRadius = 8, -- studs; also the spatial-hash cell size
-	SpreadHeatPerSecond = 3, -- heat a burning part adds to each idle neighbour
-	GrowPerSecond = 3,
+	SpreadHeatPerSecond = 1.5, -- heat a burning part adds to each idle neighbour
+	GrowPerSecond = 2,
 	IgniteAt = 40,
 	ExtinguishAt = 10,
-	DefaultFuel = 90, -- seconds a part burns before it is Charred
+	DefaultFuel = 150, -- seconds a part burns before it is Charred
 	CharredColor = Color3.fromRGB(35, 30, 28),
 	CharredMaterial = Enum.Material.Slate,
 	HoseRange = 28,

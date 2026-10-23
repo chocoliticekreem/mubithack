@@ -19,9 +19,9 @@ return Config.define({
 	OwnerSplit = 0.5, -- segments [1..N*split] stay server-owned, the rest are owned by the holder
 
 	-- tug of war
-	YankSpeed = 38, -- studs/s pulled back toward the source when you hit the end
-	YankUp = 14, -- a little hop so the tug reads as funny, not as a wall
-	YankGap = 3.5, -- the chain end is this far from your hand => it's taut (wrapped round a pole)
+	YankSpeed = 14, -- studs/s tugged back toward the source when you run out of hose (no knockdown)
+	YankUp = 0,
+	YankGap = 1e9, -- off: a chain dragging behind you while you walk is not taut (it yanked every step)
 	YankCooldown = 0.7,
 	SnapFactor = 1.9, -- straight distance > length * this (a teleport) => the hose detaches
 
@@ -36,7 +36,7 @@ return Config.define({
 	OwnerIgnoreSegments = 2, -- the holder's own feet don't kink the last N segments
 
 	-- tripping
-	TripSpeed = 13, -- horizontal studs/s; running across a hose trips you, walking doesn't
+	TripSpeed = 22, -- horizontal studs/s; only a full sprint across someone else's hose trips you
 	TripCooldown = 2.5,
 	TripPush = 18, -- forward stumble velocity
 	TripUp = 8,

@@ -654,7 +654,7 @@ tick = function(dt: number)
 				local who = if p == owner then "You are" else `{p.DisplayName} is`
 				blame(h, p, now, `{who} standing on your hose!`)
 			end
-			if not tripped and HoseLine.shouldTrip(speedH, d, Cfg) and now - (lastTrip[p] or -math.huge) > Cfg.TripCooldown then
+			if not tripped and p ~= owner and HoseLine.shouldTrip(speedH, d, Cfg) and now - (lastTrip[p] or -math.huge) > Cfg.TripCooldown then
 				tripped = true
 				lastTrip[p] = now
 				local fwd = Vector3.new(vel.X, 0, vel.Z).Unit
