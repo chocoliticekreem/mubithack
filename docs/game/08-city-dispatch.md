@@ -40,7 +40,9 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   A corridor site's `RoadNode` is a kerb node `A<x>_<z>` split into the avenue in front of it.
 - **Greenbelt** (`Lib/Map/City/Greenbelt.luau`): pocket parks where corridors meet, Highway 67
   hedgerows + pine clumps, crop fields beyond the highway. **Highway** (`Lib/Map/City/Highway.luau`):
-  Ridge Tunnel on the west highway (`CityConfig.Tunnel`, 22 studs clearance) and exit gantries.
+  Ridge Tunnel on the west highway (`CityConfig.Tunnel`, 22 studs clearance), exit gantries, corner
+  billboards. Downtown has Blazeville City Hall (`Districts.CorridorFeature`) and a skyline that rises
+  toward the hub; signalised junctions have stop lines. Budget: ~29.5k parts / ~280 lights (mock build).
 - **Street furniture**: a refill hydrant (`MapKit.hydrant`: tag `Hydrant` + Refill prompt) on every
   corridor run and band side, bus shelters downtown/suburb, `Knockable`-tagged `TrashCan` / `Bench`
   models at the lot fronts. Only every `LampLightEvery`-th street lamp carries a PointLight.
