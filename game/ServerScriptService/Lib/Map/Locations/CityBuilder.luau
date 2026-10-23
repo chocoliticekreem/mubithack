@@ -240,12 +240,12 @@ local function streetLamp(parent: Instance, cf: CFrame)
 	-- cf: base on the ground, -Z = toward the road
 	local m = Instance.new("Model")
 	m.Name = "StreetLamp"
-	SK.cyl(m, "Pole", cf * CF(0, 7.5, 0), 15, 0.7, C.MetalDark)
-	SK.part(m, "Arm", cf * CF(0, 14.8, -2), V(0.4, 0.4, 4.4), C.MetalDark)
-	local head = SK.part(m, "Head", cf * CF(0, 14.4, -4), V(1.6, 0.6, 2.4), Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
+	SK.cyl(m, "Pole", cf * CF(0, 9, 0), 18, 0.7, C.MetalDark)
+	SK.part(m, "Arm", cf * CF(0, 17.8, -2), V(0.4, 0.4, 4.4), C.MetalDark)
+	local head = SK.part(m, "Head", cf * CF(0, 17.4, -4), V(1.6, 0.6, 2.4), Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
 	local light = Instance.new("PointLight")
 	light.Color = Color3.fromHex("#FFC97A")
-	light.Range = 30
+	light.Range = 34
 	light.Brightness = 1.3
 	light.Shadows = false
 	light.Parent = head
@@ -331,19 +331,26 @@ local function drawEdge(ctx: Ctx, parent: Instance, g: any, e: any, idx: number)
 	end
 end
 
+-- Traffic signal: pole on the corner, mast arm out over the lanes, head hanging from the arm with
+-- its bottom ~14.5 studs up (trucks are 9.6 tall + light bar) so it clears traffic and reads from a
+-- distance; a dark backplate frames the lamps.
+local SIGNAL_ARM_Y = 20.6 -- mast arm height above the ground
+local SIGNAL_HEAD_Y = 17.6 -- head centre (head is 6.4 tall: 14.4 .. 20.8)
+
 local function signalPole(ctx: Ctx, parent: Instance, base: Vector3, armDir: Vector3, armLen: number, face: Vector3, axis: string)
 	local m = Instance.new("Model")
 	m.Name = "TrafficLight"
 	local y0 = CityConfig.GroundY
-	SK.cyl(m, "Pole", CF(base.X, y0 + 8, base.Z), 16, 0.9, C.MetalDark)
-	local armMid = base + armDir * (armLen / 2)
-	SK.part(m, "Arm", CFrame.lookAt(V(armMid.X, y0 + 15.4, armMid.Z), V(armMid.X, y0 + 15.4, armMid.Z) + armDir), V(0.5, 0.5, armLen), C.MetalDark)
+	SK.cyl(m, "Pole", CF(base.X, y0 + (SIGNAL_ARM_Y + 1) / 2, base.Z), SIGNAL_ARM_Y + 1, 1, C.MetalDark)
+	local armMid = base + armDir * (armLen / 2 + 0.5)
+	SK.part(m, "Arm", CFrame.lookAt(V(armMid.X, y0 + SIGNAL_ARM_Y, armMid.Z), V(armMid.X, y0 + SIGNAL_ARM_Y, armMid.Z) + armDir), V(0.6, 0.6, armLen + 1), C.MetalDark)
 	local hp = base + armDir * armLen
-	local headCf = CFrame.lookAt(V(hp.X, y0 + 13, hp.Z), V(hp.X, y0 + 13, hp.Z) + face)
-	SK.part(m, "Head", headCf, V(2.2, 6.4, 1.6), Color3.fromHex("#2F3A2F"))
+	local headCf = CFrame.lookAt(V(hp.X, y0 + SIGNAL_HEAD_Y, hp.Z), V(hp.X, y0 + SIGNAL_HEAD_Y, hp.Z) + face)
+	SK.part(m, "Head", headCf, V(2.4, 6.4, 1.6), Color3.fromHex("#2F3A2F"))
+	SK.part(m, "Backplate", headCf * CF(0, 0, 0.9), V(3.8, 7.6, 0.2), Color3.fromHex("#1C1F1C"), { collide = false, cast = false, query = false })
 	local set = (ctx.lamps :: any)[axis]
 	for i, col in { "red", "amber", "green" } do
-		local lamp = SK.part(m, `Lamp_{col}`, headCf * CF(0, 2 - (i - 1) * 2, -0.85), V(1.4, 1.4, 0.3), LAMP_OFF, { collide = false, cast = false, query = false })
+		local lamp = SK.part(m, `Lamp_{col}`, headCf * CF(0, 2 - (i - 1) * 2, -0.85), V(1.6, 1.6, 0.3), LAMP_OFF, { collide = false, cast = false, query = false })
 		table.insert(set[col], lamp)
 	end
 	m.Parent = parent
@@ -421,7 +428,13 @@ local function signposts(ctx: Ctx, parent: Instance, g: any)
 		local m = Instance.new("Model")
 		m.Name = "Signpost"
 		local y0 = CityConfig.GroundY
-		SK.part(m, "Post", CF(base.X, y0 + 7, base.Z), V(0.8, 14, 0.8), C.MetalDark)
+		-- blades can reach over the road edge: keep the whole stack above truck height (9.6 + light bar)
+		local stack = 0
+		for _, arm in sp.arms do
+			stack += 1.3 * #arm.names + 0.4 + 0.6
+		end
+		local top = y0 + math.max(15, 12.5 + stack)
+		SK.part(m, "Post", CF(base.X, (y0 + top + 1) / 2, base.Z), V(0.8, top + 1 - y0, 0.8), C.MetalDark)
 		for i, arm in sp.arms do
 			local names = {}
 			for _, full in arm.names do
@@ -434,7 +447,7 @@ local function signposts(ctx: Ctx, parent: Instance, g: any)
 			local text = table.concat(names, "\n")
 			local h = 1.3 * #names + 0.4
 			local dir = V(arm.dx, 0, arm.dz)
-			local y = y0 + 13 - (i - 1) * (h + 0.6) - h / 2
+			local y = top - (i - 1) * (h + 0.6) - h / 2
 			local centre = base + dir * 6.4
 			-- blade's X axis points along the arm, so the arrow on the Front face reads correctly
 			local cf = CFrame.lookAt(V(centre.X, y, centre.Z), V(centre.X, y, centre.Z) + V(-dir.Z, 0, dir.X))
@@ -510,8 +523,8 @@ end
 
 local function gateSign(parent: Instance, at: Vector3, along: Vector3, text: string, color: Color3)
 	local y0 = CityConfig.GroundY
-	SK.part(parent, "SignPost", CF(at.X, y0 + 4, at.Z), V(0.8, 8, 0.8), C.Wood)
-	local board = SK.part(parent, "Sign", CFrame.lookAt(V(at.X, y0 + 8.5, at.Z), V(at.X, y0 + 8.5, at.Z) + along), V(14, 4, 0.5), color)
+	SK.part(parent, "SignPost", CF(at.X, y0 + 7, at.Z), V(0.8, 14, 0.8), C.Wood)
+	local board = SK.part(parent, "Sign", CFrame.lookAt(V(at.X, y0 + 12.5, at.Z), V(at.X, y0 + 12.5, at.Z) + along), V(14, 4, 0.5), color)
 	SK.sign(board, text, Enum.NormalId.Front, C.Trim)
 	SK.sign(board, text, Enum.NormalId.Back, C.Trim)
 end

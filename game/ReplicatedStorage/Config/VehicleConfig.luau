@@ -70,13 +70,14 @@ return Config.define({
 
 	-- Camera (driver)
 	CamDistance = 30,
-	CamHeight = 11,
-	CamLookAhead = 12,
+	CamHeight = 15, -- high enough to see the road over the 9.6-stud truck
+	CamLookAhead = 16,
 	CamStiffness = 7, -- 1/s follow lerp
 	FovBase = 72,
 	FovAdd = 22, -- extra FOV at top speed
-	CabEye = Vector3.new(0, 2.85, -0.1), -- cab view eye, relative to the DriveSeat (under the headliner, over the dash)
-	CabFov = 78,
+	CabEye = Vector3.new(0, 3.7, -0.8), -- cab view eye, relative to the DriveSeat (driver's eyes, over the wheel)
+	CabPitch = -0.08, -- rad; a touch down so the road ahead shows over the dash
+	CabFov = 80,
 
 	-- Siren
 	SirenWailHz = 0.45, -- up/down wails per second
