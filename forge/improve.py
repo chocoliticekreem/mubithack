@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from forge.config import Settings
-from forge.llm import LLM
+from forge.llm import LLM, LLMError
 from forge.memory import RunStore, now_iso
 
 AUDIT_KEYS = ["summary", "anomalies"]
@@ -237,6 +237,7 @@ async def _rounds(settings, playtest: Playtest, n: int, start: int, *, goal: str
 # ---------------------------------------------------------------- code fixes for real anomalies
 
 FIX_SEVERITIES = ("high", "medium")
+NOT_IN_STUDIO = ("tests/", "tools/")
 Resync = Callable[[Path], Awaitable[None]]
 
 
@@ -261,8 +262,10 @@ def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | N
     from mubit_tester.ai import find_candidate_files
 
     ranked = find_candidate_files(dataclasses.replace(settings, base_game_dir=game_dir),
-                                  _anomaly_text(anomaly), limit=1)
-    return ranked[0][0] if ranked else None
+                                  _anomaly_text(anomaly), limit=10)
+    # only files that are synced into Studio can fix what testers saw (not unit specs or tools)
+    live = [rel for rel, _ in ranked if not rel.startswith(NOT_IN_STUDIO)]
+    return live[0] if live else None
 
 
 async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
@@ -316,37 +319,49 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             continue
 
         status, why = "rolled_back", ""
-        for attempt in range(1 + max(0, retries)):
-            ask = problem if not why else (
-                f"{problem}\n\n## Your previous fix was rejected\n{why}\n"
-                "Try a different approach; the file below is the original.")
-            new = await asyncio.to_thread(roles.fix_file, llm, rel, old, ask, context,
-                                          read_lessons(settings), session_id=session_id)
-            (root / rel).write_text(new, encoding="utf-8")
-            errors = [e for p, e in fsync.check(root) if p == rel]
-            if errors:
-                rec["attempts"].append({"status": "compile_failed", "error": errors[0][:300]})
-                why = f"It did not compile: {errors[0][:500]}"
-                log(f"[fix] {a['title']}: attempt {attempt + 1} failed to compile")
-                continue
-            await resync(root)
-            after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
-                                  steps=steps, llm=llm, harness=harness)
-            v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
-                                        session_id=session_id)
-            rec["attempts"].append({"status": v["verdict"], "verdict": v})
-            if v["verdict"] == "fixed":
-                status = "kept"
-                rec["version"] = versions.snapshot(
-                    f"fix: {a['title']} in {rel} (verifier: fixed, {v['request_id']})")
-                log(f"[fix] {a['title']}: {rel} fixed and verified, kept as {rec['version']}")
-                break
-            why = f"The verifier said {v['verdict']}: {v['evidence']}" + (
-                f" Regressions: {'; '.join(v['regressions'])}" if v["regressions"] else "")
-            log(f"[fix] {a['title']}: attempt {attempt + 1} {v['verdict']} {v['request_id']}")
+        try:
+            for attempt in range(1 + max(0, retries)):
+                ask = problem if not why else (
+                    f"{problem}\n\n## Your previous fix was rejected\n{why}\n"
+                    "Try a different approach; the file below is the original.")
+                try:
+                    new = await asyncio.to_thread(roles.fix_file, llm, rel, old, ask, context,
+                                                  read_lessons(settings), session_id=session_id)
+                except LLMError as e:
+                    rec["attempts"].append({"status": "fixer_error", "error": str(e)[:300]})
+                    why = "Your reply could not be used: return the full file in one ```luau block."
+                    log(f"[fix] {a['title']}: attempt {attempt + 1} fixer reply unusable ({str(e)[:80]})")
+                    continue
+                (root / rel).write_text(new, encoding="utf-8")
+                errors = [e for p, e in fsync.check(root) if p == rel]
+                if errors:
+                    rec["attempts"].append({"status": "compile_failed", "error": errors[0][:300]})
+                    why = f"It did not compile: {errors[0][:500]}"
+                    log(f"[fix] {a['title']}: attempt {attempt + 1} failed to compile")
+                    continue
+                await resync(root)
+                after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
+                                      steps=steps, llm=llm, harness=harness)
+                v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
+                                            session_id=session_id)
+                rec["attempts"].append({"status": v["verdict"], "verdict": v})
+                if v["verdict"] == "fixed":
+                    status = "kept"
+                    rec["version"] = versions.snapshot(
+                        f"fix: {a['title']} in {rel} (verifier: fixed, {v['request_id']})")
+                    log(f"[fix] {a['title']}: {rel} fixed and verified, kept as {rec['version']}")
+                    break
+                why = f"The verifier said {v['verdict']}: {v['evidence']}" + (
+                    f" Regressions: {'; '.join(v['regressions'])}" if v["regressions"] else "")
+                log(f"[fix] {a['title']}: attempt {attempt + 1} {v['verdict']} {v['request_id']}")
+        except BaseException:
+            # Studio dropping, a playtest failing, Ctrl-C: never leave a half-tested fix behind
+            (root / rel).write_text(old, encoding="utf-8")
+            log(f"[fix] {a['title']}: stopped mid-fix, {rel} restored")
+            raise
         if status != "kept":
             (root / rel).write_text(old, encoding="utf-8")
-            if any(x["status"] != "compile_failed" for x in rec["attempts"]):
+            if any(x["status"] not in ("compile_failed", "fixer_error") for x in rec["attempts"]):
                 await resync(root)
             if all(x["status"] == "compile_failed" for x in rec["attempts"]):
                 status = "compile_failed"
