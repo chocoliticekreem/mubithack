@@ -18,7 +18,7 @@
       "type": "string",
       "title": "Model",
       "description": "Model id sent through Mubit (keep it the same for the whole team so tasks pool)",
-      "default": "claude-sonnet-5"
+      "default": "claude-sonnet-5-5"
     }
   }
 }
