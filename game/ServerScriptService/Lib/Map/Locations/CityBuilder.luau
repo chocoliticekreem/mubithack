@@ -1023,8 +1023,8 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			if facesHub then
 				arch(scenery, at, along, 2 * gateHalf, d.sign, col)
 			else
-				local across = V(-along.Z, 0, along.X)
-				gateSign(scenery, at + across * (gateHalf + 6), along, SHORT[d.id] or d.id, col)
+				-- every other way in gets an arch too, with the neighbourhood's short name
+				arch(scenery, at, along, 2 * gateHalf, string.upper(SHORT[d.id] or d.id), col)
 			end
 		end
 		landmark(ctx, scenery, d)
