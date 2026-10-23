@@ -14,6 +14,7 @@
 --   MapService:DestroyInstance(instanceId: string): boolean
 --   MapService:GetInstance(instanceId: string): Model?
 --   MapService:GetInstances(): { [string]: Model }
+--   MapService:InstanceOrigin(n: number): CFrame                -- instance slot n (0-based): x = 2000 + n*500
 -- Signals: LocationBuilt(model: Model, locationId: string)
 --          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5
 -- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms;
@@ -177,6 +178,12 @@ function MapService:RandomFlammable(id: string, rng: Random): BasePart?
 	return list[rng:NextInteger(1, #list)]
 end
 
+-- Instance n (0-based) sits far from the station/lobby and from every other instance, so parallel
+-- squads never see or hear each other's fires: x = 2000 + n * 500 (towns are ~260 studs wide).
+function MapService:InstanceOrigin(n: number): CFrame
+	return CFrame.new(2000 + n * 500, 0, 0)
+end
+
 function MapService:BuildInstance(locationId: string, instanceId: string): Model?
 	if instances[instanceId] then
 		MapService:DestroyInstance(instanceId)
@@ -207,7 +214,7 @@ function MapService:BuildInstance(locationId: string, instanceId: string): Model
 	model:SetAttribute(Names.Attr.InstanceId, instanceId)
 	model:SetAttribute(Names.Attr.LocationId, locationId)
 	local rng = Random.new(MapConfig.Seed + hash(locationId))
-	local ok, err = pcall(b.Build, model, MapConfig.SlotOrigin(slot), rng)
+	local ok, err = pcall(b.Build, model, MapService:InstanceOrigin(slot - MapConfig.InstanceFirstSlot), rng)
 	if not ok then
 		warn(`[MapService] {locationId}.Build (instance {instanceId}) failed: {err}`)
 	end
