@@ -243,7 +243,42 @@ local state = {
 	heatShown = 0,
 	bobPhase = 0,
 	lastShake = CFrame.identity,
+	shadowChar = nil :: Model?, -- character whose shadows we switched off for first person
 }
+
+-- In first person the (locally invisible) body still casts shadows, and the gloves sit inside it,
+-- so they'd render in its shadow (the "black hands" look). Switch our own body's shadows off
+-- locally while in first person; other players still see them.
+local function setBodyShadows(char: Model?, fp: boolean)
+	local want = if fp then char else nil
+	if state.shadowChar == want then
+		return
+	end
+	local function apply(m: Model?, cast: boolean)
+		if not m then
+			return
+		end
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") and not d:IsA("Terrain") then
+				if cast then
+					local was = d:GetAttribute("FPShadow")
+					if was ~= nil then
+						d.CastShadow = was
+						d:SetAttribute("FPShadow", nil)
+					end
+				elseif d:GetAttribute("FPShadow") == nil then
+					d:SetAttribute("FPShadow", d.CastShadow)
+					d.CastShadow = false
+				end
+			end
+		end
+	end
+	if state.shadowChar and state.shadowChar.Parent then
+		apply(state.shadowChar, true)
+	end
+	state.shadowChar = want
+	apply(want, false)
+end
 
 local function wantLock(char: Model?): boolean
 	if not state.enabled or PhysicsConfig.FirstPerson == false then
@@ -321,11 +356,16 @@ local function scanFire(root: BasePart?)
 	state.fireProx = if best == math.huge then 0 else math.clamp(1 - best / CAM.SmokeRange, 0, 1)
 end
 
+-- In first person the real Tool (welded to the invisible body's hand) is hidden locally, trail
+-- included, so only the glove-held copy shows; others always see the real one.
 local function hideToolLocally(tool: Tool?)
 	if state.hiddenTool and state.hiddenTool ~= tool then
 		for _, d in state.hiddenTool:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.LocalTransparencyModifier = 0
+			elseif d:IsA("Trail") and d:GetAttribute("FPHidden") then
+				d.Enabled = true
+				d:SetAttribute("FPHidden", nil)
 			end
 		end
 		state.hiddenTool = nil
@@ -334,6 +374,9 @@ local function hideToolLocally(tool: Tool?)
 		for _, d in tool:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.LocalTransparencyModifier = 1
+			elseif d:IsA("Trail") and d.Enabled then
+				d.Enabled = false
+				d:SetAttribute("FPHidden", true)
 			end
 		end
 		state.hiddenTool = tool
@@ -476,6 +519,7 @@ local function step(dt: number)
 	end
 
 	local fp = state.enabled and not scripted and isFirstPerson(cam, char) and hum ~= nil and hum.Health > 0
+	setBodyShadows(char, fp)
 	local downed = attr(Names.Attr.Downed) == true
 
 	-- head bob and landing dip (camera)
