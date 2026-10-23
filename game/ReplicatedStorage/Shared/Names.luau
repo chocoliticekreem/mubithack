@@ -21,6 +21,10 @@ Names.Tag = table.freeze({
 	RescueSpawn = "RescueSpawn", -- invisible marker, attr Kind; builders -> RescueService
 	TruckSpot = "TruckSpot", -- invisible marker where the truck parks, attr LocationId; builders -> VehicleService
 	AlarmLamp = "AlarmLamp", -- Neon lamp part at the station; StationBuilder -> AlarmController
+	-- v1.5 additions (docs/game/03 §10 "v1.5 additions")
+	MissionBoard = "MissionBoard", -- station board part (SurfaceGui + ProximityPrompt); StationBuilder -> LobbyService, LobbyController
+	SquadPad = "SquadPad", -- squad queue pad in the station, attr PadId; StationBuilder -> LobbyService
+	Hazard = "Hazard", -- hazard source part/Model (fuse box lever, gas tank, detonator), attr HazardId; builders -> HazardService
 })
 
 Names.Attr = table.freeze({
@@ -47,6 +51,15 @@ Names.Attr = table.freeze({
 	ServerBooted = "ServerBooted",
 	MapReady = "MapReady",
 	Slot = "Slot", -- StationSpawn pad number 1..4
+	-- v1.5 additions (docs/game/03 §10 "v1.5 additions")
+	SquadId = "SquadId", -- Player: string, "" = not in a squad; LobbyService
+	InstanceId = "InstanceId", -- Player ("" = in the lobby) and mission instance Model: string; MissionService / MapService
+	PadId = "PadId", -- SquadPad: number 1..N; StationBuilder
+	Heat = "Heat", -- Player: number 0..100; HeatService
+	LocationPreset = "LocationPreset", -- Lighting: string, locationId whose look is applied; AtmosphereService
+	HazardId = "HazardId", -- Hazard part/Model: string (Types.HazardId); builders
+	Power = "Power", -- FuseBox: boolean (true = live); builders (initial), HazardService
+	Ragdolled = "Ragdolled", -- character Model: boolean while ragdolled; Ragdoll / PhysicsFxController
 })
 
 return table.freeze(Names)
