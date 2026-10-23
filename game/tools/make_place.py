@@ -5,8 +5,8 @@ Usage:
   python3 game/tools/make_place.py --root game --out place/Forge.rbxlx
 
 Scripts map the same way as sync.py (X.server.luau -> Script, X.client.luau -> LocalScript,
-X.luau -> ModuleScript, dirs -> Folders). The place also gets a baseplate and a spawn so a
-playtest works straight away. After the place is open, sync.py keeps scripts up to date.
+X.luau -> ModuleScript, dirs -> Folders). The place also gets a baseplate. Players spawn on the station's
+StationSpawn pads (SquadService), so no SpawnLocation is created. After the place is open, sync.py keeps scripts up to date.
 """
 
 from __future__ import annotations
@@ -78,7 +78,6 @@ def build(root: Path) -> str:
         if svc == "Workspace":
             children = (
                 _part("Part", "Baseplate", (512, 4, 512), (0, -2, 0), 0xFF5B5B5B)
-                + _part("SpawnLocation", "SpawnLocation", (12, 1, 12), (0, 0.5, 0), 0xFFA3A2A5)
                 + children
             )
         items.append(_item(svc, svc, children))
