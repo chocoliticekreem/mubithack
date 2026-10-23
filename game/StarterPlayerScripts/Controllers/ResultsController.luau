@@ -185,7 +185,7 @@ local function flipIn(holder: Frame, face: Frame)
 			local slam = UiKit.tween(scale, 0.14, { Scale = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			slam.Completed:Connect(function()
 				sfx("Stamp", 0.8)
-				UiKit.shake(holder, 0.25, 8)
+				UiKit.shake(face, 0.25, 8)
 			end)
 		end)
 	end
@@ -424,22 +424,53 @@ local function show(payload: Types.ResultsPayload)
 	end)
 end
 
+local function isMine(payload: Types.ResultsPayload): boolean
+	-- Mission/Results goes to everyone; with parallel squads each squad only sees its own Blame screen.
+	local me = Players.LocalPlayer.UserId
+	if type(payload.stats) == "table" and #payload.stats > 0 then
+		for _, s in payload.stats do
+			if s.userId == me then
+				return true
+			end
+		end
+		return false
+	end
+	local id = (payload :: any).instanceId
+	return id == nil or Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId) == id
+end
+
+local currentInstance: string? = nil
+
 function ResultsController:Init(_controllers: { [string]: any }) end
 
 function ResultsController:Start()
 	Net.event("Mission", "Results").OnClientEvent:Connect(function(payload: Types.ResultsPayload)
+		if type(payload) ~= "table" or not isMine(payload) then
+			return
+		end
+		currentInstance = (payload :: any).instanceId
 		local ok, err = pcall(show, payload)
 		if not ok then
 			warn(`[ResultsController] show failed: {err}`)
+			return
 		end
+		-- instance missions: LobbyService teleports the squad back after ReturnSeconds; keep a safety timeout
+		local token = showToken
+		task.delay(30, function()
+			if token == showToken then
+				hide()
+			end
+		end)
 	end)
+	-- v1 single round: hide when Workspace RoundState leaves Results
 	workspace:GetAttributeChangedSignal(Names.Attr.RoundState):Connect(function()
-		if workspace:GetAttribute(Names.Attr.RoundState) ~= "Results" then
+		if currentInstance == nil and workspace:GetAttribute(Names.Attr.RoundState) ~= "Results" then
 			hide()
 		end
 	end)
-	Players.LocalPlayer.CharacterAdded:Connect(function()
-		if workspace:GetAttribute(Names.Attr.RoundState) ~= "Results" then
+	-- v1.5 instances: hide once we are back in the lobby (InstanceId "") or launched into a new mission
+	Players.LocalPlayer:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
+		if currentInstance ~= nil and Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId) ~= currentInstance then
 			hide()
 		end
 	end)

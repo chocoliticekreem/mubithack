@@ -76,7 +76,7 @@ function UiKit.stroke(parent: Instance, thickness: number?, color: Color3?): UIS
 	return s
 end
 
--- A sticker panel: UiCream fill, rounded, 3px ink border, chunky drop shadow.
+-- A sticker panel: UiCream fill, rounded, 3px ink border.
 function UiKit.panel(parent: Instance, name: string, size: UDim2, position: UDim2, anchor: Vector2?): Frame
 	local f = Instance.new("Frame")
 	f.Name = name
@@ -91,16 +91,6 @@ function UiKit.panel(parent: Instance, name: string, size: UDim2, position: UDim
 	s.Color = Palette.UiInk
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.Parent = f
-	local shadow = Instance.new("Frame")
-	shadow.Name = "Shadow"
-	shadow.Size = UDim2.fromScale(1, 1)
-	shadow.Position = UDim2.fromOffset(4, 5)
-	shadow.BackgroundColor3 = Palette.UiInk
-	shadow.BackgroundTransparency = 0.55
-	shadow.BorderSizePixel = 0
-	shadow.ZIndex = 0
-	UiKit.corner(shadow, 12)
-	shadow.Parent = f
 	f.Parent = parent
 	return f
 end
@@ -246,7 +236,8 @@ function UiKit.punch(gui: GuiObject, amount: number?)
 	UiKit.tween(scale, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
 end
 
--- Rattle a GuiObject around its current Position (restores it afterwards).
+-- Rattle a GuiObject around its current Position (restores it afterwards). Not for UIListLayout children
+-- (the layout owns their Position): shake a child of theirs instead.
 local shaking: { [GuiObject]: boolean } = {}
 function UiKit.shake(gui: GuiObject, seconds: number?, px: number?)
 	if shaking[gui] then

@@ -21,7 +21,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
-local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BlameConfig") :: ModuleScript) :: any
+local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
+local BlameConfig = require(ConfigFolder:WaitForChild("BlameConfig") :: ModuleScript) :: any
+local LobbyConfig = require(ConfigFolder:WaitForChild("LobbyConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 
 local HudController = {}
@@ -211,10 +213,6 @@ local function build(): Ui
 	-- water tank (bottom right)
 	local tank = UiKit.panel(gui, "Tank", UDim2.fromOffset(74, 184), UDim2.new(1, -14, 1, -14), Vector2.new(1, 1))
 	UiKit.corner(tank, 20)
-	local shadow = tank:FindFirstChild("Shadow")
-	if shadow then
-		shadow:Destroy() -- the clipped tank can't show an outside shadow
-	end
 	tank.ClipsDescendants = true
 	local tankFill = Instance.new("Frame")
 	tankFill.Name = "Fill"
@@ -446,7 +444,7 @@ local function toast(text: string, kind: string)
 	label.TextScaled = #text > 40
 	UiKit.pop(frame, if blame then 0.35 else 0.2)
 	if blame then
-		UiKit.shake(frame, 0.35, 5)
+		UiKit.shake(label, 0.35, 5)
 		sfx("BlameToast", 0.7)
 	else
 		sfx("Toast", 0.4)
@@ -492,11 +490,59 @@ local function showBanner(locationName: string)
 end
 
 -- world queries ----------------------------------------------------------------------------
+-- v1: one round, state on Workspace. v1.5: each squad plays in Workspace.Instances.<InstanceId>, whose
+-- Model carries RoundState / RoundEndsAt / MissionId; Player.InstanceId == "" means "in the lobby".
+
+local function instanceIdOf(p: Player): string
+	local id = p:GetAttribute(Attr.InstanceId or "InstanceId")
+	return if type(id) == "string" then id else ""
+end
+
+local function myInstance(): Instance?
+	local id = instanceIdOf(player)
+	if id == "" then
+		return nil
+	end
+	local folder = workspace:FindFirstChild("Instances")
+	return folder and folder:FindFirstChild(id)
+end
+
+local function roundAttr(name: string): any
+	local inst = myInstance()
+	if inst then
+		local v = inst:GetAttribute(name)
+		if v ~= nil then
+			return v
+		end
+	end
+	return workspace:GetAttribute(name)
+end
 
 local function missionRoot(): Instance?
+	local inst = myInstance()
+	if inst then
+		return inst
+	end
 	local map = workspace:FindFirstChild("Map")
 	local id = workspace:GetAttribute(Names.Attr.MissionId)
 	return if map and type(id) == "string" then map:FindFirstChild(id) else nil
+end
+
+-- Rescuables of my mission: in an instance, those inside it or tagged with its InstanceId.
+local function rescuables(): { Instance }
+	local all = CollectionService:GetTagged(Names.Tag.Rescuable)
+	local inst = myInstance()
+	if not inst then
+		return all
+	end
+	local id = instanceIdOf(player)
+	local mine = {}
+	for _, m in all do
+		if m:IsDescendantOf(inst) or m:GetAttribute(Attr.InstanceId or "InstanceId") == id then
+			table.insert(mine, m)
+		end
+	end
+	return if #mine > 0 then mine else all
 end
 
 local function partPos(inst: Instance): Vector3?
@@ -538,7 +584,7 @@ end
 local function scanRescues(from: Vector3?): (number, number, Vector3?)
 	local rescued, total = 0, 0
 	local best, bestD = nil :: Vector3?, math.huge
-	for _, m in CollectionService:GetTagged(Names.Tag.Rescuable) do
+	for _, m in rescuables() do
 		total += 1
 		local st = m:GetAttribute(Names.Attr.RescueState)
 		if st == "Rescued" then
@@ -556,13 +602,18 @@ local function scanRescues(from: Vector3?): (number, number, Vector3?)
 	return rescued, total, best
 end
 
-local function truckPos(): Vector3?
+local function truckPos(from: Vector3?): Vector3?
+	local best, bestD = nil :: Vector3?, math.huge
 	for _, t in CollectionService:GetTagged(Names.Tag.Truck) do
-		if t:IsDescendantOf(workspace) then
-			return partPos(t)
+		local p = if t:IsDescendantOf(workspace) then partPos(t) else nil
+		if p then
+			local d = if from then (p - from).Magnitude else 0
+			if d < bestD then
+				best, bestD = p, d
+			end
 		end
 	end
-	return nil
+	return best
 end
 
 local function carriedKind(id: any): string
@@ -632,7 +683,11 @@ end
 
 local function refreshSquad(u: Ui)
 	local seen: { [Instance]: boolean } = {}
+	local scope = instanceIdOf(player)
 	for _, p in Players:GetPlayers() do
+		if instanceIdOf(p) ~= scope then
+			continue
+		end
 		local row = u.squad:FindFirstChild(`Row{p.UserId}`) :: Frame?
 		if not row then
 			row = squadRow(u.squad, p)
@@ -680,7 +735,7 @@ local function refresh(t: number)
 	if not u then
 		return
 	end
-	local state = workspace:GetAttribute(Names.Attr.RoundState)
+	local state = roundAttr(Names.Attr.RoundState)
 	local active = state == "Active"
 	local inRound = active or state == "Alarm"
 	local from = myPos()
@@ -691,7 +746,7 @@ local function refresh(t: number)
 		u.timer.Text = "ALARM"
 		u.timer.TextColor3 = Palette.UiRed
 	elseif active then
-		local endsAt = (workspace:GetAttribute(Names.Attr.RoundEndsAt) :: number?) or 0
+		local endsAt = (roundAttr(Names.Attr.RoundEndsAt) :: number?) or 0
 		local left = endsAt - workspace:GetServerTimeNow()
 		u.timer.Text = UiKit.clock(left)
 		local critical = left < 30
@@ -728,7 +783,7 @@ local function refresh(t: number)
 	-- heat
 	local heatAttr = player:GetAttribute(HEAT_ATTR)
 	local heat = if type(heatAttr) == "number" then math.clamp(heatAttr, 0, 100) else 0
-	u.heat.Visible = type(heatAttr) == "number" or inRound
+	u.heat.Visible = inRound or heat > 0
 	u.heatFill.Size = UDim2.fromScale(1, heat / 100)
 	u.heatPct.Text = tostring(math.floor(heat))
 	if heat >= 100 then
@@ -782,7 +837,7 @@ local function refresh(t: number)
 	-- markers: the truck is forced on while carrying or when the tank runs low
 	placeMarker(u.marks.fire, if active then nearestFire else nil, from)
 	placeMarker(u.marks.rescue, if active and not carrying then nearestRescue else nil, from)
-	placeMarker(u.marks.truck, if active and (carrying or low) then truckPos() else nil, from)
+	placeMarker(u.marks.truck, if active and (carrying or low) then truckPos(from) else nil, from)
 end
 
 function HudController:Init(_controllers: { [string]: any }) end
@@ -803,7 +858,11 @@ function HudController:Start()
 	task.spawn(function()
 		local ok, err = pcall(function()
 			Net.event("Mission", "Alarm").OnClientEvent:Connect(function(_missionId: string, locationName: string)
-				showBanner(tostring(locationName))
+				-- Mission/Alarm goes to everyone; with parallel squads only show it to players in a mission
+				task.wait(0.3) -- let InstanceId replicate
+				if not LobbyConfig.UseLobby or instanceIdOf(player) ~= "" then
+					showBanner(tostring(locationName))
+				end
 			end)
 		end)
 		if not ok then
