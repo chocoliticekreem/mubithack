@@ -212,7 +212,7 @@ local Items: { [string]: Def } = {
 		tethered = false,
 		stocked = true,
 		tool = false,
-		unlockLevel = 5,
+		unlockLevel = 1, -- core firefighting kit, not a reward
 		blurb = "Click a wall to stand it up. Climb to windows and roofs.",
 	},
 	ThermalCam = {

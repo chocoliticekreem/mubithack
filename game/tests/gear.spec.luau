@@ -29,7 +29,7 @@ Spec.test("the unlock ladder matches the design", function()
 		GasMask = 2,
 		Halligan = 3,
 		FireAxe = 4,
-		Ladder = 5,
+		Ladder = 1,
 		ThermalCam = 6,
 		Sledgehammer = 8,
 		GoldenAxe = 10,
@@ -45,6 +45,7 @@ Spec.test("level 1 has the starter kit only", function()
 	local l1 = P.unlockedAt(1)
 	Spec.truthy(has(l1, "Axe"))
 	Spec.truthy(has(l1, "Hose"))
+	Spec.truthy(has(l1, "Ladder"))
 	Spec.eq(has(l1, "GasMask"), false)
 	Spec.eq(has(l1, "GoldenAxe"), false)
 	Spec.eq(P.isUnlocked("Halligan", 2), false)
@@ -54,9 +55,8 @@ end)
 
 Spec.test("level ups list exactly the new unlocks", function()
 	local new = P.newUnlocks(3, 5)
-	Spec.eq(#new, 2)
+	Spec.eq(#new, 1)
 	Spec.truthy(has(new, "FireAxe"))
-	Spec.truthy(has(new, "Ladder"))
 	Spec.eq(#P.newUnlocks(6, 7), 0, "nothing at 7")
 	Spec.eq(#P.newUnlocks(5, 5), 0)
 	local id, at = P.nextUnlock(6)

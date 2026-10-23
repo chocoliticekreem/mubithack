@@ -1,7 +1,7 @@
 --!strict
 -- GearService [owner: Gear]. Gear progression and the "different ways in":
---   * PROGRESSION: levels unlock gear (Lib/Items/Progression: Lv1 Rusty Axe + Hose, Lv2 Gas Mask, Lv3
---     Halligan, Lv4 Fire Axe, Lv5 Ladder, Lv6 Thermal Cam, Lv8 Sledgehammer, Lv10 Golden Axe, Lv12 Rescue
+--   * PROGRESSION: levels unlock gear (Lib/Items/Progression: Lv1 Rusty Axe + Hose + Ladder, Lv2 Gas Mask, Lv3
+--     Halligan, Lv4 Fire Axe, Lv6 Thermal Cam, Lv8 Sledgehammer, Lv10 Golden Axe, Lv12 Rescue
 --     Saw). Unlocks + the locker loadout persist in the profile (ProfileSchema v3 `gear`). A level-up
 --     tells the client what it unlocked (Gear/Unlocked). Your station GearRack (rack Helmet = your
 --     Helmet) hangs your loadout on three pegs that restock, and has a LOCKER prompt (R) that opens
@@ -497,6 +497,29 @@ local function placeLadder(player: Player, root: BasePart)
 	local base = Vector3.new(footXZ.X, groundY, footXZ.Z)
 	truss.CFrame = CFrame.lookAt(base + Vector3.new(0, height / 2, 0), base + Vector3.new(0, height / 2, 0) - n)
 	truss:SetAttribute("OwnerUserId", player.UserId)
+	-- the truss is the invisible climb surface; the ladder you see is two rails and rungs
+	truss.Transparency = 1
+	local function deco(name: string, size: Vector3, offset: CFrame)
+		local d = Instance.new("Part")
+		d.Name = name
+		d.Size = size
+		d.CFrame = truss.CFrame * offset
+		d.Color = Color3.fromHex("#C9CCD0")
+		d.Material = Enum.Material.Metal
+		d.Anchored = true
+		d.CanCollide = false
+		d.CanQuery = false
+		d.CanTouch = false
+		d.Parent = truss
+	end
+	for _, side in { -1, 1 } do
+		deco("Rail", Vector3.new(0.3, height, 0.4), CFrame.new(side * 1.1, 0, 0))
+	end
+	for y = -height / 2 + 1, height / 2 - 0.5, 1.5 do
+		deco("Rung", Vector3.new(2.2, 0.22, 0.22), CFrame.new(0, y, 0))
+	end
+	deco("FootL", Vector3.new(0.5, 0.3, 0.7), CFrame.new(-1.1, -height / 2 + 0.15, 0))
+	deco("FootR", Vector3.new(0.5, 0.3, 0.7), CFrame.new(1.1, -height / 2 + 0.15, 0))
 	truss.Parent = folder
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Take Ladder"
