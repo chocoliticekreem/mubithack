@@ -15,11 +15,21 @@
 --   MapService:GetInstance(instanceId: string): Model?
 --   MapService:GetInstances(): { [string]: Model }
 --   MapService:InstanceOrigin(n: number): CFrame                -- instance slot n (0-based): x = 2000 + n*500
+-- v2 incident sites (docs/game/08 "City"/"Dispatch missions"): Models tagged IncidentSite (attr SiteId)
+--   MapService:GetSites(): { Model }                       -- every IncidentSite under Workspace
+--   MapService:GetSite(siteId: string): Model?
+--   MapService:BindSite(siteId: string, runId: string): Model?  -- fresh copy of the site for a run: attrs
+--       InstanceId = runId, Busy = true; GetInstance(runId) returns it; announced as InstanceBuilt(site,
+--       runId, LocationId) so FireService scopes its fires to the run (FireService:ClearInstance(runId))
+--   MapService:RebuildSite(siteId: string): Model?         -- site back as first seen (Busy false, unbound)
+--   Reset = swap in a clone of the site taken the first time it was bound/rebuilt (cheap, no builder rerun).
+--   DestroyInstance(runId) on a bound site rebuilds the site instead of destroying it.
 -- Signals: LocationBuilt(model: Model, locationId: string)
---          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5
+--          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5 (+ v2 BindSite)
 -- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms;
 --         Workspace.Instances.<instanceId> (attrs InstanceId, LocationId), counter map_instances_built
 -- Test hooks (DevHook only): _selftest()
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -37,6 +47,10 @@ local locations: { [string]: Model } = {}
 local builders: { [string]: any } = {}
 local instances: { [string]: Model } = {}
 local slotOwner: { [number]: string } = {} -- instance slot -> instanceId
+-- v2 incident sites (names not in the frozen Names module yet; docs/game/08 is the contract)
+local SITE_TAG = "IncidentSite"
+local pristine: { [string]: Model } = {} -- siteId -> unparented clone taken on first bind/rebuild
+local siteRuns: { [string]: Model } = {} -- runId -> bound site Model
 
 local function hash(s: string): number
 	local h = 0
@@ -115,6 +129,7 @@ function MapService:BuildLocation(id: string): Model?
 	end
 	model.Parent = mapFolder() -- parent once, after building (fast)
 	locations[id] = model
+	table.clear(pristine) -- sites may have been rebuilt with the location: re-snapshot lazily
 	MapService.LocationBuilt:Fire(model, id)
 	return model
 end
@@ -226,6 +241,15 @@ function MapService:BuildInstance(locationId: string, instanceId: string): Model
 end
 
 function MapService:DestroyInstance(instanceId: string): boolean
+	local bound = siteRuns[instanceId]
+	if bound then
+		local sid = bound:GetAttribute("SiteId")
+		siteRuns[instanceId] = nil
+		if type(sid) == "string" and bound.Parent then
+			MapService:RebuildSite(sid)
+		end
+		return true
+	end
 	local model = instances[instanceId]
 	for s, owner in slotOwner do
 		if owner == instanceId then
@@ -241,7 +265,89 @@ function MapService:DestroyInstance(instanceId: string): boolean
 end
 
 function MapService:GetInstance(instanceId: string): Model?
-	return instances[instanceId]
+	return instances[instanceId] or siteRuns[instanceId]
+end
+
+-- v2 incident sites ---------------------------------------------------------------------------------
+
+local function siteIdOf(m: Instance): string
+	local v = m:GetAttribute("SiteId")
+	return if type(v) == "string" and v ~= "" then v else m.Name
+end
+
+function MapService:GetSites(): { Model }
+	local out: { Model } = {}
+	for _, inst in CollectionService:GetTagged(SITE_TAG) do
+		if inst:IsA("Model") and inst:IsDescendantOf(workspace) then
+			table.insert(out, inst)
+		end
+	end
+	return out
+end
+
+function MapService:GetSite(siteId: string): Model?
+	for _, m in MapService:GetSites() do
+		if siteIdOf(m) == siteId then
+			return m
+		end
+	end
+	return nil
+end
+
+-- Replace the site with a fresh clone of its first-seen state. Returns the live model (the old one if it
+-- can't be cloned, e.g. Archivable = false).
+local function swapSite(siteId: string): Model?
+	local cur = MapService:GetSite(siteId)
+	if not cur then
+		return nil
+	end
+	if not pristine[siteId] then
+		local copy = cur:Clone()
+		if not copy then
+			return cur
+		end
+		copy:SetAttribute("Busy", false)
+		copy:SetAttribute(Names.Attr.InstanceId, nil)
+		pristine[siteId] = copy
+	end
+	local fresh = pristine[siteId]:Clone()
+	local parent = cur.Parent
+	for runId, m in siteRuns do
+		if m == cur then
+			siteRuns[runId] = nil
+		end
+	end
+	cur:Destroy()
+	fresh.Parent = parent
+	count("map_sites_rebuilt")
+	return fresh
+end
+
+function MapService:RebuildSite(siteId: string): Model?
+	local site = swapSite(siteId)
+	if site then
+		site:SetAttribute("Busy", false)
+		site:SetAttribute(Names.Attr.InstanceId, nil)
+	end
+	return site
+end
+
+function MapService:BindSite(siteId: string, runId: string): Model?
+	local site = swapSite(siteId)
+	if not site then
+		return nil
+	end
+	site:SetAttribute(Names.Attr.InstanceId, runId)
+	site:SetAttribute("Busy", true)
+	siteRuns[runId] = site
+	local loc = site:GetAttribute(Names.Attr.LocationId)
+	local cursor: Instance? = site.Parent
+	while type(loc) ~= "string" and cursor and cursor ~= workspace do
+		loc = cursor:GetAttribute(Names.Attr.LocationId)
+		cursor = cursor.Parent
+	end
+	MapService.InstanceBuilt:Fire(site, runId, if type(loc) == "string" then loc else "City")
+	return site
 end
 
 function MapService:GetInstances(): { [string]: Model }

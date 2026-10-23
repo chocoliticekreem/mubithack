@@ -521,6 +521,11 @@ end
 local function missionRoot(): Instance?
 	local inst = myInstance()
 	if inst then
+		-- v2 dispatch: the run folder points at its IncidentSite in the city (MissionService)
+		local site = inst:FindFirstChild("Site")
+		if site and site:IsA("ObjectValue") and site.Value then
+			return site.Value
+		end
 		return inst
 	end
 	local map = workspace:FindFirstChild("Map")
