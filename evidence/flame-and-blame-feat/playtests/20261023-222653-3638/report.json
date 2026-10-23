@@ -1,0 +1,1051 @@
+{
+  "run_id": "20261023-222653-3638",
+  "kind": "multi_playtest",
+  "agent_role": "player",
+  "session_id": "playtest-20261023-222653-3638",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "studio": "3c4fdf08-a0c8-41dc-84cd-a2c11570cdcd",
+  "started": "2026-10-23T22:26:53Z",
+  "ended": null,
+  "max_steps": 10,
+  "goal_met": null,
+  "summary": "",
+  "bugs": [],
+  "steps": [
+    {
+      "n": 1,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack",
+            "action": "Grab Axe",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack2.GearRack",
+            "action": "Grab Extinguisher",
+            "dist": 11,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack3.GearRack",
+            "action": "Grab Oxygen Tank",
+            "dist": 18,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack4.GearRack",
+            "action": "Grab Axe",
+            "dist": 25,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "M1",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -51,
+            3.8,
+            108
+          ]
+        },
+        "hud": [
+          "3:14",
+          "FIRES LEFT 28",
+          "RESCUED 0 / 5",
+          "01",
+          "YOU",
+          "OK",
+          "0",
+          "HEAT"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 3,
+            "pos": [
+              -51,
+              0.5,
+              108
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 9,
+            "pos": [
+              -51,
+              0.5,
+              116
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 16,
+            "pos": [
+              -51,
+              0.5,
+              124
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 24,
+            "pos": [
+              -51,
+              0.5,
+              132
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.ApparatusFloor.Hydrant.Body",
+            "name": "Body",
+            "dist": 35,
+            "pos": [
+              -17,
+              2.1,
+              98
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 45,
+            "pos": [
+              -10,
+              4.1,
+              127
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 49,
+            "pos": [
+              -10,
+              6,
+              134.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 53,
+            "InstanceId": "",
+            "pos": [
+              -10,
+              2.6,
+              142
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "name": "MissionBoard",
+            "dist": 63,
+            "pos": [
+              -40,
+              6.3,
+              170
+            ],
+            "tag": "MissionBoard"
+          },
+          {
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "name": "SquadPad1",
+            "dist": 75,
+            "PadId": 1,
+            "pos": [
+              -52,
+              0.6,
+              183
+            ],
+            "tag": "SquadPad"
+          }
+        ],
+        "world": {
+          "now": 1792794413,
+          "InstanceId": "M1",
+          "instance": {
+            "state": "Active",
+            "secondsLeft": 193.7,
+            "fires": 0,
+            "missionId": "house_fire",
+            "rescues": {
+              "total": 0
+            },
+            "players": 1
+          },
+          "MissionId": "Town",
+          "RoundEndsAt": 1792794606.95,
+          "RoundState": "Active"
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "n_warnings": 1,
+          "counters": {
+            "leaderboard_refreshes": 1,
+            "props_woken": 1,
+            "city_parts": 25105,
+            "nav_waypoints_set": 1,
+            "fires_spread": 25,
+            "traffic_graph_loaded": 1,
+            "fires_ignited": 3,
+            "missions_started": 1,
+            "fire_tick_over_budget": 1,
+            "city_sites": 24,
+            "data_loaded": 1,
+            "traffic_despawned": 1,
+            "map_build_ms": 209,
+            "windows_shattered": 1,
+            "trucks_built": 1,
+            "traffic_spawned": 15,
+            "npcs_spawned": 5,
+            "missions_dispatched": 1,
+            "traffic_honks": 3,
+            "map_sites_rebuilt": 1,
+            "structures_indexed": 1,
+            "props_registered": 104,
+            "npcs_panicked": 3
+          }
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack"
+        },
+        "reason": "Backpack is empty and the axe rack is in range, so I'll grab the axe first.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Map.Station.LockerRoom.GearRack1.GearRack\"} -> done=False held, not triggered: 'Grab Axe Gear Rack' on Workspace.Map.Station.LockerRoom.GearRack1.GearRack at 7.8 studs (range 9)",
+      "request_id": "mreq_01a16adfca547070b81f89a7f76165d3",
+      "latency_ms": 3682,
+      "step_ms": 4800
+    },
+    {
+      "n": 2,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack",
+            "action": "Grab Axe",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack2.GearRack",
+            "action": "Grab Extinguisher",
+            "dist": 11,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack3.GearRack",
+            "action": "Grab Oxygen Tank",
+            "dist": 18,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack4.GearRack",
+            "action": "Grab Axe",
+            "dist": 25,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "M1",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -51,
+            3.8,
+            108
+          ]
+        },
+        "hud": [
+          "3:08",
+          "FIRES LEFT 120",
+          "RESCUED 0 / 5",
+          "01",
+          "YOU",
+          "OK",
+          "0",
+          "HEAT"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 3,
+            "pos": [
+              -51,
+              0.5,
+              108
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 9,
+            "pos": [
+              -51,
+              0.5,
+              116
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 16,
+            "pos": [
+              -51,
+              0.5,
+              124
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 24,
+            "pos": [
+              -51,
+              0.5,
+              132
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.ApparatusFloor.Hydrant.Body",
+            "name": "Body",
+            "dist": 35,
+            "pos": [
+              -17,
+              2.1,
+              98
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 45,
+            "pos": [
+              -10,
+              4.1,
+              127
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 49,
+            "pos": [
+              -10,
+              6,
+              134.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 53,
+            "InstanceId": "",
+            "pos": [
+              -10,
+              2.6,
+              142
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "name": "MissionBoard",
+            "dist": 63,
+            "pos": [
+              -40,
+              6.3,
+              170
+            ],
+            "tag": "MissionBoard"
+          },
+          {
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "name": "SquadPad1",
+            "dist": 75,
+            "PadId": 1,
+            "pos": [
+              -52,
+              0.6,
+              183
+            ],
+            "tag": "SquadPad"
+          }
+        ],
+        "world": {
+          "now": 1792794419,
+          "InstanceId": "M1",
+          "instance": {
+            "state": "Active",
+            "secondsLeft": 187.9,
+            "fires": 0,
+            "missionId": "house_fire",
+            "rescues": {
+              "total": 0
+            },
+            "players": 1
+          },
+          "MissionId": "Town",
+          "RoundEndsAt": 1792794606.95,
+          "RoundState": "Active"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 16.225,
+          "kind": "spread",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town.House4.Partition_2",
+              "Workspace.Map.City.Districts.Town.Town.House4.Plant.Petal"
+            ],
+            "via": "signal",
+            "signal": "FireService.Spread"
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "count",
+          "data": {
+            "value": 116,
+            "name": "fires_spread",
+            "delta": 1
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "tag_added",
+          "data": {
+            "path": "Workspace.Map.City.Districts.Town.Town.House4.Plant.Petal",
+            "pos": [
+              83.7,
+              16.8,
+              -894
+            ],
+            "tag": "Burning"
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "spread",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town.House4.Partition_2",
+              "Workspace.Map.City.Districts.Town.Town.House4.Plant.Petal"
+            ],
+            "via": "signal",
+            "signal": "FireService.Spread"
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "count",
+          "data": {
+            "value": 117,
+            "name": "fires_spread",
+            "delta": 1
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "fire_cap_hit",
+            "delta": 1
+          }
+        },
+        {
+          "t": 16.225,
+          "kind": "count",
+          "data": {
+            "value": 4,
+            "name": "fire_tick_over_budget",
+            "delta": 1
+          }
+        },
+        {
+          "t": 16.273,
+          "kind": "count",
+          "data": {
+            "value": 17,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 16.921,
+          "kind": "count",
+          "data": {
+            "value": 5,
+            "name": "windows_shattered",
+            "delta": 1
+          }
+        },
+        {
+          "t": 17.921,
+          "kind": "count",
+          "data": {
+            "value": 6,
+            "name": "windows_shattered",
+            "delta": 1
+          }
+        },
+        {
+          "t": 18.374,
+          "kind": "count",
+          "data": {
+            "value": 4,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 18.376,
+          "kind": "count",
+          "data": {
+            "value": 18,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack"
+        },
+        "reason": "The prompt was in range at 7.8 studs but did not trigger, so I'll get closer and retry.",
+        "bug": {
+          "title": "Mission and fire counts disagree between HUD and world state",
+          "evidence": "The HUD shows 'FIRES LEFT 120', but world.instance.fires is 0. world.MissionId is 'Town' while world.instance.missionId is 'house_fire'. The probe also reports fire_cap_hit and fire_tick_over_budget. My backpack is empty even though my role is nozzle.",
+          "severity": "medium"
+        }
+      },
+      "result": "walk_to {\"path\":\"Workspace.Map.Station.LockerRoom.GearRack1.GearRack\"} -> done=True arrived 3.1 studs from target via path",
+      "request_id": "mreq_01a16adfe05a7333bd98fd0a9a24a2bd",
+      "latency_ms": 4769,
+      "step_ms": 13512
+    },
+    {
+      "n": 3,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack",
+            "action": "Grab Axe",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack2.GearRack",
+            "action": "Grab Extinguisher",
+            "dist": 7,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack3.GearRack",
+            "action": "Grab Oxygen Tank",
+            "dist": 14,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.LockerRoom.GearRack4.GearRack",
+            "action": "Grab Axe",
+            "dist": 22,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Gear Rack"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "M1",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -61.1,
+            3.6,
+            110
+          ]
+        },
+        "hud": [
+          "2:54",
+          "FIRES LEFT 120",
+          "RESCUED 0 / 5",
+          "01",
+          "YOU",
+          "OK",
+          "0",
+          "HEAT"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 11,
+            "pos": [
+              -51,
+              0.5,
+              108
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 12,
+            "pos": [
+              -51,
+              0.5,
+              116
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 18,
+            "pos": [
+              -51,
+              0.5,
+              124
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 24,
+            "pos": [
+              -51,
+              0.5,
+              132
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.ApparatusFloor.Hydrant.Body",
+            "name": "Body",
+            "dist": 46,
+            "pos": [
+              -17,
+              2.1,
+              98
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 54,
+            "pos": [
+              -10,
+              4.1,
+              127
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 57,
+            "pos": [
+              -10,
+              6,
+              134.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 60,
+            "InstanceId": "",
+            "pos": [
+              -10,
+              2.6,
+              142
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "name": "MissionBoard",
+            "dist": 64,
+            "pos": [
+              -40,
+              6.3,
+              170
+            ],
+            "tag": "MissionBoard"
+          },
+          {
+            "path": "Workspace.Map.Station.Grounds.Hydrant.Body",
+            "name": "Body",
+            "dist": 66,
+            "pos": [
+              -122,
+              7.8,
+              136
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792794433,
+          "InstanceId": "M1",
+          "instance": {
+            "state": "Active",
+            "secondsLeft": 173.3,
+            "fires": 0,
+            "missionId": "house_fire",
+            "rescues": {
+              "total": 0
+            },
+            "players": 1
+          },
+          "MissionId": "Town",
+          "RoundEndsAt": 1792794606.95,
+          "RoundState": "Active"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 32.488,
+          "kind": "count",
+          "data": {
+            "value": 13,
+            "name": "structure_collapses",
+            "delta": 1
+          }
+        },
+        {
+          "t": 32.488,
+          "kind": "collapsed",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town",
+              "partition",
+              [
+                -26.5,
+                19,
+                -892
+              ]
+            ],
+            "via": "signal",
+            "signal": "StructureService.Collapsed"
+          }
+        },
+        {
+          "t": 32.67,
+          "kind": "instance_attr",
+          "data": {
+            "value": 91,
+            "key": "Integrity",
+            "instanceId": "M1"
+          }
+        },
+        {
+          "t": 32.67,
+          "kind": "integrity_changed",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town",
+              91
+            ],
+            "via": "signal",
+            "signal": "StructureService.IntegrityChanged"
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "count",
+          "data": {
+            "value": 14,
+            "name": "structure_collapses",
+            "delta": 1
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "collapsed",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town",
+              "floor",
+              [
+                -34.3,
+                12.5,
+                -907.2
+              ]
+            ],
+            "via": "signal",
+            "signal": "StructureService.Collapsed"
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "count",
+          "data": {
+            "value": 15,
+            "name": "structure_collapses",
+            "delta": 1
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "collapsed",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town",
+              "floor",
+              [
+                -20.1,
+                12.5,
+                -892
+              ]
+            ],
+            "via": "signal",
+            "signal": "StructureService.Collapsed"
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "count",
+          "data": {
+            "value": 16,
+            "name": "structure_collapses",
+            "delta": 1
+          }
+        },
+        {
+          "t": 32.988,
+          "kind": "collapsed",
+          "data": {
+            "args": [
+              "Workspace.Map.City.Districts.Town.Town",
+              "floor",
+              [
+                86.6,
+                12.5,
+                -884.4
+              ]
+            ],
+            "via": "signal",
+            "signal": "StructureService.Collapsed"
+          }
+        },
+        {
+          "t": 33.071,
+          "kind": "count",
+          "data": {
+            "value": 16,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 33.072,
+          "kind": "count",
+          "data": {
+            "value": 30,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Map.Station.LockerRoom.GearRack1.GearRack"
+        },
+        "reason": "Backpack is empty and the axe rack is in range, so grab the axe.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Map.Station.LockerRoom.GearRack1.GearRack\"} -> done=False held, not triggered: 'Grab Axe Gear Rack' on Workspace.Map.Station.LockerRoom.GearRack1.GearRack at 3.7 studs (range 9)",
+      "request_id": "mreq_01a16ae0198575e2a0e1d594994da099",
+      "latency_ms": 3072,
+      "step_ms": 4154
+    }
+  ],
+  "players": [
+    {
+      "userId": 2617803405,
+      "name": "xXBeansTitanXx",
+      "helmet": 1,
+      "role": "nozzle (fight fires)"
+    }
+  ],
+  "probe": {},
+  "counters": {
+    "leaderboard_refreshes": 1,
+    "props_woken": 1,
+    "city_parts": 25105,
+    "nav_waypoints_set": 1,
+    "fires_spread": 25,
+    "traffic_graph_loaded": 1,
+    "fires_ignited": 3,
+    "missions_started": 1,
+    "fire_tick_over_budget": 1,
+    "city_sites": 24,
+    "data_loaded": 1,
+    "traffic_despawned": 1,
+    "map_build_ms": 209,
+    "windows_shattered": 1,
+    "trucks_built": 1,
+    "traffic_spawned": 15,
+    "npcs_spawned": 5,
+    "missions_dispatched": 1,
+    "traffic_honks": 3,
+    "map_sites_rebuilt": 1,
+    "structures_indexed": 1,
+    "props_registered": 104,
+    "npcs_panicked": 3
+  },
+  "events": [],
+  "request_ids": [
+    "mreq_01a16adfca547070b81f89a7f76165d3",
+    "mreq_01a16adfe05a7333bd98fd0a9a24a2bd",
+    "mreq_01a16ae0198575e2a0e1d594994da099"
+  ],
+  "bug_hints": [
+    {
+      "title": "Mission and fire counts disagree between HUD and world state",
+      "evidence": "The HUD shows 'FIRES LEFT 120', but world.instance.fires is 0. world.MissionId is 'Town' while world.instance.missionId is 'house_fire'. The probe also reports fire_cap_hit and fire_tick_over_budget. My backpack is empty even though my role is nozzle.",
+      "severity": "medium",
+      "step": 2,
+      "player": "xXBeansTitanXx"
+    }
+  ],
+  "corrections": [],
+  "errors": [],
+  "mode": "free",
+  "ready": {
+    "players": 1,
+    "agents": 1,
+    "version": "2",
+    "clock": 12.488,
+    "studio": true,
+    "mapReady": true,
+    "time": 1792794413.0874
+  }
+}

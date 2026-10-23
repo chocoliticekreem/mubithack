@@ -1,0 +1,11 @@
+[cycle 5] planted 0 faults: 
+[auditor] 6 anomalies, detected 0/0 mreq_01a16add0c9379c1997fc9e9c7f2a1e5
+[versions] v12: the game before this cycle's fixes
+[investigator] probe (Server): Find gear prompts and inspect their state (enabled, distance, parent) -> [["Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt","Grab Axe","Gear Rack",true,0,9,false,"Part","-58.7000
+[investigator] read ServerScriptService/Services/InventoryService.luau
+[investigator] probe (Client): Trigger a gear prompt from the client and see whether the server grants the item -> {"enabled":true,"style":"Enum.ProximityPromptStyle.Custom","fired":false,"dist":3.4000003337860109,"hand":"","attrs":{"I
+[investigator] probe (Client): Compare gear prompt against fresh default/custom control prompts -> {"pe":true,"prpos":"-58.70000076293945, 5.199999809265137, 108","en":true,"shown":{"b":true},"res":{"b":true},"hand":"",
+[investigator] probe (Client): Inspect gear prompt properties (Exclusivity, key, part) vs the working control, since it never shows -> {"attrs":{"Helmet":1,"Stocked":true,"Slot":1},"others":["Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt"]
+[investigator] probe (Client): List all prompts near the gear rack and see which are shown, to find what blocks the gear prompt -> {"shown":[],"guis":["BubbleChat","Chat","Freecam","ShaderFx","GraphicsSettingsUI","FirstPersonFx","Hud","HudMarkers","Fe
+[investigator] probe (Client): Find client scripts handling InvPrompt drawing/triggering -> ["Players.xXBeansTitanXx.PlayerScripts.Controllers.InventoryController"]
+[investigator] root cause: Not conclusively proven. The gear prompts (InvPrompt on GearRack and Truck Locker parts) are built correctly: Enabled, Style Custom, HoldDuration 0, MaxActivati -> ServerScriptService/Services/InventoryService.luau mreq_01a16adf15557b738f36bd0bff85a251

@@ -1,0 +1,27 @@
+{
+  "score": 5,
+  "summary": "The server booted cleanly with no errors and no [Boot] warnings, and FlareUpService is a correct, spec-shaped module with a safe loop. But the `flareups` counter is absent from the report, so the first acceptance criterion was not demonstrated. The playtest never produced an Active round, or every Ignite attempt failed silently. The only warning is the CityBuilder part budget (31108 > 30000), which belongs to a file not provided here.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "The report has no `flareups` counter, so no flare-up was ever confirmed in the 63 s playtest (about 7 ticks). Nothing says whether RoundState was never \"Active\", RandomFlammable returned nil, or Ignite returned false. `_tick` returns silently on all of these paths, and the pcall wrappers around RandomFlammable and Ignite swallow errors. A dead service looks the same as an idle one.",
+      "fix_hint": "Add rate-limited diagnostics in `_tick`. For example, `warn` once (guarded by a flag) when MapService or FireService is nil, when the RandomFlammable pcall fails or returns nil, and when the Ignite pcall errors. Print the error message in each case. Also log a `[FlareUpService] ignited <part:GetFullName()>` line on success so the Studio playtest console shows whether the loop ran."
+    },
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "A single Ignite call on one random part can return false (already burning, not flammable, or out of range). With an 8 s interval and one attempt per tick, a short round can produce zero counted flare-ups. This makes the acceptance criterion fragile.",
+      "fix_hint": "Within one tick, retry picking a part up to about 5 times until Ignite returns true, then count once and stop. Keep the 8 s interval between ticks."
+    },
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "`getTelemetry()` runs `require` and may block up to 5 s in `WaitForChild` on every successful ignition. If ForgeTelemetry is missing, that stalls the loop each time and returns nil silently.",
+      "fix_hint": "Resolve and cache the telemetry module once in `Start` (or lazily, storing it in `self._telemetry`). Reuse the cached module in `_tick`, and `warn` once if it cannot be loaded."
+    },
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "The loop is `while true` with no stop condition, and `Start` never stores the thread. This is minor, but the loop cannot be cancelled and keeps polling in the lobby.",
+      "fix_hint": "Store the `task.spawn` thread in `self._thread`. Skip the work cheaply when RoundState is not Active. This already happens, so just keep the check as the first line of `_tick`."
+    }
+  ],
+  "done": false
+}

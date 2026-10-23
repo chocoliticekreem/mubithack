@@ -1,0 +1,28 @@
+[cycle 2] planted 0 faults: 
+[auditor] 4 anomalies, detected 0/0 mreq_01a16ab55a9078a18edef7b152c0dbc1
+[versions] v6: the game before this cycle's fixes
+[investigator] probe (Server): Find the Mission Board prompt and its state -> ["Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | Hydrant | enabled=true hold=0.
+[investigator] probe (Server): Find the Mission Board prompt specifically -> ["Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt | Pick a call | Mission Board | enabled=true hold=0 dist=16 paren
+[investigator] read ServerScriptService/Services/LobbyService.luau
+[investigator] probe (Client): Trigger the board prompt from the client and observe whether it fires and what changes -> fired=true inst= squad= gui=BubbleChat:true,Chat:true,ShaderFx:false,GraphicsSettingsUI:true,FirstPersonFx:true,Hud:true
+[investigator] probe (Server): Check how the board is tagged and whether the lobby is enabled, to see what the server-side Triggere -> boardTags=MissionBoard | promptTags= | cd=BoardClick | boardTagged=1 | pads=Workspace.Map.Station.Lobby.SquadPad1;Worksp
+[investigator] probe (Server): Attach a server-side Triggered listener so I can check whether the prompt's trigger reaches the serv -> listener attached; enabled=true cd=60
+[investigator] probe (Client): Trigger the prompt and check whether the server received it and whether the LobbyUI responds -> serverTrig=1 who=xXBeansTitanXx lobbyUI=Pulse:true,Fade:true,Big:false,Banner:false,Toast:false,Squad:false,Picker:true
+[investigator] root cause: Not a broken prompt; the test expectation does not match the lobby design. The Mission Board prompt ('Pick a call', BoardPrompt) works. A client trigger fires T -> ServerScriptService/Services/LobbyService.luau mreq_01a16ab68aac7790a66c26607534945e
+[fix] Mission Board 'Pick a call' prompt never starts a round: attempt 1 failed to compile
+[fix] Mission Board 'Pick a call' prompt never starts a round: attempt 2 not_fixed mreq_01a16ab8ae9e77d188f7d155ba250a2e
+[fix] Mission Board 'Pick a call' prompt never starts a round: no attempt verified, ServerScriptService/Services/LobbyService.luau restored
+[investigator] read ReplicatedStorage/Config/NavigationConfig.luau
+[investigator] probe (Server): Locate the player, the lobby and the Mission Board prompt for a path test -> {"prompts":["Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt","Workspace.Map.City.Districts.Farm
+[investigator] probe (Server): Compute a path from player to Mission Board with varying agent radii -> {"start":"-51, 3.800048828125, 108","res":{"target":"-40, 6.25, 170","r4":[true,"nil","NoPath",0],"r2":[true,"nil","NoPa
+[investigator] probe (Server): Find where the path breaks: floor under start and target, and incremental path targets -> {"ray":"Workspace.Map.Station.LockerRoom.Locker.Door","pts":[["-51, 3.799999952316284, 118","Success","Workspace.Map.Sta
+[investigator] probe (Server): List collidable parts between start and the Mission Board to find blocking geometry -> {"parts":["City.Ground.Grass pos=-1.5, -5.099999904632568, -165 size=1039, 10, 1110","Station.Alarms.AlarmLight.Housing 
+[investigator] probe (Server): List collidable parts at walking height around the blocked region and any PathfindingModifiers -> {"parts":["Station.Building.Corner p=-60, 12.899999618530273, 162 s=2.4000000953674316, 25.799999237060547, 2.4000000953
+[investigator] probe (Server): Inspect board geometry and find which nearby targets are reachable -> {"pdist":16,"start":"-51, 3.800048828125, 108","prompt":"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt","pts":["1
+[investigator] root cause: Mostly a testing artefact, plus a small placement flaw. Pathfinding itself works in the lobby. Targets at floor level next to the board (y=1.5, z=164 to 180) al -> ServerScriptService/Lib/Map/Locations/StationBuilder.luau mreq_01a16aba18927d30ad6761a5e8d98f7b
+[fix] Pathfinding returns NoPath in the lobby and walks stop short of targets: attempt 1 regression mreq_01a16abbff417fa28e5413cec9a9b28b
+[fix] Pathfinding returns NoPath in the lobby and walks stop short of targets: ServerScriptService/Lib/Map/Locations/StationBuilder.luau fixed and verified, kept as v7
+[cycle 2] detected 0/0, unmatched anomalies 4, fixed+verified 0, open 3, code fixes kept 1/2 -> /Users/sonionring/orca/mubithack/runs/flame-and-blame/improve/2.json
+cycle planted detected missed unmatched fixed open code kept  ts
+    1       0        0      0         4     0    3       0/1  2026-10-23T21:35:48Z
+    2       0        0      0         4     0    3       1/2  2026-10-23T21:49:56Z

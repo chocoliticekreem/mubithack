@@ -1,0 +1,17 @@
+[cycle 1] planted 0 faults: 
+[auditor] 4 anomalies, detected 0/0 mreq_01a16aabd5fe74219b266c2cbcb19d12
+[versions] v5: the game before this cycle's fixes
+[investigator] probe (Server): Locate the Mission Board 'Pick a call' prompt and inspect its properties (Enabled, distance, hold, l -> [{"enabled":true,"path":"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt","action":"Supply line"
+[investigator] probe (Server): Find the Mission Board prompt specifically (previous output was truncated). -> {"prompts":[{"enabled":true,"path":"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt","action":"Pick a call","obj":"
+[investigator] read ServerScriptService/Services/LobbyService.luau
+[investigator] probe (Client): Test whether the Mission Board prompt triggers from the client when standing in range, and see playe -> {"parentClass":"Part","instanceId":"","parentName":"Workspace.Map.Station.Lobby.MissionBoard","fired":false,"squad":"","
+[investigator] probe (Client): Control: does a fresh prompt trigger via InputHoldBegin in the same place, versus the board prompt? -> {"enabled":true,"keycode":"Enum.KeyCode.E","board":false,"dist":6.600189685821533,"uiOffset":"0, 0","ex":"Enum.Proximity
+[investigator] probe (Client): Check whether ProximityPromptService is enabled on the client and whether prompts are being shown to -> {"state":"Enum.HumanoidStateType.Running","plrAttrs":{"Heat":0,"Carrying":"","Helmet":1,"InvHand":"","XpTotal":0,"Helmet
+[investigator] probe (Client): Re-enter range from far away so PromptShown fires; see if the client shows/triggers the prompt at al -> {"guis":["Chat:true","BubbleChat:true","Freecam:true","ShaderFx:false","GraphicsSettingsUI:true","FirstPersonFx:true","H
+[investigator] root cause: Most likely a testing artefact, not a game bug. The Mission Board prompt (Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt) is correctly configured: Enabled -> ServerScriptService/Services/LobbyService.luau mreq_01a16aad7e9f7de2b8e59d67289a6a8a
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: attempt 1 regression mreq_01a16aaf214c7cc3b796db6f5fc5a135
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: attempt 2 fixer reply unusable (reply has no ```luau code block)
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: no attempt verified, ServerScriptService/Services/LobbyService.luau restored
+[cycle 1] detected 0/0, unmatched anomalies 4, fixed+verified 0, open 3, code fixes kept 0/1 -> /Users/sonionring/orca/mubithack/runs/flame-and-blame/improve/1.json
+cycle planted detected missed unmatched fixed open code kept  ts
+    1       0        0      0         4     0    3       0/1  2026-10-23T21:35:48Z

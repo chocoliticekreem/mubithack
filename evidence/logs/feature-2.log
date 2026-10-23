@@ -1,0 +1,14 @@
+
+━━ forge run  flame-and-blame-feat ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [studio]    connected                                      ✓ 420326b8-9d7c-4792-b28b-2df4926e31b9
+
+━━ iteration 3  flame-and-blame-feat ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [check]     luau-compile 1 files                           ✓  0.7s
+  [version]   v4                                             ✓ forge versions / forge rollback
+  [studio]    sync → Studio                                  ✓  2.8s  OK 155 files, changed: ServerScriptService/Service
+  [studio]    playtest running (75s)                         ✓  3.2s
+  [studio]    start round                                    ✓ {"ok":true,"result":{"via":"MissionService:StartRound","Miss
+  [probe]     ForgeProbe report                              ✓ 0 errors, 1 warnings, players 1  {"city_parts": 31108, "rubble_settled":
+  [studio]    screenshot                                     ✓ runs/flame-and-blame-feat/iterations/3/screenshot.png
+  [studio]    stop playtest                                  ✓
+  [critic]    1 files                                        ✓ 12.8s  mreq_01a16b…

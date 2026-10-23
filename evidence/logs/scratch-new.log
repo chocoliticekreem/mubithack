@@ -1,0 +1,7 @@
+
+━━ forge new  coin-dash-a-small-walled-arena ━━━━━━━━━━━━━━━━━━━
+  idea: Coin dash: a small walled arena with 10 glowing coins. Touching a coin collects it: +1 to the player's Coins in leaderstats and the coin disappears, then respawns at a random spot after 5 seconds. A 60 second round timer shows on screen; when it ends, show the winner and start a new round with scores reset. Built from parts, bright and readable.
+  [designer]  spec.json                                      ✓ 16.5s  mreq_01a16a…
+  Coin Dash Arena - Grab glowing coins before the 60 second timer runs out and be crowned the Coin Champ!
+
+━━ build  5 modules ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

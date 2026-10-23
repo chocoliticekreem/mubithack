@@ -1,0 +1,1 @@
+2026-10-23T22:19:19.711346Z ERROR rmcp::service: failed to send pending response during drain error=Broken pipe (os error 32)

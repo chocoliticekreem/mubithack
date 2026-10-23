@@ -1,0 +1,332 @@
+{
+  "cycle": 2,
+  "ts": "2026-10-23T21:49:56Z",
+  "session_id": "improve-flame-and-blame-2",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "planted": 0,
+  "detected": 0,
+  "missed": 0,
+  "unmatched": 4,
+  "fixed_verified": 0,
+  "score": {
+    "planted": 0,
+    "detected": [],
+    "missed": [],
+    "anomaly_for": {},
+    "unmatched_anomalies": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "audit": {
+    "summary": "Only one round was played, and it never started. The Mission Board prompt did not trigger, so no gameplay systems (fire, hose, rescue, water) were exercised and the playbook items could not be verified.",
+    "anomalies": [
+      {
+        "kind": "broken_link",
+        "system": "round",
+        "title": "Mission Board 'Pick a call' prompt never starts a round",
+        "expected": "Triggering the Mission Board prompt starts the alarm, teleports players to the Town and begins the 3-minute round.",
+        "observed": "Round 1 (1 player) had goal_met=false and a high-severity bug saying the prompt never triggers. No fire, rescue, water or round-completion counters appear at all. Only lobby and city-build counters are present (city_sites 24, trucks_built 1, traffic_spawned 40).",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "pathfinding",
+        "title": "Pathfinding returns NoPath in the lobby and walks stop short of targets",
+        "expected": "Pathfinding finds routes in the lobby, so bots and testers can reach the Mission Board and other targets.",
+        "observed": "Round 1's judge reported NoPath results in the lobby and walks ending short of their targets. This may be why the tester never triggered the Mission Board prompt.",
+        "severity": "medium"
+      },
+      {
+        "kind": "balance",
+        "system": "round",
+        "title": "Core loop and playbook items untested",
+        "expected": "Rounds reach the Town so hose extinguishing, fire spread, pet drop and rescue delivery can be checked.",
+        "observed": "Zero gameplay counters (fires_extinguished, water_used, rescued, rounds_completed) in the only round. Both playbook issues (hose not extinguishing, no way to drop a carried pet) remain unverified.",
+        "severity": "medium"
+      },
+      {
+        "kind": "economy",
+        "system": "lobby",
+        "title": "Lobby AFK flag raised for the sole player",
+        "expected": "A player actively trying to start a round is not flagged AFK.",
+        "observed": "Round 1 shows lobby_afk=1 with one player. This is likely a side effect of the stuck Mission Board, but it could also be a false positive.",
+        "severity": "low"
+      }
+    ],
+    "request_id": "mreq_01a16ab55a9078a18edef7b152c0dbc1"
+  },
+  "correction": null,
+  "verdicts": [],
+  "before": [
+    {
+      "round": 1,
+      "goal": "Play a full round: put out fires, rescue everyone, refill water",
+      "goal_met": false,
+      "players": 1,
+      "counters": {
+        "leaderboard_refreshes": 3,
+        "city_sites": 24,
+        "props_woken": 9,
+        "city_parts": 25105,
+        "lobby_afk": 1,
+        "trucks_built": 1,
+        "traffic_despawned": 26,
+        "map_build_ms": 217,
+        "traffic_honks": 1,
+        "data_saved": 4,
+        "traffic_graph_loaded": 1,
+        "traffic_spawned": 40,
+        "props_registered": 87,
+        "data_loaded": 1
+      },
+      "errors": {
+        "count": 0,
+        "first": []
+      },
+      "bugs": [
+        {
+          "title": "Mission Board 'Pick a call' prompt never triggers, so no round can start",
+          "severity": "high"
+        },
+        {
+          "title": "Pathfinding returns NoPath in the lobby and walks stop short of targets",
+          "severity": "medium"
+        }
+      ],
+      "events": {
+        "count": 6
+      }
+    }
+  ],
+  "open": 3,
+  "code_fixes": [
+    {
+      "anomaly": "Mission Board 'Pick a call' prompt never starts a round",
+      "path": "ServerScriptService/Services/LobbyService.luau",
+      "attempts": [
+        {
+          "status": "compile_failed",
+          "error": "LobbyService.luau(249,5): SyntaxError: Expected 'end' (to close 'function' at line 223), got 'else'; did you forget to close 'do' at line 238?"
+        },
+        {
+          "status": "not_fixed",
+          "verdict": {
+            "verdict": "not_fixed",
+            "evidence": "After the change, round 2 still has goal_met=false and no fire, rescue, water or round-completion counters. Only lobby and city-build counters appear (city_sites 24, trucks_built 1, traffic_spawned 35), as in the before round. The judge now reports 'Round appears stuck in Lobby' and Gear Rack prompts that never trigger, so the round still does not start.",
+            "regressions": [
+              "Gear Rack ProximityPrompts never trigger and the backpack stays empty (new high-severity bug)",
+              "lobby_afk and data_saved counters present before are absent after"
+            ],
+            "request_id": "mreq_01a16ab8ae9e77d188f7d155ba250a2e"
+          }
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "Not a broken prompt; the test expectation does not match the lobby design. The Mission Board prompt ('Pick a call', BoardPrompt) works. A client trigger fires Triggered on the client, and a server-side listener also saw it exactly once, from the right player. The prompt is enabled, has hold=0, and is within range. Its job is only to open the LobbyUI mission picker; it does not start a round. Under LobbyConfig.UseLobby=true, a round starts only when a player stands on a SquadPad, becomes squad leader, the countdown reaches 0 and LobbyService:Launch calls MissionService:StartMission. The tester triggered the board, never joined a pad and never chose a call, so InstanceId and SquadId stayed empty. That is why no fire, rescue or round counters appeared, only lobby and city counters. For a real player, or a bot that steps on a pad after picking a call, the flow works. I did not read the board handler body or run the pad-launch path end to end, so the picker-only behaviour is inferred from the file header and the probes. If the board should start a round by itself, LobbyService's board handler would need to launch the leader's squad after Choose, but that is a design change.",
+          "file": "ServerScriptService/Services/LobbyService.luau",
+          "evidence": "Probe 4: the client prompt fired (fired=true) from 8 studs, but InstanceId and SquadId stayed empty. Probes 6 and 7: the server listener recorded BoardTrig=1 for xXBeansTitanXx, so the trigger reaches the server. LobbyUI showed Picker visible and no Squad panel or Banner. Probe 5: the board is tagged MissionBoard, has a ClickDetector, and UseLobby=true. The three SquadPad parts exist, and launching is driven by pad countdowns per the LobbyService header.",
+          "fix_hint": "No code fix is needed for the prompt. The test or bot should step onto a SquadPad (or call LobbyService._join and _launch) after picking a call. If a one-click start is wanted, make the board's Choose path call LobbyService:Launch for the player's squad, auto-joining a pad when the player has none."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(workspace:GetDescendants()) do if d:IsA('ProximityPrompt') then table.insert(out,d:GetFullName()..' | '..d.ActionText..' | '..d.ObjectText..' | enabled='..tostring(d.Enabled)..' hold='..d.HoldDuration..' dist='..d.MaxActivationDistance) end end return game:GetService('HttpService'):JSONEncode(out)",
+              "why": "Find the Mission Board prompt and its state"
+            },
+            "result": "[\"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | Hydrant | enabled=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Barn.BarnSideDoor.ProximityPrompt | Break (axe) | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.FrontDoor.ProximityPrompt | Open | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.BackDoor.ProximityPrompt | Break (axe) | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.DuckPond.Water.ProximityPrompt | Supply line | Pond | enabled=true hold=0.5 dist=16\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | enabled=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Door.ProximityPrompt | Open | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | enabled=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Door.ProximityPrompt | Open | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-3.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | enabled=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-3.Door.ProximityPrompt | Open | Door | enabled=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-4.Hydrant.Body.Proxi"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(game:GetDescendants()) do if d:IsA('ProximityPrompt') and (d.ActionText:lower():find('call') or d.ObjectText:lower():find('board') or d.ObjectText:lower():find('mission')) then local p=d.Parent table.insert(out,d:GetFullName()..' | '..d.ActionText..' | '..d.ObjectText..' | enabled='..tostring(d.Enabled)..' hold='..d.HoldDuration..' dist='..d.MaxActivationDistance..' parentClass='..p.ClassName..' pos='..tostring(p:IsA('BasePart') and p.Position or 'n/a')..' req='..tostring(d.RequiresLineOfSight)) end end return game:GetService('HttpService'):JSONEncode(out)",
+              "why": "Find the Mission Board prompt specifically"
+            },
+            "result": "[\"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt | Pick a call | Mission Board | enabled=true hold=0 dist=16 parentClass=Part pos=-40, 6.25, 170 req=false\",\"Workspace.Map.Station.Lobby.SquadPad1.PadPrompt | Change call | Pad 1 | enabled=true hold=0 dist=9 parentClass=Part pos=-52, 0.6399999856948853, 183 req=false\",\"Workspace.Map.Station.Lobby.SquadPad2.PadPrompt | Change call | Pad 2 | enabled=true hold=0 dist=9 parentClass=Part pos=-40, 0.6399999856948853, 183 req=false\",\"Workspace.Map.Station.Lobby.SquadPad3.PadPrompt | Change call | Pad 3 | enabled=true hold=0 dist=9 parentClass=Part pos=-28, 0.6399999856948853, 183 req=false\"]"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/Services/LobbyService.luau",
+              "why": "See how BoardPrompt.Triggered is handled"
+            },
+            "result": "--!strict\n-- LobbyService [owner: G3]. The fire station is the LOBBY. Players spawn on the StationSpawn pads.\n-- A big Mission Board (tag MissionBoard: SurfaceGui + ProximityPrompt + ClickDetector) lists\n-- MissionCatalog; 3 glowing queue pads (tag SquadPad, attr PadId) on the apron each show their\n-- squad's call + \"2/4 READY\". Stepping on a pad joins its squad; the first player on a pad starts a\n-- countdown (LobbyConfig.CountdownSeconds, cut to FullCountdownSeconds when the squad is full, reset\n-- when the pad empties). At 3..2..1 the station alarm lamps flash; at 0 the alarm blares and the\n-- squad launches into its OWN mission instance (MissionService:StartMission), so several pads count\n-- down and launch in parallel. On MissionService.MissionEnded the squad comes home (\"Welcome back,\n-- heroes (mostly)\"). Idle fun: slide the fire pole, ring the bell, honk truck 67; standing still\n-- labels you \"on coffee break\". Queue/countdown rules live in the pure ReplicatedStorage/Lobby/LobbyQueue.\n-- LobbyConfig.UseLobby = false keeps v1's single auto-round (remotes are still declared).\n--\n-- Public API (contract, docs/game/03-tech-architecture.md §10 \"v1.5 additions\"):\n--   LobbyService:GetSquads(): { Types.Squad }\n--   LobbyService:GetSquad(squadId: string): Types.Squad?\n--   LobbyService:Join(player: Player, padId: number): string?     -- squadId; first on a pad leads\n--   LobbyService:Leave(player: Player)\n--   LobbyService:Choose(player: Player, missionId: string): boolean -- leader only, enabled missions only\n--   LobbyService:Launch(squadId: string, missionId: string): string? -- instanceId (MissionService:StartMission)\n--   LobbyService:ReturnToLobby(players: { Player })               -- back onto station pads, InstanceId = \"\"\n-- Signals: SquadChanged(squadId: string), Launched(squadId: string, missionId: string, instanceId: string)\n-- Remotes: Lobby/Board (S->C all: squads: { Types.Squad }), Lobby/Choose (C->S missionId: string, 2/s),\n--          Lobby/Launch (C->S none, 1/s; leader only: cuts the countdown to LaunchCountdown)\n--          added: Lobby/Countdown (S->C squad: padId: number, seconds: number (-1 = cancel), title: string)\n--                 Lobby/Fx (S->C one: kind: \"slide\" | \"welcome\" | \"toast\", ...args)\n-- Writes: Player attrs SquadId (\"\" = none), InstanceId (\"\" = in the lobby); Workspace.Map.Station.Lobby;\n--         counters squads_launched, lobby_joins, lobby_returns, lobby_bell, lobby_honk, lobby_pole, lobby_afk\n-- Test hooks (DevHook only): _join(player, padId), _launch(squadId, missionId), _selftest()\nlocal CollectionService = game:GetService(\"CollectionService\")\nlocal Debris = game:GetService(\"Debris\")\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerScriptService = game:GetService(\"ServerScriptService\")\nlocal TweenService = game:GetService(\"TweenService\")\n\nlocal Shared = ReplicatedStorage:WaitForChild(\"Shared\")\nlocal Signal = require(Shared:WaitForChild(\"Signal\") :: ModuleScript)\nlocal Net = require(Shared:WaitForChild(\"Net\") :: ModuleScript)\nlocal Popup = require(Shared:WaitForChild(\"Popup\") :: ModuleScript)\nlocal Names = require(Shared:WaitForChild(\"Names\") :: ModuleScript)\nlocal Types = require(Shared:WaitForChild(\"Types\") :: ModuleScript)\nlocal ConfigDir = ReplicatedStorage:WaitForChild(\"Config\")\nlocal LobbyConfig = require(ConfigDir:WaitForChild(\"LobbyConfig\") :: ModuleScript) :: any\nlocal MapConfig = require(ConfigDir:WaitForChild(\"MapConfig\") :: ModuleScript) :: any\nlocal MissionCatalog = require(ConfigDir:WaitForChild(\"MissionCatalog\") :: ModuleScript) :: { any }\nlocal LobbyQueue = require(ReplicatedStorage:WaitForChild(\"Lobby\"):WaitForChild(\"LobbyQueue\") :: ModuleScript)\n\nlocal LobbyService = {}\nLobbyService.Priority = 55\nLobbyService.SquadChanged = Signal.new() :: Signal.Signal<string>\nLobbyService.Launched = Signal.new() :: Signal.Signal<string, string, string>\n\ntype ActiveSquad = Types.Squad & { fallback: boolean? }\n\nlocal services: { [string]: any } = {}\nlocal byId: { [string]: any } = {}\nlocal queue: LobbyQueue.State? = nil\nlocal built: any = nil -- LobbyProps.Built\nlocal stationModel: Model? = nil\nlocal active: { [string]: ActiveSquad } = {} -- launched squads (InMission), by squadId\nlocal remotes: { [string]: RemoteEvent } = {}\nlocal afk: { [Player]: { pos: Vector3, t: number, tagged: boolean } } = {}\nlocal cooldown: { [string]: number } = {}\nlocal fallbackSeq = 0\nlocal launching: { [number]: boolean } = {} -- userIds between countdown 0 and InstanceId being set\n\nlocal function count(name: string, n: number?)\n\tpcall(function()\n\t\trequire(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\") :: ModuleScript).count(name, n or 1)\n\tend)\nend\n\nlocal function catalogIndex()\n\ttable.clear(byId)\n\tfor _, m in MissionCatalog do\n\t\tbyId[m.id] = m\n\tend\nend\n\nlocal function firstEnabled(): string?\n\tfor _, m in MissionCatalog do\n\t\tif m.enabled then\n\t\t\treturn m.id\n\t\tend\n\tend\n\treturn nil\nend\n\nlocal function title(missionId: string?): string\n\tlocal def = missionId and byId[missionId]\n\treturn if def then def.title else \"No call\"\nend\n\nlocal function playerById(uid: number): Player?\n\treturn Players:GetPlayerByUserId(uid)\nend\n\nlocal function rootOf(player: Player): BasePart?\n\tlocal char = player.Character\n\treturn char and char:FindFirstChild(\"HumanoidRootPart\") :: BasePart?\nend\n\nlocal function inLobby(player: Player): boolean\n\tlocal id = player:GetAttribute(Names.Attr.InstanceId)\n\treturn id == nil or id == \"\"\nend\n\nlocal function ready(key: string, seconds: number): boolean\n\tlocal now = os.clock()\n\tif (cooldown[key] or 0) > now then\n\t\treturn false\n\tend\n\tcooldown[key] = now + seconds\n\treturn true\nend\n\nlocal function playSound(parent: Instance, soundId: string, volume: number?)\n\tif soundId == nil or soundId == \"\" then\n\t\treturn\n\tend\n\tlocal s = Instance.new(\"Sound\")\n\ts.SoundId = soundId\n\ts.Volume = volume or 1\n\ts.RollOffMaxDistance = 160\n\ts.Parent = parent\n\ts:Play()\n\tDebris:AddItem(s, 8)\nend\n\n-- \"HONK!\" / \"DING!\" pop-up over a part, visible to everyone nearby.\nlocal function popText(adornee: BasePart, str: string, _color: Color3, _height: number)\n\tPopup.show(adornee, str, \"blame\") -- small world text for players nearby (ClientLib/WorldPopup)\nend\n\n------------------------------------------------------------------ squads as Types.Squad\n\nlocal function padSquad(pad: LobbyQueue.Pad): Types.Squad?\n\tif not pad.squadId or #pad.members == 0 then\n\t\treturn nil\n\tend\n\tlocal secs = pad.remaining and math.ceil(pad.remaining) or nil\n\treturn {\n\t\tid = pad.squadId,\n\t\tpadId = pad.padId,\n\t\tleader = pad.leader or pad.members[1],\n\t\tmembers = table.clone(pad.members),\n\t\tmissionId = pad.missionId,\n\t\tinstanceId = nil,\n\t\tstate = if secs and secs <= LobbyConfig.FullCountdownSeconds then \"Launching\" else \"Forming\",\n\t}\nend\n\nfunction LobbyService:GetSquads(): { Types.Squad }\n\tlocal out: { Types.Squad } = {}\n\tif queue then\n\t\tfor _, pad in queue.pads do\n\t\t\tlocal s = padSquad(pad)\n\t\t\tif s then\n\t\t\t\ttable.insert(out, s)\n\t\t\tend\n\t\n...[28068 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pl=game.Players.LocalPlayer local char=pl.Character local hrp=char:WaitForChild('HumanoidRootPart') local prompt=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt hrp.CFrame=CFrame.new(prompt.Parent.Position+Vector3.new(0,0,8)) task.wait(0.5) local fired=false local c=prompt.Triggered:Connect(function() fired=true end) prompt:InputHoldBegin() task.wait(0.2) prompt:InputHoldEnd() task.wait(1) c:Disconnect() local gui={} for _,g in ipairs(pl.PlayerGui:GetChildren()) do table.insert(gui,g.Name..':'..tostring(g:IsA('ScreenGui') and g.Enabled)) end return 'fired='..tostring(fired)..' inst='..tostring(pl:GetAttribute('InstanceId'))..' squad='..tostring(pl:GetAttribute('SquadId'))..' gui='..table.concat(gui,',')..' dist='..tostring((hrp.Position-prompt.Parent.Position).Magnitude)",
+              "why": "Trigger the board prompt from the client and observe whether it fires and what changes"
+            },
+            "result": "fired=true inst= squad= gui=BubbleChat:true,Chat:true,ShaderFx:false,GraphicsSettingsUI:true,FirstPersonFx:true,Hud:true,HudMarkers:true,FeedbackSettingsUI:true,Carry:true,SquadGui:true,TruckHud:true,InventoryHud:true,NavMinimap:true,NavBigMap:false,StructureHud:true,LobbyUI:true,ProfileHud:true,Freecam:true,NavEdge:true,ProximityPrompts:true dist=8.45946216583252"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local CS=game:GetService('CollectionService') local b=workspace.Map.Station.Lobby.MissionBoard local tags=CS:GetTags(b) local bp=b.BoardPrompt local cd=b:FindFirstChildWhichIsA('ClickDetector',true) local pads={} for _,p in ipairs(CS:GetTagged('SquadPad')) do table.insert(pads,p:GetFullName()) end return 'boardTags='..table.concat(tags,',')..' | promptTags='..table.concat(CS:GetTags(bp),',')..' | cd='..tostring(cd)..' | boardTagged='..tostring(#CS:GetTagged('MissionBoard'))..' | pads='..table.concat(pads,';')..' | UseLobby='..tostring(require(game.ReplicatedStorage.Config.LobbyConfig).UseLobby)",
+              "why": "Check how the board is tagged and whether the lobby is enabled, to see what the server-side Triggered handler hooks into"
+            },
+            "result": "boardTags=MissionBoard | promptTags= | cd=BoardClick | boardTagged=1 | pads=Workspace.Map.Station.Lobby.SquadPad1;Workspace.Map.Station.Lobby.SquadPad3;Workspace.Map.Station.Lobby.SquadPad2 | UseLobby=true"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local bp=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt workspace:SetAttribute('BoardTrig',0) bp.Triggered:Connect(function(p) workspace:SetAttribute('BoardTrig',(workspace:GetAttribute('BoardTrig') or 0)+1) workspace:SetAttribute('BoardWho',p.Name) end) local cd=workspace.Map.Station.Lobby.MissionBoard:FindFirstChildWhichIsA('ClickDetector',true) return 'listener attached; enabled='..tostring(bp.Enabled)..' cd='..tostring(cd and cd.MaxActivationDistance)",
+              "why": "Attach a server-side Triggered listener so I can check whether the prompt's trigger reaches the server when the client triggers it"
+            },
+            "result": "listener attached; enabled=true cd=60"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pl=game.Players.LocalPlayer local hrp=pl.Character:WaitForChild('HumanoidRootPart') local prompt=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt hrp.CFrame=CFrame.new(prompt.Parent.Position+Vector3.new(0,0,8)) task.wait(0.5) prompt:InputHoldBegin() task.wait(0.2) prompt:InputHoldEnd() task.wait(1) local lu=pl.PlayerGui:FindFirstChild('LobbyUI') local vis={} if lu then for _,d in ipairs(lu:GetChildren()) do table.insert(vis,d.Name..':'..tostring(d:IsA('GuiObject') and d.Visible)) end end return 'serverTrig='..tostring(workspace:GetAttribute('BoardTrig'))..' who='..tostring(workspace:GetAttribute('BoardWho'))..' lobbyUI='..table.concat(vis,',')",
+              "why": "Trigger the prompt and check whether the server received it and whether the LobbyUI responds"
+            },
+            "result": "serverTrig=1 who=xXBeansTitanXx lobbyUI=Pulse:true,Fade:true,Big:false,Banner:false,Toast:false,Squad:false,Picker:true"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16ab570747bf2b5c200690e81e0a2",
+          "mreq_01a16ab58b397c43a96384531b382fa9",
+          "mreq_01a16ab59f9c73f285c79a4cfaa87aab",
+          "mreq_01a16ab5bfcc79708c516d825ac68eff",
+          "mreq_01a16ab603be72308db39e603e5d0d28",
+          "mreq_01a16ab6496b734189d8ed1e4da48448",
+          "mreq_01a16ab6772f73b2a8fb7d86d7b6cc2c",
+          "mreq_01a16ab68aac7790a66c26607534945e"
+        ]
+      },
+      "status": "rolled_back"
+    },
+    {
+      "anomaly": "Pathfinding returns NoPath in the lobby and walks stop short of targets",
+      "path": "ServerScriptService/Lib/Map/Locations/StationBuilder.luau",
+      "attempts": [
+        {
+          "status": "regression",
+          "verdict": {
+            "verdict": "regression",
+            "evidence": "The pathfinding/NoPath bug is no longer reported in round 2, but no counter shows routes actually working, and the round still never starts from the Lobby. props_registered fell from 87 to 61 and props_woken (9 before) is absent after the StationBuilder rewrite. Two new bugs also appeared: the Reel prompt never triggers and its text flips.",
+            "regressions": [
+              "props_registered dropped from 87 to 61 and props_woken (9 before) is missing after the StationBuilder rewrite",
+              "New high-severity bug: Reel prompt (Grab Hose / Refill Foam) never triggers in range",
+              "New medium bug: Reel prompt text flips between 'Grab Hose' and 'Refill Foam' and does not match player state",
+              "Round still never starts from Lobby, so the pathfinding fix is unverified"
+            ],
+            "request_id": "mreq_01a16abbff417fa28e5413cec9a9b28b"
+          }
+        },
+        {
+          "status": "fixed",
+          "verdict": {
+            "verdict": "fixed",
+            "evidence": "The before round reported the NoPath bug and the Mission Board prompt never triggering. The after round has no pathfinding bug, and the events show prompt_triggered: 1, so the tester reached the board. The remaining bugs (prompts 'held, not triggered', no visible round start) are different problems.",
+            "regressions": [
+              "Lobby prompts often 'held, not triggered' when in range (new medium bug)",
+              "No visible round start after Mission Board 'Pick a call' triggered (new medium bug)",
+              "Counters data_saved, props_woken, and lobby_afk are absent in the after round, and props_registered fell from 87 to 61"
+            ],
+            "request_id": "mreq_01a16abded2670f0a2b542975e35d6b8"
+          }
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "Mostly a testing artefact, plus a small placement flaw. Pathfinding itself works in the lobby. Targets at floor level next to the board (y=1.5, z=164 to 180) all return Success, and so do routes into the plaza. The NoPath results come from the Mission Board target point, (-40, 6.25, 170). That point is the pivot of the MissionBoard model, which has no BaseParts, and it sits about 5 studs above the walkable floor (y~0.5-1) and under the BoardHeader. PathfindingService cannot snap a goal in mid-air or inside geometry to the navmesh, so it returns NoPath. Floor-level goals at the same x/z succeed except a single y=3.8 probe at z=170, which is also inside or above the board geometry. Bots that aim at the prompt anchor therefore get NoPath or stop short. A real player walks up to the prompt (MaxActivationDistance 16) without any pathfinding, so the prompt is reachable. The fix is to put the board's prompt and anchor on a real, floor-anchored part, or have callers target a floor-level standing point.",
+          "file": "ServerScriptService/Lib/Map/Locations/StationBuilder.luau",
+          "evidence": "Path from the player to the MissionBoard pivot (-40,6.25,170) gave NoPath for AgentRadius 2, 3 and 4. Targets at (-40, 1.5, z) for z=164,166,168,170,172,175,180 all returned Success, and (-40,3.8,165) also succeeded. Only the elevated points near z=170 failed. MissionBoard has zero BasePart descendants, so the prompt's position is just a model pivot at y=6.25. BoardHeader (y~12) sits above it, and the lobby floor is at y~0.5.",
+          "fix_hint": "In StationBuilder, give MissionBoard a real anchored base part (CanCollide true or an Attachment) at floor level and parent BoardPrompt to it, and expose a floor-level approach point, for example 4 to 6 studs in front of the board at y~1. Bots and testers should path to that point instead of the elevated pivot."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "read",
+              "path": "ReplicatedStorage/Config/NavigationConfig.luau",
+              "why": "See pathfinding parameters (agent radius/height, etc.) used by NavigationService"
+            },
+            "result": "--!strict\n-- NavigationConfig [owner: Navigation]. Numbers for NavigationService (server waypoints) and\n-- NavigationController / ClientLib/Minimap (minimap, big map, beacon, GPS route arrows).\n-- Read at use time so DevHook \".Set\" tuning applies (client copies are separate).\nlocal Config = require(script.Parent.Parent:WaitForChild(\"Shared\"):WaitForChild(\"Config\") :: ModuleScript)\n\nreturn Config.define({\n\t-- server\n\tTrackInterval = 0.5, -- seconds between re-reading a BasePart/Model target's position\n\tTrackMinMove = 2, -- studs a tracked target must move before WaypointPos is rewritten\n\n\t-- road graph (CityBuilder): Workspace.Map.City.RoadGraphJson, or the RoadGraph folder\n\tGraphPollSeconds = 2, -- how often the client looks for / re-reads the graph until it has one\n\tRoadWidth = 24, -- studs, drawn width on the maps\n\n\t-- minimap (top right, under the HUD squad strip)\n\tMinimapSize = 190, -- px at 1280x720\n\tMinimapTop = 204, -- px from the top (HudController's squad strip sits above it)\n\tMinimapRight = 14,\n\tMinimapScale = 0.42, -- px per stud standing still\n\tMinimapScaleFast = 0.22, -- px per stud at TruckSpeedForZoom (zooms out while driving)\n\tTruckSpeedForZoom = 60,\n\n\t-- big map (M)\n\tBigMapKey = Enum.KeyCode.M,\n\tBigMapMinZoom = 0.25, -- px per stud\n\tBigMapMaxZoom = 3,\n\n\t-- route (GPS)\n\tRouteRefresh = 1, -- seconds between route recomputes\n\tOffRouteDistance = 30, -- studs off the line -> recompute right away\n\tArriveRadius = 45, -- studs: closer than this the route hides and the hint says \"You're here\"\n\tArrowSpacing = 14, -- studs between arrows on the road\n\tMaxArrows = 48, -- pooled arrows (spacing * MaxArrows = how far ahead the route is drawn)\n\tArrowHover = 0.35, -- studs above the road surface\n\tArrowColor = Color3.fromHex(\"#7FF5F0\"),\n\tArrowFlowSpeed = 3.5, -- arrows/s the bright pulse runs along the route\n\tTurnAngle = 35, -- degrees: sharper corners than this get a turn hint\n\tTurnHintRange = 220, -- studs: farther than this the hint says \"Follow the road ...\"\n\tUnitName = \"studs\",\n\tStudsPerUnit = 1,\n\n\t-- 3D beacon\n\tBeaconHeight = 260,\n\tBeaconColor = Color3.fromHex(\"#FFC531\"),\n\tBeaconFadeNear = 30, -- studs: the beam fades out when you're this close\n\tEdgeArrowMargin = 70, -- px from the screen edge\n})\n"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal out={}\nfor _,c in ipairs(workspace:GetChildren()) do table.insert(out,c.Name..'('..c.ClassName..')') end\nlocal plr=game.Players:GetPlayers()[1]\nlocal pos=plr and plr.Character and plr.Character:GetPivot().Position\nlocal prompts={}\nfor _,d in ipairs(workspace:GetDescendants()) do if d:IsA('ProximityPrompt') then table.insert(prompts,d:GetFullName()) if #prompts>8 then break end end end\nreturn HS:JSONEncode({ws=out,pos=tostring(pos),prompts=prompts})",
+              "why": "Locate the player, the lobby and the Mission Board prompt for a path test"
+            },
+            "result": "{\"prompts\":[\"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt\",\"Workspace.Map.City.Districts.Farm.Farm.Barn.BarnSideDoor.ProximityPrompt\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.FrontDoor.ProximityPrompt\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.BackDoor.ProximityPrompt\",\"Workspace.Map.City.Districts.Farm.Farm.DuckPond.Water.ProximityPrompt\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Hydrant.Body.ProximityPrompt\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Door.ProximityPrompt\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Hydrant.Body.ProximityPrompt\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Door.ProximityPrompt\"],\"ws\":[\"Camera(Camera)\",\"Baseplate(Part)\",\"SpawnLocation(SpawnLocation)\",\"Terrain(Terrain)\",\"Map(Folder)\",\"WorldBounds(Folder)\",\"Puddles(Folder)\",\"Trucks(Folder)\",\"LooseItems(Folder)\",\"Traffic(Folder)\",\"xXBeansTitanXx(Model)\"],\"pos\":\"-51, 3.800048828125, 108\"}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal PS=game:GetService('PathfindingService')\nlocal out={}\nlocal board\nfor _,d in ipairs(workspace:GetDescendants()) do if d:IsA('ProximityPrompt') and ((d.Parent and d.Parent.Name:lower():find('board')) or d.ActionText:lower():find('mission') or d.ObjectText:lower():find('mission')) then board=d table.insert(out,d:GetFullName()) break end end\nlocal plr=game.Players:GetPlayers()[1]\nlocal start=plr.Character:GetPivot().Position\nlocal res={}\nif board then\n local p=board.Parent\n local tp=p:IsA('BasePart') and p.Position or p:GetPivot().Position\n res.target=tostring(tp)\n for _,r in ipairs({2,3,4}) do\n  local path=PS:CreatePath({AgentRadius=r,AgentHeight=5,AgentCanJump=true})\n  local ok,err=pcall(function() path:ComputeAsync(start,tp) end)\n  res['r'..r]={ok,tostring(err),path.Status.Name,#path:GetWaypoints()}\n end\nend\nreturn HS:JSONEncode({out=out,res=res,start=tostring(start)})",
+              "why": "Compute a path from player to Mission Board with varying agent radii"
+            },
+            "result": "{\"start\":\"-51, 3.800048828125, 108\",\"res\":{\"target\":\"-40, 6.25, 170\",\"r4\":[true,\"nil\",\"NoPath\",0],\"r2\":[true,\"nil\",\"NoPath\",0],\"r3\":[true,\"nil\",\"NoPath\",0]},\"out\":[\"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\"]}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal PS=game:GetService('PathfindingService')\nlocal plr=game.Players:GetPlayers()[1]\nlocal s=plr.Character:GetPivot().Position\nlocal function down(p) local r=workspace:Raycast(p+Vector3.new(0,50,0),Vector3.new(0,-100,0)) return r and (r.Instance:GetFullName()..' y='..r.Position.Y..' cc='..tostring(r.Instance.CanCollide)) or 'none' end\nlocal out={startFloor=down(s),targetFloor=down(Vector3.new(-40,6.25,170))}\nlocal pts={}\nfor _,t in ipairs({Vector3.new(-51,3.8,118),Vector3.new(-51,3.8,130),Vector3.new(-51,3.8,150),Vector3.new(-40,3.8,165),Vector3.new(-40,3.8,170),Vector3.new(-40,3.8,160)}) do\n local path=PS:CreatePath({AgentRadius=2,AgentHeight=5,AgentCanJump=true})\n pcall(function() path:ComputeAsync(s,t) end)\n table.insert(pts,{tostring(t),path.Status.Name,down(t)})\nend\nout.pts=pts\nlocal hit=workspace:Raycast(s,Vector3.new(11,0,62))\nout.ray=hit and hit.Instance:GetFullName() or 'clear'\nreturn HS:JSONEncode(out)",
+              "why": "Find where the path breaks: floor under start and target, and incremental path targets"
+            },
+            "result": "{\"ray\":\"Workspace.Map.Station.LockerRoom.Locker.Door\",\"pts\":[[\"-51, 3.799999952316284, 118\",\"Success\",\"Workspace.Map.Station.Roof.RoofSlab y=25.600000381469727 cc=true\"],[\"-51, 3.799999952316284, 130\",\"Success\",\"Workspace.Map.Station.Roof.RoofSlab y=25.600000381469727 cc=true\"],[\"-51, 3.799999952316284, 150\",\"NoPath\",\"Workspace.Map.Station.Roof.RoofSlab y=25.600000381469727 cc=true\"],[\"-40, 3.799999952316284, 165\",\"Success\",\"Workspace.Map.Station.Ground.Plaza y=0.5 cc=true\"],[\"-40, 3.799999952316284, 170\",\"NoPath\",\"Workspace.Map.Station.Lobby.BoardHeader y=12.100000381469727 cc=true\"],[\"-40, 3.799999952316284, 160\",\"NoPath\",\"Workspace.Map.Station.Roof.RoofSlab y=25.600000381469727 cc=true\"]],\"targetFloor\":\"Workspace.Map.Station.Lobby.BoardHeader y=12.100000381469727 cc=true\",\"startFloor\":\"Workspace.Map.Station.Roof.RoofSlab y=25.600000381469727 cc=true\"}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal ps=workspace:GetPartBoundsInBox(CFrame.new(-45,5,140),Vector3.new(60,12,80))\nlocal out={}\nfor _,p in ipairs(ps) do if p.CanCollide and p.Name~='Terrain' then table.insert(out,(p:GetFullName():gsub('Workspace.Map.',''))..' pos='..tostring(p.Position)..' size='..tostring(p.Size)) end end\ntable.sort(out)\nlocal o2={}\nfor i=1,math.min(#out,40) do o2[i]=out[i] end\nreturn HS:JSONEncode({n=#out,parts=o2})",
+              "why": "List collidable parts between start and the Mission Board to find blocking geometry"
+            },
+            "result": "{\"parts\":[\"City.Ground.Grass pos=-1.5, -5.099999904632568, -165 size=1039, 10, 1110\",\"Station.Alarms.AlarmLight.Housing pos=-30, 11.199999809265137, 158 size=0.800000011920929, 2.4000000953674316, 2.4000000953674316\",\"Station.Alarms.AlarmLight.Housing pos=-40, 11.199999809265137, 110 size=0.800000011920929, 2.4000000953674316, 2.4000000953674316\",\"Station.Alarms.AlarmLight.Housing pos=-50, 11.199999809265137, 142 size=0.800000011920929, 2.4000000953674316, 2.4000000953674316\",\"Station.Alarms.AlarmSpeaker pos=-40, 10.399999618530273, 128 size=1.7999999523162842, 1.7999999523162842, 1.399999976158142\",\"Station.Alarms.AlarmSpeaker pos=-58.599998474121094, 10, 159.5 size=1.7999999523162842, 1.7999999523162842, 1.399999976158142\",\"Station.ApparatusFloor.SafetyBoard pos=-19.399999618530273, 7.099999904632568, 126 size=10, 5, 0.4000000059604645\",\"Station.Bays.Bay1.DoorRail pos=-18, 9.100000381469727, 160.5500030517578 size=0.6000000238418579, 17, 0.699999988079071\",\"Station.Building.BladeSign pos=-61.20000076293945, 16.600000381469727, 158 size=0.6000000238418579, 12, 3\",\"Station.Building.Corner pos=-60, 12.899999618530273, 162 size=2.4000000953674316, 25.799999237060547, 2.4000000953674316\",\"Station.Building.HallFloor pos=20, 0.10000000149011612, 127 size=80, 1, 70\",\"Station.Building.KitchenFloor pos=-30, 0.10000000149011612, 150 size=20, 1, 24\",\"Station.Building.LockerFloor pos=-40, 0.10000000149011612, 115 size=40, 1, 46\",\"Station.Building.Partition1 pos=-20, 12.600000381469727, "
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal ps=workspace:GetPartBoundsInBox(CFrame.new(-45,3.5,145),Vector3.new(50,5,50))\nlocal out={}\nfor _,p in ipairs(ps) do if p.CanCollide and p.Name~='Terrain' then local top=p.Position.Y+p.Size.Y/2 table.insert(out,(p:GetFullName():gsub('Workspace.Map.',''))..' p='..tostring(p.Position)..' s='..tostring(p.Size)..' top='..top) end end\nlocal mods={}\nfor _,d in ipairs(workspace:GetDescendants()) do if d:IsA('PathfindingModifier') or d:IsA('PathfindingLink') then table.insert(mods,d:GetFullName()..' '..tostring(d:IsA('PathfindingModifier') and d.PassThrough or '')) if #mods>10 then break end end end\ntable.sort(out)\nlocal o2={} for i=1,math.min(#out,35) do o2[i]=out[i] end\nreturn HS:JSONEncode({n=#out,parts=o2,mods=mods})",
+              "why": "List collidable parts at walking height around the blocked region and any PathfindingModifiers"
+            },
+            "result": "{\"parts\":[\"Station.Building.Corner p=-60, 12.899999618530273, 162 s=2.4000000953674316, 25.799999237060547, 2.4000000953674316 top=25.799999237060547\",\"Station.Building.Partition3 p=-20, 12.600000381469727, 119.5 s=7, 24, 1 top=24.600000381469727\",\"Station.Building.Partition4 p=-20, 8.100000381469727, 130 s=14, 15, 1 top=15.600000381469727\",\"Station.Building.Partition6 p=-20, 12.600000381469727, 142.5 s=11, 24, 1 top=24.600000381469727\",\"Station.Building.Partition8 p=-20, 12.600000381469727, 157.5 s=7, 24, 1 top=24.600000381469727\",\"Station.Building.Pilaster p=-20, 12.300000190734863, 162.39999389648438 s=3, 24.600000381469727, 0.800000011920929 top=24.600000381469727\",\"Station.Building.WallLockerFront1 p=-55.5, 6.099999904632568, 138 s=7, 11, 1 top=11.599999904632568\",\"Station.Building.WallLockerFront3 p=-39.5, 6.099999904632568, 138 s=15, 11, 1 top=11.599999904632568\",\"Station.Building.WallLockerFront5 p=-23.75, 6.099999904632568, 138 s=6.5, 11, 1 top=11.599999904632568\",\"Station.Building.WallS1 p=-58, 12.600000381469727, 161.5 s=4, 24, 1 top=24.600000381469727\",\"Station.Building.WallS12 p=-30, 12.600000381469727, 161.5 s=2, 24, 1 top=24.600000381469727\",\"Station.Building.WallS13 p=-26, 2.0999999046325684, 161.5 s=6, 3, 1 top=3.5999999046325684\",\"Station.Building.WallS16 p=-20.5, 12.600000381469727, 161.5 s=5, 24, 1 top=24.600000381469727\",\"Station.Building.WallS4 p=-48.5, 12.600000381469727, 161.5 s=3, 24, 1 top=24.600000381469727\",\"Station.Building.WallS5 p=-44, 2.0999999"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local HS=game:GetService('HttpService')\nlocal PS=game:GetService('PathfindingService')\nlocal plr=game.Players:GetPlayers()[1]\nlocal s=plr.Character:GetPivot().Position\nlocal mb=workspace.Map.Station.Lobby.MissionBoard\nlocal parts={}\nfor _,d in ipairs(mb:GetDescendants()) do if d:IsA('BasePart') then table.insert(parts,d.Name..' p='..tostring(d.Position)..' s='..tostring(d.Size)..' cc='..tostring(d.CanCollide)) end end\nlocal pts={}\nfor _,z in ipairs({164,166,168,170,172,175,180}) do\n for _,y in ipairs({1.5,3.8}) do\n  local t=Vector3.new(-40,y,z)\n  local path=PS:CreatePath({AgentRadius=2,AgentHeight=5,AgentCanJump=true})\n  pcall(function() path:ComputeAsync(s,t) end)\n  table.insert(pts,z..'/'..y..':'..path.Status.Name)\n end\nend\nlocal pr=mb:FindFirstChild('BoardPrompt',true)\nreturn HS:JSONEncode({parts=parts,pts=pts,prompt=pr and pr:GetFullName(),pdist=pr and pr.MaxActivationDistance,start=tostring(s)})",
+              "why": "Inspect board geometry and find which nearby targets are reachable"
+            },
+            "result": "{\"pdist\":16,\"start\":\"-51, 3.800048828125, 108\",\"prompt\":\"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\",\"pts\":[\"164/1.5:Success\",\"164/3.8:Success\",\"166/1.5:Success\",\"166/3.8:Success\",\"168/1.5:Success\",\"168/3.8:Success\",\"170/1.5:Success\",\"170/3.8:NoPath\",\"172/1.5:Success\",\"172/3.8:Success\",\"175/1.5:Success\",\"175/3.8:Success\",\"180/1.5:Success\",\"180/3.8:Success\"],\"parts\":[]}"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16ab8db147582a0f1f3541dda9aa8",
+          "mreq_01a16ab8f3137e739a9dbbb519a77ce5",
+          "mreq_01a16ab91b1c7b31abdd91956594abcc",
+          "mreq_01a16ab940dd75a39f00b5e180c4e653",
+          "mreq_01a16ab96d0374809855984a282f7824",
+          "mreq_01a16ab9a80172c0822ab8260b12ed1e",
+          "mreq_01a16ab9f62e7663a0218e202f64075f",
+          "mreq_01a16aba18927d30ad6761a5e8d98f7b"
+        ]
+      },
+      "version": "v7",
+      "status": "kept"
+    }
+  ],
+  "code_kept": 1
+}

@@ -1,0 +1,34 @@
+[cycle 3] planted 0 faults: 
+[auditor] 4 anomalies, detected 0/0 mreq_01a16ac39e597573ac587bf24b3d9f7e
+[versions] v9: the game before this cycle's fixes
+[investigator] probe (Server): Find the Mission Board prompt and its state -> Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | en=true hold=0.5 dist=8 parentPo
+[investigator] probe (Server): Locate the Mission Board prompt specifically (previous output was truncated) -> 1
+Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt | Pick a call | obj=Mission Board en=true hold=0 dist=16 los=fals
+[investigator] read ServerScriptService/Services/LobbyService.luau
+[investigator] probe (Client): Test triggering the Mission Board prompt from the client and see whether Triggered fires and state c -> probe error: StudioError: execute_luau error: sabuiltin_Assistant.rbxm.Assistant.Packages._Index.AssistantUI.AssistantUI
+[investigator] probe (Client): Trigger the Mission Board prompt from the client and check whether Triggered fires and state changes -> fired=false dist=6.600189685821533 inst= squad= enabled=true parent=Workspace.Map.Station.Lobby.MissionBoard pos=-40, 3.
+[investigator] probe (Client): Compare the board prompt with a fresh control prompt for client-side Triggered firing -> board=false control=true style=Enum.ProximityPromptStyle.Default excl=Enum.ProximityPromptExclusivity.OnePerButton click
+[investigator] probe (Client): List nearby prompts that could conflict with the board prompt and show board prompt details -> Workspace.Map.Station.LockerRoom.GearRack3.GearRack.InvPrompt | Grab Oxygen Tank key=Enum.KeyCode.E en=true dist=9 los=f
+[investigator] root cause: The Mission Board's 'Pick a call' ProximityPrompt (Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt) is enabled and has the same key (E) and the default Exc -> ServerScriptService/Services/LobbyService.luau mreq_01a16ac4b8d974c0b2ae2e2305b45c47
+[fix] Mission Board 'Pick a call' prompt does not start the round: attempt 1 rejected unseen: Your fix removed 922 of the file's 1182 lines. A fix for one anomaly must be local: keep e
+[fix] Mission Board 'Pick a call' prompt does not start the round: attempt 2 rejected unseen: Your fix removed 620 of the file's 1182 lines. A fix for one anomaly must be local: keep e
+[fix] Mission Board 'Pick a call' prompt does not start the round: no attempt verified, ServerScriptService/Services/LobbyService.luau restored
+[investigator] root cause: The Mission Board 'Pick a call' ProximityPrompt is never wired to the round start. This is a best guess from reading code only. I ran no probe that confirms it, -> ServerScriptService/Services/LobbyService.luau mreq_01a16ac619267af2a839f783e1ea09af
+[investigator] probe (Server): List all proximity prompts in the running game to locate the gear rack prompts and check their prope -> {"list":["Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | Hydrant | en=true hold
+[investigator] probe (Server): Find gear rack prompts specifically and check their properties -> {"list":["Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt | Grab Axe | Gear Rack | en=true hold=0 dist=9 p
+[investigator] read ServerScriptService/Services/InventoryService.luau
+[investigator] probe (Client): Trigger gear rack prompt from the client and see whether it fires and grants a tool -> {"enabled":true,"dist":4.308132171630859,"style":"Enum.ProximityPromptStyle.Custom","fired":false,"tools":[],"attrs":{"I
+[investigator] probe (Client): Control: do fresh Default and Custom-style prompts trigger from the client in the locker room? -> {"Enum.ProximityPromptStyle.Custom":false,"Enum.ProximityPromptStyle.Default":false}
+[investigator] probe (Client): Check whether ProximityPromptService is enabled and prompts get shown/triggered at all for the local -> {"ppsTrig":false,"trig":false,"shown":false,"state":"Enum.HumanoidStateType.Running","health":100,"pos":"-52.70000076293
+[investigator] probe (Client): Check camera position vs character (prompt visibility depends on camera distance) and list client sc -> {"camPos":"-52.70000076293945, 5.24940824508667, 105.48296356201172","scripts":["PlayerModule","ControlModule","VehicleC
+[investigator] root cause: Most likely a testing artefact, not a game bug. Client-side `InputHoldBegin`/`InputHoldEnd` does not trigger any ProximityPrompt in this playtest. A fresh plain -> ServerScriptService/Services/InventoryService.luau mreq_01a16ac78f7070c2974cecf0852ae3d5
+[fix] Gear rack prompts never grant tools: attempt 1 rejected unseen: Your fix removed 1115 of the file's 1548 lines. A fix for one anomaly must be local: keep 
+[fix] Gear rack prompts never grant tools: attempt 2 rejected unseen: Your fix removed 1542 of the file's 1548 lines. A fix for one anomaly must be local: keep 
+[fix] Gear rack prompts never grant tools: no attempt verified, ServerScriptService/Services/InventoryService.luau restored
+[investigator] root cause: Unverified, because I had no probe results. The most likely cause is a link break between the gear rack prompts and the code that grants the tools. The rack Pro -> ServerScriptService/Services/InventoryService.luau mreq_01a16ac9402d7b23bbf7686f7f76f14d
+[reflector] lessons updated from 4 rejected fix attempt(s)
+[cycle 3] detected 0/0, unmatched anomalies 4, fixed+verified 0, open 3, code fixes kept 0/2 -> /Users/sonionring/orca/mubithack/runs/flame-and-blame/improve/3.json
+cycle planted detected missed unmatched fixed open code kept  ts
+    1       0        0      0         4     0    3       0/1  2026-10-23T21:35:48Z
+    2       0        0      0         4     0    3       1/2  2026-10-23T21:49:56Z
+    3       0        0      0         4     0    3       0/2  2026-10-23T22:02:46Z

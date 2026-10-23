@@ -1,0 +1,62 @@
+[
+  {
+    "cycle": 1,
+    "ts": "2026-10-23T21:35:48Z",
+    "planted": 0,
+    "detected": 0,
+    "missed": 0,
+    "unmatched": 4,
+    "fixed_verified": 0,
+    "open": 3,
+    "code_kept": 0,
+    "code_tried": 1
+  },
+  {
+    "cycle": 2,
+    "ts": "2026-10-23T21:49:56Z",
+    "planted": 0,
+    "detected": 0,
+    "missed": 0,
+    "unmatched": 4,
+    "fixed_verified": 0,
+    "open": 3,
+    "code_kept": 1,
+    "code_tried": 2
+  },
+  {
+    "cycle": 3,
+    "ts": "2026-10-23T22:02:46Z",
+    "planted": 0,
+    "detected": 0,
+    "missed": 0,
+    "unmatched": 4,
+    "fixed_verified": 0,
+    "open": 3,
+    "code_kept": 0,
+    "code_tried": 2
+  },
+  {
+    "cycle": 4,
+    "ts": "2026-10-23T22:12:02Z",
+    "planted": 0,
+    "detected": 0,
+    "missed": 0,
+    "unmatched": 3,
+    "fixed_verified": 0,
+    "open": 3,
+    "code_kept": 0,
+    "code_tried": 2
+  },
+  {
+    "cycle": 5,
+    "ts": "2026-10-23T23:38:02Z",
+    "planted": 0,
+    "detected": 0,
+    "missed": 0,
+    "unmatched": 6,
+    "fixed_verified": 0,
+    "open": 4,
+    "code_kept": 0,
+    "code_tried": 4
+  }
+]

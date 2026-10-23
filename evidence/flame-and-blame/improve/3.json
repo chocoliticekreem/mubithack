@@ -1,0 +1,338 @@
+{
+  "cycle": 3,
+  "ts": "2026-10-23T22:02:46Z",
+  "session_id": "improve-flame-and-blame-3",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "planted": 0,
+  "detected": 0,
+  "missed": 0,
+  "unmatched": 4,
+  "fixed_verified": 0,
+  "score": {
+    "planted": 0,
+    "detected": [],
+    "missed": [],
+    "anomaly_for": {},
+    "unmatched_anomalies": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "audit": {
+    "summary": "Only one round was played, and it never got past the lobby. The gear rack and Mission Board prompts failed, so no tools were granted and the round could not start. No gameplay systems (fire, hose, rescue, doors) produced any data.",
+    "anomalies": [
+      {
+        "kind": "broken_link",
+        "system": "mission board / round start",
+        "title": "Mission Board 'Pick a call' prompt does not start the round",
+        "expected": "Triggering the Mission Board prompt starts the alarm and teleports players to the Town, beginning the 3-minute round.",
+        "observed": "Round 1 judge reported the prompt does not trigger, so the round cannot start. goal_met is false, and there are no fire, rescue or water counters, only map and traffic setup counters.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "tools / gear rack",
+        "title": "Gear rack prompts never grant tools",
+        "expected": "Using the gear rack prompts gives the player the hose and axe.",
+        "observed": "Round 1 judge reported the gear rack prompts never trigger, so no tool is granted. Without a hose or axe, the extinguish and door mechanics cannot be exercised.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "lobby navigation",
+        "title": "No walkable path from locker room to Mission Board",
+        "expected": "Players can walk from the locker room to the Mission Board and the gear rack.",
+        "observed": "Round 1 judge found no walkable path. This may be why the prompts could not be triggered.",
+        "severity": "low"
+      },
+      {
+        "kind": "balance",
+        "system": "round",
+        "title": "Core loop untested: no gameplay counters",
+        "expected": "Counters such as fires_extinguished, water_used, rescued and doors_broken are present and non-zero after a full round.",
+        "observed": "None of these counters exist in round 1. The playbook items (hose extinguishing, dropping a carried pet) cannot be verified from this evidence.",
+        "severity": "medium"
+      }
+    ],
+    "request_id": "mreq_01a16ac39e597573ac587bf24b3d9f7e"
+  },
+  "correction": null,
+  "verdicts": [],
+  "before": [
+    {
+      "round": 1,
+      "goal": "Play a full round: put out fires, rescue everyone, refill water",
+      "goal_met": false,
+      "players": 1,
+      "counters": {
+        "leaderboard_refreshes": 1,
+        "city_sites": 24,
+        "props_woken": 10,
+        "city_parts": 25105,
+        "data_loaded": 1,
+        "trucks_built": 1,
+        "traffic_despawned": 40,
+        "traffic_graph_loaded": 1,
+        "traffic_honks": 5,
+        "data_saved": 1,
+        "traffic_spawned": 54,
+        "map_build_ms": 214,
+        "props_registered": 87,
+        "props_slept": 1
+      },
+      "errors": {
+        "count": 0,
+        "first": []
+      },
+      "bugs": [
+        {
+          "title": "Gear rack prompts never trigger, so no tool is granted",
+          "severity": "high"
+        },
+        {
+          "title": "Mission Board 'Pick a call' prompt does not trigger, so the round cannot start",
+          "severity": "high"
+        },
+        {
+          "title": "No walkable path from the locker room to the Mission Board",
+          "severity": "low"
+        }
+      ],
+      "events": {
+        "count": 12
+      }
+    }
+  ],
+  "open": 3,
+  "code_fixes": [
+    {
+      "anomaly": "Mission Board 'Pick a call' prompt does not start the round",
+      "path": "ServerScriptService/Services/LobbyService.luau",
+      "attempts": [
+        {
+          "status": "too_destructive",
+          "error": "Your fix removed 922 of the file's 1182 lines. A fix for one anomaly must be local: keep every unrelated function, part and comment exactly as it was and change only the lines the root cause needs.",
+          "removed_lines": 922
+        },
+        {
+          "status": "too_destructive",
+          "error": "Your fix removed 620 of the file's 1182 lines. A fix for one anomaly must be local: keep every unrelated function, part and comment exactly as it was and change only the lines the root cause needs.",
+          "removed_lines": 620
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "The Mission Board's 'Pick a call' ProximityPrompt (Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt) is enabled and has the same key (E) and the default Exclusivity (OnePerButton) as the Bell prompt (dist 10) and the LockerRoom gear-rack InvPrompts (dist 9) crowded around it. With OnePerButton only one prompt per key is active at a time, so standing at the board a neighbouring E prompt can win and the board prompt never fires. LobbyService never runs StartMission from it, so no round starts. This is inferred from the probes; I did not directly confirm which neighbouring prompt was active. A client-created control prompt with the same settings fired normally, so the engine and prompt mechanics work and the problem is specific to this prompt's configuration or placement. Part of the failure may also be an artefact of the synthetic InputHoldBegin test.",
+          "file": "ServerScriptService/Services/LobbyService.luau",
+          "evidence": "Probe 5: BoardPrompt Triggered fired=false at 6.6 studs with the prompt enabled and the player's InstanceId/SquadId empty. Probe 6: a fresh control ProximityPrompt (hold 0, dist 16, no LOS) fired Triggered=true in the same spot, while the board prompt fired=false. Probe 7: BoardPrompt is KeyCode.E with OnePerButton; the Bell prompt (E, dist 10) and gear-rack InvPrompts (E, dist 9) are within 60 studs of it.",
+          "fix_hint": "Where LobbyService sets up the MissionBoard prompt, give BoardPrompt a unique KeyboardKeyCode (e.g. R), or set Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow, and move or shrink the Bell and gear-rack prompt ranges so they don't overlap the board. Confirm its Triggered handler calls LobbyService:Launch / MissionService:StartMission."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(workspace:GetDescendants()) do if d:IsA(\"ProximityPrompt\") then table.insert(out,d:GetFullName()..\" | \"..d.ActionText..\" | en=\"..tostring(d.Enabled)..\" hold=\"..d.HoldDuration..\" dist=\"..d.MaxActivationDistance..\" parentPos=\"..tostring(d.Parent and d.Parent:IsA(\"BasePart\") and d.Parent.Position or \"n/a\")) end end return table.concat(out,\"\\n\")",
+              "why": "Find the Mission Board prompt and its state"
+            },
+            "result": "Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | en=true hold=0.5 dist=8 parentPos=-868, 1.600000023841858, -838.5\nWorkspace.Map.City.Districts.Farm.Farm.Barn.BarnSideDoor.ProximityPrompt | Break (axe) | en=true hold=0 dist=8 parentPos=-844.5, 4, -894.5\nWorkspace.Map.City.Districts.Farm.Farm.Farmhouse.FrontDoor.ProximityPrompt | Open | en=true hold=0 dist=8 parentPos=-1000, 4.5, -876\nWorkspace.Map.City.Districts.Farm.Farm.Farmhouse.BackDoor.ProximityPrompt | Break (axe) | en=true hold=0 dist=8 parentPos=-1003, 4.5, -896\nWorkspace.Map.City.Districts.Farm.Farm.DuckPond.Water.ProximityPrompt | Supply line | en=true hold=0.5 dist=16 parentPos=-760, 0.3499999940395355, -884\nWorkspace.Map.City.Districts.Town.Town_Band.house-Town-1.Hydrant.Body.ProximityPrompt | Supply line | en=true hold=0.5 dist=8 parentPos=100, 2.2200000286102295, -1141\nWorkspace.Map.City.Districts.Town.Town_Band.house-Town-1.Door.ProximityPrompt | Open | en=true hold=0 dist=8 parentPos=127, 5.21999979019165, -1177\nWorkspace.Map.City.Districts.Town.Town_Band.house-Town-2.Hydrant.Body.ProximityPrompt | Supply line | en=true hold=0.5 dist=8 parentPos=224, 2.2200000286102295, -659\nWorkspace.Map.City.Districts.Town.Town_Band.house-Town-2.Door.ProximityPrompt | Open | en=true hold=0 dist=8 parentPos=197, 5.21999979019165, -623\nWorkspace.Map.City.Districts.Town.Town_Band.house-Town-3.Hydrant.Body.ProximityPrompt | Supply line | en=true hold=0.5 dist=8 parentPos=-241, 2.22000002861"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(game:GetDescendants()) do if d:IsA(\"ProximityPrompt\") and (d.ActionText:find(\"Pick\") or d.ObjectText:find(\"Mission\") or d:GetFullName():lower():find(\"board\")) then table.insert(out,d:GetFullName()..\" | \"..d.ActionText..\" | obj=\"..d.ObjectText..\" en=\"..tostring(d.Enabled)..\" hold=\"..d.HoldDuration..\" dist=\"..d.MaxActivationDistance..\" los=\"..tostring(d.RequiresLineOfSight)..\" pos=\"..tostring(d.Parent:IsA(\"BasePart\") and d.Parent.Position or d.Parent.ClassName)) end end return #out..\"\\n\"..table.concat(out,\"\\n\")",
+              "why": "Locate the Mission Board prompt specifically (previous output was truncated)"
+            },
+            "result": "1\nWorkspace.Map.Station.Lobby.MissionBoard.BoardPrompt | Pick a call | obj=Mission Board en=true hold=0 dist=16 los=false pos=-40, 6.25, 170"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/Services/LobbyService.luau",
+              "why": "Find the handler for the MissionBoard BoardPrompt and see what happens when it triggers"
+            },
+            "result": "--!strict\n-- LobbyService [owner: G3]. The fire station is the LOBBY. Players spawn on the StationSpawn pads.\n-- A big Mission Board (tag MissionBoard: SurfaceGui + ProximityPrompt + ClickDetector) lists\n-- MissionCatalog; 3 glowing queue pads (tag SquadPad, attr PadId) on the apron each show their\n-- squad's call + \"2/4 READY\". Stepping on a pad joins its squad; the first player on a pad starts a\n-- countdown (LobbyConfig.CountdownSeconds, cut to FullCountdownSeconds when the squad is full, reset\n-- when the pad empties). At 3..2..1 the station alarm lamps flash; at 0 the alarm blares and the\n-- squad launches into its OWN mission instance (MissionService:StartMission), so several pads count\n-- down and launch in parallel. On MissionService.MissionEnded the squad comes home (\"Welcome back,\n-- heroes (mostly)\"). Idle fun: slide the fire pole, ring the bell, honk truck 67; standing still\n-- labels you \"on coffee break\". Queue/countdown rules live in the pure ReplicatedStorage/Lobby/LobbyQueue.\n-- LobbyConfig.UseLobby = false keeps v1's single auto-round (remotes are still declared).\n--\n-- Public API (contract, docs/game/03-tech-architecture.md §10 \"v1.5 additions\"):\n--   LobbyService:GetSquads(): { Types.Squad }\n--   LobbyService:GetSquad(squadId: string): Types.Squad?\n--   LobbyService:Join(player: Player, padId: number): string?     -- squadId; first on a pad leads\n--   LobbyService:Leave(player: Player)\n--   LobbyService:Choose(player: Player, missionId: string): boolean -- leader only, enabled missions only\n--   LobbyService:Launch(squadId: string, missionId: string): string? -- instanceId (MissionService:StartMission)\n--   LobbyService:ReturnToLobby(players: { Player })               -- back onto station pads, InstanceId = \"\"\n-- Signals: SquadChanged(squadId: string), Launched(squadId: string, missionId: string, instanceId: string)\n-- Remotes: Lobby/Board (S->C all: squads: { Types.Squad }), Lobby/Choose (C->S missionId: string, 2/s),\n--          Lobby/Launch (C->S none, 1/s; leader only: cuts the countdown to LaunchCountdown)\n--          added: Lobby/Countdown (S->C squad: padId: number, seconds: number (-1 = cancel), title: string)\n--                 Lobby/Fx (S->C one: kind: \"slide\" | \"welcome\" | \"toast\", ...args)\n-- Writes: Player attrs SquadId (\"\" = none), InstanceId (\"\" = in the lobby); Workspace.Map.Station.Lobby;\n--         counters squads_launched, lobby_joins, lobby_returns, lobby_bell, lobby_honk, lobby_pole, lobby_afk\n-- Test hooks (DevHook only): _join(player, padId), _launch(squadId, missionId), _selftest()\nlocal CollectionService = game:GetService(\"CollectionService\")\nlocal Debris = game:GetService(\"Debris\")\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerScriptService = game:GetService(\"ServerScriptService\")\nlocal TweenService = game:GetService(\"TweenService\")\n\nlocal Shared = ReplicatedStorage:WaitForChild(\"Shared\")\nlocal Signal = require(Shared:WaitForChild(\"Signal\") :: ModuleScript)\nlocal Net = require(Shared:WaitForChild(\"Net\") :: ModuleScript)\nlocal Popup = require(Shared:WaitForChild(\"Popup\") :: ModuleScript)\nlocal Names = require(Shared:WaitForChild(\"Names\") :: ModuleScript)\nlocal Types = require(Shared:WaitForChild(\"Types\") :: ModuleScript)\nlocal ConfigDir = ReplicatedStorage:WaitForChild(\"Config\")\nlocal LobbyConfig = require(ConfigDir:WaitForChild(\"LobbyConfig\") :: ModuleScript) :: any\nlocal MapConfig = require(ConfigDir:WaitForChild(\"MapConfig\") :: ModuleScript) :: any\nlocal MissionCatalog = require(ConfigDir:WaitForChild(\"MissionCatalog\") :: ModuleScript) :: { any }\nlocal LobbyQueue = require(ReplicatedStorage:WaitForChild(\"Lobby\"):WaitForChild(\"LobbyQueue\") :: ModuleScript)\n\nlocal LobbyService = {}\nLobbyService.Priority = 55\nLobbyService.SquadChanged = Signal.new() :: Signal.Signal<string>\nLobbyService.Launched = Signal.new() :: Signal.Signal<string, string, string>\n\ntype ActiveSquad = Types.Squad & { fallback: boolean? }\n\nlocal services: { [string]: any } = {}\nlocal byId: { [string]: any } = {}\nlocal queue: LobbyQueue.State? = nil\nlocal built: any = nil -- LobbyProps.Built\nlocal stationModel: Model? = nil\nlocal active: { [string]: ActiveSquad } = {} -- launched squads (InMission), by squadId\nlocal remotes: { [string]: RemoteEvent } = {}\nlocal afk: { [Player]: { pos: Vector3, t: number, tagged: boolean } } = {}\nlocal cooldown: { [string]: number } = {}\nlocal fallbackSeq = 0\nlocal launching: { [number]: boolean } = {} -- userIds between countdown 0 and InstanceId being set\n\nlocal function count(name: string, n: number?)\n\tpcall(function()\n\t\trequire(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\") :: ModuleScript).count(name, n or 1)\n\tend)\nend\n\nlocal function catalogIndex()\n\ttable.clear(byId)\n\tfor _, m in MissionCatalog do\n\t\tbyId[m.id] = m\n\tend\nend\n\nlocal function firstEnabled(): string?\n\tfor _, m in MissionCatalog do\n\t\tif m.enabled then\n\t\t\treturn m.id\n\t\tend\n\tend\n\treturn nil\nend\n\nlocal function title(missionId: string?): string\n\tlocal def = missionId and byId[missionId]\n\treturn if def then def.title else \"No call\"\nend\n\nlocal function playerById(uid: number): Player?\n\treturn Players:GetPlayerByUserId(uid)\nend\n\nlocal function rootOf(player: Player): BasePart?\n\tlocal char = player.Character\n\treturn char and char:FindFirstChild(\"HumanoidRootPart\") :: BasePart?\nend\n\nlocal function inLobby(player: Player): boolean\n\tlocal id = player:GetAttribute(Names.Attr.InstanceId)\n\treturn id == nil or id == \"\"\nend\n\nlocal function ready(key: string, seconds: number): boolean\n\tlocal now = os.clock()\n\tif (cooldown[key] or 0) > now then\n\t\treturn false\n\tend\n\tcooldown[key] = now + seconds\n\treturn true\nend\n\nlocal function playSound(parent: Instance, soundId: string, volume: number?)\n\tif soundId == nil or soundId == \"\" then\n\t\treturn\n\tend\n\tlocal s = Instance.new(\"Sound\")\n\ts.SoundId = soundId\n\ts.Volume = volume or 1\n\ts.RollOffMaxDistance = 160\n\ts.Parent = parent\n\ts:Play()\n\tDebris:AddItem(s, 8)\nend\n\n-- \"HONK!\" / \"DING!\" pop-up over a part, visible to everyone nearby.\nlocal function popText(adornee: BasePart, str: string, _color: Color3, _height: number)\n\tPopup.show(adornee, str, \"blame\") -- small world text for players nearby (ClientLib/WorldPopup)\nend\n\n------------------------------------------------------------------ squads as Types.Squad\n\nlocal function padSquad(pad: LobbyQueue.Pad): Types.Squad?\n\tif not pad.squadId or #pad.members == 0 then\n\t\treturn nil\n\tend\n\tlocal secs = pad.remaining and math.ceil(pad.remaining) or nil\n\treturn {\n\t\tid = pad.squadId,\n\t\tpadId = pad.padId,\n\t\tleader = pad.leader or pad.members[1],\n\t\tmembers = table.clone(pad.members),\n\t\tmissionId = pad.missionId,\n\t\tinstanceId = nil,\n\t\tstate = if secs and secs <= LobbyConfig.FullCountdownSeconds then \"Launching\" else \"Forming\",\n\t}\nend\n\nfunction LobbyService:GetSquads(): { Types.Squad }\n\tlocal out: { Types.Squad } = {}\n\tif queue then\n\t\tfor _, pad in queue.pads do\n\t\t\tlocal s = padSquad(pad)\n\t\t\tif s then\n\t\t\t\ttable.insert(out, s)\n\t\t\tend\n\t\n...[28068 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal lp=game.Players.LocalPlayer\nlocal hrp=lp.Character.HumanoidRootPart\nhrp.CFrame=CFrame.new(p.Parent.Position+Vector3.new(0,0,-6))\ntask.wait(0.5)\nlocal fired=false\nlocal c=p.Triggered:Connect(function() fired=true end)\np:InputHoldBegin()\ntask.wait(0.3)\np:InputHoldEnd()\ntask.wait(1)\nc:Disconnect()\nreturn \"fired=\"..tostring(fired)..\" dist=\"..(hrp.Position-p.Parent.Position).Magnitude..\" inst=\"..tostring(lp:GetAttribute(\"InstanceId\")))..\" squad=\"..tostring(lp:GetAttribute(\"SquadId\"))..\" enabled=\"..tostring(p.Enabled)..\" parent=\"..p.Parent:GetFullName()..\" pos=\"..tostring(hrp.Position)",
+              "why": "Test triggering the Mission Board prompt from the client and see whether Triggered fires and state changes"
+            },
+            "result": "probe error: StudioError: execute_luau error: sabuiltin_Assistant.rbxm.Assistant.Packages._Index.AssistantUI.AssistantUI.Tools.ExecuteLuauTool:126: sabuiltin_Assistant.rbxm.Assistant.Packages._Index.AssistantUI.AssistantUI.Util.CommandExecution:54: Failed to parse command code"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal lp=game.Players.LocalPlayer\nlocal hrp=lp.Character.HumanoidRootPart\nhrp.CFrame=CFrame.new(p.Parent.Position+Vector3.new(0,0,-6))\ntask.wait(0.5)\nlocal fired=false\nlocal c=p.Triggered:Connect(function() fired=true end)\np:InputHoldBegin()\ntask.wait(0.3)\np:InputHoldEnd()\ntask.wait(1)\nc:Disconnect()\nreturn 'fired='..tostring(fired)..' dist='..tostring((hrp.Position-p.Parent.Position).Magnitude)..' inst='..tostring(lp:GetAttribute('InstanceId'))..' squad='..tostring(lp:GetAttribute('SquadId'))..' enabled='..tostring(p.Enabled)..' parent='..p.Parent:GetFullName()..' pos='..tostring(hrp.Position)",
+              "why": "Trigger the Mission Board prompt from the client and check whether Triggered fires and state changes"
+            },
+            "result": "fired=false dist=6.600189685821533 inst= squad= enabled=true parent=Workspace.Map.Station.Lobby.MissionBoard pos=-40, 3.4999992847442627, 164"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal lp=game.Players.LocalPlayer\nlocal hrp=lp.Character.HumanoidRootPart\nlocal part=Instance.new('Part') part.Anchored=true part.CanCollide=false part.Transparency=0.5 part.Size=Vector3.new(2,2,2) part.CFrame=hrp.CFrame*CFrame.new(0,0,-4) part.Parent=workspace\nlocal cp=Instance.new('ProximityPrompt') cp.HoldDuration=0 cp.MaxActivationDistance=16 cp.RequiresLineOfSight=false cp.Parent=part\ntask.wait(0.5)\nlocal f1,f2=false,false\nlocal c1=p.Triggered:Connect(function() f1=true end)\nlocal c2=cp.Triggered:Connect(function() f2=true end)\np:InputHoldBegin() p:InputHoldEnd()\ncp:InputHoldBegin() cp:InputHoldEnd()\ntask.wait(1)\npart:Destroy()\nreturn 'board='..tostring(f1)..' control='..tostring(f2)..' style='..tostring(p.Style)..' excl='..tostring(p.Exclusivity)..' clickable='..tostring(p.ClickablePrompt)..' attrs='..game:GetService('HttpService'):JSONEncode(p:GetAttributes())..' tags='..table.concat(game:GetService('CollectionService'):GetTags(p.Parent.Parent),',')",
+              "why": "Compare the board prompt with a fresh control prompt for client-side Triggered firing"
+            },
+            "result": "board=false control=true style=Enum.ProximityPromptStyle.Default excl=Enum.ProximityPromptExclusivity.OnePerButton clickable=true attrs=[] tags="
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p=workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal out={}\nfor _,d in ipairs(workspace:GetDescendants()) do if d:IsA('ProximityPrompt') and d.Parent:IsA('BasePart') and (d.Parent.Position-p.Parent.Position).Magnitude<60 then table.insert(out,d:GetFullName()..' | '..d.ActionText..' key='..tostring(d.KeyboardKeyCode)..' en='..tostring(d.Enabled)..' dist='..d.MaxActivationDistance..' los='..tostring(d.RequiresLineOfSight)..' excl='..tostring(d.Exclusivity)) end end\nlocal b=p.Parent\nreturn table.concat(out,'\\n')..'\\nboard part: '..b.ClassName..' size='..tostring(b.Size)..' key='..tostring(p.KeyboardKeyCode)..' hold='..p.HoldDuration..' mdist='..p.MaxActivationDistance..' los='..tostring(p.RequiresLineOfSight)..' attach='..p.Parent.Parent.ClassName..' parentAnchored='..tostring(b.Anchored)",
+              "why": "List nearby prompts that could conflict with the board prompt and show board prompt details"
+            },
+            "result": "Workspace.Map.Station.LockerRoom.GearRack3.GearRack.InvPrompt | Grab Oxygen Tank key=Enum.KeyCode.E en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.LockerRoom.GearRack2.GearRack.InvPrompt | Grab Extinguisher key=Enum.KeyCode.E en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.LockerRoom.GearRack4.GearRack.InvPrompt | Grab Axe key=Enum.KeyCode.E en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.Lobby.Bell.BellPrompt | Ring the bell key=Enum.KeyCode.E en=true dist=10 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.Lobby.SquadPad2.PadPrompt | Change call key=Enum.KeyCode.F en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.Lobby.SquadPad1.PadPrompt | Change call key=Enum.KeyCode.F en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.Lobby.MissionBoard.BoardPrompt | Pick a call key=Enum.KeyCode.E en=true dist=16 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Map.Station.Lobby.SquadPad3.PadPrompt | Change call key=Enum.KeyCode.F en=true dist=9 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Trucks.FireTruck_2617803405.Door_L.DoorHandle_L.DoorPrompt | Open door key=Enum.KeyCode.E en=true dist=8 los=false excl=Enum.ProximityPromptExclusivity.OnePerButton\nWorkspace.Trucks.FireT"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16ac3bdf775f38f250302f853753b",
+          "mreq_01a16ac3d59c74909f2c2c61010bd64f",
+          "mreq_01a16ac3edad78f3a92d6dce7f8699f5",
+          "mreq_01a16ac40944735198cbf499f67e5430",
+          "mreq_01a16ac425737eb0aa9e099ad0a666fc",
+          "mreq_01a16ac4548a7582a9a1409cdf7ed3a7",
+          "mreq_01a16ac489d67361a2d0af0d2bce390e",
+          "mreq_01a16ac4b8d974c0b2ae2e2305b45c47"
+        ]
+      },
+      "reinvestigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "The Mission Board 'Pick a call' ProximityPrompt is never wired to the round start. This is a best guess from reading code only. I ran no probe that confirms it, and I could not check it against the file contents. LobbyService looks for the board prompt once at boot, and StationBuilder or LobbyProps may create it later or under a different name. In that case no Triggered handler is ever connected, and the prompt does nothing for players. This is a game bug and not a testing artefact. My earlier fix was rejected only for being too large (620 lines removed), so LobbyService is probably the right file but the change must be small.",
+          "file": "ServerScriptService/Services/LobbyService.luau",
+          "evidence": "No probe evidence. The symptom is that the prompt does not trigger and no fire, rescue or water counters appear, only map and traffic setup counters. That means the round start path never ran. The previous fix in LobbyService was rejected for size, not for being wrong.",
+          "fix_hint": "Change only the lines that find and connect the Mission Board prompt in LobbyService. Look the prompt up with WaitForChild, or listen for tagged prompts via CollectionService GetInstanceAddedSignal. Then connect prompt.Triggered to the existing round-start function. Leave every other function, part and comment in the file unchanged."
+        },
+        "steps": [],
+        "request_ids": [
+          "mreq_01a16ac619267af2a839f783e1ea09af"
+        ]
+      },
+      "status": "rolled_back"
+    },
+    {
+      "anomaly": "Gear rack prompts never grant tools",
+      "path": "ServerScriptService/Services/InventoryService.luau",
+      "attempts": [
+        {
+          "status": "too_destructive",
+          "error": "Your fix removed 1115 of the file's 1548 lines. A fix for one anomaly must be local: keep every unrelated function, part and comment exactly as it was and change only the lines the root cause needs.",
+          "removed_lines": 1115
+        },
+        {
+          "status": "too_destructive",
+          "error": "Your fix removed 1542 of the file's 1548 lines. A fix for one anomaly must be local: keep every unrelated function, part and comment exactly as it was and change only the lines the root cause needs.",
+          "removed_lines": 1542
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "Most likely a testing artefact, not a game bug. Client-side `InputHoldBegin`/`InputHoldEnd` does not trigger any ProximityPrompt in this playtest. A fresh plain prompt (Default and Custom style, no game code attached) never fired `Triggered`, and `ProximityPromptService.PromptShown` and `PromptTriggered` never fired for it either, even with the character 2-4 studs away and `ProximityPromptService.Enabled` true. The gear rack prompts themselves look correct: `InvPrompt` is enabled, hold=0, distance 9, `RequiresLineOfSight` false, Custom style drawn by InventoryController, and they sit on the GearRack parts. The grant path is `InventoryService` hooking the prompt's `Triggered` on the server and calling `Give`. I did not confirm that hook with a probe, and I did not read InventoryController, so the claim that a real player's prompt works rests on the control result and the code header alone. The judge's 'never trigger' result is explained by the test harness failing to drive prompts. I chose InventoryService because it owns the server-side grant, but no gameplay code change is clearly needed.",
+          "file": "ServerScriptService/Services/InventoryService.luau",
+          "evidence": "Probe 4: the client-simulated hold on GearRack1.InvPrompt gave fired=false and no tool, with the prompt enabled and the player 4.3 studs away. Probe 5: control prompts of both Default and Custom style, created fresh in the same room, also gave fired=false. Probe 6: for a plain prompt, shown=false, trig=false and ppsTrig=false, while ppsEnabled=true, health=100 and the humanoid was Running and not anchored. So prompts never show or trigger for the test client regardless of game code.",
+          "fix_hint": "No game change is clearly required. Test the grant on the server instead of through the client prompt, using the DevHook `InventoryService._give(player, 'axe')` or a server-side trigger of the rack prompt. If a real player in a normal client session still cannot grab gear, look at the InventoryController prompt rendering and the InventoryService prompt hook."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(workspace:GetDescendants()) do if d:IsA(\"ProximityPrompt\") then table.insert(out,d:GetFullName()..\" | \"..d.ActionText..\" | \"..d.ObjectText..\" | en=\"..tostring(d.Enabled)..\" hold=\"..d.HoldDuration..\" dist=\"..d.MaxActivationDistance) end end return game:GetService(\"HttpService\"):JSONEncode({n=#out, list={table.unpack(out,1,40)}})",
+              "why": "List all proximity prompts in the running game to locate the gear rack prompts and check their properties"
+            },
+            "result": "{\"list\":[\"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | Hydrant | en=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Barn.BarnSideDoor.ProximityPrompt | Break (axe) | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.FrontDoor.ProximityPrompt | Open | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.BackDoor.ProximityPrompt | Break (axe) | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Farm.Farm.DuckPond.Water.ProximityPrompt | Supply line | Pond | en=true hold=0.5 dist=16\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | en=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Door.ProximityPrompt | Open | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | en=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-2.Door.ProximityPrompt | Open | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-3.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | en=true hold=0.5 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-3.Door.ProximityPrompt | Open | Door | en=true hold=0 dist=8\",\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-4.Hydrant.Body.ProximityPrompt | Supply line | Hydrant | en=true ho"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out={} for _,d in ipairs(workspace:GetDescendants()) do if d:IsA(\"ProximityPrompt\") then local n=d:GetFullName():lower() local a=(d.ActionText..d.ObjectText):lower() if n:find(\"rack\") or n:find(\"gear\") or a:find(\"gear\") or a:find(\"rack\") or a:find(\"hose\") or (a:find(\"axe\") and not a:find(\"break\")) then table.insert(out,d:GetFullName()..\" | \"..d.ActionText..\" | \"..d.ObjectText..\" | en=\"..tostring(d.Enabled)..\" hold=\"..d.HoldDuration..\" dist=\"..d.MaxActivationDistance..\" parent=\"..d.Parent.ClassName..\" pos=\"..tostring(d.Parent:IsA(\"BasePart\") and d.Parent.Position or \"\")) end end end return game:GetService(\"HttpService\"):JSONEncode({n=#out,list={table.unpack(out,1,15)}})",
+              "why": "Find gear rack prompts specifically and check their properties"
+            },
+            "result": "{\"list\":[\"Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt | Grab Axe | Gear Rack | en=true hold=0 dist=9 parent=Part pos=-58.70000076293945, 5.199999809265137, 108\",\"Workspace.Map.Station.LockerRoom.GearRack2.GearRack.InvPrompt | Grab Extinguisher | Gear Rack | en=true hold=0 dist=9 parent=Part pos=-58.70000076293945, 5.199999809265137, 116\",\"Workspace.Map.Station.LockerRoom.GearRack3.GearRack.InvPrompt | Grab Oxygen Tank | Gear Rack | en=true hold=0 dist=9 parent=Part pos=-58.70000076293945, 5.199999809265137, 124\",\"Workspace.Map.Station.LockerRoom.GearRack4.GearRack.InvPrompt | Grab Axe | Gear Rack | en=true hold=0 dist=9 parent=Part pos=-58.70000076293945, 5.199999809265137, 132\",\"Workspace.Trucks.FireTruck_2617803405.Locker_L1.InvPrompt | Grab Axe | Truck | en=true hold=0 dist=9 parent=Part pos=-4.949999809265137, 4.900048732757568, 144.89999389648438\",\"Workspace.Trucks.FireTruck_2617803405.Locker_R1.InvPrompt | Grab Axe | Truck | en=true hold=0 dist=9 parent=Part pos=-15.050000190734863, 4.900048732757568, 144.89999389648438\",\"Workspace.Trucks.FireTruck_2617803405.Reel.ProximityPrompt | Grab Hose | Fire Truck 67 | en=true hold=0.5 dist=10 parent=Part pos=-10, 6.000024318695068, 134.39999389648438\"],\"n\":7}"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/Services/InventoryService.luau",
+              "why": "See how InvPrompt Triggered is handled and how tools are granted"
+            },
+            "result": "--!strict\n-- InventoryService [owner: Inventory]. The physical, goofy inventory that replaces the Roblox backpack\n-- (docs/game/08 \"Inventory\"). Gear is real stuff in the world: station GearRacks, truck compartments,\n-- the truck's hose reel, and anything dropped or thrown. Slot rules live in ReplicatedStorage/Lib/Items/\n-- ItemDefs (spec-tested); the item looks in Lib/Items/ItemProps.\n--\n-- Slots: HAND (one held item = a Tool under the character, made by ToolService:CreateTool so spraying\n--   and the axe keep working), BACK (one backable item, the oxygen tank by default; a welded model on\n--   your back), CARRY (a world prop tagged InventoryConfig.CarryTag held in both arms; NPC carry is\n--   RescueService's).\n--\n-- Public API:\n--   InventoryService:Give(player, itemId): boolean      -- a fresh item, by the ItemDefs grab rules\n--   InventoryService:Drop(player): boolean              -- G: carried prop first, else the hand item\n--   InventoryService:Throw(player, aim: Vector3, charge: number): boolean\n--   InventoryService:Swap(player): boolean              -- hand <-> back\n--   InventoryService:GetHand(player): string?   GetBack(player): string?\n--   InventoryService:Clear(player)                      -- silently empties every slot (no drops)\n-- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),\n--          Fumbled(player, itemId: string)\n-- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),\n--          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string)\n--          kinds: \"grab\", \"drop\", \"throw\", \"bonk\", \"fumble\", \"supply\", \"snap\", \"stow\"\n-- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment\n--   (attr Item), TruckRefill (the reel: nozzle), Hydrant (supply line), Truck (attrs OwnerUserId, Water,\n--   TankSize), CarryTag props. A truck with no TruckCompartment parts gets its \"Locker_*\" doors tagged.\n-- Writes: Player attrs InvHand, InvBack, InvCarry (\"\" = empty), OxygenAir, Foam/FoamSize (extinguisher),\n--   Water/TankSize (mirrors the hose's truck tank while you hold the nozzle);\n--   truck attrs Water, TankSize, SupplyLine (bool); workspace.LooseItems (Models tagged InventoryItem,\n--   attr Item); prompts with attr InvPrompt (Style Custom: InventoryController draws them).\n-- Calls (nil-guarded): ToolService:CreateTool, ToolService.WaterUsed, HeatService:GetHeat/Cool,\n--   Lib/Tools/HoseLine attach/detach, Shared/Ragdoll.\n-- Counters: inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,\n--   inv_hose_stowed, inv_supply_lines, inv_supply_snaps, inv_props_carried, inv_restocks\n-- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),\n--   _fumble(player), _reel(player, reel?), _hydrant(player, hydrant)\n\nlocal CollectionService = game:GetService(\"CollectionService\")\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal RunService = game:GetService(\"RunService\")\nlocal ServerScriptService = game:GetService(\"ServerScriptService\")\n\nlocal Shared = ReplicatedStorage:WaitForChild(\"Shared\")\nlocal Signal = require(Shared:WaitForChild(\"Signal\") :: ModuleScript)\nlocal Net = require(Shared:WaitForChild(\"Net\") :: ModuleScript)\nlocal Popup = require(Shared:WaitForChild(\"Popup\") :: ModuleScript)\nlocal Names = require(Shared:WaitForChild(\"Names\") :: ModuleScript)\nlocal Ragdoll = require(Shared:WaitForChild(\"Ragdoll\") :: ModuleScript)\nlocal Telemetry = require(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\") :: ModuleScript) :: any\nlocal ConfigFolder = ReplicatedStorage:WaitForChild(\"Config\")\nlocal Cfg = require(ConfigFolder:WaitForChild(\"InventoryConfig\") :: ModuleScript) :: any\nlocal ToolConfig = require(ConfigFolder:WaitForChild(\"ToolConfig\") :: ModuleScript) :: any\nlocal HoseLineConfig = require(ConfigFolder:WaitForChild(\"HoseLineConfig\") :: ModuleScript) :: any\nlocal ItemDefs = require(ReplicatedStorage:WaitForChild(\"Lib\"):WaitForChild(\"Items\"):WaitForChild(\"ItemDefs\") :: ModuleScript)\nlocal ItemProps = require(ServerScriptService:WaitForChild(\"Lib\"):WaitForChild(\"Items\"):WaitForChild(\"ItemProps\") :: ModuleScript)\n\nlocal InventoryService = {}\nInventoryService.Priority = 55\nInventoryService.Changed = Signal.new() :: Signal.Signal<Player>\nInventoryService.Bonked = Signal.new() :: Signal.Signal<Player, Player, string>\nInventoryService.Fumbled = Signal.new() :: Signal.Signal<Player, string>\n\nlocal TAG_ITEM = \"InventoryItem\"\nlocal TAG_RACK = \"GearRack\"\nlocal TAG_COMPARTMENT = \"TruckCompartment\"\nlocal ATTR_PROMPT = \"InvPrompt\"\n\ntype Data = { foam: number?, air: number?, reel: BasePart? }\ntype Held = { id: string, data: Data }\ntype PState = {\n\thand: Held?,\n\tback: Held?,\n\tcarry: Instance?,\n\tcarrySaved: { [BasePart]: { collide: boolean, massless: boolean } }?,\n\tcarryWeld: WeldConstraint?,\n\ttool: Tool?,\n\ttoolFor: Held?,\n\tbackModel: Model?,\n\tbackFor: Held?,\n\tlastNotify: number,\n}\ntype Loose = { id: string, data: Data, born: number, rope: RopeConstraint? }\ntype Flyer = { part: BasePart, thrower: Player, born: number, hit: { [Player]: true }, what: string }\ntype Supply = { hydrant: BasePart, truck: Model, rope: RopeConstraint, a0: Attachment, a1: Attachment, by: Player }\n\nlocal services: { [string]: any } = {}\nlocal states: { [Player]: PState } = {}\nlocal loose: { [Model]: Loose } = {}\nlocal looseOrder: { Model } = {}\nlocal reelHolder: { [BasePart]: Player } = {}\nlocal reelLoose: { [BasePart]: Model } = {}\nlocal flyers: { Flyer } = {}\nlocal supplies: { [BasePart]: Supply } = {}\nlocal stockHooked: { [BasePart]: true } = setmetatable({}, { __mode = \"k\" }) :: any\nlocal promptHooked: { [ProximityPrompt]: true } = setmetatable({}, { __mode = \"k\" }) :: any\nlocal looseFolder: Folder? = nil\nlocal FxRemote: RemoteEvent? = nil\n\n-- helpers ------------------------------------------------------------------------------------------\nlocal function call(serviceName: string, method: string, ...: any): any\n\tlocal svc = services[serviceName]\n\tlocal f = svc and svc[method]\n\tif type(f) ~= \"function\" then\n\t\treturn nil\n\tend\n\tlocal ok, res = pcall(f, svc, ...)\n\tif not ok then\n\t\twarn(`[InventoryService] {serviceName}:{method} failed: {res}`)\n\t\treturn nil\n\tend\n\treturn res\nend\n\nlocal hoseLineCache: any = nil\nlocal function hoseLine(fn: string, ...: any): any\n\tif not hoseLineCache then\n\t\tlocal lib = ServerScriptService:FindFirstChild(\"Lib\")\n\t\tlocal tools = lib and lib:FindFirstChild(\"Tools\")\n\t\tlocal mod = tools and tools:FindFirstChild(\"HoseLine\")\n\t\tif mod and mod:IsA(\"ModuleScript\") then\n\t\t\tlocal ok, res = pcall(require, mod)\n\t\t\tif ok and type(res) == \"table\" then\n\t\t\t\thoseLineCache = res\n\t\t\tend\n\t\tend\n\tend\n\tlocal f = hoseLineCache and hoseLineCache[fn]\n\tif type(f) ~= \"function\" then\n\t\treturn nil\n\tend\n\tlocal ok, res = pcall(f, ...)\n\treturn if ok then res else nil\nend\n\nlocal function fx(kind: string, pos: Vector3, t\n...[42207 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p=workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt\nlocal lp=game.Players.LocalPlayer\nlocal ch=lp.Character\nch:PivotTo(CFrame.new(p.Parent.Position+Vector3.new(4,0,0)))\ntask.wait(0.5)\nlocal fired=false\nlocal c=p.Triggered:Connect(function() fired=true end)\np:InputHoldBegin()\ntask.wait(0.2)\np:InputHoldEnd()\ntask.wait(0.8)\nc:Disconnect()\nlocal tools={}\nfor _,t in ipairs(ch:GetChildren()) do if t:IsA('Tool') then table.insert(tools,t.Name) end end\nfor _,t in ipairs(lp.Backpack:GetChildren()) do table.insert(tools,'BP:'..t.Name) end\nreturn game:GetService('HttpService'):JSONEncode({fired=fired,tools=tools,hand=lp:GetAttribute('InvHand'),style=tostring(p.Style),req=p.RequiresLineOfSight,enabled=p.Enabled,attrs=p:GetAttributes(),dist=(ch:GetPivot().Position-p.Parent.Position).Magnitude})",
+              "why": "Trigger gear rack prompt from the client and see whether it fires and grants a tool"
+            },
+            "result": "{\"enabled\":true,\"dist\":4.308132171630859,\"style\":\"Enum.ProximityPromptStyle.Custom\",\"fired\":false,\"tools\":[],\"attrs\":{\"InvPrompt\":true},\"hand\":\"\",\"req\":false}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local lp=game.Players.LocalPlayer\nlocal ch=lp.Character\nlocal base=workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt.Parent\nlocal res={}\nfor _,style in ipairs({Enum.ProximityPromptStyle.Default,Enum.ProximityPromptStyle.Custom}) do\nlocal part=Instance.new(\"Part\") part.Anchored=true part.CanCollide=false part.Size=Vector3.new(1,1,1) part.Position=base.Position+Vector3.new(4,0,-3) part.Parent=workspace\nlocal pp=Instance.new(\"ProximityPrompt\") pp.HoldDuration=0 pp.MaxActivationDistance=9 pp.RequiresLineOfSight=false pp.Style=style pp.Parent=part\nch:PivotTo(CFrame.new(part.Position+Vector3.new(2,0,0)))\ntask.wait(0.6)\nlocal f=false\nlocal c=pp.Triggered:Connect(function() f=true end)\npp:InputHoldBegin() task.wait(0.2) pp:InputHoldEnd() task.wait(0.3)\nc:Disconnect()\nres[tostring(style)]=f\npart:Destroy()\nend\nreturn game:GetService(\"HttpService\"):JSONEncode(res)",
+              "why": "Control: do fresh Default and Custom-style prompts trigger from the client in the locker room?"
+            },
+            "result": "{\"Enum.ProximityPromptStyle.Custom\":false,\"Enum.ProximityPromptStyle.Default\":false}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pps=game:GetService(\"ProximityPromptService\")\nlocal lp=game.Players.LocalPlayer\nlocal ch=lp.Character\nlocal hum=ch:FindFirstChildOfClass(\"Humanoid\")\nlocal hrp=ch:FindFirstChild(\"HumanoidRootPart\")\nlocal part=Instance.new(\"Part\") part.Anchored=true part.CanCollide=false part.Transparency=0.5 part.Size=Vector3.new(1,1,1) part.Position=hrp.Position+Vector3.new(3,0,0) part.Parent=workspace\nlocal pp=Instance.new(\"ProximityPrompt\") pp.HoldDuration=0 pp.MaxActivationDistance=10 pp.RequiresLineOfSight=false pp.Parent=part\nlocal shown=false local trig=false local ended=false\nlocal c1=pps.PromptShown:Connect(function(p) if p==pp then shown=true end end)\nlocal c2=pp.Triggered:Connect(function() trig=true end)\nlocal c3=pps.PromptTriggered:Connect(function(p) if p==pp then ended=true end end)\ntask.wait(1)\npp:InputHoldBegin() task.wait(0.2) pp:InputHoldEnd() task.wait(0.4)\nc1:Disconnect() c2:Disconnect() c3:Disconnect() part:Destroy()\nreturn game:GetService(\"HttpService\"):JSONEncode({ppsEnabled=pps.Enabled,shown=shown,trig=trig,ppsTrig=ended,health=hum and hum.Health,state=hum and tostring(hum:GetState()),anch=hrp.Anchored,walk=hum and hum.WalkSpeed,pos=tostring(hrp.Position)})",
+              "why": "Check whether ProximityPromptService is enabled and prompts get shown/triggered at all for the local player (testing artefact vs game bug)"
+            },
+            "result": "{\"ppsTrig\":false,\"trig\":false,\"shown\":false,\"state\":\"Enum.HumanoidStateType.Running\",\"health\":100,\"pos\":\"-52.70000076293945, 3.6199991703033447, 105\",\"anch\":false,\"ppsEnabled\":true,\"walk\":16}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local cam=workspace.CurrentCamera\nlocal lp=game.Players.LocalPlayer\nlocal hrp=lp.Character.HumanoidRootPart\nlocal out={camType=tostring(cam.CameraType),camPos=tostring(cam.CFrame.Position),hrp=tostring(hrp.Position),d=(cam.CFrame.Position-hrp.Position).Magnitude,fov=cam.FieldOfView,subj=tostring(cam.CameraSubject)}\nlocal scripts={}\nfor _,s in ipairs(lp.PlayerScripts:GetDescendants()) do if s:IsA('LocalScript') or s:IsA('ModuleScript') then table.insert(scripts,s.Name) end end\nout.scripts=scripts\nreturn game:GetService('HttpService'):JSONEncode(out)",
+              "why": "Check camera position vs character (prompt visibility depends on camera distance) and list client scripts to see whether something disables prompts"
+            },
+            "result": "{\"camPos\":\"-52.70000076293945, 5.24940824508667, 105.48296356201172\",\"scripts\":[\"PlayerModule\",\"ControlModule\",\"VehicleController\",\"PathDisplay\",\"ClickToMoveController\",\"AvatarAbilitiesInterface\",\"BaseCharacterController\",\"Keyboard\",\"Gamepad\",\"ClickToMoveDisplay\",\"TouchJump\",\"VRNavigation\",\"TouchThumbstick\",\"DynamicThumbstick\",\"CameraModule\",\"VRBaseCamera\",\"VRCameraTeleportDetector\",\"Poppercam\",\"Invisicam\",\"VehicleCamera\",\"VehicleCameraConfig\",\"VehicleCameraCore\",\"ZoomController\",\"Popper\",\"MouseLockController\",\"VRCamera\",\"BaseOcclusion\",\"CameraToggleStateController\",\"VRVehicleCamera\",\"ClassicCamera\",\"OrbitalCamera\",\"BaseCamera\",\"LegacyCamera\",\"CameraInput\",\"CameraUtils\",\"CameraUI\",\"TransparencyController\",\"CharacterUtil\",\"CameraWrapper\",\"ConnectionUtil\",\"FlagUtil\",\"PlayerScriptsLoader\",\"RbxCharacterSounds\",\"AtomicBinding\",\"Main\",\"ChatScript\",\"ChatMain\",\"ChannelsTab\",\"ChatChannel\",\"ChatBar\",\"CurveUtil\",\"ChannelsBar\",\"ObjectPool\",\"ChatWindow\",\"MessageSender\",\"MessageLabelCreator\",\"CommandProcessor\",\"MessageLogDisplay\",\"BubbleChat\",\"ForgeTestAgent\",\"AlarmController\",\"HazardController\",\"ToolController\",\"FireFxController\",\"HudController\",\"ProfileController\",\"PhysicsFxController\",\"InventoryController\",\"ShaderController\",\"StructureFxController\",\"LobbyController\",\"GraphicsController\",\"VehicleController\",\"FirstPersonController\",\"RescueController\",\"NavigationController\",\"HoseLineController\",\"AudioController\",\"TrafficController\",\"SquadController\",\"ResultsController\",\"Viewmodel\",\"TruckDr"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16ac679bc7023ad15ce767357384f",
+          "mreq_01a16ac69b0b76f38c261ecdf4c43a1e",
+          "mreq_01a16ac6b1cd7ca081a1796eed51d900",
+          "mreq_01a16ac6cc9a7e2295f0859e939a8fbd",
+          "mreq_01a16ac700f07750bb5f094873250d98",
+          "mreq_01a16ac747bc7783a81a17695af5e8c2",
+          "mreq_01a16ac77fa676c2bd07b10bc345a680",
+          "mreq_01a16ac78f7070c2974cecf0852ae3d5"
+        ]
+      },
+      "reinvestigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "Unverified, because I had no probe results. The most likely cause is a link break between the gear rack prompts and the code that grants the tools. The rack ProximityPrompts are built (StationBuilder or ItemProps) and tagged, but InventoryService never connects a Triggered handler to them. It may be looking for a different tag or attribute name than the builder sets, or it scans for racks once before the station is built and misses them. The prompts then fire with no listener, so no hose or axe is granted. The earlier rejection was about the size of the edit, not the file. The fix belongs in InventoryService's rack-binding code and should be a small local change.",
+          "file": "ServerScriptService/Services/InventoryService.luau",
+          "evidence": "No probe evidence was gathered. This is an inference from the symptom: the prompts exist but never grant a tool, and the previous fix targeted this file and was rejected only for rewriting 1542 of 1548 lines.",
+          "fix_hint": "In InventoryService, find the function that binds gear rack prompts. Make it use the exact tag or attribute name from ReplicatedStorage/Shared/Names that the rack builder applies. Bind it to existing prompts and also to ones added later with CollectionService:GetInstanceAddedSignal, so it works whenever the station is built. Connect prompt.Triggered to the existing grant-tool function. Change only those few lines and leave every other function and comment untouched."
+        },
+        "steps": [],
+        "request_ids": [
+          "mreq_01a16ac9402d7b23bbf7686f7f76f14d"
+        ]
+      },
+      "status": "rolled_back"
+    }
+  ],
+  "code_kept": 0
+}

@@ -1,0 +1,2045 @@
+{
+  "run_id": "20261023-214633-d65c",
+  "kind": "multi_playtest",
+  "agent_role": "player",
+  "session_id": "playtest-20261023-214633-d65c",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "studio": "3c4fdf08-a0c8-41dc-84cd-a2c11570cdcd",
+  "started": "2026-10-23T21:46:33Z",
+  "ended": "2026-10-23T21:47:47Z",
+  "max_steps": 8,
+  "goal_met": false,
+  "summary": "The playtester walked to the fire truck, grabbed an Extinguisher from Locker_R2, and then waited about 18s. The round never left Lobby, so no fires or rescuables appeared. The Reel prompt (Grab Hose / Refill Foam) held but never triggered in 4 attempts, so no fire was extinguished, no one was rescued, and no refill happened.",
+  "bugs": [
+    {
+      "title": "Reel prompt (Grab Hose / Refill Foam) never triggers when held in range",
+      "evidence": "Steps 2, 3, 7 and 8: the player was about 4 studs from Reel (range 10) and held E for 0.5-1.2s. Every attempt returned 'held, not triggered'. No hose was granted, and inv_grabs stayed at 1, which came from the Locker_R2 extinguisher. The Locker_R2 prompt triggered fine at step 4, so the fault is specific to the Reel.",
+      "severity": "high"
+    },
+    {
+      "title": "Round never starts from Lobby",
+      "evidence": "Steps 1-8 and about 18s of waiting (steps 5-6): the observations show no fires and no rescuables. The round never advanced from Lobby, so the goal of fighting fires and rescuing people could not be tested. There is no visible countdown or start trigger for a solo player.",
+      "severity": "high"
+    },
+    {
+      "title": "Reel prompt text flips between 'Grab Hose' and 'Refill Foam' and does not match the player's state",
+      "evidence": "Steps 2-3 report 'Grab Hose Fire Truck 67' on the Reel with an empty backpack. After the player holds the Extinguisher (step 7 onward), the same Reel reports 'Refill Foam Fire Truck 67'. The next observation lists it as 'Grab Hose' again. The prompt behavior is inconsistent, and neither action worked.",
+      "severity": "medium"
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 58,
+            "in_range": false,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            0,
+            4,
+            0
+          ]
+        },
+        "hud": [
+          "To chat click here or press \"/\" key",
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "GRAPHICS: AUTO (ULTRA)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "G / Q",
+          "empty hands",
+          "2 SWAP",
+          "back"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 56,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 63,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 70,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792791993,
+          "RoundState": "Lobby"
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "n_warnings": 2,
+          "counters": {
+            "map_build_ms": 197,
+            "data_loaded": 1,
+            "city_sites": 24,
+            "city_parts": 25105,
+            "traffic_spawned": 4,
+            "traffic_graph_loaded": 1,
+            "props_registered": 61,
+            "trucks_built": 1
+          }
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Reel"
+        },
+        "reason": "Round is in Lobby with no fires or tools yet; head to the truck, where the refill and gear are.",
+        "bug": null
+      },
+      "result": "walk_to {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Reel\"} -> done=True arrived 3.9 studs from target via path",
+      "request_id": "mreq_01a16abadd3d7d219d51236e3bafb6a4",
+      "latency_ms": 1866,
+      "step_ms": 6450
+    },
+    {
+      "n": 2,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "G / Q",
+          "empty hands",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792000,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 2.87,
+          "kind": "count",
+          "data": {
+            "value": 6,
+            "name": "traffic_spawned",
+            "delta": 4
+          }
+        },
+        {
+          "t": 4.917,
+          "kind": "count",
+          "data": {
+            "value": 11,
+            "name": "traffic_spawned",
+            "delta": 5
+          }
+        },
+        {
+          "t": 4.932,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "leaderboard_refreshes",
+            "delta": 1
+          }
+        },
+        {
+          "t": 6.468,
+          "kind": "count",
+          "data": {
+            "value": 14,
+            "name": "traffic_spawned",
+            "delta": 3
+          }
+        },
+        {
+          "t": 8.118,
+          "kind": "count",
+          "data": {
+            "value": 2,
+            "name": "traffic_despawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 8.119,
+          "kind": "count",
+          "data": {
+            "value": 15,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 8.667,
+          "kind": "count",
+          "data": {
+            "value": 3,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 9.218,
+          "kind": "count",
+          "data": {
+            "value": 17,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Reel"
+        },
+        "reason": "Grab the hose from the reel since backpack is empty and I'm in range.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Reel\"} -> done=False held, not triggered: 'Grab Hose Fire Truck 67' on Workspace.Trucks.FireTruck_2617803405.Reel at 4.5 studs (range 10)",
+      "request_id": "mreq_01a16abafa687b50bc1fae5ef723a0c2",
+      "latency_ms": 1506,
+      "step_ms": 3083
+    },
+    {
+      "n": 3,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "G / Q",
+          "empty hands",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792004,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 10.317,
+          "kind": "count",
+          "data": {
+            "value": 4,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 11.367,
+          "kind": "count",
+          "data": {
+            "value": 5,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 11.917,
+          "kind": "count",
+          "data": {
+            "value": 19,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 12.417,
+          "kind": "count",
+          "data": {
+            "value": 6,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 12.419,
+          "kind": "count",
+          "data": {
+            "value": 20,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+          "key": "E",
+          "hold": 1.2
+        },
+        "reason": "The first Grab Hose attempt did not trigger, so I'm retrying with a longer hold.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Reel\"} -> done=False held, not triggered: 'Grab Hose Fire Truck 67' on Workspace.Trucks.FireTruck_2617803405.Reel at 4.5 studs (range 10)",
+      "request_id": "mreq_01a16abb09d575d18f00dd5709f25435",
+      "latency_ms": 2865,
+      "step_ms": 4397
+    },
+    {
+      "n": 4,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "G / Q",
+          "empty hands",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792010,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 14.468,
+          "kind": "count",
+          "data": {
+            "value": 7,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 14.471,
+          "kind": "count",
+          "data": {
+            "value": 21,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 19.267,
+          "kind": "count",
+          "data": {
+            "value": 9,
+            "name": "traffic_despawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 19.269,
+          "kind": "count",
+          "data": {
+            "value": 22,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2"
+        },
+        "reason": "The Reel prompt failed twice, so I'll try the Extinguisher locker to get a tool.",
+        "bug": {
+          "title": "Grab Hose prompt on Reel never triggers",
+          "evidence": "I stood 4 studs from Reel (range 10, in_range true, hold 0.5) and interacted twice, once with a 1.2s hold. Both times the result was 'held, not triggered'. The backpack is still empty and RoundState is Lobby.",
+          "severity": "high"
+        }
+      },
+      "result": "interact {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Locker_R2\"} -> done=True triggered 'Grab Extinguisher Truck' on Workspace.Trucks.FireTruck_2617803405.Locker_R2 at 8.4 studs (range 9)",
+      "request_id": "mreq_01a16abb1f347843aec1a2fc2be20ed6",
+      "latency_ms": 4487,
+      "step_ms": 4964
+    },
+    {
+      "n": 5,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_2",
+            "action": "Hop on",
+            "dist": 9,
+            "in_range": false,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "helmet": 1,
+          "userId": 2617803405,
+          "health": 100,
+          "backpack": [],
+          "name": "xXBeansTitanXx",
+          "max_health": 100,
+          "tool": "Extinguisher",
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "FOAM",
+          "G / Q",
+          "Extinguisher",
+          "2 SWAP",
+          "back"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792016,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 19.769,
+          "kind": "count",
+          "data": {
+            "value": 23,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 22.466,
+          "kind": "count",
+          "data": {
+            "value": 10,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 22.473,
+          "kind": "count",
+          "data": {
+            "value": 24,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 23.016,
+          "kind": "count",
+          "data": {
+            "value": 11,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 23.019,
+          "kind": "count",
+          "data": {
+            "value": 25,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 24.067,
+          "kind": "count",
+          "data": {
+            "value": 12,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 24.315,
+          "kind": "tool_equipped",
+          "data": {
+            "name": "xXBeansTitanXx",
+            "helmet": 1,
+            "userId": 2617803405,
+            "tool": "Extinguisher"
+          }
+        },
+        {
+          "t": 24.317,
+          "kind": "changed",
+          "data": {
+            "name": "xXBeansTitanXx",
+            "args": [
+              {
+                "helmet": 1,
+                "userId": 2617803405,
+                "name": "xXBeansTitanXx"
+              }
+            ],
+            "helmet": 1,
+            "via": "signal",
+            "userId": 2617803405,
+            "signal": "InventoryService.Changed"
+          }
+        },
+        {
+          "t": 24.317,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "inv_grabs",
+            "delta": 1
+          }
+        },
+        {
+          "t": 24.317,
+          "kind": "prompt_triggered",
+          "data": {
+            "object": "Truck",
+            "name": "xXBeansTitanXx",
+            "helmet": 1,
+            "prompt": "Workspace.Trucks.FireTruck_2617803405.Locker_R2.InvPrompt",
+            "userId": 2617803405,
+            "action": "Grab Extinguisher"
+          }
+        },
+        {
+          "t": 24.616,
+          "kind": "count",
+          "data": {
+            "value": 13,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 24.62,
+          "kind": "count",
+          "data": {
+            "value": 27,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "wait",
+        "args": {
+          "seconds": 8
+        },
+        "reason": "RoundState is still Lobby and no fires are listed, so I'll wait for the round to start now that the extinguisher is equipped.",
+        "bug": {
+          "title": "Grab Hose prompt on Reel never triggers",
+          "evidence": "I stood 4 studs from Workspace.Trucks.FireTruck_2617803405.Reel (range 10) and held E for 0.5s and then 1.2s. Both attempts returned 'held, not triggered'. The Locker_R2 'Grab Extinguisher' prompt triggered normally from 8.4 studs, so the Reel is the one that fails. My backpack is still empty and no hose tool was granted.",
+          "severity": "medium"
+        }
+      },
+      "result": "waited 8.0s",
+      "request_id": "mreq_01a16abb364370e198447b5f4a8dd8bc",
+      "latency_ms": 4389,
+      "step_ms": 12619
+    },
+    {
+      "n": 6,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "helmet": 1,
+          "userId": 2617803405,
+          "health": 100,
+          "backpack": [],
+          "name": "xXBeansTitanXx",
+          "max_health": 100,
+          "tool": "Extinguisher",
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "FOAM",
+          "G / Q",
+          "Extinguisher",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792029,
+          "RoundState": "Lobby"
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "n_warnings": 2,
+          "counters": {
+            "leaderboard_refreshes": 1,
+            "city_sites": 24,
+            "city_parts": 25105,
+            "trucks_built": 1,
+            "data_loaded": 1,
+            "traffic_despawned": 20,
+            "map_build_ms": 197,
+            "traffic_spawned": 34,
+            "traffic_graph_loaded": 1,
+            "inv_restocks": 1,
+            "props_registered": 61,
+            "inv_grabs": 1
+          }
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 29.965,
+          "kind": "count",
+          "data": {
+            "value": 14,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 30.331,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "inv_restocks",
+            "delta": 1
+          }
+        },
+        {
+          "t": 31.016,
+          "kind": "count",
+          "data": {
+            "value": 16,
+            "name": "traffic_despawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 31.567,
+          "kind": "count",
+          "data": {
+            "value": 30,
+            "name": "traffic_spawned",
+            "delta": 3
+          }
+        },
+        {
+          "t": 35.315,
+          "kind": "count",
+          "data": {
+            "value": 17,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 36.918,
+          "kind": "count",
+          "data": {
+            "value": 31,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 37.465,
+          "kind": "count",
+          "data": {
+            "value": 18,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 37.968,
+          "kind": "count",
+          "data": {
+            "value": 32,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 38.516,
+          "kind": "count",
+          "data": {
+            "value": 20,
+            "name": "traffic_despawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 39.067,
+          "kind": "count",
+          "data": {
+            "value": 34,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "wait",
+        "args": {
+          "seconds": 10
+        },
+        "reason": "The round is still in Lobby with no fires, so I'll wait for it to start.",
+        "bug": {
+          "title": "Grab Hose prompt on Reel never triggers",
+          "evidence": "At step 2 and step 3 I held E on Workspace.Trucks.FireTruck_2617803405.Reel (in range at 4.5 of 10 studs, hold 0.5 and then 1.2s). Both times the result was 'held, not triggered'. The Locker_R2 prompt triggered fine. Afterward the backpack is still empty and no hose was granted.",
+          "severity": "medium"
+        }
+      },
+      "result": "waited 10.0s",
+      "request_id": "mreq_01a16abb6c067f00bd5cf658badeecaa",
+      "latency_ms": 3890,
+      "step_ms": 14206
+    },
+    {
+      "n": 7,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "helmet": 1,
+          "userId": 2617803405,
+          "health": 100,
+          "backpack": [],
+          "name": "xXBeansTitanXx",
+          "max_health": 100,
+          "tool": "Extinguisher",
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "FOAM",
+          "G / Q",
+          "Extinguisher",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792045,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 41.718,
+          "kind": "count",
+          "data": {
+            "value": 36,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 43.265,
+          "kind": "count",
+          "data": {
+            "value": 23,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 43.769,
+          "kind": "count",
+          "data": {
+            "value": 37,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 44.315,
+          "kind": "count",
+          "data": {
+            "value": 24,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 44.816,
+          "kind": "count",
+          "data": {
+            "value": 38,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 45.866,
+          "kind": "count",
+          "data": {
+            "value": 25,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 47.466,
+          "kind": "count",
+          "data": {
+            "value": 26,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 48.018,
+          "kind": "count",
+          "data": {
+            "value": 40,
+            "name": "traffic_spawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 49.067,
+          "kind": "count",
+          "data": {
+            "value": 27,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 49.07,
+          "kind": "count",
+          "data": {
+            "value": 41,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 52.714,
+          "kind": "count",
+          "data": {
+            "value": 28,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 52.715,
+          "kind": "count",
+          "data": {
+            "value": 42,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+          "key": "E",
+          "hold": 0.5
+        },
+        "reason": "Retry Grab Hose at the Reel with the prompt's exact hold time, since the earlier attempt did not trigger.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Reel\"} -> done=False held, not triggered: 'Refill Foam Fire Truck 67' on Workspace.Trucks.FireTruck_2617803405.Reel at 4.5 studs (range 10)",
+      "request_id": "mreq_01a16abba70478a095b46c04aae414c7",
+      "latency_ms": 4400,
+      "step_ms": 5943
+    },
+    {
+      "n": 8,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_3",
+            "action": "Hop on",
+            "dist": 3,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "action": "Grab Hose",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_4",
+            "action": "Hop on",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R3",
+            "action": "Grab Oxygen Tank",
+            "dist": 5,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Trucks.FireTruck_2617803405.CrewSeat_1",
+            "action": "Hop on",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0.1,
+            "range": 8,
+            "object": "hogrider's Truck"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Trucks.FireTruck_2617803405.Locker_R2",
+            "action": "Grab Extinguisher",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Truck"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Downed": false,
+            "Heat": 0,
+            "Carrying": "",
+            "Helmet": 1,
+            "InstanceId": "",
+            "SquadId": ""
+          },
+          "helmet": 1,
+          "userId": 2617803405,
+          "health": 100,
+          "backpack": [],
+          "name": "xXBeansTitanXx",
+          "max_health": 100,
+          "tool": "Extinguisher",
+          "pos": [
+            -18.7,
+            7.7,
+            -57.6
+          ]
+        },
+        "hud": [
+          "GRAPHICS: AUTO (LOW)",
+          "ALARM!",
+          "POP-UPS: NORMAL",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "FOAM",
+          "G / Q",
+          "Extinguisher",
+          "2 SWAP",
+          "back",
+          "CARRY"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+            "name": "Reel",
+            "dist": 4,
+            "pos": [
+              -22.5,
+              5.5,
+              -58.4
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 9,
+            "pos": [
+              -22.5,
+              3.5,
+              -51
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Trucks.FireTruck_2617803405",
+            "name": "FireTruck_2617803405",
+            "dist": 11,
+            "InstanceId": "",
+            "pos": [
+              -22.5,
+              2,
+              -66
+            ],
+            "tag": "Truck"
+          }
+        ],
+        "world": {
+          "now": 1792792052,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 55.866,
+          "kind": "count",
+          "data": {
+            "value": 29,
+            "name": "traffic_despawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 56.917,
+          "kind": "count",
+          "data": {
+            "value": 43,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 59.015,
+          "kind": "count",
+          "data": {
+            "value": 31,
+            "name": "traffic_despawned",
+            "delta": 2
+          }
+        },
+        {
+          "t": 59.017,
+          "kind": "count",
+          "data": {
+            "value": 44,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        },
+        {
+          "t": 59.831,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "data_saved",
+            "delta": 1
+          }
+        },
+        {
+          "t": 61.167,
+          "kind": "count",
+          "data": {
+            "value": 45,
+            "name": "traffic_spawned",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Trucks.FireTruck_2617803405.Reel",
+          "key": "E",
+          "hold": 1.0
+        },
+        "reason": "Retry the Reel prompt with a longer hold, since the last attempt was held but did not trigger.",
+        "bug": {
+          "title": "Reel prompt did not trigger when held in range, and its text changed",
+          "evidence": "At step 7 I held E for 0.5s on Reel at 4.5 studs (range 10). The result was 'held, not triggered' for 'Refill Foam Fire Truck 67'. The next observation lists the same Reel prompt as 'Grab Hose' with hold 0.5. The prompt text and behavior are inconsistent, and the refill did not happen. RoundState is still 'Lobby', with no fires or rescuables in the things list.",
+          "severity": "medium"
+        }
+      },
+      "result": "interact {\"path\":\"Workspace.Trucks.FireTruck_2617803405.Reel\"} -> done=False held, not triggered: 'Refill Foam Fire Truck 67' on Workspace.Trucks.FireTruck_2617803405.Reel at 4.5 studs (range 10)",
+      "request_id": "mreq_01a16abbc2087a11a6943a81aee800ad",
+      "latency_ms": 7674,
+      "step_ms": 9175
+    }
+  ],
+  "players": [
+    {
+      "userId": 2617803405,
+      "name": "xXBeansTitanXx",
+      "helmet": 1,
+      "role": "nozzle (fight fires)"
+    }
+  ],
+  "probe": {
+    "players": 1,
+    "uptime": 71.5,
+    "errors": [],
+    "counters": {
+      "map_build_ms": 197,
+      "city_sites": 24,
+      "city_parts": 25105,
+      "data_loaded": 1,
+      "trucks_built": 1,
+      "traffic_despawned": 41,
+      "leaderboard_refreshes": 1,
+      "traffic_spawned": 54,
+      "data_saved": 1,
+      "traffic_graph_loaded": 1,
+      "inv_restocks": 1,
+      "props_registered": 61,
+      "inv_grabs": 1
+    },
+    "warnings": [
+      "[MapService] skip StationBuilder: Module code did not return exactly one value",
+      "[CityBuilder] 25105 parts > budget 25000",
+      "[LobbyService] no Station location after 60 s: the lobby is not built"
+    ],
+    "joins": 1,
+    "instances": 31516
+  },
+  "counters": {
+    "map_build_ms": 197,
+    "city_sites": 24,
+    "city_parts": 25105,
+    "data_loaded": 1,
+    "trucks_built": 1,
+    "traffic_despawned": 41,
+    "leaderboard_refreshes": 1,
+    "traffic_spawned": 54,
+    "data_saved": 1,
+    "traffic_graph_loaded": 1,
+    "inv_restocks": 1,
+    "props_registered": 61,
+    "inv_grabs": 1
+  },
+  "events": [
+    {
+      "t": 62.218,
+      "kind": "count",
+      "data": {
+        "value": 47,
+        "name": "traffic_spawned",
+        "delta": 2
+      }
+    },
+    {
+      "t": 63.314,
+      "kind": "count",
+      "data": {
+        "value": 35,
+        "name": "traffic_despawned",
+        "delta": 2
+      }
+    },
+    {
+      "t": 63.316,
+      "kind": "count",
+      "data": {
+        "value": 48,
+        "name": "traffic_spawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 63.864,
+      "kind": "count",
+      "data": {
+        "value": 36,
+        "name": "traffic_despawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 64.366,
+      "kind": "count",
+      "data": {
+        "value": 49,
+        "name": "traffic_spawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 65.415,
+      "kind": "count",
+      "data": {
+        "value": 38,
+        "name": "traffic_despawned",
+        "delta": 2
+      }
+    },
+    {
+      "t": 65.417,
+      "kind": "count",
+      "data": {
+        "value": 50,
+        "name": "traffic_spawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 65.964,
+      "kind": "count",
+      "data": {
+        "value": 39,
+        "name": "traffic_despawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 65.969,
+      "kind": "count",
+      "data": {
+        "value": 52,
+        "name": "traffic_spawned",
+        "delta": 2
+      }
+    },
+    {
+      "t": 66.465,
+      "kind": "count",
+      "data": {
+        "value": 40,
+        "name": "traffic_despawned",
+        "delta": 1
+      }
+    },
+    {
+      "t": 66.967,
+      "kind": "count",
+      "data": {
+        "value": 54,
+        "name": "traffic_spawned",
+        "delta": 2
+      }
+    },
+    {
+      "t": 70.765,
+      "kind": "count",
+      "data": {
+        "value": 41,
+        "name": "traffic_despawned",
+        "delta": 1
+      }
+    }
+  ],
+  "request_ids": [
+    "mreq_01a16abadd3d7d219d51236e3bafb6a4",
+    "mreq_01a16abafa687b50bc1fae5ef723a0c2",
+    "mreq_01a16abb09d575d18f00dd5709f25435",
+    "mreq_01a16abb1f347843aec1a2fc2be20ed6",
+    "mreq_01a16abb364370e198447b5f4a8dd8bc",
+    "mreq_01a16abb6c067f00bd5cf658badeecaa",
+    "mreq_01a16abba70478a095b46c04aae414c7",
+    "mreq_01a16abbc2087a11a6943a81aee800ad",
+    "mreq_01a16abbea1374c1bb96f53589882fa7"
+  ],
+  "bug_hints": [
+    {
+      "title": "Grab Hose prompt on Reel never triggers",
+      "evidence": "I stood 4 studs from Reel (range 10, in_range true, hold 0.5) and interacted twice, once with a 1.2s hold. Both times the result was 'held, not triggered'. The backpack is still empty and RoundState is Lobby.",
+      "severity": "high",
+      "step": 4,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Grab Hose prompt on Reel never triggers",
+      "evidence": "I stood 4 studs from Workspace.Trucks.FireTruck_2617803405.Reel (range 10) and held E for 0.5s and then 1.2s. Both attempts returned 'held, not triggered'. The Locker_R2 'Grab Extinguisher' prompt triggered normally from 8.4 studs, so the Reel is the one that fails. My backpack is still empty and no hose tool was granted.",
+      "severity": "medium",
+      "step": 5,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Grab Hose prompt on Reel never triggers",
+      "evidence": "At step 2 and step 3 I held E on Workspace.Trucks.FireTruck_2617803405.Reel (in range at 4.5 of 10 studs, hold 0.5 and then 1.2s). Both times the result was 'held, not triggered'. The Locker_R2 prompt triggered fine. Afterward the backpack is still empty and no hose was granted.",
+      "severity": "medium",
+      "step": 6,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Reel prompt did not trigger when held in range, and its text changed",
+      "evidence": "At step 7 I held E for 0.5s on Reel at 4.5 studs (range 10). The result was 'held, not triggered' for 'Refill Foam Fire Truck 67'. The next observation lists the same Reel prompt as 'Grab Hose' with hold 0.5. The prompt text and behavior are inconsistent, and the refill did not happen. RoundState is still 'Lobby', with no fires or rescuables in the things list.",
+      "severity": "medium",
+      "step": 8,
+      "player": "xXBeansTitanXx"
+    }
+  ],
+  "corrections": [],
+  "errors": [],
+  "mode": "free",
+  "ready": {
+    "players": 1,
+    "agents": 1,
+    "version": "2",
+    "clock": 2.417,
+    "studio": true,
+    "mapReady": true,
+    "time": 1792791993.141
+  },
+  "judge_request_id": "mreq_01a16abbea1374c1bb96f53589882fa7"
+}

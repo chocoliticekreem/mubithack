@@ -1,0 +1,22 @@
+{
+  "score": 7,
+  "summary": "The game runs with no errors. FlareUpService boots by itself and ignites fires during the Active round (flareups = 8, fires_spread = 323), so the acceptance criteria are met. The remaining problems are that flare-ups land across the whole city, far from the mission and the player, and that fire load is already at its cap and over its tick budget. There is also a CityBuilder parts-budget warning in the report.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "Flare-ups are picked from anywhere in the city. The log shows ignitions in the Dam, Farm, Forest and Storage districts while the mission is a house_fire about 1677 studs away. The spec says flare-ups should ignite new fires in the Town. The player can't reach most of these fires, so they only add load and don't feed the loop of hosing a spreading fire.",
+      "fix_hint": "After RandomFlammable returns a part, check that it is within about 120-150 studs of a player's character (or of the mission site). If it is farther, reject it and let the existing attempt loop retry. Raise MAX_ATTEMPTS to about 10 to compensate. Optionally accept the part when the mission's district name appears in part:GetFullName()."
+    },
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "The probe shows fire_cap_hit = 8 and fire_tick_over_budget = 21. Flare-ups keep igniting parts at the fixed 8s interval even when the fire system is saturated. Ignitions in remote districts with no player nearby make this worse. Many of the 8 flare-ups probably did nothing useful.",
+      "fix_hint": "Read the active fire count if FireService exposes one, for example inside a pcall around fireService:GetActiveCount or a similar method, and skip the tick when it is near the cap. Otherwise count consecutive Ignite=false results and back off, for example by doubling the wait up to 30s and resetting on success."
+    },
+    {
+      "path": "ServerScriptService/Services/FlareUpService.luau",
+      "problem": "Minor robustness and noise. The loop prints a log line for every ignition and runs forever with no handling of round-state changes. _loggedActive is never reset, so a second round won't log. The retry loop calls task.wait() with no argument inside the tick, which delays the next attempt by only one frame.",
+      "fix_hint": "Reset _loggedActive when RoundState is not Active. Drop the per-ignition print or limit it to the first few ignitions. Use task.wait(0.1) between retry attempts."
+    }
+  ],
+  "done": false
+}
