@@ -131,7 +131,7 @@ export type PhysicsHands = typeof(setmetatable(
 
 -- helpers ----------------------------------------------------------------------------------------
 local function scale(): number
-	return math.clamp(tonumber(HandsConfig.GloveScale) or 0.62, 0.2, 1.5)
+	return math.clamp(tonumber(HandsConfig.GloveScale) or 0.5, 0.2, 1.5)
 end
 
 local function remote(name: string): any
@@ -338,7 +338,7 @@ local function buildHand(folder: Folder, side: string): Hand
 
 	local sleeve = Instance.new("Part")
 	sleeve.Name = side .. "Sleeve"
-	sleeve.Size = Vector3.new(0.95 * s, 0.95 * s, 1)
+	sleeve.Size = Vector3.new(0.92 * s, 1, 0.92 * s) -- a Y-axis cylinder stretched shoulder -> wrist
 	sleeve.Color = Viewmodel.Colors.Sleeve
 	sleeve.Material = Enum.Material.Fabric
 	sleeve.Anchored = true
@@ -347,6 +347,7 @@ local function buildHand(folder: Folder, side: string): Hand
 	sleeve.CanTouch = false
 	sleeve.CastShadow = false
 	sleeve.Parent = model
+	Viewmodel.round(sleeve, Enum.MeshType.Cylinder)
 	table.insert(recs, { part = sleeve, offset = CFrame.identity, base = sleeve.Color })
 
 	for _, r in recs do
@@ -776,7 +777,7 @@ function PhysicsHands.SetSoot(self: PhysicsHands, alpha: number)
 	local dark = Palette.CharredWarm or Color3.fromHex("#3A2A22")
 	for _, hand in self.hands do
 		for _, r in hand.recs do
-			if r.part.Material ~= Enum.Material.Neon then
+			if not string.find(r.part.Name, "Band") then
 				r.part.Color = r.base:Lerp(dark, alpha * 0.55)
 			end
 		end
@@ -890,8 +891,9 @@ function PhysicsHands._probe(self: PhysicsHands, hand: Hand, char: Model, relVel
 				playSound(HandsConfig.SoundSlap, hand.palm, 0.9)
 				return
 			end
-		elseif not m and kind == "hand" then
-			local isDoor = CollectionService:HasTag(part, Names.Tag.Door)
+		elseif not m then
+			-- hands shove loose props and open doors; the axe head only bats props (doors are AxeHit)
+			local isDoor = kind == "hand" and CollectionService:HasTag(part, Names.Tag.Door)
 			local loose = not part.Anchored
 				and (part.AssemblyRootPart or part):GetAttribute("HeldBy") ~= LocalPlayer.UserId
 			if isDoor or loose then
@@ -1064,11 +1066,11 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 		local wristBack = (hand.wrist.WorldCFrame * CFrame.new(0, 0, 1.0 * s)).Position
 		local span = wristBack - shoulder
 		local len = math.max(span.Magnitude, 0.1)
-		if hand.sleeve.Size.Z ~= len then
-			hand.sleeve.Size = Vector3.new(hand.sleeve.Size.X, hand.sleeve.Size.Y, len)
+		if math.abs(hand.sleeve.Size.Y - len) > 0.01 then
+			hand.sleeve.Size = Vector3.new(hand.sleeve.Size.X, len, hand.sleeve.Size.Z)
 		end
 		table.insert(sleeveParts, hand.sleeve)
-		table.insert(sleeveCFrames, CFrame.lookAt(shoulder + span / 2, wristBack, cam.UpVector))
+		table.insert(sleeveCFrames, CFrame.lookAt(shoulder + span / 2, wristBack, cam.UpVector) * CFrame.Angles(math.rad(90), 0, 0))
 	end
 	workspace:BulkMoveTo(sleeveParts, sleeveCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 

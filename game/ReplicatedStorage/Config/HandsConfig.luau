@@ -8,7 +8,7 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	Enabled = true, -- false = the simple camera-attached viewmodel everywhere (no grabbing)
 	MobileEnabled = false, -- touch-only devices use the simple viewmodel unless this is true
-	GloveScale = 0.62, -- glove/sleeve size vs the old viewmodel blocks (1 = the old huge gloves)
+	GloveScale = 0.5, -- glove/sleeve size vs the old viewmodel blocks (1 = the old huge gloves)
 
 	-- hand springs: the target pose is sprung (lag, overshoot, wobble) and the physical palm is
 	-- pulled to it by AlignPosition/AlignOrientation, so walls and props push back

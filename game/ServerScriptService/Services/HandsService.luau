@@ -18,9 +18,10 @@
 --   Slap    (C->S: victim Model, hand velocity Vector3, kind "hand"|"axe")
 --   Push    (C->S: part, hand velocity Vector3)          -- loose props get shoved; unlocked doors open
 --   AxeHit  (C->S: door BasePart, head speed number)     -- swing speed = door damage (HandsMath.axeHits)
---   Fx      (S->C all: kind "slap"|"bonk"|"thunk"|"tonk"|"heavy", position, victimUserId | hits)
+--   Fx      (S->C all: kind "slap"|"bonk"|"tonk"|"heavy", position, victimUserId | 0) (door hits pop via ToolService)
 -- Writes: part attr HeldBy (UserId) on grabbed assemblies; NPC attr Slapped = true.
--- Calls (nil-guarded): PhysicsFxService:Knockback(model, impulse, kind) (else Shared/Ragdoll),
+-- Calls (nil-guarded): PhysicsFxService:Impulse(target, vector, player) for slaps and prop shoves
+--   (else Shared/Ragdoll / ApplyImpulse),
 --   ToolService:HitDoor(player, door, hits) / ToolService:PushDoor(door), SquadService:Revive(victim,
 --   by, "slap") for a Downed teammate, InventoryService:GetHand(player).
 -- Counters: hands_grabs, hands_grab_denied, hands_slaps, hands_slap_revives, hands_axe_bonks,
@@ -266,8 +267,8 @@ local function onRelease(player: Player, rawPart: any, rawSide: any)
 end
 
 -- slaps ------------------------------------------------------------------------------------------
-local function knock(model: Model, impulse: Vector3)
-	local ok, res = call("PhysicsFxService", "Knockback", model, impulse, "slap")
+local function knock(model: Model, impulse: Vector3, by: Player)
+	local ok, res = call("PhysicsFxService", "Impulse", model, impulse, by)
 	if ok and res ~= false then
 		return
 	end
@@ -336,7 +337,7 @@ local function onSlap(player: Player, rawModel: any, rawVel: any, rawKind: any)
 			return
 		end
 	end
-	knock(model, impulse)
+	knock(model, impulse, player)
 	if rag then
 		Ragdoll.enable(model, HandsConfig.SlapRagdollSeconds)
 	end
@@ -393,7 +394,12 @@ local function onPush(player: Player, rawPart: any, rawVel: any)
 		return
 	end
 	lastPush[player] = now
-	root:ApplyImpulse(vel.Unit * dv * root.AssemblyMass)
+	local ok, res = call("PhysicsFxService", "Impulse", part, vel.Unit * dv, player)
+	if not (ok and res ~= false) then
+		pcall(function()
+			root:ApplyImpulse(vel.Unit * dv * root.AssemblyMass)
+		end)
+	end
 	Telemetry.count("hands_pushes")
 end
 
@@ -425,7 +431,6 @@ local function onAxeHit(player: Player, rawDoor: any, rawSpeed: any)
 		return
 	end
 	Telemetry.count("hands_axe_hits")
-	fx("thunk", door.Position, hits)
 	local ok = call("ToolService", "HitDoor", player, door, hits)
 	if not ok then
 		call("ToolService", "_doorPrompt", player, door) -- older ToolService: one hit on a locked door

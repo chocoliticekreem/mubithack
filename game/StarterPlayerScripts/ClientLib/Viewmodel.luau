@@ -48,11 +48,12 @@ end
 local OLIVE = c("GloveOlive", Color3.fromHex("#8C7A3A"))
 local YELLOW = c("CoatYellow", Color3.fromHex("#D9A030"))
 -- Trailer gloves read as a warm olive-yellow leather, sleeves as bright turnout yellow.
+local SHADOW = c("CoatShadow", Color3.fromHex("#9A6A30"))
 local COLORS = {
-	Glove = OLIVE:Lerp(YELLOW, 0.45),
-	Knuckle = OLIVE:Lerp(YELLOW, 0.2),
-	Sleeve = YELLOW,
-	Cuff = c("CoatShadow", Color3.fromHex("#9A6A30")),
+	Glove = OLIVE:Lerp(YELLOW, 0.5),
+	Knuckle = OLIVE:Lerp(YELLOW, 0.3),
+	Sleeve = YELLOW:Lerp(SHADOW, 0.25),
+	Cuff = SHADOW,
 }
 Viewmodel.Colors = COLORS
 
@@ -105,12 +106,25 @@ local function block(
 	return p
 end
 
+-- Rounded cartoon shapes: an ellipsoid (Sphere mesh) or a Y-axis cylinder that fills the part box.
+local function round(p: BasePart, kind: Enum.MeshType): BasePart
+	local m = Instance.new("SpecialMesh")
+	m.MeshType = kind
+	m.Parent = p
+	return p
+end
+Viewmodel.round = round
+
+local SPHERE = Enum.MeshType.Sphere
+local CYL = Enum.MeshType.Cylinder
+local ALONG_Z = CFrame.Angles(math.rad(90), 0, 0) -- a Y-axis cylinder lying along the arm (Z)
+
 local function scaled(offset: CFrame, s: number): CFrame
 	return CFrame.new(offset.Position * s) * offset.Rotation
 end
 
 local function scale(): number
-	local s = tonumber(HandsConfig.GloveScale) or 0.62
+	local s = tonumber(HandsConfig.GloveScale) or 0.5
 	return math.clamp(s, 0.2, 1.5)
 end
 
@@ -125,35 +139,36 @@ function Viewmodel.buildArmParts(model: Instance, side: number, prefix: string, 
 		table.insert(parts, { part = p, offset = scaled(offset, s), base = p.Color })
 	end
 	local glove, knuckle = COLORS.Glove, COLORS.Knuckle
-	-- chunky glove: palm block, four fat fingers, a thumb, a knuckle pad
-	add(block(model, prefix .. "Glove", Vector3.new(1.3, 0.75, 1.15), glove, Enum.Material.Leather), CFrame.new(0, 0, -0.55))
-	add(block(model, prefix .. "Knuckles", Vector3.new(1.25, 0.3, 0.4), knuckle, Enum.Material.Leather), CFrame.new(0, 0.35, -0.85))
+	local mat = Enum.Material.SmoothPlastic
+	-- puffy cartoon glove: ellipsoid palm, four sausage fingers, a thumb, a knuckle ridge
+	add(round(block(model, prefix .. "Glove", Vector3.new(1.3, 0.8, 1.2), glove, mat), SPHERE), CFrame.new(0, 0, -0.55))
+	add(round(block(model, prefix .. "Knuckles", Vector3.new(1.2, 0.4, 0.45), knuckle, mat), SPHERE), CFrame.new(0, 0.28, -0.9))
 	for i = 1, 4 do
-		local x = (-0.48 + (i - 1) * 0.32) * side
-		local len = if i == 1 or i == 4 then 0.55 else 0.68
+		local x = (-0.45 + (i - 1) * 0.3) * side
+		local len = if i == 1 or i == 4 then 0.6 else 0.72
 		add(
-			block(model, prefix .. "Finger" .. i, Vector3.new(0.29, 0.32, len), glove, Enum.Material.Leather),
-			CFrame.new(x, -0.05, -1.12 - len / 2 + 0.05) * CFrame.Angles(math.rad(-18), 0, 0)
+			round(block(model, prefix .. "Finger" .. i, Vector3.new(0.3, 0.32, len), glove, mat), SPHERE),
+			CFrame.new(x, -0.04, -1.1 - len / 2 + 0.12) * CFrame.Angles(math.rad(-20), 0, 0)
 		)
 	end
 	add(
-		block(model, prefix .. "Thumb", Vector3.new(0.3, 0.32, 0.6), glove, Enum.Material.Leather),
-		CFrame.new(-0.72 * side, -0.05, -0.6) * CFrame.Angles(0, math.rad(35 * side), 0)
+		round(block(model, prefix .. "Thumb", Vector3.new(0.32, 0.34, 0.7), glove, mat), SPHERE),
+		CFrame.new(-0.62 * side, -0.08, -0.62) * CFrame.Angles(0, math.rad(35 * side), 0)
 	)
-	-- gauntlet cuff + the reflective 3-band (lime / silver / lime), slightly proud of the sleeve
-	add(block(model, prefix .. "Cuff", Vector3.new(1.12, 1.0, 0.4), COLORS.Cuff, Enum.Material.Leather), CFrame.new(0, 0, 0.1))
+	-- gauntlet cuff + the reflective 3-band (lime / silver / lime), rings slightly proud of the sleeve
+	add(round(block(model, prefix .. "Cuff", Vector3.new(1.1, 0.42, 1.0), COLORS.Cuff, mat), CYL), CFrame.new(0, 0, 0.1) * ALONG_Z)
 	local lime = c("ReflectLime", Color3.fromHex("#E8E25A"))
 	local silver = c("ReflectSilver", Color3.fromHex("#C9CCD0"))
-	for i, b in { { lime, 0.5 }, { silver, 0.72 }, { lime, 0.94 } } do
-		local band = block(model, prefix .. "Band" .. i, Vector3.new(1.0, 1.0, 0.16), b[1] :: Color3, Enum.Material.Neon)
-		band.Transparency = 0.05
-		add(band, CFrame.new(0, 0, b[2] :: number))
+	for i, b in { { lime, 0.5 }, { silver, 0.7 }, { lime, 0.9 } } do
+		local band = block(model, prefix .. "Band" .. i, Vector3.new(1.0, 0.15, 1.0), b[1] :: Color3, mat)
+		band.Reflectance = 0.15
+		add(round(band, CYL), CFrame.new(0, 0, b[2] :: number) * ALONG_Z)
 	end
 	if withSleeve then
 		local sleeveLen = 2.2
 		add(
-			block(model, prefix .. "Sleeve", Vector3.new(0.95, 0.95, sleeveLen), COLORS.Sleeve, Enum.Material.Fabric),
-			CFrame.new(0, 0, 0.3 + sleeveLen / 2)
+			round(block(model, prefix .. "Sleeve", Vector3.new(0.92, sleeveLen, 0.92), COLORS.Sleeve, Enum.Material.Fabric), CYL),
+			CFrame.new(0, 0, 0.3 + sleeveLen / 2) * ALONG_Z
 		)
 	end
 	return parts
@@ -268,7 +283,7 @@ function Viewmodel.SetSoot(self: Viewmodel, alpha: number)
 	local dark = c("CharredWarm", Color3.fromHex("#3A2A22"))
 	for _, arm in self.arms do
 		for _, r in arm.parts do
-			if r.part.Material ~= Enum.Material.Neon then
+			if not string.find(r.part.Name, "Band") then
 				r.part.Color = r.base:Lerp(dark, alpha * 0.55)
 			end
 		end

@@ -1,9 +1,12 @@
 --!strict
 -- FirstPersonController [owner: G1]. The trailer's camera (docs/game/02-art-feel-ui.md §7):
---   * LockFirstPerson while the player is in a mission (Player attr InstanceId ~= "", or the v1
---     single round is Alarm/Active); free third person in the lobby (InstanceId == ""). Unlocked
---     while the character is Ragdolled or Downed, or when SetEnabled(false). PhysicsConfig.FirstPerson
---     = false turns the lock off everywhere.
+--   * LockFirstPerson while the player is in a mission (Player attr InstanceId ~= "" and its
+--     Workspace.Runs.<id> RoundState is Alarm/Dispatched/Active, or no run folder yet); free third
+--     person in the lobby / station (InstanceId == "") and on the results screen. V flips it (first
+--     person in the lobby, third person on a mission) until the mission state changes. Unlocked
+--     while Ragdolled, Downed, seated (VehicleController owns the driving camera) or when
+--     SetEnabled(false). PhysicsConfig.FirstPerson = false turns the lock off everywhere. The mode is
+--     re-asserted whenever something else (SquadService's spawn/revive lock) changes CameraMode.
 --   * Physics hands (ClientLib/PhysicsHands, HandsConfig.Enabled): gloves on springs that collide,
 --     reach, grab, slap and hold the equipped Tool as a floppy physics item (see that file).
 --     Fallback on touch-only devices (unless HandsConfig.MobileEnabled) or when disabled: the simple
@@ -75,14 +78,22 @@ local function attr(name: string): any
 	return player:GetAttribute(name)
 end
 
+local MISSION_STATES = { Alarm = true, Dispatched = true, Active = true }
+
+-- On a mission: our run (Workspace.Runs.<InstanceId>) is underway. The workspace-wide RoundState is
+-- a summary of ANY squad's run, so it must not lock players still in the station.
 local function inMission(): boolean
 	local id = attr(ATTR_INSTANCE)
-	if type(id) == "string" and id ~= "" then
-		return true
+	if type(id) ~= "string" or id == "" then
+		return false
 	end
-	-- v1 single auto-round (no lobby instance): everyone is in it while it runs
-	local round = workspace:GetAttribute(Names.Attr.RoundState)
-	return round == "Alarm" or round == "Active"
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(id)
+	if not run then
+		return true -- v1.5 instance (no Runs folder): InstanceId alone means "on a mission"
+	end
+	local st = run:GetAttribute(Names.Attr.RoundState)
+	return st == nil or MISSION_STATES[st] == true
 end
 
 local function poseFor(char: Model?): (string, Tool?)
@@ -225,6 +236,7 @@ local state = {
 	nearFireSeconds = 0,
 	scanAt = 0,
 	mission = false,
+	viewFlip = false, -- V pressed: the other view until the mission state changes
 	hiddenTool = nil :: Tool?,
 	toolConn = nil :: RBXScriptConnection?,
 	toolFor = nil :: Tool?,
@@ -234,7 +246,10 @@ local state = {
 }
 
 local function wantLock(char: Model?): boolean
-	if not state.enabled or PhysicsConfig.FirstPerson == false or not inMission() then
+	if not state.enabled or PhysicsConfig.FirstPerson == false then
+		return false
+	end
+	if inMission() == state.viewFlip then
 		return false
 	end
 	if attr(Names.Attr.Downed) == true then
@@ -243,9 +258,19 @@ local function wantLock(char: Model?): boolean
 	return not (char and char:GetAttribute(Names.Attr.Ragdolled) == true)
 end
 
+local function seated(char: Model?): boolean
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.SeatPart ~= nil
+end
+
 -- Only touches the camera properties when the wanted mode changes, so other scripts (cinematics)
 -- can still take over between transitions.
 local function applyCameraMode(lock: boolean)
+	-- someone else (SquadService on spawn/revive) changed CameraMode: re-assert ours
+	local isLocked = player.CameraMode == Enum.CameraMode.LockFirstPerson
+	if state.locked ~= nil and isLocked ~= state.locked then
+		state.locked = nil
+	end
 	if state.locked == lock then
 		return
 	end
@@ -430,11 +455,16 @@ local function step(dt: number)
 	local mission = inMission()
 	if mission ~= state.mission then
 		state.mission = mission
+		state.viewFlip = false
 		if not mission then
 			state.nearFireSeconds = 0 -- soot washes off back at the station
 		end
 	end
-	applyCameraMode(wantLock(char))
+	if seated(char) then
+		state.locked = nil -- VehicleController owns the camera while driving; re-apply on exit
+	else
+		applyCameraMode(wantLock(char))
+	end
 	local scripted = cam.CameraType == Enum.CameraType.Scriptable
 
 	-- sprint FOV
@@ -619,6 +649,13 @@ function FirstPersonController:Start()
 	s.SoundId = HeatConfig.BreathingSoundId or ""
 	s.Parent = SoundService
 	breath = s
+
+	-- V: flip first / third person (until the mission state changes)
+	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+		if not processed and input.KeyCode == Enum.KeyCode.V then
+			state.viewFlip = not state.viewFlip
+		end
+	end)
 
 	state.fov = tonumber(PhysicsConfig.FieldOfView) or 80
 	state.mission = inMission()

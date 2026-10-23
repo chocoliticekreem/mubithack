@@ -503,6 +503,10 @@ local function tick(dt: number)
 			table.insert(toSleep, p)
 			continue
 		end
+		if p.root:GetAttribute("HeldBy") ~= nil then
+			budget:touch(p, now) -- in someone's physics hands: HandsService owns it, don't sleep or re-own
+			continue
+		end
 		local who, d = nearest(list, p.root.Position)
 		local sleepNow, idle = PropPhysics.shouldSleep(d, p.root.AssemblyLinearVelocity.Magnitude, p.idle, dt, Cfg)
 		p.idle = idle
