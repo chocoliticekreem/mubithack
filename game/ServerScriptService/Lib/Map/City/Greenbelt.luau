@@ -87,9 +87,15 @@ local function pond(ctx: any, parent: Instance)
 	m.Parent = parent
 end
 
+-- in the creek / pond, or on ground something else covers (ctx.blocked: the tunnel hill)
 local function wet(ctx: any, x0: number, z0: number, x1: number, z1: number): boolean
 	for _, rv in ctx.plan.river do
 		if x1 > rv.x0 - 4 and x0 < rv.x1 + 4 and z1 > rv.z0 - 4 and z0 < rv.z1 + 4 then
+			return true
+		end
+	end
+	for _, rv in ctx.blocked or {} do
+		if x1 > rv.x0 and x0 < rv.x1 and z1 > rv.z0 and z0 < rv.z1 then
 			return true
 		end
 	end
@@ -169,12 +175,22 @@ local function outskirts(ctx: any, parent: Instance)
 		local line = lines[hl]
 		local out = if hl == 1 then -1 else 1 -- outward sign
 		for _, axis in { "x", "z" } do
-			-- stretches between the gate streets (cell centres) and the corners
+			-- stretches between everything that joins the highway: gate streets (cell centres), the
+			-- avenues, and the corners
 			local stops = { lines[1] + hw + 30 }
+			local joins = {}
 			for k = 1, 3 do
-				local c = -cell + (k - 1) * cell
-				table.insert(stops, c - 40)
-				table.insert(stops, c + 40)
+				table.insert(joins, { -cell + (k - 1) * cell, 40 })
+			end
+			for k = 2, #lines - 1 do
+				table.insert(joins, { lines[k], hw + 30 })
+			end
+			table.sort(joins, function(a, b)
+				return a[1] < b[1]
+			end)
+			for _, j in joins do
+				table.insert(stops, j[1] - j[2])
+				table.insert(stops, j[1] + j[2])
 			end
 			table.insert(stops, lines[#lines] - hw - 30)
 			for k = 1, #stops - 1, 2 do

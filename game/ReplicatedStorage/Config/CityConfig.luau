@@ -56,6 +56,8 @@ return Config.define({
 	-- Mill Pond: the creek widens into a lake in the east greenbelt between the Elm Ave avenue (x 450)
 	-- and Pine Ridge (x 590), south of the Forest gate street (world rect; nil = no lake)
 	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
+	-- Ridge Tunnel: Highway 67's west side (x = -1350) runs through a grassy hill here (Lib/Map/City/Highway)
+	Tunnel = { x = -1350, z0 = -840, z1 = -570, name = "Ridge Tunnel" }, -- between the Farm gate (z -900) and Oak Blvd (z -450)
 
 	-- Station (hub core)
 	StationOrigin = CFrame.new(0, 0, 132), -- kerb (local Z 68) on the hub loop's inner edge, z = 200

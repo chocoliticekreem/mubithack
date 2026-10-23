@@ -44,6 +44,7 @@ local Districts = require(CityDir:WaitForChild("Districts") :: ModuleScript) :: 
 local SK = require(CityDir:WaitForChild("SiteKit") :: ModuleScript) :: any
 local BlockFiller = require(CityDir:WaitForChild("BlockFiller") :: ModuleScript) :: any
 local Greenbelt = require(CityDir:WaitForChild("Greenbelt") :: ModuleScript) :: any
+local Highway = require(CityDir:WaitForChild("Highway") :: ModuleScript) :: any
 
 local CityBuilder = {}
 CityBuilder.Id = "City"
@@ -120,6 +121,7 @@ type Ctx = {
 	plan: any,
 	rng: Random,
 	keepClear: { Vector3 },
+	blocked: { any }, -- ground rects covered by set pieces (the tunnel hill): no lamps / trees
 	lamps: { X: LampSet, Z: LampSet },
 }
 
@@ -152,6 +154,11 @@ end
 local function clear(ctx: Ctx, p: Vector3, r: number): boolean
 	for _, k in ctx.keepClear do
 		if (k - p).Magnitude < r then
+			return false
+		end
+	end
+	for _, b in ctx.blocked do
+		if p.X > b.x0 and p.X < b.x1 and p.Z > b.z0 - 4 and p.Z < b.z1 + 4 then
 			return false
 		end
 	end
@@ -869,6 +876,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		plan = plan,
 		rng = rng,
 		keepClear = {},
+		blocked = Highway.blocked(cfg),
 		lamps = { X = { red = {}, amber = {}, green = {} }, Z = { red = {}, amber = {}, green = {} } },
 	}
 	-- keep lamps / trees out of curb cuts, gates and spur mouths
@@ -902,10 +910,17 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	sections.Roads = roads
 
 	-- the open ground between the neighbourhoods: Mill Pond, pocket parks, verges, outskirts fields
+	local hok, hres = pcall(Highway.build, { cfg = cfg, plan = plan, rng = rng, streetNames = Districts.StreetNames }, model)
+	if hok then
+		sections.Highway = hres
+	else
+		warn(`[CityBuilder] highway failed: {hres}`)
+	end
 	local gok, gres = pcall(Greenbelt.build, {
 		cfg = cfg,
 		plan = plan,
 		rng = rng,
+		blocked = ctx.blocked,
 		clear = function(p: Vector3, r: number): boolean
 			return clear(ctx, p, r)
 		end,
