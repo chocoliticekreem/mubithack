@@ -63,7 +63,7 @@ The `forge` plugin's tools:
 | Group | Tools |
 |---|---|
 | Setup | `setup`, `doctor` |
-| Build | `new_game`, `iterate`, `correct` |
+| Build | `new_game`, `iterate`, `correct`, `feature` |
 | Improve | `fix`, `improve`, `tester_report`, `tester_reports` |
 | Versions | `versions`, `rollback` |
 | Watch | `dashboard` |
@@ -90,6 +90,47 @@ Other servers that work alongside it:
 |---|---|
 | `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
 | `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
+
+## Adding a feature to an existing game
+
+Ask in plain words; the Mubit agent does the rest:
+
+```bash
+forge feature flame-and-blame-feat "game passes, like a battle pass" --iterations 2 --polish 3
+```
+
+(MCP tool: `feature(slug, request, iterations, polish)`.) What happens:
+
+1. **Rollback point.** The game is saved as a version first (`before feature: ...`); the command prints
+   the exact `forge rollback` to undo everything.
+2. **Plan** (Mubit task `planner`). The planner reads the game's spec and a map of every file (first
+   comment line each), and returns:
+   - up to 5 **new modules** for the feature (agent-owned files, following the game's own architecture,
+     e.g. a new `*Service` in an auto-discovered folder);
+   - a few **hook-in edits** to existing files, only where the feature cannot work otherwise;
+   - the **telemetry counters** the feature must bump (e.g. `battlepass_xp_awarded`);
+   - **acceptance checks** a tester can observe.
+
+   Unsafe parts are dropped: paths outside the Roblox roots, `..`, a "new" file that already exists, or
+   an edit to a file that doesn't exist.
+3. **Build.** The coder writes each new module. The patcher makes each hook-in edit (exact edits for
+   big files, so nothing gets shortened); the destructive guard rejects rewrites. Then a compile check,
+   the fixer on errors, and a version `feature: ...`. The new modules and acceptance checks join the
+   game's spec, so every later run knows about them.
+4. **Iterate** (`--iterations N`). Playtest, critic, fixer and reflector, with auto-rollback on a score
+   drop. When the spec has `"playtest": {"start_round": true}`, each playtest starts a round first, so
+   the feature runs in play instead of the lobby.
+5. **Polish end to end** (`--polish N`). AI testers play inside a round. The auditor judges the whole game
+   against its acceptance list (the feature's checks included), not one symptom at a time, so missing
+   pieces like a UI that never shows or XP that is never awarded become anomalies. Then the loop runs
+   investigate, fix or patch, and verify, keeping or rolling back each fix, cycle after cycle, until
+   nothing high or medium is open.
+6. **Verified** when every planned counter shows up above zero in a playtest. The result is logged in
+   `runs/<slug>/features.jsonl`, and all calls are traced.
+
+Proof from night 1: `flame-and-blame-feat` got **FlareUpService** (one new 135-line file, no human file
+touched). In a mission playtest it ran **8 flare-ups with 0 server errors**, and the critic's score went
+5, 5, then 7 over its iterations (`evidence/flame-and-blame-feat/`).
 
 ## Watching the runs
 
@@ -179,6 +220,7 @@ forge new "co-op lava floor escape where you carry friends" --iterations 3
 forge run lava-escape --iterations 2         # more iterations
 forge correct lava-escape ServerScriptService/Round.server.luau "rounds never end when everyone dies"
 forge fix lava-escape --cycles 5 --reports   # find anomalies, fix, verify, until clean
+forge feature lava-escape "a double-jump power-up" --iterations 2 --polish 3   # add a feature
 forge report lava-escape "the hose feels useless" --by sam
 forge improve flame-and-blame --cycles 3     # planted-fault benchmark; --only <fault id>, --fix
 forge scores lava-escape                     # per-cycle numbers; forge reports <slug>

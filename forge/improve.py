@@ -66,7 +66,12 @@ def _digests_block(title: str, digests: list[dict]) -> str:
 
 
 def _game_block(spec: dict) -> str:
-    return f"## Game\n{spec.get('pitch', '')}\nCore loop: {spec.get('core_loop', '')}"
+    out = f"## Game\n{spec.get('pitch', '')}\nCore loop: {spec.get('core_loop', '')}"
+    acceptance = [str(a) for a in (spec.get("acceptance") or []) if a][-12:]
+    if acceptance:
+        # end-to-end check: anything on this list the rounds show as missing or broken is an anomaly
+        out += "\nAcceptance checks the game must meet:\n" + "\n".join(f"- {a}" for a in acceptance)
+    return out
 
 
 def audit_message(spec: dict, playbook: str, digests: list[dict], verified: list[str] | None = None) -> str:
@@ -357,6 +362,9 @@ def unproven(conclusion: dict) -> bool:
     if not conclusion or not conclusion.get("file"):
         return True
     text = str(conclusion.get("root_cause", "")).lower()
+    for negated in ("not a testing artefact", "not a testing artifact", "not just a testing artefact",
+                    "rather than a testing artefact", "is a game bug"):
+        text = text.replace(negated, "")  # "a game bug, not a testing artefact" must not count as a skip
     return any(m in text for m in UNPROVEN_MARKERS)
 NOT_IN_STUDIO = ("tests/", "tools/")
 Resync = Callable[[Path], Awaitable[None]]

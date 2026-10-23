@@ -402,7 +402,7 @@ def cmd_feature(args) -> int:
     from forge.feature import add_feature
     _sigterm_as_interrupt()
     res = asyncio.run(add_feature(load_settings(), args.slug, args.request, iterations=args.iterations,
-                                  use_studio=not args.no_studio))
+                                  use_studio=not args.no_studio, polish=args.polish))
     print(f"\nfeature: {res.get('status') or ('verified' if res.get('verified') else 'built')}  "
           f"new {res.get('built')}  edited {res.get('edited')}  version {res.get('version')}")
     print(f"roll back with: forge rollback {args.slug} {res.get('before')}")
@@ -599,6 +599,8 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("slug")
     fe.add_argument("request", help="the feature, in plain words")
     fe.add_argument("--iterations", "-n", type=int, default=1, help="playtest/critic/fix rounds after building")
+    fe.add_argument("--polish", type=int, default=0,
+                    help="then N end-to-end cycles: AI testers in a round, auditor vs acceptance, fix, verify")
     fe.add_argument("--no-studio", action="store_true")
 
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")

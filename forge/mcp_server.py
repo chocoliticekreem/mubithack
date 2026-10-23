@@ -438,7 +438,8 @@ def rollback(slug: str, version: str, reason: str | None = None, studio: str | N
 
 
 @mcp.tool()
-def feature(slug: str, request: str, iterations: int = 1, use_studio: bool = True, studio: str | None = None) -> str:
+def feature(slug: str, request: str, iterations: int = 1, polish: int = 2, use_studio: bool = True,
+            studio: str | None = None) -> str:
     """Add a feature to an existing game (background job): the planner (Mubit) splits the request into
     new modules and small hook-in edits, the coder and patcher build them, then playtests, the critic
     and fixer iterate. Saved as a version first, so `rollback` undoes it. The job log ends with the
@@ -446,7 +447,8 @@ def feature(slug: str, request: str, iterations: int = 1, use_studio: bool = Tru
     _store(slug)
     if not request.strip():
         raise ToolError("the feature request is empty")
-    args = ["feature", slug, request, "--iterations", str(max(0, iterations))] + ([] if use_studio else ["--no-studio"])
+    args = (["feature", slug, request, "--iterations", str(max(0, iterations)), "--polish", str(max(0, polish))]
+            + ([] if use_studio else ["--no-studio"]))
     return _job_reply(start_job("feature", args, _studio_env(studio)), f"the feature '{request[:60]}' on {slug}")
 
 
