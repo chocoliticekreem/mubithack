@@ -18,5 +18,7 @@ jobs:
         run: uv venv && uv pip install -e ".[dev]"
       - name: Luau syntax check
         run: python3 game/tools/sync.py check --root game
+      - name: Luau unit specs
+        run: bash game/tests/run.sh
       - name: Tests
         run: .venv/bin/python -m pytest -q
