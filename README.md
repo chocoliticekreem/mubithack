@@ -66,6 +66,7 @@ The `forge` plugin's tools:
 | Build | `new_game`, `iterate`, `correct` |
 | Improve | `fix`, `improve`, `tester_report`, `tester_reports` |
 | Versions | `versions`, `rollback` |
+| Watch | `dashboard` |
 | Jobs | `job`, `jobs`, `cancel_job` |
 | Read | `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls` |
 | Ship | `seed`, `promote`, `sync` |
@@ -89,6 +90,20 @@ Other servers that work alongside it:
 |---|---|
 | `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
 | `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
+
+## Watching the runs
+
+`forge dashboard --open` (tool: `dashboard`) serves a live page at http://127.0.0.1:8765. It
+refreshes every 3 seconds and only reads `runs/`. It shows:
+- **Running:** background jobs and `runs/*.log` with live log tails, plus AI playtests in progress
+  (each tester's actions, and the bugs the judge found).
+- **Mubit tasks:** calls per role against the 25 examples a task needs to train, with the latest
+  request ids and a link to the console.
+- **Games:** each game's critic-score trend, iterations (rollbacks highlighted), saved versions,
+  fix cycles (anomalies, every fix attempt with the verifier's verdict and evidence, kept or rolled
+  back) and tester reports.
+
+`--host 0.0.0.0` shares it on your network, for example on a teammate's screen or a projector.
 
 ## The self-improving loop
 
@@ -168,6 +183,7 @@ forge report lava-escape "the hose feels useless" --by sam
 forge improve flame-and-blame --cycles 3     # planted-fault benchmark; --only <fault id>, --fix
 forge scores lava-escape                     # per-cycle numbers; forge reports <slug>
 forge versions lava-escape                   # saved versions; forge rollback lava-escape v3
+forge dashboard --open                       # live view of all runs at http://127.0.0.1:8765
 forge status                                 # every game: iterations, scores, calls per role
 forge new "..." --no-studio                  # compile-only, no Studio needed
 forge place --open                           # build place/Forge.rbxlx and open it in Studio

@@ -96,7 +96,7 @@ def start_job(kind: str, args: list[str], env: dict[str, str] | None = None,
     cmd = shlex.join(argv or _forge_argv(args))
     shell = f'{cmd} > {shlex.quote(str(log))} 2>&1; echo "{EXIT_MARK}$?" >> {shlex.quote(str(log))}'
     proc = subprocess.Popen(["/bin/sh", "-c", shell], cwd=_settings().repo_root,
-                            env={**os.environ, **(env or {})}, start_new_session=True,
+                            env={**os.environ, "PYTHONUNBUFFERED": "1", **(env or {})}, start_new_session=True,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     meta = {"id": job_id, "kind": kind, "args": args, "pid": proc.pid, "log": str(log),
             "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
@@ -372,6 +372,33 @@ def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes:
     return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")
 
 
+DASHBOARD_PORT = 8765
+
+
+def _port_open(port: int) -> bool:
+    import socket
+
+    with socket.socket() as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+@mcp.tool()
+def dashboard(port: int = DASHBOARD_PORT) -> str:
+    """Start (if needed) the live Forge dashboard and return its URL: running jobs with live logs,
+    every game's iterations, versions and rollbacks, fix cycles with verifier verdicts, tester
+    reports, and Mubit calls per role toward training. Give the user the link."""
+    url = f"http://127.0.0.1:{port}"
+    if _port_open(port):
+        return f"Forge dashboard: {url}"
+    meta = start_job("dashboard", ["dashboard", "--port", str(port)])
+    for _ in range(20):
+        if _port_open(port):
+            return f"Forge dashboard: {url} (job `{meta['id']}`; it keeps running in the background)"
+        time.sleep(0.25)
+    raise ToolError(f"the dashboard did not start; see job({meta['id']!r})")
+
+
 @mcp.tool()
 def versions(slug: str) -> str:
     """Every saved version of a game: builds, iterations (with their tested code), kept fixes and
@@ -623,7 +650,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 
 
 TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
-              "fix", "versions", "rollback", "tester_report", "tester_reports",
+              "fix", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")
 
