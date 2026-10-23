@@ -24,14 +24,20 @@ from forge.config import load_settings
 from forge.studio import Studio, extract_json
 from mubit_tester.harness import Harness, _long_bracket
 from mubit_tester.scenario import list_scenarios, load_scenario, run_scenario
+from mubit_tester.studio_presenter import check_choices, present_job
 
 PROTOCOL = 1
 DEFAULT_PORT = 34874
 TERMINAL = {"passed", "failed", "skipped", "cancelled", "interrupted"}
 OPERATIONS = {"install_harness", "scenario", "playtest", "explore", "inspect", "suggest_fix", "correct"}
-MARKER_CODE = '''return game:GetService("HttpService"):JSONEncode({
+MARKER_CODE = '''local s=game:GetService("ServerScriptService")
+local p=game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+return game:GetService("HttpService"):JSONEncode({
 marker=game:GetService("CoreGui"):GetAttribute("MubitTesterSession"),
-name=game.Name,placeId=game.PlaceId})'''
+name=game.Name,placeId=game.PlaceId,
+harnessReady=s:FindFirstChild("ForgeTest")~=nil and s:FindFirstChild("ForgeProbe")~=nil
+and game:GetService("ReplicatedStorage"):FindFirstChild("ForgeTelemetry")~=nil
+and p~=nil and p:FindFirstChild("ForgeTestAgent")~=nil})'''
 
 
 def runtime_files(root: Path) -> list[dict]:
@@ -142,7 +148,8 @@ class Companion:
                             continue
                         if isinstance(info, dict) and info.get("marker") == marker:
                             session = {"studio_id": item["id"], "name": info["name"],
-                                       "place_id": info.get("placeId", 0), "marker": marker}
+                                       "place_id": info.get("placeId", 0), "marker": marker,
+                                       "harness_ready": bool(info.get("harnessReady"))}
                             self.sessions[marker] = session
                             return session
                     await asyncio.sleep(1)
@@ -157,12 +164,16 @@ class Companion:
             jobs = [j for j in jobs if j["studio_id"] == session["studio_id"]]
         else:
             jobs = []
+        def view(job):
+            return {**job, "presentation": present_job(job)} if job else None
+        scenarios = list_scenarios(self.settings.repo_root)
         return {"protocol": PROTOCOL, "has_mubit_key": bool(self.settings.mubit_api_key),
                 "model": self.settings.model, "session": session,
                 "busy": self.active is not None,
-                "active": self.jobs.get(self.active) if self.active and session
+                "active": view(self.jobs.get(self.active)) if self.active and session
                 and self.jobs[self.active]["studio_id"] == session["studio_id"] else None,
-                "history": jobs[:12], "scenarios": list_scenarios(self.settings.repo_root)}
+                "history": [view(job) for job in jobs[:12]], "scenarios": scenarios,
+                "check_choices": check_choices(scenarios)}
 
     def submit(self, payload: dict):
         marker = payload.get("session")
@@ -273,6 +284,8 @@ class Companion:
                             raise ValueError("Set up testing in a local place. Shared published places require the repository's normal sync workflow.")
                         self.emit(job, "Installing only the four test runtime scripts; other game scripts are preserved.")
                         job["result"] = {"summary": await studio.execute_luau(install_code(self.settings.repo_root))}
+                        if job["marker"] in self.sessions:
+                            self.sessions[job["marker"]]["harness_ready"] = True
                     else:
                         self.emit(job, "Starting a solo playtest.")
                         owned_play = True
