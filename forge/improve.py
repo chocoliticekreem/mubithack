@@ -236,6 +236,31 @@ async def _rounds(settings, playtest: Playtest, n: int, start: int, *, goal: str
     return out
 
 
+# Seconds to let a freshly started round get going (teleport, intro countdown) before testers act.
+START_ROUND_WAIT = 8.0
+END_ROUND_WAIT = 2.0
+
+
+def round_starting(playtest: Playtest, *, seconds: int | None = None, wait: float = START_ROUND_WAIT) -> Playtest:
+    """Wrap a playtest so every round begins inside the game proper: end any running round, then start
+    one through the harness's `round` command (ForgeTest contract, not game-specific). Testers otherwise
+    spend their steps in a lobby and never reach the core loop."""
+    async def wrapped(settings, goal, players, steps, *, llm, harness):
+        await harness.ensure_ready()
+        try:
+            await harness.call("round", state="Results")
+            await asyncio.sleep(END_ROUND_WAIT)
+        except Exception:  # noqa: BLE001 - nothing to end is fine
+            pass
+        args = {"state": "Active"}
+        if seconds:
+            args["seconds"] = seconds
+        await harness.call("round", **args)
+        await asyncio.sleep(wait)
+        return await playtest(settings, goal, players, steps, llm=llm, harness=harness)
+    return wrapped
+
+
 # ---------------------------------------------------------------- guards on fixes (general, not per game)
 
 # A fix for one anomaly should be local. Removing more than this many of a file's lines (and at least
