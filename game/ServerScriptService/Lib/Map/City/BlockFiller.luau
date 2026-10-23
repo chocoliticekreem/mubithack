@@ -846,6 +846,7 @@ function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	SK.wedge(m, "Roof1", F * CF(0, GY + h + rise / 2, d / 4 - 0.5), V(w + 2, rise, d / 2 + 1), rc)
 	SK.wedge(m, "Roof2", F * CF(0, GY + h + rise / 2, 3 * d / 4 + 0.5) * FLIP, V(w + 2, rise, d / 2 + 1), rc)
 	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.35), V(4, 7, 0.4), C.Wood)
+	SK.part(m, "Chimney", F * CF(w * 0.3, GY + h + 4, d * 0.7), V(2.6, 9, 2.6), C.BrickDark, DETAIL)
 	-- windows as one dark strip per storey (cheap LOD shell)
 	SK.part(m, "WindowFake", F * CF(0, GY + 5, -0.1), V(w * 0.8, 3.6, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	if h > 12 then
@@ -1178,6 +1179,10 @@ function Scenery.shed(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD:
 	})
 	SK.part(m, "RollDoor", F * CF(0, GY + 6, 7.8), V(math.min(16, w - 6), 12, 0.4), Color3.fromHex("#E76F51"), { collide = false })
 	SK.part(m, "Yard", F * CF(0, GY + 0.03, 4), V(w, 0.1, 8), C.AsphaltDark, { collide = false, cast = false })
+	-- a clerestory strip, a door canopy over the roll door and a roof vent
+	dress(m, F * CF(0, 0, 8), w, d, h, rng, { base = math.max(13, h - 6), floor = 20, maxBands = 1, sides = false, roof = false, canopy = false })
+	SK.part(m, "Canopy", F * CF(0, GY + 12.6, 6.4), V(math.min(18, w - 4), 0.4, 3), C.MetalDark, DETAIL)
+	SK.part(m, "Vent", F * CF(w * 0.2, GY + h + 1, d / 2 + 8), V(4, 2, 4), C.Metal, DETAIL)
 	m.Parent = parent
 end
 
