@@ -9,6 +9,8 @@
 --   Every visual part is welded (WeldConstraint) to the Hitbox, unanchored, Massless and
 --     non-colliding, so moving the Hitbox's CFrame moves the whole car (one CFrame per car per frame).
 --   "DriverHead": the driver's head in the cab (hidden when the driver pops out).
+--   "BrakeLampL"/"BrakeLampR" (rear) and "BlinkerL"/"BlinkerR" (front + rear corners): unlit;
+--     TrafficController lights them locally from the car's Brake / Blink attributes.
 -- Model attributes: Kind, RootY (= H/2), HalfLen.
 -- Sedans and taxis reuse PropKit.car when it is available.
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -33,6 +35,8 @@ local C = {
 	Pink = hex("#E86A92"),
 	Mint = hex("#9EE0C4"),
 	Waffle = hex("#D9A050"),
+	BrakeOff = hex("#5A1E1A"),
+	BlinkOff = hex("#6B4A1A"),
 }
 
 local SEDAN_COLORS = {
@@ -258,11 +262,23 @@ builders.icecream = function(m, cf, rng)
 	return { halfLen = 7.2, height = H + 7, width = 7.2, speedMul = 0.7 }
 end
 
+-- Brake lamps + indicators on the corners of the car's footprint (every kind, PropKit cars too).
+local function signalLamps(m: Model, cf: CFrame, W: number, halfLen: number)
+	for _, sx in { -1, 1 } do
+		local side = if sx < 0 then "L" else "R"
+		part(m, `BrakeLamp{side}`, cf * CF(sx * (W / 2 - 0.8), 2.1, halfLen + 0.2), V(1.3, 0.55, 0.25), C.BrakeOff)
+		for _, sz in { -1, 1 } do
+			part(m, `Blinker{side}`, cf * CF(sx * (W / 2 - 0.1), 2.3, sz * (halfLen + 0.2)), V(0.7, 0.45, 0.25), C.BlinkOff)
+		end
+	end
+end
+
 function CarBuilder.Build(kind: string, cf: CFrame, rng: Random): (Model, Info)
 	local build = builders[kind] or builders.sedan
 	local m = Instance.new("Model")
 	m.Name = `TrafficCar_{kind}`
 	local info = build(m, cf, rng)
+	signalLamps(m, cf, info.width, info.halfLen)
 	local H = math.min(info.height, 9.6)
 	local root = Instance.new("Part")
 	root.Name = "Hitbox"

@@ -6,8 +6,9 @@
 -- follows). Plus: a little suspension bob, a hop + "HONK!" + horn on Traffic/Honk, "AAAH!" popups (ClientLib/WorldPopup) for
 -- panicking drivers, and local collisions (you bump into cars you see; off while you drive a truck so
 -- the server's ram check flings them instead of your truck stopping dead).
+-- Brake lamps glow on attr Brake; indicators (BlinkerL/BlinkerR) blink on attr Blink "L"/"R".
 -- State "Wrecked" = server physics owns the car: hands off.
--- Reads: tag TrafficCar + attrs Pose/Speed/State/RootY; remote Traffic/Honk; AudioController:Play (nil-guarded).
+-- Reads: tag TrafficCar + attrs Pose/Speed/State/RootY/Blink/Brake; remote Traffic/Honk; AudioController:Play (nil-guarded).
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -36,7 +37,62 @@ type Rec = {
 	bubble: BillboardGui?,
 	bubbleUntil: number,
 	conns: { RBXScriptConnection },
+	brakeLamps: { BasePart },
+	blinkL: { BasePart },
+	blinkR: { BasePart },
+	brake: boolean,
+	blink: string,
+	litBrake: boolean,
+	litL: boolean,
+	litR: boolean,
 }
+
+local BRAKE_ON = Color3.fromHex("#FF2A1A")
+local BRAKE_OFF = Color3.fromHex("#5A1E1A")
+local BLINK_ON = Color3.fromHex("#FFB020")
+local BLINK_OFF = Color3.fromHex("#6B4A1A")
+
+local function setLit(parts: { BasePart }, on: boolean, onColor: Color3, offColor: Color3)
+	for _, p in parts do
+		p.Color = if on then onColor else offColor
+		p.Material = if on then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	end
+end
+
+local function findLamps(rec: Rec)
+	rec.brakeLamps, rec.blinkL, rec.blinkR = {}, {}, {}
+	for _, d in rec.model:GetDescendants() do
+		if d:IsA("BasePart") then
+			if string.sub(d.Name, 1, 9) == "BrakeLamp" then
+				table.insert(rec.brakeLamps, d)
+			elseif d.Name == "BlinkerL" then
+				table.insert(rec.blinkL, d)
+			elseif d.Name == "BlinkerR" then
+				table.insert(rec.blinkR, d)
+			end
+		end
+	end
+end
+
+-- lamps follow Brake / Blink; indicators flash at ~1.4 Hz, all cars in step (looks deliberate)
+local function lamps(rec: Rec, now: number)
+	local flash = (now * 1.4) % 1 < 0.55
+	local wantBrake = rec.brake
+	local wantL = flash and rec.blink == "L"
+	local wantR = flash and rec.blink == "R"
+	if wantBrake ~= rec.litBrake then
+		rec.litBrake = wantBrake
+		setLit(rec.brakeLamps, wantBrake, BRAKE_ON, BRAKE_OFF)
+	end
+	if wantL ~= rec.litL then
+		rec.litL = wantL
+		setLit(rec.blinkL, wantL, BLINK_ON, BLINK_OFF)
+	end
+	if wantR ~= rec.litR then
+		rec.litR = wantR
+		setLit(rec.blinkR, wantR, BLINK_ON, BLINK_OFF)
+	end
+end
 
 local controllers: { [string]: any } = {}
 local recs: { [Model]: Rec } = {}
@@ -94,9 +150,31 @@ local function track(inst: Instance)
 		bubble = nil,
 		bubbleUntil = 0,
 		conns = {},
+		brakeLamps = {},
+		blinkL = {},
+		blinkR = {},
+		brake = model:GetAttribute("Brake") == true,
+		blink = (model:GetAttribute("Blink") :: string?) or "",
+		litBrake = false,
+		litL = false,
+		litR = false,
 	}
 	recs[model] = rec
+	findLamps(rec)
 	pushSnap(rec)
+	table.insert(
+		rec.conns,
+		model:GetAttributeChangedSignal("Brake"):Connect(function()
+			rec.brake = model:GetAttribute("Brake") == true
+		end)
+	)
+	table.insert(
+		rec.conns,
+		model:GetAttributeChangedSignal("Blink"):Connect(function()
+			local b = model:GetAttribute("Blink")
+			rec.blink = if type(b) == "string" then b else ""
+		end)
+	)
 	table.insert(
 		rec.conns,
 		model:GetAttributeChangedSignal("Pose"):Connect(function()
@@ -123,6 +201,7 @@ local function track(inst: Instance)
 			if not rec.root then
 				rec.root = model.PrimaryPart or model:FindFirstChild("Hitbox") :: BasePart?
 			end
+			findLamps(rec)
 		end)
 	)
 end
@@ -167,6 +246,7 @@ local function render()
 		if d.X * d.X + d.Z * d.Z > radius2 then
 			continue
 		end
+		lamps(rec, now)
 		local cf: CFrame
 		local v = last.v
 		if renderT <= snaps[1].t then

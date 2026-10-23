@@ -15,6 +15,9 @@
 --   Driver.rammed(relX, relZ, truckSpeed, cfg) -> boolean          -- car in the truck's local frame (-Z = forward)
 --   Driver.panicWobble(t, seed) -> (lateral, yaw)                   -- comic swerve
 --   Driver.pickWeighted(weights, roll) -> string?
+--   Driver.turnSpeed(radius, limit, cfg) -> number                -- comfortable speed through a curve
+--   Driver.entrySpeed(dist, vNext, brake) -> number                -- fastest speed now that still slows to vNext in dist
+--   Driver.passClear(fwd, right, sameDir, cfg) -> boolean          -- another car leaves the passing corridor clear
 
 local Driver = {}
 
@@ -171,6 +174,30 @@ function Driver.pickWeighted(weights: { [string]: number }, roll: number): strin
 		end
 	end
 	return keys[#keys]
+end
+
+function Driver.turnSpeed(radius: number, limit: number, cfg: any): number
+	if radius >= 1e6 then
+		return limit
+	end
+	return math.clamp(math.sqrt(cfg.TurnAccel * radius), cfg.MinTurnSpeed, limit)
+end
+
+function Driver.entrySpeed(dist: number, vNext: number, brake: number): number
+	return math.sqrt(vNext * vNext + 2 * brake * math.max(dist, 0))
+end
+
+-- Passing: I move PassOffset to my left. (fwd, right) = the other car in my heading frame.
+-- Oncoming cars in the corridor up to PassLook ahead, or same-direction cars beside me, block it.
+function Driver.passClear(fwd: number, right: number, sameDir: boolean, cfg: any): boolean
+	local corridor = math.abs(right + cfg.PassOffset) < 6
+	if not corridor then
+		return true
+	end
+	if sameDir then
+		return fwd < -18 or fwd > 30
+	end
+	return fwd < -8 or fwd > cfg.PassLook
 end
 
 return Driver
