@@ -210,7 +210,7 @@ local function padCFrame(helmet: number): CFrame?
 	return if ok then cf else nil
 end
 
-local function truckCFrame(key: string): CFrame?
+local function truckCFrame(key: string, player: Player?): CFrame?
 	local truck: Instance? = nil
 	if key ~= "round" then
 		local Map = services.MapService
@@ -236,7 +236,7 @@ local function truckCFrame(key: string): CFrame?
 	if not truck then
 		local Vehicle = services.VehicleService
 		local ok, t = pcall(function()
-			return Vehicle and Vehicle:GetTruck()
+			return Vehicle and Vehicle:GetTruck(player) -- v2: one truck per player
 		end)
 		truck = if ok then t else nil
 	end
@@ -355,7 +355,7 @@ local function onCharacter(player: Player, character: Model)
 	local helmet = SquadService:GetHelmet(player)
 	local truckKey = respawnAtTruck[player]
 	respawnAtTruck[player] = nil
-	local cf = truckKey and truckCFrame(truckKey) or padCFrame(helmet)
+	local cf = truckKey and truckCFrame(truckKey, player) or padCFrame(helmet)
 	if cf and character.Parent then
 		character:PivotTo(cf)
 	end
