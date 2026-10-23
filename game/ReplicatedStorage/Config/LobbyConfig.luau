@@ -26,10 +26,10 @@ return Config.define({
 	-- sounds (SoundService-style ids; "" = silent)
 	TickSoundId = "",
 	GoSoundId = "",
-	SirenSoundId = "",
+	SirenSoundId = "rbxassetid://530137633",
 	AlarmSoundId = "",
 	BellSoundId = "",
-	HonkSoundId = "",
+	HonkSoundId = "rbxassetid://107056835646946",
 	WhooshSoundId = "",
 	WelcomeText = "Welcome back, heroes (mostly)",
 })

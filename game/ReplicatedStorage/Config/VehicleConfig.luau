@@ -30,8 +30,8 @@ return Config.define({
 	RunOverCooldown = 2,
 
 	-- Sounds. Asset ids are not verifiable offline: "" = silent. Set e.g. "rbxassetid://..." here.
-	HornSoundId = "",
-	SirenSoundId = "",
+	HornSoundId = "rbxassetid://107056835646946", -- AudioConfig.Sounds.Horn
+	SirenSoundId = "rbxassetid://530137633", -- AudioConfig.Sounds.Siren (loop)
 	EngineSoundId = "",
 	BoingSoundId = "",
 })
