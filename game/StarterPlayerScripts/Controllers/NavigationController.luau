@@ -612,8 +612,41 @@ local function siteCentre(site: Instance): Vector3?
 	return p
 end
 
+-- the station (home) and, in the lobby, the glowing queue pads (OnboardingController's tutorial points at them)
+local stationPos: Vector3? = nil
+local function homePos(): Vector3?
+	if stationPos then
+		return stationPos
+	end
+	local sum, n = Vector3.zero, 0
+	for _, tag in { Tag.StationSpawn or "StationSpawn", Tag.TruckBay or "TruckBay" } do
+		for _, b in CollectionService:GetTagged(tag) do
+			if b:IsA("BasePart") and b:IsDescendantOf(workspace) then
+				sum += b.Position
+				n += 1
+			end
+		end
+	end
+	if n > 0 then
+		stationPos = sum / n
+	end
+	return stationPos
+end
+
 local function collectMarkers(): { any }
 	local out = {}
+	local home = homePos()
+	if home then
+		table.insert(out, { id = "station", kind = "station", x = home.X, z = home.Z, text = "67" })
+	end
+	local iid = player:GetAttribute(Attr.InstanceId or "InstanceId")
+	if iid == nil or iid == "" then
+		for _, pad in CollectionService:GetTagged(Tag.SquadPad or "SquadPad") do
+			if pad:IsA("BasePart") and pad:IsDescendantOf(workspace) then
+				table.insert(out, { id = "pad_" .. tostring(pad:GetAttribute("PadId") or pad.Name), kind = "pad", x = pad.Position.X, z = pad.Position.Z })
+			end
+		end
+	end
 	local tPos, tLabel = target()
 	if tPos then
 		table.insert(out, { id = "wp", kind = if pin then "pin" else "waypoint", x = tPos.X, z = tPos.Z, text = tLabel })

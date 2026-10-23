@@ -330,6 +330,14 @@ end
 ------------------------------------------------------------------ teleport helpers
 
 local function stationSpawn(i: number): CFrame
+	-- OnboardingService turns the pad to face the bays; fall back to the raw pad.
+	local Onb = services.OnboardingService
+	local okOnb, faced = pcall(function()
+		return Onb and Onb:SpawnCFrame(((i - 1) % 4) + 1)
+	end)
+	if okOnb and typeof(faced) == "CFrame" then
+		return faced
+	end
 	local Map = services.MapService
 	local slot = ((i - 1) % 4) + 1
 	local ok, cf = pcall(function()
@@ -612,7 +620,7 @@ function LobbyService:ReturnToLobby(players: { Player })
 		end
 		p:SetAttribute(Names.Attr.InstanceId, "")
 		p:SetAttribute(Names.Attr.SquadId, "")
-		pivot(p, stationSpawn(i) * CFrame.new(math.random(-10, 10) / 10, 0, math.random(-10, 10) / 10))
+		pivot(p, stationSpawn(tonumber(p:GetAttribute(Names.Attr.Helmet)) or i))
 		local r = remotes.Fx
 		if r then
 			r:FireClient(p, "welcome", LobbyConfig.WelcomeText)
@@ -989,8 +997,14 @@ local function spawnInStation(player: Player, character: Model)
 		if not LobbyConfig.UseLobby or not inLobby(player) or player.Character ~= character then
 			return
 		end
-		local slot = table.find(Players:GetPlayers(), player) or 1
-		character:PivotTo(stationSpawn(slot))
+		-- your own pad (helmet number), the same one SquadService put you on: no second teleport
+		local slot = tonumber(player:GetAttribute(Names.Attr.Helmet)) or table.find(Players:GetPlayers(), player) or 1
+		local cf = stationSpawn(slot)
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root and (root.Position - cf.Position).Magnitude < 3 then
+			return
+		end
+		character:PivotTo(cf)
 	end)
 end
 

@@ -77,6 +77,7 @@ ProfileSchema.Settings = {
 	showXpPopups = { default = true, kind = "boolean" },
 	graphicsQuality = { default = 0, kind = "number", min = 0, max = 3 }, -- 0 Auto, 1 Low, 2 High, 3 Ultra (ShaderController)
 	feedback = { default = 0, kind = "number", min = 0, max = 2 }, -- 0 Normal, 1 Minimal, 2 Off (ClientLib/WorldPopup)
+	onboarded = { default = false, kind = "boolean" }, -- first-join tutorial finished (OnboardingService)
 }
 
 local SECONDS_PER_WEEK = 7 * 24 * 3600

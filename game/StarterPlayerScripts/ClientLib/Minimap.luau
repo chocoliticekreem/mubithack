@@ -194,6 +194,23 @@ local function makeIcon(parent: Instance, m: Marker): Icon
 		local l = text(root, "T", m.text or "", 13)
 		l.ZIndex = 11
 		icon.label = l
+	elseif m.kind == "station" then -- home: a red "67" badge
+		root.Size = UDim2.fromOffset(26, 20)
+		root.BackgroundColor3 = Palette.UiRed
+		root.BackgroundTransparency = 0
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 5)
+		c.Parent = root
+		UiKit.stroke(root, 2)
+		local l = text(root, "T", m.text or "67", 13)
+		l.ZIndex = 11
+		icon.label = l
+	elseif m.kind == "pad" then -- glowing queue pad
+		root.Size = UDim2.fromOffset(12, 12)
+		root.BackgroundColor3 = Palette.UiWater
+		root.BackgroundTransparency = 0.1
+		round(root)
+		UiKit.stroke(root, 2, Palette.UiCream)
 	elseif m.kind == "other" then
 		root.Size = UDim2.fromOffset(9, 9)
 		root.BackgroundColor3 = Palette.ReflectSilver

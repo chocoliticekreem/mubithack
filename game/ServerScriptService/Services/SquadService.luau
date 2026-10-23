@@ -207,6 +207,13 @@ local function padCFrame(helmet: number): CFrame?
 		return nil
 	end
 	waitMap()
+	local Onb = services.OnboardingService -- same pad, turned to face the bays
+	if Onb and type(Onb.SpawnCFrame) == "function" then
+		local okOnb, faced = pcall(Onb.SpawnCFrame, Onb, helmet)
+		if okOnb and typeof(faced) == "CFrame" then
+			return faced
+		end
+	end
 	local ok, cf = pcall(Map.GetSpawnCFrame, Map, helmet)
 	return if ok then cf else nil
 end
@@ -364,7 +371,9 @@ local function onCharacter(player: Player, character: Model)
 	if not ok then
 		warn(`[SquadService] costume failed: {err}`)
 	end
-	setPlayerCamera(player, true)
+	-- first person only on a mission; the station lobby is third person (FirstPersonController agrees)
+	local iid = player:GetAttribute(Names.Attr.InstanceId)
+	setPlayerCamera(player, type(iid) == "string" and iid ~= "")
 end
 
 local function onPlayer(player: Player)
