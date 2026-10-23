@@ -95,6 +95,9 @@ def test_build_tools_start_the_right_forge_command(settings, monkeypatch):
     assert seen[3][1][-4:] == ["--only", "dry", "--studio", "abc"]
     fm.tester_report("g1", "hose broken", run_ids=["pt-1", "pt-2"], reporter="sam")
     assert seen[4][1] == ["report", "g1", "hose broken", "--run", "pt-1", "--run", "pt-2", "--by", "sam"]
+    fm.fix("g1", cycles=4, max_fixes=2, studio="abc")
+    assert seen[5][1] == ["fix", "g1", "--cycles", "4", "--rounds", "2", "--steps", "15", "--max-fixes", "2",
+                          "--reports", "--studio", "abc"]
 
 
 def test_build_tools_reject_bad_input(settings):
