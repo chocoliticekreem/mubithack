@@ -45,7 +45,10 @@ TruckBuilder.CompartmentItems = { "Axe", "Extinguisher", "OxygenTank" }
 -- Palette (docs/game/02 §1).
 local TruckRed = Color3.fromRGB(200, 35, 43) -- #C8232B
 local TruckRedDark = Color3.fromRGB(150, 24, 30)
-local Chrome = Color3.fromRGB(214, 216, 220) -- #D6D8DC
+-- Cooler and a touch darker than TruckChrome #D6D8DC: the city's warm sunlight turned the old near-white
+-- chrome (lockers, bumpers, ladder) beige, so big chrome panels read as cardboard.
+local Chrome = Color3.fromRGB(178, 186, 198)
+local LockerAlu = Color3.fromRGB(122, 130, 144) -- roll-up shutters
 local Steel = Color3.fromRGB(150, 152, 158)
 local Tyre = Color3.fromRGB(34, 34, 34) -- #222
 local Ink = Color3.fromRGB(26, 18, 16) -- #1A1210 NumberInk
@@ -54,10 +57,11 @@ local Gold = Color3.fromRGB(232, 194, 74) -- #E8C24A HelmetShield
 local HoseYellow = Color3.fromRGB(232, 184, 58) -- #E8B83A
 local Brass = Color3.fromRGB(200, 154, 60) -- #C89A3C
 local GlassTint = Color3.fromRGB(120, 175, 200)
-local BenchWood = Color3.fromRGB(138, 74, 40) -- #8A4A28
 local HeadlightGlow = Color3.fromRGB(255, 244, 196)
 local Charcoal = Color3.fromRGB(52, 52, 58)
 local SeatLeather = Color3.fromRGB(92, 34, 30)
+-- Dark tread plate: light grey DiamondPlate reads as tan cardboard under the warm city lighting.
+local TreadPlate = Color3.fromRGB(74, 76, 84)
 
 local ROT_Z_AXIS = CFrame.Angles(0, math.rad(90), 0) -- cylinder axis (X) -> Z
 
@@ -112,8 +116,9 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	-- Coordinates: x = right, y = up, z = back (front bumper near z = -13.5, tail near z = +13.5).
 	---------------------------------------------------------------- chassis + wheels
 	local chassis = P("Chassis", Vector3.new(0, 2.0, 0), Vector3.new(8.4, 1.2, 25), Tyre)
-	P("SideSkirt_L", Vector3.new(-4.85, 2.5, 1.5), Vector3.new(0.3, 0.8, 3.6), Steel)
-	P("SideSkirt_R", Vector3.new(4.85, 2.5, 1.5), Vector3.new(0.3, 0.8, 3.6), Steel)
+	-- outer faces at |x| 5.07, proud of the body side (5.0): coplanar faces z-fight
+	P("SideSkirt_L", Vector3.new(-4.92, 2.5, 1.5), Vector3.new(0.3, 0.8, 3.6), Steel)
+	P("SideSkirt_R", Vector3.new(4.92, 2.5, 1.5), Vector3.new(0.3, 0.8, 3.6), Steel)
 
 	local axles = { Front = -10.2, Mid = 5.4, Rear = 9.4 }
 	if hero and type(truckCfg.HeroAxleZ) == "table" then
@@ -126,7 +131,8 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	for axleName, z in axles do
 		for _, side in { -1, 1 } do
 			local s = if side < 0 then "L" else "R"
-			P(`Wheel_{axleName}_{s}`, Vector3.new(side * 4.2, 1.8, z), Vector3.new(1.6, 3.6, 3.6), Tyre, { shape = Enum.PartType.Cylinder })
+			-- tyre face at |x| 5.05, just proud of the body / deck sides (5.0) so they never z-fight
+			P(`Wheel_{axleName}_{s}`, Vector3.new(side * 4.25, 1.8, z), Vector3.new(1.6, 3.6, 3.6), Tyre, { shape = Enum.PartType.Cylinder })
 			P(`Hub_{axleName}_{s}`, Vector3.new(side * 4.45, 1.8, z), Vector3.new(1.4, 1.9, 1.9), Steel, { shape = Enum.PartType.Cylinder, collide = false })
 			P(`HubCap_{axleName}_{s}`, Vector3.new(side * 5.1, 1.8, z), Vector3.new(0.2, 0.8, 0.8), Chrome, { shape = Enum.PartType.Cylinder, collide = false })
 		end
@@ -144,10 +150,20 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 			end
 		end
 	end
-	-- Wheel arches (chunky red fenders over each axle).
+	-- Wheel arches (chunky red fenders) over the cab and deck axles. The mid axle sits under the
+	-- equipment body, whose lockers already cover the tyre top; a fender there cut across locker 3.
 	for axleName, z in axles do
+		if axleName == "Mid" then
+			continue
+		end
 		for _, side in { -1, 1 } do
-			P(`Fender_{axleName}_{if side < 0 then "L" else "R"}`, Vector3.new(side * 4.6, 3.95, z), Vector3.new(1.4, 0.5, 4.0), TruckRedDark)
+			local s = if side < 0 then "L" else "R"
+			P(`Fender_{axleName}_{s}`, Vector3.new(side * 4.6, 3.95, z), Vector3.new(1.4, 0.5, if axleName == "Front" then 2.6 else 4.0), TruckRedDark)
+			-- sloped ends on the cab fender so it reads as a rounded arch, not a flat shelf (the other
+			-- fenders sit against the body / deck walls)
+			for _, dz in if axleName == "Front" then { -1, 1 } else {} do
+				P(`FenderLip_{axleName}_{s}{if dz < 0 then "F" else "B"}`, Vector3.new(side * 4.6, 3.55, z + dz * 1.65), Vector3.new(1.4, 0.45, 1.2), TruckRedDark, deco, CFrame.Angles(math.rad(dz * 40), 0, 0))
+			end
 		end
 	end
 
@@ -171,18 +187,41 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		local s = if side < 0 then "L" else "R"
 		local x = side * 4.85
 		-- lower side wall in front of the door (over the front wheel) + quarter glass above it
-		S(P(`CabSideFront_{s}`, Vector3.new(x, 4.2, -10.6), Vector3.new(0.3, 3.6, 4.8), TruckRed))
+		-- stops at the fender line (3.95) so it doesn't run through the front wheel
+		S(P(`CabSideFront_{s}`, Vector3.new(x, 4.975, -10.6), Vector3.new(0.3, 2.05, 4.8), TruckRed))
 		P(`SideWindow_{s}`, Vector3.new(side * 4.95, 7.08, -10.25), Vector3.new(0.12, 2.0, 3.9), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
 		S(P(`APillar_{s}`, Vector3.new(x, 7.1, -12.35), Vector3.new(0.35, 2.2, 0.35), TruckRed))
 		S(P(`BPillar_{s}`, Vector3.new(x, 7.1, -8.27), Vector3.new(0.3, 2.2, 0.2), TruckRed))
 		S(P(`DoorSill_{s}`, Vector3.new(x, 2.62, -6.65), Vector3.new(0.3, 0.25, 3.1), TruckRedDark))
 		-- Mirror on an arm.
-		P(`MirrorArm_{s}`, Vector3.new(side * 5.5, 6.6, -11.6), Vector3.new(1.0, 0.2, 0.2), Ink, deco)
+		P(`MirrorArm_{s}`, Vector3.new(side * 5.5, 6.6, -11.6), Vector3.new(1.0, 0.2, 0.2), Chrome, { material = Enum.Material.Metal, collide = false })
 		P(`Mirror_{s}`, Vector3.new(side * 6.05, 6.9, -11.6), Vector3.new(0.3, 1.3, 0.7), Ink, deco)
 		P(`MirrorGlass_{s}`, Vector3.new(side * 6.05, 6.9, -11.24), Vector3.new(0.22, 1.15, 0.04), GlassTint, { material = Enum.Material.Glass, collide = false })
 		-- Step under the door.
-		P(`CabStep_{s}`, Vector3.new(side * 4.9, 2.4, -6.65), Vector3.new(0.9, 0.3, 2.6), Chrome, { material = Enum.Material.DiamondPlate })
+		P(`CabStep_{s}`, Vector3.new(side * 4.9, 2.4, -6.65), Vector3.new(0.9, 0.3, 2.6), Chrome, { material = Enum.Material.Metal })
 	end
+
+	-- Rounded cab: cylinder edges along the roof and down the front corners, balls where they meet.
+	local ROT_X_AXIS = CFrame.identity -- Cylinder parts run along X already
+	local ROT_Y_AXIS = CFrame.Angles(0, 0, math.rad(90)) -- cylinder axis (X) -> Y
+	for _, side in { -1, 1 } do
+		local s = if side < 0 then "L" else "R"
+		S(P(`CabRoofEdge_{s}`, Vector3.new(side * 4.95, 8.45, -8.8), Vector3.new(7.8, 0.6, 0.6), TruckRed, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS))
+		S(P(`CabCorner_{s}`, Vector3.new(side * 4.85, 4.2, -12.8), Vector3.new(3.6, 0.6, 0.6), TruckRed, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Y_AXIS))
+		S(P(`CabRoofCorner_{s}`, Vector3.new(side * 4.95, 8.45, -12.7), Vector3.new(0.6, 0.6, 0.6), TruckRed, { shape = Enum.PartType.Ball, collide = false }))
+		-- chrome air horn on the roof
+		P(`AirHorn_{s}`, Vector3.new(side * 3.9, 8.95, -7.4), Vector3.new(1.6, 0.34, 0.34), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal, collide = false }, ROT_Z_AXIS)
+		P(`AirHornBell_{s}`, Vector3.new(side * 3.9, 8.95, -8.25), Vector3.new(0.12, 0.55, 0.55), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal, collide = false }, ROT_Z_AXIS)
+		-- chrome fuel tank under the body, in front of the side skirt
+		P(`FuelTank_{s}`, Vector3.new(side * 4.55, 2.35, -3.4), Vector3.new(2.6, 1.1, 1.1), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal, collide = false }, ROT_Z_AXIS)
+		for k, dz in { -0.8, 0.8 } do
+			P(`FuelStrap_{s}{k}`, Vector3.new(side * 4.55, 2.35, -3.4 + dz), Vector3.new(0.12, 1.16, 1.16), Ink, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS)
+		end
+	end
+	S(P("CabRoofEdgeFront", Vector3.new(0, 8.45, -12.7), Vector3.new(9.9, 0.6, 0.6), TruckRed, { shape = Enum.PartType.Cylinder, collide = false }, ROT_X_AXIS))
+	-- chrome exhaust stack between the cab and the body (right side)
+	P("ExhaustStack", Vector3.new(5.3, 6.4, -4.95), Vector3.new(6.4, 0.45, 0.45), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal, collide = false }, ROT_Y_AXIS)
+	P("ExhaustCap", Vector3.new(5.3, 9.65, -4.95), Vector3.new(0.1, 0.55, 0.55), Ink, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Y_AXIS)
 
 	-- Doors: each one is its own Model ("Door_L"/"Door_R") welded to DoorPanel_<s>, hinged at its front
 	-- edge to CabSideFront_<s> (HingeConstraint "DoorHinge"). Parts carry attr Jointed = true so
@@ -206,6 +245,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		D(`DoorFrameFront_{s}`, Vector3.new(x, 6.98, -8.05), Vector3.new(0.25, 1.95, 0.2), TruckRed)
 		D(`DoorWindow_{s}`, Vector3.new(x, 6.98, -6.65), Vector3.new(0.1, 1.95, 2.6), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
 		D(`DoorSeam_{s}`, Vector3.new(side * 5.01, 4.375, -6.65), Vector3.new(0.04, 3.05, 2.8), TruckRedDark, deco)
+		D(`DoorStripe_{s}`, Vector3.new(side * 5.045, 5.8, -6.65), Vector3.new(0.05, 0.4, 3.0), White, deco)
 		D(`DoorHandle_{s}`, Vector3.new(side * 5.08, 5.55, -5.7), Vector3.new(0.16, 0.28, 0.85), Chrome, { material = Enum.Material.Metal, collide = false })
 		local badge = D(`DoorBadge_{s}`, Vector3.new(side * 5.05, 4.25, -6.65), Vector3.new(0.06, 1.8, 2.2), White, deco)
 		D(`DoorBadgeRim_{s}`, Vector3.new(side * 5.03, 4.25, -6.65), Vector3.new(0.05, 2.1, 2.5), Gold, deco)
@@ -300,7 +340,8 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		P(`SunVisor_{if side < 0 then "L" else "R"}`, Vector3.new(side * 2.4, 7.97, -11.9), Vector3.new(2.4, 0.08, 0.9), Charcoal, deco)
 	end
 	-- headliner + dome light
-	P("Headliner", Vector3.new(0, 8.15, -8.7), Vector3.new(9.4, 0.08, 7.2), Color3.fromRGB(196, 188, 172), { material = Enum.Material.Fabric, collide = false })
+	-- (smooth dark grey: the old beige Fabric sheet read as a slab of cardboard over your head)
+	P("Headliner", Vector3.new(0, 8.15, -8.7), Vector3.new(9.4, 0.08, 7.2), Color3.fromRGB(78, 78, 86), deco)
 	local dome = P("DomeLight", Vector3.new(0, 8.09, -8.4), Vector3.new(1.2, 0.08, 0.6), HeadlightGlow, { neon = true, collide = false })
 	local domeLight = Instance.new("PointLight")
 	domeLight.Name = "CabLight"
@@ -322,7 +363,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	P("GearStick", Vector3.new(-0.7, 3.7, -8.4), Vector3.new(0.12, 1.3, 0.12), Chrome, deco, CFrame.Angles(math.rad(-15), 0, 0))
 	P("GearKnob", Vector3.new(-0.7, 4.35, -8.55), Vector3.new(0.38, 0.38, 0.38), Ink, { shape = Enum.PartType.Ball, collide = false })
 	-- chunky steering wheel on a Motor6D ("SteeringMotor") so VehicleController can turn it
-	local hubCF = cf * CFrame.new(-2.4, 5.95, -9.05) * CFrame.Angles(math.rad(-35), 0, 0)
+	local hubCF = cf * CFrame.new(-2.4, 5.7, -9.3) * CFrame.Angles(math.rad(-40), 0, 0)
 	local wheel = Instance.new("Model")
 	wheel.Name = "SteeringWheel"
 	wheel.Parent = m
@@ -339,10 +380,10 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	end
 	for i = 0, 11 do
 		local a = i * math.pi / 6
-		W(`Rim_{i}`, hubCF * CFrame.Angles(0, 0, a) * CFrame.new(0, 1.1, 0), Vector3.new(0.62, 0.24, 0.24), Ink)
+		W(`Rim_{i}`, hubCF * CFrame.Angles(0, 0, a) * CFrame.new(0, 0.82, 0), Vector3.new(0.46, 0.18, 0.18), Ink)
 	end
 	for i, a in { 0, 2 * math.pi / 3, 4 * math.pi / 3 } do
-		W(`Spoke_{i}`, hubCF * CFrame.Angles(0, 0, a + math.pi) * CFrame.new(0, 0.55, 0), Vector3.new(0.18, 1.1, 0.1), Steel)
+		W(`Spoke_{i}`, hubCF * CFrame.Angles(0, 0, a + math.pi) * CFrame.new(0, 0.42, 0), Vector3.new(0.14, 0.8, 0.08), Steel)
 	end
 	W("HornCap", hubCF * CFrame.new(0, 0, 0.14), Vector3.new(0.45, 0.45, 0.06), Gold)
 	local motor = Instance.new("Motor6D")
@@ -431,20 +472,20 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 
 	---------------------------------------------------------------- body / side compartments (z -5 .. 6.6)
 	P("Body", Vector3.new(0, 4.8, 0.8), Vector3.new(10, 4.8, 11.6), TruckRed)
-	P("BodyTop", Vector3.new(0, 7.35, 0.8), Vector3.new(10.2, 0.3, 11.8), TruckRedDark)
+	P("BodyTop", Vector3.new(0, 7.35, 0.85), Vector3.new(10.2, 0.3, 11.7), TruckRedDark) -- front face tucked into CabBack
 	-- Rolling-shutter compartment doors: 3 per side, chrome with ribs and a handle bar.
 	local doorZ = { -2.9, 0.8, 4.5 }
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
 		for i, z in doorZ do
-			local locker = P(`Locker_{s}{i}`, Vector3.new(side * 5.05, 4.3, z), Vector3.new(0.12, 3.1, 3.2), Chrome, {
+			local locker = P(`Locker_{s}{i}`, Vector3.new(side * 5.05, 4.3, z), Vector3.new(0.12, 3.1, 3.2), LockerAlu, {
 				material = Enum.Material.Metal,
 				collide = false,
 				tags = { TruckBuilder.CompartmentTag },
 			})
 			locker:SetAttribute("Item", TruckBuilder.CompartmentItems[i] or "Axe")
 			for r = 1, 3 do
-				P(`LockerRib_{s}{i}_{r}`, Vector3.new(side * 5.13, 3.3 + r * 0.75, z), Vector3.new(0.06, 0.08, 3.2), Steel, deco)
+				P(`LockerRib_{s}{i}_{r}`, Vector3.new(side * 5.13, 3.3 + r * 0.75, z), Vector3.new(0.06, 0.08, 3.2), Chrome, deco)
 			end
 			P(`LockerHandle_{s}{i}`, Vector3.new(side * 5.16, 3.05, z), Vector3.new(0.1, 0.25, 1.6), Ink, deco)
 		end
@@ -452,13 +493,17 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	-- White stripe along both sides (body + cab), above the lockers.
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
-		P(`Stripe_{s}`, Vector3.new(side * 5.09, 6.35, -3.5), Vector3.new(0.1, 0.8, 19.9), White, deco)
+		-- body only: a stripe running over the cab used to float across the doorway when a door opened
+		P(`Stripe_{s}`, Vector3.new(side * 5.09, 6.35, 0.8), Vector3.new(0.1, 0.8, 11.6), White, deco)
+		P(`StripeCab_{s}`, Vector3.new(side * 5.045, 5.8, -10.6), Vector3.new(0.05, 0.4, 4.8), White, deco)
+		-- chrome rub rail under the lockers
+		P(`BodyTrim_{s}`, Vector3.new(side * 5.06, 2.58, 0.8), Vector3.new(0.08, 0.25, 11.6), Chrome, { material = Enum.Material.Metal, collide = false })
 	end
 	-- Front stripe across the cab nose, under the windshield.
-	P("StripeFront", Vector3.new(0, 5.9, -13.04), Vector3.new(10, 0.5, 0.1), White, deco)
+	P("StripeFront", Vector3.new(0, 5.8, -13.04), Vector3.new(10, 0.4, 0.1), White, deco)
 
 	---------------------------------------------------------------- open crew area at the back (z 6.6 .. 13)
-	P("Deck", Vector3.new(0, 2.9, 9.8), Vector3.new(10, 0.6, 6.4), Steel, { material = Enum.Material.DiamondPlate })
+	P("Deck", Vector3.new(0, 2.9, 9.8), Vector3.new(10, 0.6, 6.4), TreadPlate, { material = Enum.Material.DiamondPlate })
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
 		P(`SideWall_{s}`, Vector3.new(side * 4.75, 4.0, 9.8), Vector3.new(0.5, 1.6, 6.4), TruckRed)
@@ -468,7 +513,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		end
 		-- Crew bench facing inward (seat + cushion).
 		P(`Bench_{s}`, Vector3.new(side * 3.7, 3.8, 10.0), Vector3.new(1.6, 1.2, 5.2), Ink)
-		P(`BenchSeat_{s}`, Vector3.new(side * 3.7, 4.5, 10.0), Vector3.new(1.7, 0.25, 5.3), BenchWood)
+		P(`BenchSeat_{s}`, Vector3.new(side * 3.7, 4.5, 10.0), Vector3.new(1.7, 0.25, 5.3), SeatLeather, { material = Enum.Material.Fabric })
 		-- Grab handle at the rear corners.
 		P(`GrabRail_{s}`, Vector3.new(side * 4.75, 6.6, 12.9), Vector3.new(0.25, 2.0, 0.25), Chrome, deco)
 	end
@@ -491,7 +536,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	prompt.Parent = reel
 
 	-- Tailboard with the big rear "67", tail lights, step bumper.
-	local tail = P("Tailgate", Vector3.new(0, 3.8, 12.85), Vector3.new(10, 1.6, 0.5), TruckRed)
+	local tail = P("Tailgate", Vector3.new(0, 3.8, 12.85), Vector3.new(10.06, 1.6, 0.5), TruckRed) -- proud of the deck sides
 	local tailBadge = P("TailBadge", Vector3.new(0, 3.8, 13.13), Vector3.new(3.2, 1.4, 0.06), White, deco)
 	label(tailBadge, Enum.NormalId.Back, "67", TruckRed, Ink)
 	for _, side in { -1, 1 } do
@@ -499,7 +544,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		P(`TailLight_{s}`, Vector3.new(side * 3.9, 3.8, 13.13), Vector3.new(1.4, 0.8, 0.1), Color3.fromRGB(255, 40, 40), { neon = true, collide = false })
 		P(`ReverseLight_{s}`, Vector3.new(side * 2.6, 3.8, 13.13), Vector3.new(0.6, 0.6, 0.1), White, { neon = true, collide = false })
 	end
-	P("RearBumper", Vector3.new(0, 2.4, 13.4), Vector3.new(10.4, 0.6, 1.2), Chrome, { material = Enum.Material.DiamondPlate })
+	P("RearBumper", Vector3.new(0, 2.4, 13.4), Vector3.new(10.4, 0.6, 1.2), Color3.fromRGB(92, 96, 106), { material = Enum.Material.Metal })
 	tail:SetAttribute("Seats", "crew") -- marker for VehicleService (crew climbs over the tailgate)
 
 	---------------------------------------------------------------- ladder on top

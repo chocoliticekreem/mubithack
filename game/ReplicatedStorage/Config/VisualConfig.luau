@@ -81,7 +81,9 @@ local VisualConfig = {
 			"CabNose", "CabCowl", "CabBack", "CabRoof", "CabHeader", "CabSideFront_", "APillar_", "BPillar_",
 			"DoorSill_", "Windshield", "Visor", "SideWindow_", "MirrorArm_", "Mirror_", "MirrorGlass_",
 			"CabStep_", "Grille", "HeadlightRim_", "Headlight_", "Indicator_", "FrontBumper", "StripeFront",
-			"Stripe_", "Body", "Fender_Front_", "Fender_Mid_", "SideSkirt_",
+			"Stripe_", "Body", "Fender_Front_", "Fender_Mid_", "SideSkirt_", "StripeCab_", "CabRoofEdge",
+			"CabCorner_", "CabRoofCorner_", "AirHorn", "FuelTank_", "FuelStrap_", "Exhaust", "FenderLip_Front_",
+			"FenderLip_Mid_",
 		} :: { string },
 	},
 }
