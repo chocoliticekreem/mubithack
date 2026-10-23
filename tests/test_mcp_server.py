@@ -93,6 +93,8 @@ def test_build_tools_start_the_right_forge_command(settings, monkeypatch):
     assert seen[1][1] == ["run", "g1", "--iterations", "2", "--no-studio"]
     assert seen[2][1] == ["correct", "g1", "ServerScriptService/Round.server.luau", "rounds never end"]
     assert seen[3][1][-4:] == ["--only", "dry", "--studio", "abc"]
+    fm.tester_report("g1", "hose broken", run_ids=["pt-1", "pt-2"], reporter="sam")
+    assert seen[4][1] == ["report", "g1", "hose broken", "--run", "pt-1", "--run", "pt-2", "--by", "sam"]
 
 
 def test_build_tools_reject_bad_input(settings):

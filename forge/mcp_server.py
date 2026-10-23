@@ -1,6 +1,6 @@
 """`forge server`: the `forge` stdio MCP server. Make a Roblox game with Forge from any MCP client.
 
-Build:   doctor, new_game, iterate, correct, improve (each long one starts a background job)
+Build:   doctor, new_game, iterate, correct, improve, tester_report (long ones start a background job)
 Jobs:    job, jobs, cancel_job
 Read:    games, game, read_file, scores, playbook, lessons, calls
 Ship:    seed, promote, sync
@@ -193,6 +193,39 @@ def improve(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: 
     return _job_reply(start_job("improve", args), f"{cycles} improve cycle(s) on {slug}")
 
 
+@mcp.tool()
+def tester_report(slug: str, text: str, run_ids: list[str] | None = None, reporter: str | None = None) -> str:
+    """A human tester's report in their own words -> triage (Mubit) -> anomalies, and an auditor
+    correction for anything the auditor missed (background job).
+
+    `run_ids` are the mubit-tester playtest runs the tester was in; without them the latest improve
+    cycle's rounds are used."""
+    if not text.strip():
+        raise ToolError("the report is empty")
+    args = ["report", slug, text] + [a for rid in (run_ids or []) for a in ("--run", rid)]
+    if reporter:
+        args += ["--by", reporter]
+    return _job_reply(start_job("report", args), f"triage of a tester report on {slug}")
+
+
+@mcp.tool()
+def tester_reports(slug: str) -> str:
+    """Tester reports filed for a game: triaged anomalies and what the auditor had missed."""
+    from forge.improve import list_reports
+
+    rows = list_reports(_settings(), slug)
+    if not rows:
+        return f"No tester reports for {slug} yet. File one with tester_report."
+    out = []
+    for r in rows[-20:]:
+        out.append(f"### {r['ts']} {r.get('reporter') or ''}\n> {r['text'][:300]}")
+        out += [f"- [{a['severity']}] **{a['title']}** ({a['system']}): {a['observed'][:200]}"
+                for a in r["triage"]["anomalies"]]
+        if r["auditor_missed"]:
+            out.append(f"- auditor had missed: {', '.join(r['auditor_missed'])}")
+    return _clip("\n".join(out))
+
+
 # ---------------------------------------------------------------- jobs tools
 
 
@@ -374,6 +407,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 
 
 TOOL_NAMES = ("doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
+              "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")
 

@@ -289,3 +289,83 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
     log(f"[cycle {n}] detected {cycle['detected']}/{cycle['planted']}, unmatched anomalies "
         f"{cycle['unmatched']}, fixed+verified {cycle['fixed_verified']} -> {path}")
     return cycle
+
+
+# ---------------------------------------------------------------- tester reports (triage)
+
+
+def triage_message(spec: dict, text: str, digests: list[dict]) -> str:
+    return "\n\n".join([_game_block(spec), "## Tester report\n" + text.strip(),
+                        _digests_block("Rounds", digests), "Return only the triage JSON object."])
+
+
+def triage(llm: LLM, spec: dict, text: str, digests: list[dict], *, session_id: str) -> dict:
+    obj, res = llm.complete_json("triage", triage_message(spec, text, digests), session_id=session_id,
+                                 required=AUDIT_KEYS, max_tokens=2048)
+    anomalies = [a for a in (_norm_anomaly(x) for x in obj.get("anomalies") or []) if a]
+    return {"summary": str(obj.get("summary") or ""), "anomalies": anomalies,
+            "request_id": res.request_id}
+
+
+def _playtest_digests(settings: Settings, run_ids: list[str]) -> list[dict]:
+    from mubit_tester.play import load_report
+
+    return [round_digest(load_report(settings, rid), i + 1) for i, rid in enumerate(run_ids)]
+
+
+def _latest_cycle(store: ImproveStore) -> dict | None:
+    rows = store.scores()
+    if not rows:
+        return None
+    path = store.dir / f"{rows[-1]['cycle']}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def file_report(settings: Settings, slug: str, text: str, *, llm: LLM, run_ids: list[str] | None = None,
+                reporter: str | None = None, log: Callable[[str], None] = print) -> dict:
+    """A human tester's report -> triage -> auditor correction for anything the auditor missed.
+
+    Rounds come from the named playtest runs, else from the latest improve cycle. The auditor's
+    view of those rounds is a fresh audit (named runs) or that cycle's audit. Every triaged anomaly
+    in a system the auditor did not flag becomes a verified outcome in a re-sent auditor call (the
+    correction, in the auditor's Mubit task) and a playbook lesson."""
+    if not text.strip():
+        raise ValueError("the report is empty")
+    store = ImproveStore(settings, slug)
+    spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
+    session_id = f"reports-{slug}"
+    cycle = None if run_ids else _latest_cycle(store)
+    digests = _playtest_digests(settings, run_ids) if run_ids else (cycle or {}).get("before", [])
+
+    found = triage(llm, spec, text, digests, session_id=session_id)
+    log(f"[triage] {len(found['anomalies'])} anomalies {found['request_id']}")
+
+    audit_result = None
+    if digests:
+        audit_result = (cycle or {}).get("audit") or audit(llm, spec, store.playbook(), digests,
+                                                            session_id=session_id)
+    flagged = {a["system"] for a in (audit_result or {}).get("anomalies", [])}
+    missed = [a for a in found["anomalies"] if a["system"] not in flagged]
+
+    correction = None
+    if digests and missed:
+        verified = [f"A human tester found: {a['title']} ({a['system']}). {a['observed']}" for a in missed]
+        correction = audit(llm, spec, store.playbook(), digests, session_id=session_id, verified=verified)
+        log(f"[auditor] correction from the tester report {correction['request_id']}")
+    store.learn([f"Testers reported {a['title']} in {a['system']}: check that {a['expected']}"
+                 for a in missed])
+
+    record = {"ts": now_iso(), "reporter": reporter, "text": text.strip(), "run_ids": run_ids or [],
+              "rounds": len(digests), "triage": found, "auditor_missed": [a["title"] for a in missed],
+              "correction": correction}
+    store.dir.mkdir(parents=True, exist_ok=True)
+    with (store.dir / "reports.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return record
+
+
+def list_reports(settings: Settings, slug: str) -> list[dict]:
+    path = ImproveStore(settings, slug).dir / "reports.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]

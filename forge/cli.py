@@ -324,6 +324,33 @@ async def _improve(args) -> None:
                             players=args.players, steps=args.steps)
 
 
+def cmd_report(args) -> int:
+    from forge.improve import ImproveStore, file_report
+    from forge.llm import make_llm
+
+    s = load_settings()
+    llm = make_llm(s, log_path=ImproveStore(s, args.slug).dir / "calls.jsonl")
+    rec = file_report(s, args.slug, args.text, llm=llm, run_ids=args.run or None, reporter=args.by)
+    print(f"\n{rec['triage']['summary']}")
+    for a in rec["triage"]["anomalies"]:
+        print(f"  [{a['severity']}] {a['system']}: {a['title']} - {a['observed'][:120]}")
+    if rec["auditor_missed"]:
+        print(f"auditor had missed: {', '.join(rec['auditor_missed'])} (correction "
+              f"{(rec['correction'] or {}).get('request_id', 'not sent: no rounds')})")
+    return 0
+
+
+def cmd_reports(args) -> int:
+    from forge.improve import list_reports
+    rows = list_reports(load_settings(), args.slug)
+    if not rows:
+        print(f"no tester reports for {args.slug} yet")
+    for r in rows:
+        print(f"{r['ts']}  {r.get('reporter') or '-':<12} {len(r['triage']['anomalies'])} anomalies, "
+              f"auditor missed {len(r['auditor_missed'])}  \"{r['text'][:60]}\"")
+    return 0
+
+
 def cmd_server(args) -> int:
     from forge.mcp_server import main as server_main
     server_main()
@@ -451,6 +478,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("server", help="run the forge MCP server over stdio (build games from any MCP client)")
 
+    rp = sub.add_parser("report", help="a human tester's report -> triage -> auditor correction (Mubit)")
+    rp.add_argument("slug")
+    rp.add_argument("text")
+    rp.add_argument("--run", action="append", help="playtest run id the tester was in (repeatable)")
+    rp.add_argument("--by", help="who reported it")
+
+    rps = sub.add_parser("reports", help="tester reports filed for a game")
+    rps.add_argument("slug")
+
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
     return p
@@ -461,7 +497,8 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "play": cmd_play, "play-correct": cmd_play_correct,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "report": cmd_report,
+               "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
