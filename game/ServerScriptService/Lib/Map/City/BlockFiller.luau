@@ -1086,6 +1086,28 @@ function Scenery.cropfield(ctx: any, parent: Instance, F: CFrame, maxW: number, 
 	end
 end
 
+-- A surface car park (cheap): asphalt, two stall lines, an entrance sign and a few parked cars.
+function Scenery.carpark(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = maxW - 4, math.min(maxD - 4, 60)
+	SK.part(parent, "CarPark", F * CF(0, GY + 0.03, d / 2), V(w, 0.1, d), C.AsphaltDark, { cast = false })
+	for _, z in { d * 0.3, d * 0.7 } do
+		SK.part(parent, "StallLine", F * CF(0, GY + 0.1, z), V(w - 8, 0.05, 0.4), C.LineWhite, { collide = false, cast = false, query = false })
+	end
+	local sign = SK.part(parent, "ParkSign", F * CF(-w / 2 + 3, GY + 6, 1), V(3.2, 3.2, 0.3), Color3.fromHex("#2A6FBB"))
+	SK.sign(sign, "P", Enum.NormalId.Front, C.Trim)
+	SK.part(parent, "ParkSignPole", F * CF(-w / 2 + 3, GY + 2.2, 1.2), V(0.3, 4.4, 0.3), C.MetalDark)
+	local stalls = math.max(1, math.floor((w - 10) / 11))
+	for _, row in { { d * 0.15, 0 }, { d * 0.85, math.pi } } do
+		for k = 1, stalls do
+			if rng:NextNumber() < 0.35 then
+				local x = -w / 2 + 5 + (k - 0.5) * (w - 10) / stalls
+				BlockFiller.car(parent, F * CF(x, GY, row[1]) * ANG(0, row[2], 0), pick(rng, C.Awnings), rng:NextNumber() < 0.2)
+			end
+		end
+	end
+end
+
 -- A loose clump of pines (woods filler, ~9 parts).
 function Scenery.copse(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
