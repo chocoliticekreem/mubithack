@@ -641,9 +641,13 @@ class Run:
                 rec["steps"].append({"step": f"fix:{path}", "ok": False, "error": str(e)})
 
     def best_version(self) -> dict | None:
-        """The best-scoring earlier iteration that has a version: {"version", "score"}."""
-        scored = [it for it in self.store.load_state().get("iterations", [])
-                  if it.get("version") and it.get("score") is not None]
+        """The best-scoring earlier iteration that has a version: {"version", "score"}. Only iterations
+        from state["rollback_floor"] on count: a new feature changes the game, so scores from before it
+        are not a bar to roll back to (that would undo the feature)."""
+        state = self.store.load_state()
+        floor = int(state.get("rollback_floor") or 0)
+        scored = [it for it in state.get("iterations", [])
+                  if it.get("version") and it.get("score") is not None and it.get("n", 0) >= floor]
         if not scored:
             return None
         top = max(scored, key=lambda it: (it["score"], it["n"]))

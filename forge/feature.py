@@ -133,6 +133,11 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
     log(f"[feature] built {built}, edited {edited}, skipped {len(skipped)}, compile errors {len(remaining)} "
         f"-> {version}")
 
+    # the game changed: later rollbacks compare only against iterations from here on
+    state = store.load_state()
+    state["rollback_floor"] = store.next_iteration(state)
+    store.save_state(state)
+
     verified = None
     if iterations > 0:
         await run.iterate(iterations, use_studio)

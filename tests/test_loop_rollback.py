@@ -55,3 +55,16 @@ async def test_small_score_dip_does_not_roll_back(settings):
                           ui=UI(io.StringIO()))
     its = RunStore(settings, slug).load_state()["iterations"]
     assert its[1].get("rolled_back_to") is None
+
+
+async def test_scores_from_before_a_feature_do_not_roll_it_back(settings):
+    from forge.loop import Run
+
+    store = RunStore(settings, "feat")
+    store.ensure()
+    state = store.new_state("idea")
+    state["iterations"] = [{"n": 1, "score": 7, "version": "v1"}, {"n": 2, "score": 5, "version": "v3"}]
+    state["rollback_floor"] = 2
+    store.save_state(state)
+    run = Run(settings, store, llm=FakeLLM({}), ui=UI(io.StringIO()))
+    assert run.best_version() == {"version": "v3", "score": 5.0}
