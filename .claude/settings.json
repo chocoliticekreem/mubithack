@@ -35,5 +35,19 @@
         "repo": "chocoliticekreem/mubithack"
       }
     }
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/scripts/git-sync.sh",
+            "timeout": 60,
+            "async": true
+          }
+        ]
+      }
+    ]
   }
 }
