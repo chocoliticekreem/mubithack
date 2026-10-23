@@ -16,6 +16,29 @@ Enable **Studio as MCP server** under Assistant's MCP settings in that window. I
 
 Open the panel with **Plugins → MuMake**. Files installed while Studio is running may need local plugin reload on a later session; `--load-existing` displays the panel immediately without a restart. Immediate loading uses Studio's deprecated `PluginManager():CreatePlugin()` compatibility API. The on-disk plugin uses the ordinary `plugin` object on future Studio starts.
 
+## A workspace that fits the creator
+
+On first use, MuMake shows an optional two-step welcome flow. A coarse age range (13–15, 16–17, 18+) changes the visual treatment. Experience changes the density and help: starting out, made a few things, or confident. There is no name, date of birth, account survey or remote profile.
+
+Age never locks capabilities. A younger experienced creator can expose all the controls, and an adult beginner can choose step-by-step help. Every layout retains game creation, draft review, adding scripts to Studio, character checks, AI goals, evidence and feedback. **More controls** is available within the workspace without changing the saved preference.
+
+- The guided workspace includes an idea → draft → play path, examples and explanatory copy.
+- The middle workspace keeps useful tips with a more compact presentation.
+- The experienced workspace exposes optional include/avoid instructions and direct tool navigation, with fewer explanations.
+- Younger styling is more playful; adult styling is more restrained. Both follow Studio's light or dark setting at load, with the same accessible controls.
+
+**Back** returns to the previous screen, including the previous welcome step. It preserves the current idea, extra build instructions and feedback fields. **Guide** opens a replayable four-step guide linked to the actual creation, checking and result screens. Navigating the guide never starts a paid request or changes the game. **Settings → Change my layout** reopens the choices. Both welcome steps can be skipped.
+
+### Privacy of UI preferences
+
+The choice is held in plugin memory by default. **Remember this layout on this device** is off by default. If enabled, only a version, coarse age-band enum and experience enum are written with Studio's `plugin:SetSetting("MuMakeLayoutV1", ...)`. **Forget my saved layout** removes that local setting. No preference fields are attached to helper requests, AI prompts, game context, saved jobs or analytics. The game descriptions and feedback that a creator deliberately submits still follow the existing Mubit workflow; the privacy statement applies to these UI preferences.
+
+The installer embeds the pure `studio-plugin/Experience.luau` module into the installed single-file plugin. Offline navigation and preference checks run with:
+
+```bash
+luau studio-plugin/tests/experience.spec.luau
+```
+
 ## The creator's flow
 
 The panel is for a first-time creator, including a 13-year-old who has never written a test. It opens on **Make game**, followed by **Check game**, **Results** and **Settings**. There are no run IDs, step numbers, model names or JSON dumps in the main flow.

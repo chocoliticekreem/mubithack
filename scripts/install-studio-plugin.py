@@ -18,7 +18,9 @@ from mubit_tester.studio_service import DEFAULT_PORT, load_token
 
 
 def plugin_source(port, token):
-    return (ROOT / 'studio-plugin/MuMake.plugin.luau').read_text().replace(
+    experience = (ROOT / 'studio-plugin/Experience.luau').read_text()
+    source = 'local Experience = (function()\n' + experience + '\nend)()\n'
+    return source + (ROOT / 'studio-plugin/MuMake.plugin.luau').read_text().replace(
         '__MUBIT_SERVICE_URL__', f'http://127.0.0.1:{port}').replace('__MUBIT_PAIRING_TOKEN__', token)
 
 
