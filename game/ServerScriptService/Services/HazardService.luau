@@ -806,7 +806,8 @@ local function tidalWave(instanceId: string, root: Instance, params: { [string]:
 	local wave = buildWave(root, width + 20, height)
 	local function place(front: number)
 		local p = start + dir * front
-		wave:PivotTo(CFrame.lookAt(p, p + dir) * CFrame.new(0, 0, 13))
+		-- pivot = the Body part, which sits height*0.35 up and 13 studs behind the leading face
+		wave:PivotTo(CFrame.lookAt(p, p + dir) * CFrame.new(0, height * 0.35, 13))
 	end
 	place(0)
 	local culprit: Player? = params.culprit
