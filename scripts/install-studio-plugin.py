@@ -18,7 +18,7 @@ from mubit_tester.studio_service import DEFAULT_PORT, load_token
 
 
 def plugin_source(port, token):
-    return (ROOT / 'studio-plugin/MubitTester.plugin.luau').read_text().replace(
+    return (ROOT / 'studio-plugin/MuMake.plugin.luau').read_text().replace(
         '__MUBIT_SERVICE_URL__', f'http://127.0.0.1:{port}').replace('__MUBIT_PAIRING_TOKEN__', token)
 
 
@@ -51,7 +51,7 @@ async def load_existing(source, studio_id):
         state = await studio.state()
         if state.get('playing'):
             raise SystemExit('Installed on disk. Finish your current playtest before live-loading the plugin.')
-        await studio.execute_luau('local plugin = PluginManager():CreatePlugin()\n' + source + '\nreturn "Mubit Tester loaded"')
+        await studio.execute_luau('local plugin = PluginManager():CreatePlugin()\n' + source + '\nreturn "MuMake loaded"')
         print(f'Loaded into existing Studio {studio.studio_id}')
 
 
@@ -85,12 +85,15 @@ def main():
             raise SystemExit(f'Companion did not become ready. See {store / "companion.log"}')
     source = plugin_source(args.port, token)
     args.plugins_dir.mkdir(parents=True, exist_ok=True)
-    path = args.plugins_dir / 'MubitTester.lua'
+    path = args.plugins_dir / 'MuMake.lua'
     # The installed file contains a local pairing token, never the Mubit API key.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as file:
         file.write(source)
     path.chmod(0o600)
+    legacy = args.plugins_dir / 'MubitTester.lua'
+    if legacy.is_file() and 'CoreGui:FindFirstChild("MubitTesterControl")' in legacy.read_text():
+        legacy.unlink()
     print(f'Installed {path}')
     print(f'Companion ready on 127.0.0.1:{args.port}')
     if args.load_existing:

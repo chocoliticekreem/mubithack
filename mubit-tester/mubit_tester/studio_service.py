@@ -1,4 +1,4 @@
-"""Local companion for the native Mubit Tester Studio plugin.
+"""Local companion for the native MuMake Studio plugin.
 
 Run: python -m mubit_tester.studio_service
 Only the paired local plugin can submit jobs. Jobs bind to an exact Studio
@@ -63,7 +63,7 @@ end
 local inheritedRecording=history:IsRecordingInProgress()
 local recording
 if not inheritedRecording then
-    recording=history:TryBeginRecording("MubitTesterHarness", "Set up Mubit Tester")
+    recording=history:TryBeginRecording("MubitTesterHarness", "Set up MuMake")
     if not recording then error("Undo recording unavailable; finish the current Studio operation and retry") end
 end
 local ok,err=pcall(function()
@@ -340,7 +340,7 @@ def load_token(store: Path) -> str:
 
 def handler_for(service: Companion, loop, token: str):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "MubitTester/1"
+        server_version = "MuMake/1"
         def log_message(self, *_):
             pass
 
@@ -413,7 +413,7 @@ async def serve(port: int):
     stopped = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stopped.set)
-    print(f"Mubit Tester companion listening on 127.0.0.1:{port}", flush=True)
+    print(f"MuMake companion listening on 127.0.0.1:{port}", flush=True)
     watchdog = asyncio.create_task(service.watch_lease())
     try:
         await stopped.wait()

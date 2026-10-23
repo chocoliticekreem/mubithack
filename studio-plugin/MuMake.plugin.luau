@@ -19,11 +19,11 @@ local snapshot = nil
 local selectedScenario, selectedJob = "smoke.json", nil
 local tab = "Test"
 local eventConnections = {}
-local toolbar = plugin:CreateToolbar("Mubit Tester")
-local toggle = toolbar:CreateButton("MubitTester", "Open Mubit Tester", "", "Mubit Tester")
+local toolbar = plugin:CreateToolbar("MuMake")
+local toggle = toolbar:CreateButton("MuMake", "Open MuMake", "", "MuMake")
 local widget = plugin:CreateDockWidgetPluginGuiAsync("MubitTesterNativeV1",
     DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, true, false, 380, 700, 320, 400))
-widget.Title = "Mubit Tester"
+widget.Title = "MuMake"
 widget.Enabled = true
 local function color(name, fallback)
     local ok, value = pcall(function() return settings().Studio.Theme:GetColor(Enum.StudioStyleGuideColor[name]) end)
@@ -58,7 +58,7 @@ header.BackgroundTransparency = 1
 header.Position = UDim2.fromOffset(14,10)
 header.Size = UDim2.new(1,-28,0,60)
 header.Parent = root
-local title = label(header,"MUBIT TESTER",24)
+local title = label(header,"MuMake",24)
 title.Font = Enum.Font.SourceSansBold
 title.TextSize = 18
 local status = label(header,"Connecting to local companion…",32,muted)
@@ -365,7 +365,7 @@ table.insert(eventConnections,plugin.Unloading:Connect(dispose))
 local command=Instance.new("BindableFunction")
 command.Name="Command"
 command.OnInvoke=function(operation,args)
-    if operation=="diagnostics" then return {status=status.Text,detail=connectionDetail.Text,bound=bound,enabled=widget.Enabled} end
+    if operation=="diagnostics" then return {title=widget.Title,status=status.Text,detail=connectionDetail.Text,bound=bound,enabled=widget.Enabled} end
     if operation=="reconnect" then connect() return true end
     if operation=="show" then show(args.tab) return true end
     start(operation,args)
