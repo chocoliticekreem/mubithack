@@ -177,6 +177,7 @@ local function refresh(player: Player)
 	player:SetAttribute(A.XpTotal, p.xp)
 	player:SetAttribute(A.HelmetCosmetic, p.cosmetics.equipped.helmet)
 	player:SetAttribute(A.HoseCosmetic, p.cosmetics.equipped.hose)
+	player:SetAttribute("GraphicsQuality", math.floor(tonumber(p.settings.graphicsQuality) or 0)) -- ShaderController
 	player:SetAttribute(A.ProfileReady, true)
 end
 

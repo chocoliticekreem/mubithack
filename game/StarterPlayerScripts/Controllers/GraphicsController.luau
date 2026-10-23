@@ -23,6 +23,9 @@
 --   GraphicsController:GetPreset(): string?         -- preset currently blended to
 --   GraphicsController:ForcePreset(name: string?)   -- local debug override (nil clears)
 --   GraphicsController:GetSmoke(): number           -- current smoke overlay weight 0..1
+--   GraphicsController:SetPostHook(fn: ((values) -> ())?) -- ShaderController: edit the composed
+--     { kind -> { prop -> value } } right before it is written (graphics tiers). nil clears.
+--   GraphicsController:MarkDirty()                   -- force a recompose + write next frame
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
@@ -69,6 +72,7 @@ local state = {
 }
 
 local burning: { [BasePart]: true } = {}
+local postHook: ((Values) -> ())? = nil
 
 -- Effect instances ------------------------------------------------------------------------------------
 
@@ -444,6 +448,13 @@ local function step(dt: number)
 	if Cfg.HeatOverlay then
 		applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Heat, state.heat)
 	end
+	if postHook then
+		local ok, err = pcall(postHook, values)
+		if not ok and not warned.postHook then
+			warned.postHook = true
+			warn(`[GraphicsController] post hook failed: {err}`)
+		end
+	end
 	write(values)
 end
 
@@ -516,6 +527,15 @@ end
 
 function GraphicsController:GetSmoke(): number
 	return state.smoke
+end
+
+function GraphicsController:SetPostHook(fn: ((Values) -> ())?)
+	postHook = fn
+	state.dirty = true
+end
+
+function GraphicsController:MarkDirty()
+	state.dirty = true
 end
 
 return GraphicsController
