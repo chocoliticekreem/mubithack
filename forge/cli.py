@@ -398,6 +398,17 @@ def _sigterm_as_interrupt() -> None:
     signal.signal(signal.SIGTERM, handler)
 
 
+def cmd_feature(args) -> int:
+    from forge.feature import add_feature
+    _sigterm_as_interrupt()
+    res = asyncio.run(add_feature(load_settings(), args.slug, args.request, iterations=args.iterations,
+                                  use_studio=not args.no_studio))
+    print(f"\nfeature: {res.get('status') or ('verified' if res.get('verified') else 'built')}  "
+          f"new {res.get('built')}  edited {res.get('edited')}  version {res.get('version')}")
+    print(f"roll back with: forge rollback {args.slug} {res.get('before')}")
+    return 0
+
+
 def cmd_fix(args) -> int:
     _sigterm_as_interrupt()  # a killed run still restores the file it was testing
     asyncio.run(_improve(args, faults_on=False, fix=True))
@@ -584,6 +595,12 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("slugs", nargs="*", help="games (default: every game with improve cycles)")
     ar.add_argument("--out", help="folder (default evidence/ in the repo)")
 
+    fe = sub.add_parser("feature", help="the agent adds a feature to an existing game (plan, build, playtest)")
+    fe.add_argument("slug")
+    fe.add_argument("request", help="the feature, in plain words")
+    fe.add_argument("--iterations", "-n", type=int, default=1, help="playtest/critic/fix rounds after building")
+    fe.add_argument("--no-studio", action="store_true")
+
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
     ve.add_argument("slug")
 
@@ -618,7 +635,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
