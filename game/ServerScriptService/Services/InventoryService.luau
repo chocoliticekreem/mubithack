@@ -14,8 +14,9 @@
 --   InventoryService:Drop(player): boolean              -- G: carried prop first, else the hand item
 --   InventoryService:Throw(player, aim: Vector3, charge: number): boolean
 --   InventoryService:Swap(player): boolean              -- hand <-> back
---   InventoryService:GetHand(player): string?   GetBack(player): string?
+--   InventoryService:GetHand(player): string?   GetBack(player): string?   GetFace(player): string?
 --   InventoryService:Clear(player)                      -- silently empties every slot (no drops)
+--   InventoryService:TakeHand(player, id): boolean      -- gear: the hand item was used up (placed ladder)
 -- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),
 --          Fumbled(player, itemId: string)
 -- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),
@@ -24,7 +25,9 @@
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
 --   (attr Item), TruckRefill (the reel: nozzle), Hydrant (supply line), Truck (attrs OwnerUserId, Water,
 --   TankSize), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
--- Writes: Player attrs InvHand, InvBack, InvCarry ("" = empty), OxygenAir, Foam/FoamSize (extinguisher),
+-- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
+--   leaves when you die (spill) or swap it for another mask.
+-- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher),
 --   Water/TankSize (mirrors the hose's truck tank while you hold the nozzle);
 --   truck attrs Water, TankSize, SupplyLine (bool); workspace.LooseItems (Models tagged InventoryItem,
 --   attr Item); prompts with attr InvPrompt (Style Custom: InventoryController draws them).
@@ -78,6 +81,9 @@ type PState = {
 	toolFor: Held?,
 	backModel: Model?,
 	backFor: Held?,
+	face: Held?,
+	faceModel: Model?,
+	faceFor: Held?,
 	lastNotify: number,
 }
 type Loose = { id: string, data: Data, born: number, rope: RopeConstraint? }
@@ -163,6 +169,7 @@ local function ruleState(ps: PState): ItemDefs.State
 		hand = ps.hand and ps.hand.id,
 		back = ps.back and ps.back.id,
 		carry = if ps.carry then ItemDefs.PROP else nil,
+		face = ps.face and ps.face.id,
 	}
 end
 
@@ -484,6 +491,12 @@ end
 
 local BACK_TILT: { [string]: CFrame } = {
 	Axe = CFrame.Angles(0, math.rad(90), math.rad(35)),
+	FireAxe = CFrame.Angles(0, math.rad(90), math.rad(35)),
+	GoldenAxe = CFrame.Angles(0, math.rad(90), math.rad(35)),
+	Halligan = CFrame.Angles(0, math.rad(90), math.rad(-30)),
+	Crowbar = CFrame.Angles(0, math.rad(90), math.rad(-30)),
+	Sledgehammer = CFrame.Angles(0, math.rad(90), math.rad(30)),
+	RescueSaw = CFrame.Angles(0, math.rad(90), 0),
 	Extinguisher = CFrame.Angles(0, 0, math.rad(-12)),
 	OxygenTank = CFrame.new(),
 }
@@ -514,7 +527,36 @@ local function equipBack(player: Player, ps: PState)
 	ps.backModel = m
 end
 
+-- The worn item (gas mask) sits over the face, welded to the Head.
+local function equipFace(player: Player, ps: PState)
+	if ps.faceFor == ps.face and (ps.faceModel == nil or ps.faceModel.Parent ~= nil) then
+		return
+	end
+	if ps.faceModel then
+		ps.faceModel:Destroy()
+		ps.faceModel = nil
+	end
+	ps.faceFor = ps.face
+	local held = ps.face
+	local char = player.Character
+	local head = char and char:FindFirstChild("Head") :: BasePart?
+	if not held or not char or not head then
+		return
+	end
+	local m = ItemProps.build(held.id, "face", 0.8)
+	m.Name = "InvFace"
+	m:PivotTo(head.CFrame * CFrame.new(0, 0.05, -(head.Size.Z / 2 + 0.12)))
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = head
+	w.Part1 = m.PrimaryPart
+	w.Parent = m
+	m.Parent = char
+	ps.faceModel = m
+end
+
 local function writeAttrs(player: Player, ps: PState)
+	player:SetAttribute("InvFace", if ps.face then ps.face.id else "")
+	player:SetAttribute("GasMask", ps.face ~= nil and ps.face.id == "GasMask")
 	player:SetAttribute("InvHand", if ps.hand then ps.hand.id else "")
 	player:SetAttribute("InvBack", if ps.back then ps.back.id else "")
 	player:SetAttribute("InvCarry", if ps.carry then ps.carry.Name else "")
@@ -525,6 +567,7 @@ end
 local function apply(player: Player, ps: PState)
 	equipHand(player, ps)
 	equipBack(player, ps)
+	equipFace(player, ps)
 	writeAttrs(player, ps)
 	InventoryService.Changed:Fire(player)
 end
@@ -560,6 +603,15 @@ giveHeld = function(player: Player, held: Held): (boolean, ItemDefs.Plan?)
 		return false, plan
 	end
 	local oldHand = ps.hand
+	if plan.slot == "face" then
+		local oldFace = ps.face
+		ps.face = held
+		apply(player, ps)
+		if oldFace then
+			dropHeldAt(player, oldFace, nil, Vector3.new(0, 6, 0), nil)
+		end
+		return true, plan
+	end
 	if plan.slot == "back" then
 		ps.back = held
 	else
@@ -829,8 +881,8 @@ local function spill(player: Player)
 	if ps.carry then
 		releaseProp(player, ps, scatter(), nil)
 	end
-	local list = { ps.hand, ps.back }
-	ps.hand, ps.back = nil, nil
+	local list = { ps.hand, ps.back, ps.face }
+	ps.hand, ps.back, ps.face = nil, nil, nil
 	apply(player, ps)
 	for _, held in list do
 		if held then
@@ -1287,6 +1339,7 @@ local function hookCharacter(player: Player, char: Model)
 		releaseProp(player, ps, Vector3.zero, nil)
 	end
 	ps.tool, ps.toolFor, ps.backModel, ps.backFor = nil, nil, nil, nil
+	ps.faceModel, ps.faceFor = nil, nil
 	char:WaitForChild("HumanoidRootPart", 10)
 	apply(player, ps)
 	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
@@ -1448,6 +1501,22 @@ function InventoryService:GetBack(player: Player): string?
 	return ps and ps.back and ps.back.id
 end
 
+-- Gear: the hand item is used up in the world (a placed ladder). Silent, no drop. true = it was `id`.
+function InventoryService:TakeHand(player: Player, id: string): boolean
+	local ps = states[player]
+	if not ps or not ps.hand or ps.hand.id ~= id then
+		return false
+	end
+	ps.hand = nil
+	apply(player, ps)
+	return true
+end
+
+function InventoryService:GetFace(player: Player): string?
+	local ps = states[player]
+	return ps and ps.face and ps.face.id
+end
+
 function InventoryService:Clear(player: Player)
 	local ps = states[player]
 	if not ps then
@@ -1456,7 +1525,7 @@ function InventoryService:Clear(player: Player)
 	if ps.carry then
 		releaseProp(player, ps, Vector3.zero, nil)
 	end
-	ps.hand, ps.back = nil, nil
+	ps.hand, ps.back, ps.face = nil, nil, nil
 	apply(player, ps)
 end
 
@@ -1466,6 +1535,7 @@ function InventoryService:_state(player: Player): { [string]: any }
 	return {
 		hand = ps and ps.hand and ps.hand.id,
 		back = ps and ps.back and ps.back.id,
+		face = ps and ps.face and ps.face.id,
 		carry = ps and ps.carry and ps.carry.Name,
 		tool = ps and ps.tool and ps.tool.Name,
 		loose = #looseOrder,

@@ -67,7 +67,8 @@ Spec.test("migrate v1 -> v2 keeps progress and reshapes pets/cosmetics", functio
 		missions = { house_fire = { played = 4, won = 2, bestStars = 2 } },
 	}
 	local p = Schema.migrate(v1, NOW) :: any
-	Spec.eq(p.version, 2)
+	Spec.eq(p.version, Schema.Version)
+	Spec.eq(type(p.gear), "table", "v2 -> v3 adds gear")
 	Spec.eq(p.xp, 260)
 	Spec.eq(p.level, 3, "100 + 150 = 250 -> level 3")
 	Spec.eq(p.rescued.Dog, 3)

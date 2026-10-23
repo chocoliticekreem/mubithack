@@ -29,6 +29,8 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local HeatConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HeatConfig") :: ModuleScript) :: any
+-- gear: a worn gas mask (InventoryService attr GasMask) cuts smoke heat; + O2 air cuts it more
+local Progression = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
 local HeatMath =
 	require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Heat"):WaitForChild("HeatMath") :: ModuleScript)
 
@@ -225,6 +227,7 @@ function HeatService:_tick(dt: number)
 				table.insert(sources, { dist = n.dist, level = level, occluded = blocked })
 			end
 			gain = HeatMath.gainRate(sources, c)
+				* Progression.smokeHeatMultiplier(player:GetAttribute("GasMask") == true, player:GetAttribute("OxygenAir") :: number?)
 			cooling.inWater = inWater(humanoidOf(player), root)
 		end
 		apply(player, s, HeatMath.step(s.heat, gain, dt, cooling, c))

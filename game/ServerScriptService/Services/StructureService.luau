@@ -970,6 +970,38 @@ function StructureService:ResetSite(key: string | Instance): boolean
 	return true
 end
 
+-- Gear (sledgehammer / axe / kick through glass): shatter a Window pane of an indexed building the same
+-- way fire does, so ResetSite restores it. false = not a structure here (the caller breaks it itself).
+function StructureService:BreakWindow(part: BasePart): boolean
+	if typeof(part) ~= "Instance" or not part:IsA("BasePart") or not part:HasTag(Names.Tag.Window) then
+		return false
+	end
+	local rec, id = ensure(part)
+	if not rec or not id then
+		return false
+	end
+	shatterWindow(rec, id)
+	return true
+end
+
+-- Gear (sledgehammer / rescue saw): knock one wall chunk out as a new doorway; ResetSite restores it.
+-- false = not a structure here.
+function StructureService:Breach(part: BasePart): boolean
+	if typeof(part) ~= "Instance" or not part:IsA("BasePart") then
+		return false
+	end
+	local rec = ensure(part)
+	if not rec then
+		return false
+	end
+	save(rec, part)
+	part.CanCollide = false
+	part.CanQuery = false
+	part.Transparency = 1
+	part:SetAttribute("Breached", true)
+	return true
+end
+
 ---------------------------------------------------------------------------------------------- test hooks
 
 -- Char `n` chunks of `kind` (default roof) in a building, as if the fire burnt them out.

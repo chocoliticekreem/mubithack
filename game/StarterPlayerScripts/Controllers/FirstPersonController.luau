@@ -426,7 +426,8 @@ local function updateScreen(dt: number)
 	-- smoke darkens the edges near fire; heat pushes them orange and pulses near the top
 	local heatRatio = math.clamp(h / maxHeat, 0, 1)
 	local pulse = if h >= 70 then 0.5 + 0.5 * math.sin(state.t * math.pi * 2 * (1 + (h - 70) / 30)) else 0
-	local smoke = state.fireProx * 0.75
+	-- gear: a worn gas mask (attr GasMask) clears the smoke darkening; heat still tints the edges
+	local smoke = if attr("GasMask") == true then 0 else state.fireProx * 0.75
 	local strength = math.clamp(math.max(smoke, heatRatio * 0.85) + pulse * 0.15, 0, 0.95)
 	local color = Palette.SmokeBlack:Lerp(Palette.FireEdge, math.clamp((h - 30) / 60, 0, 1))
 	for _, e in o.edges do

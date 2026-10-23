@@ -5,11 +5,14 @@
 -- luau CLI. Colours are hex strings (Color3.fromHex at the call site).
 --
 -- Slots: hand (one held item, a Tool under the character), back (one backable item, oxygen tank by
--- default), carry (a physics prop held in both arms; NPC carry belongs to RescueService).
+-- default), carry (a physics prop held in both arms; NPC carry belongs to RescueService), face (a worn
+-- item: the gas mask; a grab straps it on, it never leaves by G/Q/fumble, only when you go down).
+-- Progression data (unlockLevel, axe tiers, pry/cut times) is read by Lib/Items/Progression.
 --
 --   ItemDefs.Items[id] -> Def
 --   ItemDefs.get(id) -> Def?
 --   ItemDefs.grab(state, id, ctx?) -> (ok, newState, plan)   plan = { slot, stowed?, dropped?, reason? }
+--                                     a face item: slot "face", dropped = the mask it replaced
 --   ItemDefs.drop(state) -> (newState, what?, slot?)          carry first, else hand
 --   ItemDefs.swap(state) -> (ok, newState, reason?)            hand <-> back
 --   ItemDefs.fumble(state) -> (newState, dropped?)             ragdoll: the hand item flies off
@@ -33,12 +36,23 @@ export type Def = {
 	tethered: boolean, -- the hose nozzle: comes from a truck reel and stays attached to it
 	stocked: boolean, -- found in GearRacks / TruckCompartments
 	tool: boolean, -- ToolService:CreateTool makes the Tool (else Inventory builds a plain one)
+	unlockLevel: number?, -- player level that unlocks it in the locker (nil = 1)
+	wear: string?, -- "face": goes in the face slot instead of the hand
+	axe: AxeTier?, -- an axe tier: the Tool is always named "Axe" (PhysicsHands/HandsService key on it)
+	pry: number?, -- seconds to pry a locked door open quietly (Halligan, Crowbar)
+	cut: number?, -- seconds to cut through a door or a wall chunk (Rescue Saw)
+	smash: boolean?, -- breaks windows and weak wall chunks (Sledgehammer)
+	blurb: string?, -- one line for the locker card
 }
 
-export type State = { hand: string?, back: string?, carry: string? }
+-- damage multiplies the door hits of every swing; swing divides the cooldown. Colours are hex,
+-- material is an Enum.Material name (ItemDefs stays free of Roblox APIs).
+export type AxeTier = { damage: number, swing: number, head: string, material: string, reflect: number? }
+
+export type State = { hand: string?, back: string?, carry: string?, face: string? }
 
 export type Plan = {
-	slot: string?, -- "hand" | "back" | "carry"
+	slot: string?, -- "hand" | "back" | "carry" | "face"
 	stowed: string?, -- the old hand item moved to the back
 	dropped: string?, -- the old hand item fell at your feet
 	reason: string?, -- why a grab failed
@@ -61,7 +75,7 @@ local Items: { [string]: Def } = {
 	},
 	Axe = {
 		id = "Axe",
-		name = "Axe",
+		name = "Rusty Axe",
 		short = "AXE",
 		color = "#C0301E",
 		backable = true,
@@ -70,6 +84,9 @@ local Items: { [string]: Def } = {
 		tethered = false,
 		stocked = true,
 		tool = true,
+		unlockLevel = 1,
+		axe = { damage = 1, swing = 1, head = "#9A6B4F", material = "CorrodedMetal" },
+		blurb = "Chops doors. Slowly. It has seen things.",
 	},
 	Extinguisher = {
 		id = "Extinguisher",
@@ -95,11 +112,176 @@ local Items: { [string]: Def } = {
 		stocked = true,
 		tool = false,
 	},
+	FireAxe = {
+		id = "FireAxe",
+		name = "Fire Axe",
+		short = "F.AXE",
+		color = "#E0452F",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = true,
+		unlockLevel = 4,
+		axe = { damage = 2, swing = 1.35, head = "#D6D8DC", material = "Metal" },
+		blurb = "Faster swings, double door damage.",
+	},
+	GoldenAxe = {
+		id = "GoldenAxe",
+		name = "Golden Axe",
+		short = "GOLD",
+		color = "#F2C14E",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = true,
+		unlockLevel = 10,
+		axe = { damage = 3, swing = 1.7, head = "#F2C14E", material = "Foil", reflect = 0.25 },
+		blurb = "Best axe in the city. Extremely shiny.",
+	},
+	GasMask = {
+		id = "GasMask",
+		name = "Gas Mask",
+		short = "MASK",
+		color = "#3A3F44",
+		backable = false,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 2,
+		wear = "face",
+		blurb = "See through smoke, 40% less smoke heat. O2 tank on your back = air.",
+	},
+	Crowbar = {
+		id = "Crowbar",
+		name = "Crowbar",
+		short = "CROW",
+		color = "#B8322A",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 1,
+		pry = 2.6,
+		blurb = "Pry locked doors open. Quiet, but slow.",
+	},
+	Halligan = {
+		id = "Halligan",
+		name = "Halligan Bar",
+		short = "HALI",
+		color = "#8C9096",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 3,
+		pry = 1.2,
+		blurb = "The pro's pry bar. Pops locked doors and roof hatches fast.",
+	},
+	Flashlight = {
+		id = "Flashlight",
+		name = "Flashlight",
+		short = "LITE",
+		color = "#F7D046",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 1,
+		blurb = "Click to toggle. Cuts through dark smoky rooms.",
+	},
+	Ladder = {
+		id = "Ladder",
+		name = "Ladder",
+		short = "LADR",
+		color = "#C9CCD0",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 5,
+		blurb = "Click a wall to stand it up. Climb to windows and roofs.",
+	},
+	ThermalCam = {
+		id = "ThermalCam",
+		name = "Thermal Camera",
+		short = "THRM",
+		color = "#E86A2C",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 6,
+		blurb = "Hold it: trapped people glow through walls.",
+	},
+	Sledgehammer = {
+		id = "Sledgehammer",
+		name = "Sledgehammer",
+		short = "SLDG",
+		color = "#5A5E66",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 8,
+		smash = true,
+		blurb = "Smash windows and weak walls into new doorways.",
+	},
+	RescueSaw = {
+		id = "RescueSaw",
+		name = "Rescue Saw",
+		short = "SAW",
+		color = "#F28C28",
+		backable = true,
+		prefersBack = false,
+		throwable = true,
+		tethered = false,
+		stocked = true,
+		tool = false,
+		unlockLevel = 12,
+		cut = 0.8,
+		blurb = "Cuts through doors and walls in a second. LOUD.",
+	},
 }
 ItemDefs.Items = Items
 
 -- Stable order for UI and the station rack fallback (GearRack attr Slot 1..n -> this list).
 ItemDefs.RackOrder = { "Axe", "Extinguisher", "OxygenTank" }
+
+-- Locker / unlock order (Lib/Items/Progression, GearController's locker cards).
+ItemDefs.GearOrder = {
+	"Hose",
+	"Axe",
+	"Extinguisher",
+	"OxygenTank",
+	"Crowbar",
+	"Flashlight",
+	"GasMask",
+	"Halligan",
+	"FireAxe",
+	"Ladder",
+	"ThermalCam",
+	"Sledgehammer",
+	"GoldenAxe",
+	"RescueSaw",
+}
 
 -- The prop carry slot holds a world prop, not an item def; its state value is this marker.
 ItemDefs.PROP = "Prop"
@@ -124,7 +306,7 @@ function ItemDefs.rackItem(item: string?, slot: number?): string?
 end
 
 local function copy(s: State): State
-	return { hand = s.hand, back = s.back, carry = s.carry }
+	return { hand = s.hand, back = s.back, carry = s.carry, face = s.face }
 end
 
 -- Where a freshly grabbed item goes. Never fails for a known item unless you are downed or busy:
@@ -148,6 +330,12 @@ function ItemDefs.grab(state: State, id: string, ctx: Ctx?): (boolean, State, Pl
 		return false, state, { reason = "already holding" }
 	end
 	local s = copy(state)
+	if def.wear == "face" then
+		-- worn, not held: a second mask swaps with the one on your face (the old one drops)
+		local old = s.face
+		s.face = id
+		return true, s, { slot = "face", dropped = old }
+	end
 	if def.prefersBack and s.back == nil then
 		s.back = id
 		return true, s, { slot = "back" }
