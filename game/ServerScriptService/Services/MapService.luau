@@ -75,9 +75,8 @@ function MapService:BuildLocation(id: string): Model?
 end
 
 function MapService:BuildAll()
-	if next(builders) == nil then
-		discover()
-	end
+	table.clear(builders) -- rediscover every time (Edit-mode requires are cached between previews)
+	discover()
 	local t0 = os.clock()
 	local ids = {}
 	for id in builders do

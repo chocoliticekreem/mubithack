@@ -16,6 +16,20 @@ from forge.studio import Studio
 PREVIEW_LUAU = r"""
 local SSS = game:GetService("ServerScriptService")
 local out = {}
+-- Edit-mode require caches results (including load errors) per ModuleScript instance. Swap every
+-- module under Services/Lib/ReplicatedStorage for a fresh clone so the preview runs current code.
+local function refresh(root)
+	for _, m in root:GetDescendants() do
+		if m:IsA("ModuleScript") then
+			local c = m:Clone()
+			c.Parent = m.Parent
+			m:Destroy()
+		end
+	end
+end
+for _, r in { SSS:FindFirstChild("Services"), SSS:FindFirstChild("Lib"), game:GetService("ReplicatedStorage") } do
+	if r then refresh(r) end
+end
 local ok, MapService = pcall(require, SSS.Services.MapService)
 if not ok then return "ERROR require MapService: " .. tostring(MapService) end
 local okB, ms = pcall(function() return MapService:BuildAll() end)
