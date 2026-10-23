@@ -244,10 +244,68 @@ local function outskirts(ctx: any, parent: Instance)
 	m.Parent = parent
 end
 
+-- Creekside walk: a gravel path along the creek's west bank from the dam bend to the south edge,
+-- broken at every bridge and at Mill Pond (it has its own bank path), with benches and willows.
+local function creekWalk(ctx: any, parent: Instance)
+	local plan = ctx.plan
+	local cfg = ctx.cfg
+	local rng: Random = ctx.rng
+	-- the north-south creek runs (narrow in x, long in z)
+	local runs = {}
+	for _, rv in plan.river do
+		if rv.x1 - rv.x0 <= cfg.RiverWidth + 0.01 and rv.z1 - rv.z0 > 100 then
+			table.insert(runs, rv)
+		end
+	end
+	if #runs == 0 then
+		return
+	end
+	local m = Instance.new("Model")
+	m.Name = "CreekWalk"
+	for _, rv in runs do
+		local x = rv.x0 - 6
+		-- gaps: bridges over this run
+		local gaps = {}
+		for _, b in plan.bridges do
+			if b.alongX and b.x1 > rv.x0 and b.x0 < rv.x1 then
+				table.insert(gaps, { b.z0 - 8, b.z1 + 8 })
+			end
+		end
+		table.sort(gaps, function(a, b)
+			return a[1] < b[1]
+		end)
+		local cursor = rv.z0 + 4
+		local stretches = {}
+		for _, gp in gaps do
+			if gp[1] > cursor then
+				table.insert(stretches, { cursor, gp[1] })
+			end
+			cursor = math.max(cursor, gp[2])
+		end
+		table.insert(stretches, { cursor, math.min(rv.z1, cfg.Bounds.maxZ - 10) - 4 })
+		for _, st in stretches do
+			local z0, z1 = st[1], st[2]
+			if z1 - z0 > 20 then
+				SK.part(m, "CreekPath", CF(x, GY - 0.55, (z0 + z1) / 2), V(5, 0.3, z1 - z0), PATH, { cast = false })
+				local nb = math.floor((z1 - z0) / 160)
+				for k = 1, nb do
+					local z = z0 + k * (z1 - z0) / (nb + 1)
+					local p = V(x - 4.5, GY - 0.6, z)
+					if ctx.clear(p, 8) then
+						BlockFiller.parkBench(m, CFrame.lookAt(p, p + V(1, 0, 0)))
+						BlockFiller.tree(m, CF(x - 10, GY - 0.6, z + 9), rng, 1.3)
+					end
+				end
+			end
+		end
+	end
+	m.Parent = parent
+end
+
 function Greenbelt.build(ctx: any, parent: Instance): Model
 	local m = Instance.new("Model")
 	m.Name = "Greenbelt"
-	for _, step in { pond, corners, outskirts } do
+	for _, step in { pond, corners, outskirts, creekWalk } do
 		local ok, err = pcall(step, ctx, m)
 		if not ok then
 			warn(`[Greenbelt] {err}`)
