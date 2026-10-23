@@ -356,12 +356,12 @@ Districts.CorridorStyle = {
 	suburb = { lotW = 54, kinds = { "duplex", "duplex", "duplex", "grove" }, sites = { "house" } },
 	industrial = { lotW = 92, kinds = { "warehouse", "shed", "tanks", "warehouse", "carpark" }, sites = { "storage" } },
 	farmland = { lotW = 130, kinds = { "cropfield", "cropfield", "barn" }, sites = { "house" } },
-	woods = { lotW = 130, kinds = { "copse" }, sites = {} },
+	woods = { lotW = 130, kinds = { "copse" }, sites = { "house" } }, -- a cabin in the woods
 	park = { lotW = 130, kinds = { "grove", "copse" }, sites = {} },
 }
 -- incident sites per corridor run side (a district's frontage on one avenue); the hub's own frontage
 -- has none (dispatch wants a real drive from the station)
-Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School = 1, Apartment = 1 }
+Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School = 1, Apartment = 1, Forest = 1 }
 -- a whole corridor run becomes one big site (a second school campus etc.), far from the station
 Districts.CorridorBigSites = { Town = "school", School = "school", Storage = "apartment" }
 -- a whole corridor run becomes one big scenery landmark (not a site)

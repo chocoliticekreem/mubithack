@@ -966,7 +966,7 @@ BlockFiller.pine = pine
 
 function Scenery.woods(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
-	local n = math.clamp(math.floor(maxW * maxD / 1200), 3, 6)
+	local n = math.clamp(math.floor(maxW * maxD / 1200), 3, 5)
 	for _ = 1, n do
 		pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 4, maxW / 2 - 4), GY, rng:NextNumber(4, math.max(5, maxD - 4))), rng)
 	end
