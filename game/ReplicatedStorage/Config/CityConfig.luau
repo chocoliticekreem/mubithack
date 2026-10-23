@@ -34,10 +34,10 @@ return Config.define({
 	BandLotWidth = 70,
 	Bounds = { minX = -1500, maxX = 1500, minZ = -1500, maxZ = 1500 },
 
-	HighwayWidth = 48, -- 4 lanes x 12 (outer ring)
-	AvenueWidth = 48, -- 4 lanes x 12 (ring road + hub radials)
-	StreetWidth = 32, -- 2 lanes x 14 + shoulders (loops, gates, cores)
-	SpurWidth = 32, -- dam road
+	HighwayWidth = 64, -- 4 lanes x 12 (outer ring)
+	AvenueWidth = 60, -- 4 lanes x 12 (ring road + hub radials)
+	StreetWidth = 46, -- 2 lanes x 14 + shoulders (loops, gates, cores)
+	SpurWidth = 46, -- dam road
 	HighwaySpeed = 80, -- studs/s speed limits exported with the lanes (RoadGraphJson)
 	AvenueSpeed = 60,
 	StreetSpeed = 45,

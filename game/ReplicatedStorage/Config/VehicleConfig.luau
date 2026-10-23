@@ -24,7 +24,7 @@ return Config.define({
 	MaxSpeed = 70, -- studs/s forward; reverse is half
 	Accel = 42, -- studs/s^2 under throttle
 	Brake = 95, -- studs/s^2 when pressing against the motion
-	TurnSpeed = 1.8, -- rad/s at speed (turning circle ~40 studs at 70 studs/s, ~12 at 20: fits the 24-stud roads)
+	TurnSpeed = 2.2, -- rad/s at speed (turning circle ~40 studs at 70 studs/s, ~12 at 20: fits the 24-stud roads)
 	Grip = 5.5, -- 1/s; lower = more drifty
 	DriftGrip = 0.9, -- grip while the handbrake (Space) is held
 	DriftTurn = 1.7, -- yaw multiplier while drifting
