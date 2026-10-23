@@ -4,7 +4,7 @@
 -- Reads: tag Burning, attrs FireLevel (1..3) and Charred (FireService); FireConfig.Fx*/MaxClient*;
 --        Palette.Fire*/Smoke*/Charred*.
 -- Writes (local only): per nearby burning part
---   * ParticleEmitters "FlameCore" + "FlameLicks" on the part itself (Box volume, so the whole part burns)
+--   * ParticleEmitters "FlameCore" + "FlameLicks" on the part itself (Box surface, so the whole part burns)
 --   * Attachment "FireFx" on the top face with "Embers", "Smoke" (darkens with FireLevel), "HeatHaze"
 --     and a flickering PointLight on the nearest part of each ~FxLightClusterRadius cluster (at most
 --     MaxClientLights; the nearest MaxShadowLights cast shadows)
@@ -124,38 +124,40 @@ local function build(part: BasePart): Fx
 	else
 		core.Texture = TEX_FIRE
 	end
+	-- Surface (not Volume): particles spawned inside an opaque part are hidden, so emit from its faces
 	core.Shape = Enum.ParticleEmitterShape.Box
-	core.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	core.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
 	core.EmissionDirection = Enum.NormalId.Top
 	core.LightEmission = 1
 	core.LightInfluence = 0
-	core.Brightness = 1.6
+	core.Brightness = 4 -- fire_main.dds is wispy; it washes out in lit interiors without this
 	core.ZOffset = 0.6
 	core.Color = cseq({ { 0, Palette.FireCore }, { 0.3, Palette.FireBody }, { 0.75, Palette.FireEdge }, { 1, Palette.FireDark } })
-	core.Transparency = seq({ { 0, 1 }, { 0.08, 0.1 }, { 0.6, 0.3 }, { 1, 1 } })
-	core.Lifetime = NumberRange.new(0.35, 0.6)
-	core.Speed = NumberRange.new(2, 4)
+	core.Transparency = seq({ { 0, 0.6 }, { 0.1, 0 }, { 0.7, 0.2 }, { 1, 1 } })
+	core.Lifetime = NumberRange.new(0.5, 0.85)
+	core.Speed = NumberRange.new(4, 7)
 	core.SpreadAngle = Vector2.new(8, 8)
 	core.Acceleration = Vector3.new(0, 7, 0)
 	core.Drag = 2
 	core.Rotation = NumberRange.new(-20, 20)
 	core.RotSpeed = NumberRange.new(-60, 60)
-	core.Squash = seq({ { 0, -0.4 }, { 0.5, -0.8, 0.2 }, { 1, 0.3 } })
+	core.Squash = seq({ { 0, -0.3 }, { 0.5, -0.6, 0.2 }, { 1, 0.3 } })
 
 	-- Licks: taller orange-red tongues that stretch along their velocity and whip sideways.
 	local licks = newEmitter("FlameLicks", part)
 	licks.Texture = TEX_FIRE
 	licks.Shape = Enum.ParticleEmitterShape.Box
-	licks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	licks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
 	licks.EmissionDirection = Enum.NormalId.Top
 	licks.Orientation = Enum.ParticleOrientation.VelocityParallel
-	licks.LightEmission = 0.9
+	licks.LightEmission = 0.7
 	licks.LightInfluence = 0
+	licks.Brightness = 2.5
 	licks.ZOffset = 0.3
 	licks.Color = cseq({ { 0, Palette.FireBody }, { 0.4, Palette.FireEdge }, { 1, Palette.FireDark } })
-	licks.Transparency = seq({ { 0, 1 }, { 0.12, 0.25 }, { 0.7, 0.55 }, { 1, 1 } })
-	licks.Lifetime = NumberRange.new(0.5, 0.9)
-	licks.Speed = NumberRange.new(4, 8)
+	licks.Transparency = seq({ { 0, 0.6 }, { 0.15, 0.05 }, { 0.7, 0.35 }, { 1, 1 } })
+	licks.Lifetime = NumberRange.new(0.6, 1)
+	licks.Speed = NumberRange.new(6, 10)
 	licks.SpreadAngle = Vector2.new(18, 18)
 	licks.Acceleration = Vector3.new(0, 10, 0)
 	licks.Drag = 1.2
@@ -247,10 +249,11 @@ local function tune(f: Fx, level: number, tier: number, scale: number)
 	local area = math.clamp(f.part.Size.X * f.part.Size.Z / 16, 0.5, 4) -- more surface, more flames
 	local lod = if tier == 1 then 1 else 0.25
 	local r = scale * lod
-	f.core.Rate = (10 + 9 * level) * area * r
-	f.core.Size = seq({ { 0, 0.6 * s }, { 0.3, (1.1 + 0.35 * level) * s, 0.15 * s }, { 1, 0.15 * s } })
-	f.licks.Rate = (4 + 5 * level) * area * r
-	f.licks.Size = seq({ { 0, 0.5 * s }, { 0.35, (1.4 + 0.5 * level) * s, 0.2 * s }, { 1, 0.1 } })
+	-- level 3 values were tuned live in Studio (Fire Station interior): core 45/area, licks 22/area
+	f.core.Rate = (15 + 10 * level) * area * r
+	f.core.Size = seq({ { 0, (0.6 + 0.2 * level) * s }, { 0.3, (1.6 + 0.4 * level) * s, 0.4 * s }, { 1, 0.4 * s } })
+	f.licks.Rate = (7 + 5 * level) * area * r
+	f.licks.Size = seq({ { 0, (0.4 + 0.2 * level) * s }, { 0.35, (1.9 + 0.5 * level) * s, 0.5 * s }, { 1, 0.3 } })
 	f.embers.Enabled = tier == 1
 	f.embers.Rate = (2 + 3 * level) * r
 	f.haze.Enabled = tier == 1 and level >= 2
@@ -391,6 +394,14 @@ local function steamPuff(part: BasePart)
 		return
 	end
 	local s = sizeFactor(part)
+	local existing = part:FindFirstChild("SteamFx")
+	if existing then -- doused again while the last puff is still up: re-puff, don't stack attachments
+		local e = existing:FindFirstChild("Steam") :: ParticleEmitter?
+		if e then
+			e:Emit(math.floor(12 + 4 * s))
+		end
+		return
+	end
 	local a = Instance.new("Attachment")
 	a.Name = "SteamFx"
 	a.Position = Vector3.new(0, part.Size.Y / 2, 0)
