@@ -16,6 +16,7 @@ import signal
 import threading
 import time
 import uuid
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,14 +27,17 @@ from mubit_tester.harness import Harness, _long_bracket
 from mubit_tester.scenario import list_scenarios, load_scenario, run_scenario
 from mubit_tester.studio_presenter import check_choices, present_job
 
-PROTOCOL = 1
+PROTOCOL = 2
 DEFAULT_PORT = 34874
 TERMINAL = {"passed", "failed", "skipped", "cancelled", "interrupted"}
-OPERATIONS = {"make_game", "load_game", "install_harness", "scenario", "playtest", "explore", "inspect", "suggest_fix", "correct"}
+DRAFT_OPERATIONS = {"make_game", "open_game", "iterate_game", "correct_game"}
+AI_OPERATIONS = {"make_game", "iterate_game", "correct_game", "playtest", "explore", "suggest_fix", "correct"}
+OPERATIONS = DRAFT_OPERATIONS | {"load_game", "read_game_file", "install_harness", "scenario", "playtest", "explore", "inspect", "suggest_fix", "correct"}
 MARKER_CODE = '''local s=game:GetService("ServerScriptService")
 local p=game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
 return game:GetService("HttpService"):JSONEncode({
 marker=game:GetService("CoreGui"):GetAttribute("MubitTesterSession"),
+gameSlug=game:GetService("CoreGui"):GetAttribute("MuMakeLoadedGame"),
 name=game.Name,placeId=game.PlaceId,
 harnessReady=s:FindFirstChild("ForgeTest")~=nil and s:FindFirstChild("ForgeProbe")~=nil
 and game:GetService("ReplicatedStorage"):FindFirstChild("ForgeTelemetry")~=nil
@@ -63,6 +67,9 @@ for _,f in files do
         and game:GetService("StarterPlayer"):WaitForChild("StarterPlayerScripts") or game:GetService(f.service)
     local target=parent:FindFirstChild(f.name)
     if target and target.ClassName~=f.class then error("Conflicting instance: "..f.name) end
+    if target and not target:GetAttribute("MubitTesterManaged") and editor:GetEditorSource(target)~=f.source then
+        error("Keep your existing script: "..f.name..". Rename it or use a local game without this conflict.")
+    end
     table.insert(targets,{{file=f,parent=parent,target=target}})
 end
 -- ExecuteLuau already wraps changes in the Assistant plugin's undo recording.
@@ -75,9 +82,10 @@ end
 local ok,err=pcall(function()
     for _,item in targets do
         local f,parent,target=item.file,item.parent,item.target
-        if not target then target=Instance.new(f.class) target.Name=f.name target.Parent=parent end
-        editor:UpdateSourceAsync(target,function() return f.source end)
-        target:SetAttribute("MubitTesterManaged",true)
+        local created=not target
+        if created then target=Instance.new(f.class) target.Name=f.name target.Parent=parent end
+        if editor:GetEditorSource(target)~=f.source then editor:UpdateSourceAsync(target,function() return f.source end) end
+        if created then target:SetAttribute("MubitTesterManaged",true) end
     end
 end)
 if recording then
@@ -111,6 +119,8 @@ class Companion:
         self.active: str | None = None
         self.bind_lock = asyncio.Lock()
         self.last_seen: dict[str, float] = {}
+        self.games_cache: list[dict] = []
+        self.games_checked = 0.
         for path in sorted(self.store.glob("job-*.json"))[-100:]:
             try:
                 job = json.loads(path.read_text())
@@ -150,6 +160,9 @@ class Companion:
                             session = {"studio_id": item["id"], "name": info["name"],
                                        "place_id": info.get("placeId", 0), "marker": marker,
                                        "harness_ready": bool(info.get("harnessReady"))}
+                            if info.get('gameSlug'):
+                                from mubit_tester.studio_builder import draft_store
+                                session['game_slug'] = draft_store(self.settings, info['gameSlug']).slug
                             self.sessions[marker] = session
                             return session
                     await asyncio.sleep(1)
@@ -167,13 +180,34 @@ class Companion:
         def view(job):
             return {**job, "presentation": present_job(job)} if job else None
         scenarios = list_scenarios(self.settings.repo_root)
+        if session and time.monotonic() - self.games_checked > 5:
+            from mubit_tester.studio_builder import saved_games
+            self.games_cache = saved_games(self.settings)
+            self.games_checked = time.monotonic()
         return {"protocol": PROTOCOL, "has_mubit_key": bool(self.settings.mubit_api_key),
                 "model": self.settings.model, "session": session,
                 "busy": self.active is not None,
                 "active": view(self.jobs.get(self.active)) if self.active and session
                 and self.jobs[self.active]["studio_id"] == session["studio_id"] else None,
                 "history": [view(job) for job in jobs[:12]], "scenarios": scenarios,
+                "games": self.games_cache if session else [],
                 "check_choices": check_choices(scenarios)}
+
+    def draft_for(self, source_job, session):
+        draft = self.jobs.get(str(source_job or ''))
+        if (not draft or draft['operation'] not in DRAFT_OPERATIONS
+                or draft['studio_id'] != session['studio_id'] or not (draft.get('result') or {}).get('slug')):
+            raise ValueError('Choose a saved game draft from this Studio window')
+        return draft
+
+    def report_settings(self, run_id, studio_id):
+        # Fix the files from the report's game, even if a different draft is now loaded.
+        for previous in self.jobs.values():
+            result = previous.get('result') or {}
+            if previous.get('studio_id') == studio_id and result.get('run_id') == run_id and result.get('game_slug'):
+                from mubit_tester.studio_builder import draft_store
+                return replace(self.settings, base_game_dir=draft_store(self.settings, result['game_slug']).game_dir)
+        return self.settings
 
     def submit(self, payload: dict):
         marker = payload.get("session")
@@ -189,7 +223,7 @@ class Companion:
         if payload.get("args") and not isinstance(payload["args"], dict):
             raise ValueError("Expected operation arguments")
         args = dict(payload.get("args") or {})
-        if operation in {"make_game", "playtest", "explore", "suggest_fix", "correct"} and not self.settings.mubit_api_key:
+        if operation in AI_OPERATIONS and not self.settings.mubit_api_key:
             raise ValueError("MUBIT_API_KEY is missing in the companion's .env. Scripted scenarios work without it.")
         if operation == "make_game":
             idea = str(args.get("idea", "")).strip()
@@ -197,11 +231,19 @@ class Companion:
                 raise ValueError("Describe your game in 1 to 4000 characters")
             args = {"idea": idea}
         if operation == "load_game":
-            draft = self.jobs.get(str(args.get("source_job", "")))
-            if (not draft or draft["operation"] != "make_game" or draft["state"] != "passed"
-                or draft["studio_id"] != session["studio_id"] or not (draft.get("result") or {}).get("ready")):
+            draft = self.draft_for(args.get('source_job'), session)
+            if draft['state'] != 'passed' or not (draft.get('result') or {}).get('ready'):
                 raise ValueError("Choose a finished game draft from this Studio window")
             args = {"source_job": draft["id"]}
+        if operation == 'open_game':
+            from mubit_tester.studio_builder import draft_store
+            store = draft_store(self.settings, args.get('slug'))
+            args = {'slug': store.slug}
+        if operation in {'iterate_game', 'correct_game', 'read_game_file'}:
+            draft = self.draft_for(args.get('source_job'), session)
+            args = {'source_job': draft['id'], 'path': args.get('path'), 'note': str(args.get('note', '')).strip()}
+            if operation == 'correct_game' and (not args['path'] or not args['note'] or len(args['note']) > 3000):
+                raise ValueError('Choose a game script and describe the change in 1 to 3000 characters')
         if operation == "scenario":
             names = {s["file"] for s in list_scenarios(self.settings.repo_root)}
             if args.get("scenario", "smoke.json") not in names:
@@ -249,7 +291,7 @@ class Companion:
             raise ValueError("This job belongs to another Studio session")
         if job["state"] != "cancelling":
             job["state"] = "cancelling"
-            self.emit(job, "Stopping the build. Your partial draft stays saved." if job["operation"] == "make_game"
+            self.emit(job, "Stopping the build. Your partial draft stays saved." if job["operation"] in DRAFT_OPERATIONS
                       else "Stopping new actions and returning the owned playtest to Edit.")
             self.task.cancel()
         return job
@@ -274,13 +316,31 @@ class Companion:
                     identity = extract_json(await studio.execute_luau(MARKER_CODE))
                     if not isinstance(identity, dict) or identity.get("marker") != job["marker"]:
                         raise ValueError("Studio identity changed; reconnect before running another job.")
-                if operation in {"make_game", "load_game"}:
-                    if state.get("playing"):
+                if operation in DRAFT_OPERATIONS | {"load_game", "read_game_file"}:
+                    if state.get("playing") and operation not in {'open_game', 'read_game_file'}:
                         raise ValueError("A playtest is already running. Stop it in Studio first.")
-                    from mubit_tester.studio_builder import build_draft, draft_install_code
+                    from mubit_tester.studio_builder import build_draft, describe_draft, revise_draft, draft_install_code
                     if operation == "make_game":
                         self.emit(job, "Planning your game…")
                         job["result"] = await build_draft(self.settings, args["idea"], lambda m: self.emit(job, m))
+                    elif operation == 'open_game':
+                        job['result'] = await describe_draft(self.settings, args['slug'])
+                    elif operation in {'iterate_game', 'correct_game'}:
+                        source = self.jobs[args['source_job']]['result']['slug']
+                        self.emit(job, 'Making a separate revision. Your saved game and Studio stay unchanged.')
+                        kwargs = {'path': args['path'], 'note': args['note']} if operation == 'correct_game' else {}
+                        job['result'] = await revise_draft(self.settings, source, lambda m: self.emit(job, m), **kwargs)
+                    elif operation == 'read_game_file':
+                        from mubit_tester.studio_builder import draft_store
+                        source = self.jobs[args['source_job']]['result']['slug']
+                        store = draft_store(self.settings, source)
+                        path = args['path']
+                        if not isinstance(path, str) or path not in {m['path'] for m in store.load_spec().get('modules', [])}:
+                            raise ValueError('Choose a generated game script')
+                        target = (store.game_dir / path).resolve()
+                        if not target.is_relative_to(store.game_dir.resolve()):
+                            raise ValueError('The script must stay inside the game')
+                        job['result'] = {'path': path, 'source': target.read_text()[:24000]}
                     else:
                         if identity.get("placeId"):
                             raise ValueError("Add a draft to an unpublished local game, using the normal sync workflow for published games.")
@@ -293,11 +353,13 @@ class Companion:
                         self.emit(job, "Adding your draft to this Studio window…")
                         job["result"] = {"summary": await studio.execute_luau(draft_install_code(self.settings, draft["slug"])),
                                          "slug": draft["slug"], "title": draft["title"], "runtime_checked": False}
+                        self.sessions[job['marker']]['game_slug'] = draft['slug']
+                    self.games_checked = 0.
                 elif operation in {"suggest_fix", "correct"}:
                     from mubit_tester.ai import correct_step, suggest_fix
                     self.emit(job, "Sending the report and request through Mubit.")
                     if operation == "suggest_fix":
-                        result = await suggest_fix(self.settings, args["run_id"], int(args.get("bug", 0)))
+                        result = await suggest_fix(self.report_settings(args['run_id'], job['studio_id']), args["run_id"], int(args.get("bug", 0)))
                     else:
                         result = await correct_step(self.settings, args["run_id"], int(args.get("step", 1)),
                                                     str(args.get("note", "")), args.get("player") or None)
@@ -336,12 +398,20 @@ class Companion:
                             else:
                                 from mubit_tester.ai import multi_playtest, explore
                                 self.emit(job, f"AI decisions use Mubit, at most {args['steps']} ticks plus the judge.")
+                                game_slug = self.sessions[job['marker']].get('game_slug')
+                                play_settings = self.settings
+                                if game_slug:
+                                    from mubit_tester.studio_builder import draft_store
+                                    play_settings = replace(self.settings, base_game_dir=draft_store(self.settings, game_slug).game_dir)
                                 if operation == "playtest":
-                                    result = await multi_playtest(self.settings, args["goal"], players=1,
-                                                                  steps=args["steps"], harness=harness)
+                                    result = await multi_playtest(play_settings, args["goal"], players=1,
+                                                                  steps=args["steps"], harness=harness,
+                                                                  roles=['Try the requested game features'] if game_slug else None)
                                 else:
-                                    result = await explore(self.settings, minutes=1, players=1,
+                                    result = await explore(play_settings, minutes=1, players=1,
                                                            max_ticks=args["steps"], harness=harness)
+                            game_slug = self.sessions[job['marker']].get('game_slug')
+                            if game_slug: result['game_slug'] = game_slug
                             job["result"] = result
                         finally:
                             self.emit(job, "Stopping the owned playtest.")

@@ -20,6 +20,10 @@ Open the panel with **Plugins → MuMake**. Files installed while Studio is runn
 
 The panel adapts to its actual dock width. Narrow docks use compact margins and keep every tool available; wrapped text and buttons grow vertically. Wide panels keep a centered content column capped at 560 pixels. Actions stay above the bottom edge while the page scrolls. The floating width hint is 440 pixels and the minimum width is 320; Studio owns dock sizing and may restore a previous size. No fixed-width canvas or text scaling is used.
 
+**Your saved games** includes drafts created by the agent plugin in the same checkout. Open one to review its acceptance checks, choose a script to change, read its source, inspect review scores and Mubit request IDs, or run another code review. Changes call the existing `forge.loop.correct` and `forge.loop.run_game` functions in a separate saved revision. The original draft and Studio stay unchanged until **Add draft to Studio**. A revision can update scripts owned by the same MuMake project; another project's scripts and human-owned scripts are protected. Local edits to MuMake-owned scripts may be replaced when you explicitly add a revision, so review the saved draft before applying it.
+
+Under **More controls**, Check game offers 4, 8 or 16 AI moves. That budget also applies to looking for problems. The backend caps requests at 20 moves. The budget changes no data until the creator starts a paid AI action.
+
 On first use, MuMake shows an optional two-step welcome flow. A coarse age range (13–15, 16–17, 18+) changes the visual treatment. Experience changes the density and help: starting out, made a few things, or confident. There is no name, date of birth, account survey or remote profile.
 
 Age never locks capabilities. A younger experienced creator can expose all the controls, and an adult beginner can choose step-by-step help. Every layout retains game creation, draft review, adding scripts to Studio, character checks, AI goals, evidence and feedback. **More controls** is available within the workspace without changing the saved preference.
@@ -64,9 +68,25 @@ Repeatable checks are currently hand-written JSON in `mubit-tester/scenarios`. A
 
 Mubit receives model requests and responses, including an extra request when the creator corrects a move. Its training is a separate process, subject to workspace settings, accepted examples and evaluation. A feedback receipt is not evidence that an adapter has trained or that quality improved. The plugin does not fetch training status or switch inference to a newly trained adapter. See [Mubit's training guide](https://docs.mubit.ai/guides/first-adapter).
 
-The intended next stage is to derive visible checks from each requested feature, run them against the real game, save reproducible checks for verified bugs, propose changes, and rerun before claiming a fix. For example, a sword shop needs checks for enough coins, insufficient coins, one sword per purchase, and the correct deduction. None of that feature-specific generation or automatic repair is implemented by this UI change.
+The intended next stage is to derive executable checks from each requested feature, run them against the real game, save reproducible checks for verified bugs, propose changes, and rerun before claiming a fix. For example, a sword shop needs checks for enough coins, insufficient coins, one sword per purchase, and the correct deduction. Feature-specific deterministic test generation and automatic runtime-verified repair are not implemented by this UI.
 
-AI actions require `MUBIT_API_KEY` in the checkout's `.env`. The companion reads it; the installed plugin only holds a random local pairing token. After changing `.env`, stop and restart the companion. Scripted scenarios need no AI key. This first version does not yet revise a generated game from follow-up instructions, apply fix suggestions automatically, schedule improvement or create multiplayer windows. Game-specific scenarios use Flame and Blame's existing tags and service contracts; another game needs its own scenarios and instrumentation.
+AI actions require `MUBIT_API_KEY` in the checkout's `.env`. The companion reads it; the installed plugin only holds a random local pairing token. After changing `.env`, stop and restart the companion. Scripted scenarios need no AI key. Draft revision supports a chosen script, rather than redesigning the whole game from a follow-up. The plugin does not apply playtest fix previews automatically, schedule improvement or create multiplayer windows. Game-specific scenarios use Flame and Blame's existing tags and service contracts; another game needs its own scenarios and instrumentation. For a generated game loaded through MuMake, AI play receives the saved design in its user context, and fix suggestions search that report's game source. System prompts remain unchanged.
+
+## Capability parity with the agent tools
+
+| Workflow | Native panel | Shared implementation or remaining boundary |
+|---|---|---|
+| Create a game | Available | Existing Forge design/build/review, one code-only iteration and explicit Studio installation |
+| Resume agent-created games | Available | Same `RunStore` library in this checkout |
+| Iterate and correct a script | Available | Existing builder/fixer, in a separate code-only revision |
+| Read code, review scores, call IDs | Available | Saved game modules, iteration records and Mubit calls |
+| Quick checks, goal play, explore | Available | Same harness, scenarios, AI players and judge, bound to one Studio window |
+| Bug fix previews and move corrections | Available | Same suggestion and correction tasks; report-specific game context |
+| Automatic fix, replay and verifier rollback | Agent tool only | Native revisions are not runtime-verified fixes |
+| Multiplayer, squad and low-level world controls | Agent tool only | Native playtests own one solo session |
+| Tester report triage, benchmarks, scores/playbook, seed/promote | Agent tool only | Development and benchmark workflows remain in the agent tools |
+
+Native and agent jobs must not run concurrently against the same game or Studio. Sharing the underlying functions does not create a cross-process job lock.
 
 ## Ownership and stopping
 
@@ -84,11 +104,15 @@ kill -TERM "$(cat runs/studio-plugin/companion.pid)"
 
 Re-run the installer to start it again. It runs for the current login session, with no startup agent installed. Its PID, log, token and native job files live under ignored `runs/studio-plugin/`. AI reports keep the existing tester's report location. Uninstall by removing `MuMake.lua` from the local Plugins folder and stopping the companion. Keep this checkout and its `.venv` in place; standalone packaged distribution is a future step.
 
+The installer checks the companion protocol before replacing the local plugin. If an older helper is running, finish or stop its job, stop that helper using its PID file, and rerun the installer. This prevents installing new controls against an incompatible old process.
+
 ## Verification
 
 ```bash
 .venv/bin/python -m pytest -q mubit-tester/tests/test_studio_service.py mubit-tester/tests/test_studio_presenter.py mubit-tester/tests/test_studio_builder.py
 luau-compile studio-plugin/MuMake.plugin.luau > /dev/null
+luau studio-plugin/tests/experience.spec.luau
+luau studio-plugin/tests/layout.spec.luau
 ```
 
 Ownership tests cover exact-window binding, refusal to take over human playtests, cleanup on failure and cancellation, cancellation before the job starts, busy state, scenario allowlisting, absent AI credentials, skipped outcomes, restart recovery, HTTP authentication and body limits. Live checks must also confirm panel connection, harness installation, a real scenario report and return to Edit in the selected local Studio window.

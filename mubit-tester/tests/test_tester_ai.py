@@ -132,6 +132,21 @@ def test_assign_roles_cycles_defaults_and_custom():
     assert [p["role"] for p in r2] == ["a", "b", "a"]
 
 
+async def test_saved_game_design_reaches_player_and_judge_without_prompt_changes(tmp_path):
+    settings = _settings(tmp_path)
+    (settings.base_game_dir.parent/'spec.json').write_text(json.dumps({
+        'title': 'Coin island', 'pitch': 'Collect coins on an island', 'core_loop': 'Walk and collect',
+        'acceptance': ['Coin count increases'],
+    }))
+    llm = FakeLLM({'player': [_a('done')], 'judge': [json.dumps({'goal_met': True, 'summary': 'Done', 'bugs': []})]})
+    result = await ai.multi_playtest(settings, 'collect a coin', players=1, steps=1, llm=llm,
+                                   harness=FakeHarness(), roles=['coin collector'], step_seconds=0)
+    assert 'Coin island' in result['goal']
+    assert all('Coin island' in call.user for call in llm.calls)
+    assert all('Coin count increases' in call.user for call in llm.calls)
+    assert {call.role for call in llm.calls} == {'player', 'judge'}
+
+
 def test_map_action_vocabulary():
     assert ai.map_action({"action": "move_to", "args": {"x": 1, "y": 2, "z": 3}}) == ("walk_to", {"pos": [1.0, 2.0, 3.0]})
     assert ai.map_action({"action": "move_to_instance", "args": {"path": "Workspace.A"}}) == ("walk_to", {"path": "Workspace.A"})

@@ -32,6 +32,9 @@ local connections,actionButtons,navButtons,modeButtons = {},{},{},{}
 local render,show,connect,displayReport,beginReport,applyExperience,refreshWelcome,refreshGuide,goBack
 local continueWelcome,selectPreference,guideAction,welcomeActions,makeActionBar
 local submittedActions=0
+local selectedDraftJob,selectedDraftPath
+local stepBudget=8
+local draftOperations={make_game=true,open_game=true,iterate_game=true,correct_game=true}
 local toolbar = plugin:CreateToolbar("MuMake")
 local toggle = toolbar:CreateButton("MuMake","Open MuMake","","MuMake")
 local widget = plugin:CreateDockWidgetPluginGuiAsync("MubitTesterNativeV1",
@@ -372,6 +375,10 @@ buildAccess.Parent=makeActionBar makeButton.Parent=makeActionBar
 makeActionBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSurface)
 local buildExplanation=text(makePage,"MuMake plans the game, writes its code, and checks the draft for code errors. Then you can add it to this Studio window.","muted")
 text(makePage,"Creating a game uses paid AI calls. The draft stays separate from your current game until you add it.","small")
+local savedLibrary=section(makePage,"SavedGames") savedLibrary.LayoutOrder=80
+text(savedLibrary,"Your saved games","heading")
+text(savedLibrary,"Reopen a draft made here or with the agent tool. Opening it does not change Studio or use AI.","small")
+local savedGameRows=section(savedLibrary,"Games")
 local checkPage=pages["Check game"]
 local checkTitle=text(checkPage,"Will it work for your friends?","heading")
 local checkIntro=text(checkPage,"Let MuMake try your game, then see what happened.","muted")
@@ -390,6 +397,19 @@ text(goalPanel,"What should a player be able to do?","heading")
 local goal=field(goalPanel,"Example: pick up a hose and put out a fire.",96)
 text(goalPanel,"MuMake will join, choose actions to try your goal, and check what actually happened.","muted")
 local aiAccess=text(goalPanel,"Checking whether AI play is ready…","small")
+local checkOptions=section(checkPage,"CheckOptions") checkOptions.Visible=false
+text(checkOptions,"How long should MuMake try?","small")
+local budgetLabel=text(checkOptions,"Up to 8 moves, then a review. Each AI move uses a paid call.","small")
+local budgetButtons={}
+local budgetRow=Instance.new("Frame") budgetRow.BackgroundTransparency=1 budgetRow.Size=UDim2.new(1,-4,0,36) budgetRow.Parent=checkOptions
+for index,value in {4,8,16} do
+    local b=button(budgetRow,tostring(value).." moves",function()
+        stepBudget=value budgetLabel.Text="Up to "..value.." moves, then a review. Each AI move uses a paid call."
+        for amount,entry in budgetButtons do entry.BackgroundColor3=amount==value and palette.tint or palette.surface end
+    end)
+    b.Size=UDim2.new(1/3,-4,1,0) b.Position=UDim2.new((index-1)/3,0,0,0) budgetButtons[value]=b
+end
+budgetButtons[8].BackgroundColor3=palette.tint
 local go
 local function setMode(value)
     mode=value quick.Visible=value=="quick" goalPanel.Visible=value=="goal"
@@ -409,7 +429,7 @@ go=button(checkPage,"Check my game",function()
     if mode=="quick" then start("scenario",{scenario="smoke.json"})
     else
         if not goal.Text:match("%S") then error("Write what you want a player to do first.",0) end
-        start("playtest",{goal=goal.Text,steps=8})
+        start("playtest",{goal=goal.Text,steps=stepBudget})
     end
 end,{primary=true})
 text(checkPage,"MuMake plays with one character in this window, then stops. It does not change your game code.","small")
@@ -429,6 +449,20 @@ local resultDetail=text(resultSummary,"","muted")
 local checkRows=section(results,"CheckedThings")
 local issueRows=section(results,"PossibleProblems")
 local reportActions=section(results,"NextSteps")
+local draftEditor=section(results,"DraftChanges") draftEditor.Visible=false
+text(draftEditor,"What should be different?","heading")
+text(draftEditor,"Change one chosen script in a separate saved revision. Your current draft and Studio stay as they are until you add the revision.","small")
+local draftScript=text(draftEditor,"Choose a game script","small")
+local scriptChoices=section(draftEditor,"ScriptChoices") scriptChoices.Visible=false
+button(draftEditor,"Choose a different script",function() scriptChoices.Visible=not scriptChoices.Visible end)
+local changeNote=field(draftEditor,"Example: make the coins easier to spot and give players a checkpoint.",88)
+button(draftEditor,"Make this change in a new draft",function()
+    if not changeNote.Text:match("%S") then error("Tell MuMake what should change first.",0) end
+    start("correct_game",{source_job=selectedDraftJob,path=selectedDraftPath,note=changeNote.Text})
+end,{action=true,ai=true,primary=true})
+button(draftEditor,"Read this script",function()
+    start("read_game_file",{source_job=selectedDraftJob,path=selectedDraftPath})
+end,{action=true})
 local actionRows=section(results,"PlaythroughActions")
 local correction=section(results,"Feedback") correction.Visible=false
 text(correction,"What should MuMake have done?","heading")
@@ -446,8 +480,8 @@ local details=field(technical,"",200) details.TextEditable=false
 local history=section(results,"EarlierChecks")
 beginReport=function(job)
     clear(checkRows) clear(issueRows) clear(reportActions) clear(actionRows)
-    correction.Visible=false technical.Visible=false
-    resultTitle.Text=job.operation=="playtest" and job.args.goal or (job.operation=="make_game" and "Making your game" or "Your next step")
+    correction.Visible=false technical.Visible=false draftEditor.Visible=false
+    resultTitle.Text=job.operation=="playtest" and job.args.goal or (draftOperations[job.operation] and "Opening your next draft" or "Your next step")
     resultStatus.Text="Getting ready…" resultStatus.TextColor3=palette.blue
     resultDetail.Text="MuMake is finding your game. You can press Stop at any time."
 end
@@ -484,7 +518,7 @@ text(advanced,"Start the helper:\n.venv/bin/python scripts/install-studio-plugin
 local connectionDetail=text(advanced,URL,"small")
 button(advanced,"Prepare this game again",function() start("install_harness") end,{action=true})
 button(advanced,"Read the game that is playing now",function() start("inspect") end,{action=true})
-button(advanced,"Ask AI to look for problems",function() start("explore",{steps=8}) end,{action=true,ai=true,needsReady=true})
+button(advanced,"Ask AI to look for problems",function() start("explore",{steps=stepBudget}) end,{action=true,ai=true,needsReady=true})
 local selectedCheck=text(advanced,"Selected: Quick check","small")
 button(advanced,"Run selected check",function() start("scenario",{scenario=selectedScenario}) end,{action=true,needsReady=true})
 local controlDock=section(makePage,"WorkspaceTools")
@@ -492,7 +526,7 @@ controlDock.LayoutOrder=90
 text(controlDock,"Tools at hand","heading")
 button(controlDock,"See my drafts and results",function() show("Results") end)
 button(controlDock,"Check the character and game errors",function() show("Check game") end)
-button(controlDock,"Look for problems with AI",function() start("explore",{steps=8}) end,{action=true,ai=true,needsReady=true})
+button(controlDock,"Look for problems with AI",function() start("explore",{steps=stepBudget}) end,{action=true,ai=true,needsReady=true})
 applyExperience=function()
     local config=Experience.config(experience)
     palette.blue=experience.audience=="adult" and shade("345BC4","A9C0FF") or (experience.audience=="younger" and shade("7042C6","C6AEFF") or shade("6545CF","B7A5FF"))
@@ -511,6 +545,7 @@ applyExperience=function()
     setFieldHeight(idea,config.playful and 148 or (config.focused and 112 or 136))
     starters.Visible=config.hints
     extraBuild.Visible=config.controls controlDock.Visible=config.controls
+    checkOptions.Visible=config.controls
     buildExplanation.Visible=config.hints
     checkTitle.Text=config.stepByStep and "Will it work for your friends?" or "Check your game."
     checkIntro.Visible=config.hints
@@ -539,7 +574,12 @@ end
 connect=function()
     if connecting then return end
     connecting=true status.Text="Connecting to your game…"
-    local ok,result=pcall(function() return request("POST","/bind",{marker=marker}) end)
+    local ok,result=pcall(function()
+        local session=request("POST","/bind",{marker=marker})
+        local state=request("GET","/state")
+        if state.protocol~=2 then error("Update and restart the local MuMake helper, then reconnect.",0) end
+        return session
+    end)
     if alive then
         bound=ok control:SetAttribute("Connected",ok)
         control:SetAttribute("ConnectionDetail",ok and "Paired" or tostring(result):sub(1,500))
@@ -580,8 +620,17 @@ displayReport=function(job)
     if job.state=="passed" then resultStatus.TextColor3=palette.green
     elseif job.state=="failed" then resultStatus.TextColor3=palette.amber else resultStatus.TextColor3=palette.secondary end
     clear(checkRows) clear(issueRows) clear(reportActions) clear(actionRows)
-    correction.Visible=false technical.Visible=false
-    if job.operation=="make_game" and job.result then
+    correction.Visible=false technical.Visible=false draftEditor.Visible=false
+    if draftOperations[job.operation] and job.result then
+        selectedDraftJob=job.id selectedDraftPath=job.result.files and job.result.files[1]
+        draftEditor.Visible=selectedDraftPath~=nil
+        clear(scriptChoices) scriptChoices.Visible=false
+        draftScript.Text="Game script: "..tostring(selectedDraftPath or "none yet")
+        for _,path in job.result.files or {} do
+            button(scriptChoices,path,function()
+                selectedDraftPath=path draftScript.Text="Game script: "..path scriptChoices.Visible=false
+            end)
+        end
         if #(job.result.files or {})>0 then
             text(checkRows,"What your draft aims to do","heading")
             for _,item in job.result.acceptance or {} do text(checkRows,tostring(item)) end
@@ -590,6 +639,15 @@ displayReport=function(job)
         if job.state=="passed" and job.result.ready then
             button(reportActions,"Add draft to Studio",function() start("load_game",{source_job=job.id}) end,{primary=true,action=true})
             text(reportActions,"Adds the draft scripts to this local game with Undo. If a script would replace your own code, MuMake stops and asks you to use an empty game.","small")
+        end
+        if job.result.slug then
+            button(reportActions,"Check and improve this saved draft",function()
+                start("iterate_game",{source_job=job.id})
+            end,{action=true,ai=true})
+            text(reportActions,"Runs another code review and repair round in a new draft. Uses paid AI calls. It does not play the game.","small")
+            button(reportActions,"See draft reviews and AI activity",function()
+                showTechnical({reviews=job.result.iterations,calls=job.result.calls})
+            end)
         end
     end
     if job.operation=="load_game" and job.state=="passed" then
@@ -616,6 +674,7 @@ displayReport=function(job)
         button(reportActions,"See the suggested code change",function() showTechnical({file=job.result.path,change=job.result.patch_preview}) end)
         text(reportActions,"Code changes need review. MuMake has not applied this idea.","small")
     end
+    if job.operation=="read_game_file" and job.result then showTechnical(job.result) end
     if #view.actions>0 then
         text(actionRows,"Moves MuMake tried","heading")
         text(actionRows,"Choose a move if MuMake misunderstood you.","small")
@@ -631,7 +690,7 @@ displayReport=function(job)
         if technical.Visible then technical.Visible=false else showTechnical(job) end
     end)
 end
-local historyKey,choicesKey="",""
+local historyKey,choicesKey,gamesKey="","",""
 render=function(data)
     snapshot=data
     layoutSurface()
@@ -641,7 +700,7 @@ render=function(data)
     control:SetAttribute("Connected",bound)
     local aiReady=bound and data.has_mubit_key
     buildAccess.Text=aiReady and "Ready to make your first draft. This can take a few minutes." or "Game creation needs AI connected in Settings. Your idea can stay here while you set it up."
-    aiAccess.Text=aiReady and "AI play is ready. This uses paid AI calls, with up to 8 moves and a review." or "AI play is not connected yet. Quick check is available; open Settings for AI setup."
+    aiAccess.Text=aiReady and "AI play is ready. This uses paid AI calls, with up to "..stepBudget.." moves and a review." or "AI play is not connected yet. Quick check is available; open Settings for AI setup."
     aiSetting.Text=aiReady and "Connected. Game creation, goal play and feedback are available." or "Not connected yet. Add a Mubit key in Technical setup details to create games or use AI play."
     local canGo=bound and ready and not data.busy and (mode=="quick" or aiReady)
     updateButton(go,canGo,true)
@@ -708,6 +767,14 @@ render=function(data)
                     advanced.Visible=true
                 end)
             end
+        end
+    end
+    local games=Http:JSONEncode(data.games or {})
+    if games~=gamesKey then
+        gamesKey=games clear(savedGameRows)
+        if #(data.games or {})==0 then text(savedGameRows,"Your saved drafts will appear here.","small") end
+        for _,saved in data.games or {} do
+            button(savedGameRows,saved.title,function() start("open_game",{slug=saved.slug}) end,{action=true})
         end
     end
 end

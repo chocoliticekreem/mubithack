@@ -26,6 +26,7 @@ ACTION_NAMES = {
     'key': 'Press a key', 'spray': 'Spray water', 'use': 'Use the equipped item',
     'equip': 'Equip an item', 'wait': 'Wait', 'done': 'Finish playing',
 }
+DRAFT_OPERATIONS = {'make_game', 'open_game', 'iterate_game', 'correct_game'}
 
 
 def check_choices(scenarios):
@@ -40,13 +41,13 @@ def title_for(job):
         return CHECK_NAMES.get(job.get('args', {}).get('scenario', 'smoke.json'), ('Saved game check', ''))[0]
     if operation == 'playtest':
         return str(job.get('args', {}).get('goal', 'Try a goal'))
-    if operation == 'make_game':
+    if operation in DRAFT_OPERATIONS:
         return str((job.get('result') or {}).get('title') or 'Making your game')
     if operation == 'load_game':
         return str((job.get('result') or {}).get('title') or 'Add draft to Studio')
     return {'explore': 'Look for problems', 'inspect': 'Look at the current game',
             'install_harness': 'Prepare this game', 'suggest_fix': 'Get a fix idea',
-            'correct': 'Send feedback'}.get(operation, 'Game check')
+            'correct': 'Send feedback', 'read_game_file': 'Read draft code'}.get(operation, 'Game check')
 
 
 def present_job(job):
@@ -57,9 +58,9 @@ def present_job(job):
               'passed': 'Finished', 'failed': 'Needs a look'}.get(state, 'In progress')
     summary = ''
     checks, issues, actions = [], [], []
-    if operation == 'make_game':
+    if operation in DRAFT_OPERATIONS:
         if state == 'passed' and result.get('ready'):
-            status = 'Your first draft is ready'
+            status = 'Your first draft is ready' if operation == 'make_game' else 'Your saved draft is ready'
             summary = str(result.get('pitch') or '') + '\nReview it below, then add it to Studio to try it. It has not been played yet.'
         elif state == 'failed':
             status, summary = 'The draft needs more work', 'The code is saved, but some parts could not finish. It has not been added to Studio.'
@@ -106,6 +107,8 @@ def present_job(job):
         status, summary = 'Feedback sent', 'Your note was sent through Mubit as a new example. This does not change the game or confirm that training has finished.'
     elif operation == 'inspect' and state == 'passed':
         summary = 'Read the players and game errors from the current playthrough.'
+    elif operation == 'read_game_file' and state == 'passed':
+        summary = 'Showing the saved draft code. This does not change Studio or make AI calls.'
     errors = result.get('errors') or []
     probe_errors = (result.get('probe') or {}).get('errors') or []
     for error in probe_errors:
@@ -127,7 +130,7 @@ def present_job(job):
             summary = 'MuMake could not finish trying your game. Try again, or open technical details to find out why.'
     if state == 'cancelled':
         status = 'Stopped'
-        summary = 'You stopped this build. Any partial draft stays saved and has not been added to Studio.' if operation == 'make_game' else 'You stopped this check. Anything it did not finish is still unchecked.'
+        summary = 'You stopped this build. Any partial draft stays saved and has not been added to Studio.' if operation in DRAFT_OPERATIONS else 'You stopped this check. Anything it did not finish is still unchecked.'
     if state == 'interrupted':
         status = 'Interrupted'
         summary = 'MuMake restarted before this finished. Check Studio has stopped playing before trying again.'

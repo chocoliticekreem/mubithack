@@ -266,3 +266,48 @@ async def test_loads_an_authorized_draft_without_starting_play(service, monkeypa
     assert job['state'] == 'passed'
     assert job['result']['runtime_checked'] is False
     assert not FakeStudio.playing and FakeStudio.stopped == 0
+
+
+async def test_saved_agent_game_reopens_without_ai_or_studio_writes(service):
+    from test_studio_builder import saved_game
+    store, _ = saved_game(service.settings)
+    job = submit(service, 'open_game', slug=store.slug)
+    await service.task
+    assert job['state'] == 'passed' and job['result']['slug'] == store.slug
+    assert not FakeStudio.playing and FakeStudio.stopped == 0
+    assert service.snapshot('test-marker')['games'][0]['slug'] == store.slug
+
+
+async def test_native_iteration_reuses_builder_without_touching_studio(service, monkeypatch):
+    from mubit_tester import studio_builder
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    service.jobs['draft'] = {'id': 'draft', 'operation': 'open_game', 'state': 'passed',
+        'studio_id': 'chosen', 'result': {'slug': 'agent-game'}}
+    async def revise(settings, slug, emit, **kwargs):
+        assert slug == 'agent-game' and kwargs == {}
+        return {'slug': 'revision', 'ready': True, 'errors': []}
+    monkeypatch.setattr(studio_builder, 'revise_draft', revise)
+    job = submit(service, 'iterate_game', source_job='draft')
+    await service.task
+    assert job['state'] == 'passed' and job['result']['slug'] == 'revision'
+    assert not FakeStudio.playing and FakeStudio.stopped == 0
+
+
+async def test_correct_draft_validates_note_and_source_session(service):
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    service.jobs['draft'] = {'id': 'draft', 'operation': 'make_game', 'state': 'passed',
+        'studio_id': 'other', 'result': {'slug': 'obby'}}
+    with pytest.raises(ValueError, match='this Studio window'):
+        submit(service, 'correct_game', source_job='draft', path='Game.luau', note='change')
+    service.jobs['draft']['studio_id'] = 'chosen'
+    with pytest.raises(ValueError, match='describe the change'):
+        submit(service, 'correct_game', source_job='draft', path='Game.luau', note=' ')
+
+
+def test_fix_uses_the_report_game_even_after_switching_drafts(service):
+    from test_studio_builder import saved_game
+    store, _ = saved_game(service.settings)
+    service.sessions['test-marker']['game_slug'] = 'some-other-game'
+    service.jobs['play'] = {'studio_id': 'chosen', 'result': {'run_id': 'play-1', 'game_slug': store.slug}}
+    assert service.report_settings('play-1', 'chosen').base_game_dir == store.game_dir
+    assert service.report_settings('play-1', 'other').base_game_dir == service.settings.base_game_dir

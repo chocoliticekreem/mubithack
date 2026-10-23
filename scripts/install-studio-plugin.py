@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / 'mubit-tester')]
-from mubit_tester.studio_service import DEFAULT_PORT, load_token
+from mubit_tester.studio_service import DEFAULT_PORT, PROTOCOL, load_token
 
 
 def plugin_source(port, token):
@@ -70,7 +70,12 @@ def main():
         parser.error('port must be between 1024 and 65535')
     store = ROOT / 'runs/studio-plugin'
     token = load_token(store)
-    if not health(args.port, token):
+    current = health(args.port, token)
+    if current and current.get('protocol') != PROTOCOL:
+        raise SystemExit('The running MuMake helper is an older version. Finish or stop its job, '
+                         'stop the companion using runs/studio-plugin/companion.pid, then run this installer again. '
+                         'Your installed panel has not been replaced.')
+    if not current:
         python = ROOT / '.venv/bin/python'
         if not python.is_file():
             raise SystemExit('Install the repository Python dependencies into .venv first')

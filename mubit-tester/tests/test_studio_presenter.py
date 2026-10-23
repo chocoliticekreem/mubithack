@@ -83,3 +83,11 @@ def test_cancellation_does_not_inherit_a_success_status():
     view = present_job(job('playtest', 'cancelled', {'goal_met': True, 'summary': 'Goal happened.'}))
     assert view['status'] == 'Stopped'
     assert 'unchecked' in view['summary']
+
+
+def test_reopened_and_revised_drafts_never_claim_a_playtest():
+    for operation in ('open_game', 'iterate_game', 'correct_game'):
+        view = present_job(job(operation, result={'ready': True, 'title': 'Obby'}))
+        assert view['title'] == 'Obby'
+        assert view['status'] == 'Your saved draft is ready'
+        assert 'not been played' in view['summary']

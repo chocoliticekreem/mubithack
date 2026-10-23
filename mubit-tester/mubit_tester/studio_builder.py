@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import shutil
 from pathlib import Path
 
 from forge import sync
-from forge.loop import UI, new_game
-from forge.memory import RunStore
+from forge.loop import UI, new_game, run_game, correct
+from forge.memory import RunStore, unique_slug
 from mubit_tester.harness import _long_bracket
 
 
@@ -33,23 +35,87 @@ class BuildProgress(UI):
             self.emit('Finishing your first draft…')
 
 
-async def build_draft(settings, idea, emit, *, llm=None):
-    slug = await new_game(idea, iterations=1, use_studio=False, settings=settings,
-                          llm=llm, ui=BuildProgress(emit))
+def draft_store(settings, slug):
+    if not isinstance(slug, str) or not re.fullmatch(r'[a-zA-Z0-9_-]+', slug):
+        raise ValueError('Choose a saved game')
     store = RunStore(settings, slug)
+    if not store.dir.resolve().is_relative_to(settings.runs_dir.resolve()) or not store.spec_path.is_file():
+        raise ValueError('This game draft is no longer available')
+    # Do not follow links when reading, copying or compiling a saved game.
+    if any(path.is_symlink() for path in store.dir.rglob('*')):
+        raise ValueError('Saved games cannot contain linked files')
+    return store
+
+
+def saved_games(settings):
+    games = []
+    for slug in RunStore.list_games(settings):
+        try:
+            store = draft_store(settings, slug)
+            spec, state = store.load_spec(), store.load_state()
+            games.append({'slug': slug, 'title': spec.get('title', slug), 'pitch': spec.get('pitch', ''),
+                          'iterations': len(state.get('iterations', []))})
+        except (ValueError, OSError, TypeError, AttributeError):
+            continue
+    return games
+
+
+async def describe_draft(settings, slug):
+    store = draft_store(settings, slug)
     spec = store.load_spec()
     failures = await asyncio.to_thread(sync.check, store.game_dir)
     missing = [m['path'] for m in spec.get('modules', []) if not (store.game_dir / m['path']).is_file()]
     if not spec.get('modules'):
         missing.append('The plan did not include any game scripts.')
     errors = [f'{path}: {message}' for path, message in failures] + [f'Missing: {p}' for p in missing]
+    state = store.load_state()
     return {'slug': slug, 'title': spec.get('title', 'Your new game'), 'pitch': spec.get('pitch', ''),
             'ready': not errors, 'errors': errors, 'files': [m['path'] for m in spec.get('modules', [])],
-            'acceptance': spec.get('acceptance', []), 'runtime_checked': False}
+            'acceptance': spec.get('acceptance', []), 'runtime_checked': False,
+            'project_slug': spec.get('mumake_project', slug),
+            'iterations': [{k: item.get(k) for k in ('n', 'score', 'summary')} for item in state.get('iterations', [])],
+            'calls': [{k: item.get(k) for k in ('role', 'request_id', 'latency_ms')} for item in store.read_calls()[-20:]]}
+
+
+async def build_draft(settings, idea, emit, *, llm=None):
+    slug = await new_game(idea, iterations=1, use_studio=False, settings=settings,
+                          llm=llm, ui=BuildProgress(emit))
+    return await describe_draft(settings, slug)
+
+
+async def revise_draft(settings, slug, emit, *, path=None, note=None, llm=None):
+    source = draft_store(settings, slug)
+    spec = source.load_spec()
+    if path is not None:
+        modules = {m['path'] for m in spec.get('modules', [])}
+        protected = set(spec.get('base_files', []))
+        if path not in modules or path in protected:
+            raise ValueError('Choose a generated game script to change')
+        target = (source.game_dir / path).resolve()
+        if not target.is_relative_to(source.game_dir.resolve()) or not target.is_file():
+            raise ValueError('That game script is no longer available')
+    revision = unique_slug(settings, slug + '-revision')
+    destination = RunStore(settings, revision)
+    # Revise a separate saved draft, including when it came from the agent plugin.
+    # Cancellation and failed compilation never alter the original game or Studio.
+    await asyncio.to_thread(shutil.copytree, source.dir, destination.dir)
+    spec['slug'] = revision
+    spec['mumake_project'] = spec.get('mumake_project', slug)
+    destination.save_spec(spec)
+    state = destination.load_state()
+    state['slug'] = revision
+    destination.save_state(state)
+    if path is None:
+        await run_game(revision, iterations=1, use_studio=False, settings=settings, llm=llm, ui=BuildProgress(emit))
+    else:
+        await correct(revision, path, note, use_studio=False, settings=settings, llm=llm, ui=BuildProgress(emit))
+    result = await describe_draft(settings, revision)
+    result['source_slug'] = slug
+    return result
 
 
 def draft_install_code(settings, slug):
-    root = (settings.runs_dir / slug / 'game').resolve()
+    root = draft_store(settings, slug).game_dir.resolve()
     if not root.is_relative_to(settings.runs_dir.resolve()) or not root.is_dir():
         raise ValueError('This game draft is no longer available')
     # Use the same path mapping as the existing file-to-Studio sync tool.
@@ -62,8 +128,10 @@ def draft_install_code(settings, slug):
             raise ValueError('A draft script points outside its game folder')
         entry['source'] = path.read_text()
     payload = _long_bracket(json.dumps(entries))
+    project = _long_bracket(str(draft_store(settings, slug).load_spec().get('mumake_project', slug)))
     return f'''
 local files=game:GetService("HttpService"):JSONDecode({payload})
+local project={project}
 local editor=game:GetService("ScriptEditorService")
 local history=game:GetService("ChangeHistoryService")
 local function rootFor(f)
@@ -80,7 +148,8 @@ for _,f in files do
     local target=parent and parent:FindFirstChild(f.name)
     if target then
         if target.ClassName~=f.class then error("Existing object blocks draft script: "..f.path) end
-        if not target:GetAttribute("MuMakeGenerated") and editor:GetEditorSource(target)~=f.source then
+        local ownDraft=target:GetAttribute("MuMakeGenerated") and target:GetAttribute("MuMakeProject")==project
+        if not ownDraft and editor:GetEditorSource(target)~=f.source then
             error("Keep your existing script: "..f.path..". Use an empty local game for this draft.")
         end
     end
@@ -103,10 +172,14 @@ local ok,err=pcall(function()
         if not target then target=Instance.new(f.class) target.Name=f.name target.Parent=parent end
         if editor:GetEditorSource(target)~=f.source then editor:UpdateSourceAsync(target,function() return f.source end) end
         -- Identical existing scripts stay under their original ownership.
-        if created then target:SetAttribute("MuMakeGenerated",true) end
+        if created then
+            target:SetAttribute("MuMakeGenerated",true)
+            target:SetAttribute("MuMakeProject",project)
+        end
     end
 end)
 if recording then history:FinishRecording(recording,ok and Enum.FinishRecordingOperation.Commit or Enum.FinishRecordingOperation.Cancel) end
 if not ok then error(err) end
+game:GetService("CoreGui"):SetAttribute("MuMakeLoadedGame",{_long_bracket(slug)})
 return "Added "..#files.." draft scripts. Press Play in Studio to try the game."
 '''
