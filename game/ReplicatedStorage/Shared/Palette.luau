@@ -1,0 +1,71 @@
+--!strict
+-- FROZEN (kickoff). Colour tokens from docs/game/02-art-feel-ui.md §1. Every builder, VFX and UI
+-- script takes colours from here (never BrickColor.Random or grey defaults). Adding a token is a
+-- one-line PR; renaming one is not.
+
+local Palette = table.freeze({
+	-- fire, smoke, water
+	FireCore = Color3.fromHex("#FFF6A0"),
+	FireBody = Color3.fromHex("#FFB12B"),
+	FireEdge = Color3.fromHex("#FF5A1F"),
+	FireDark = Color3.fromHex("#7A1F10"),
+	SmokeGrey = Color3.fromHex("#5E5A55"),
+	SmokeWhite = Color3.fromHex("#EAE6DF"),
+	SmokeBlack = Color3.fromHex("#2A2826"),
+	WaterSpray = Color3.fromHex("#A9E3F0"),
+	Charred = Color3.fromHex("#1F1A19"),
+	CharredWarm = Color3.fromHex("#3A2A22"),
+	-- firefighters and characters
+	CoatYellow = Color3.fromHex("#D9A030"),
+	CoatShadow = Color3.fromHex("#9A6A30"),
+	ReflectLime = Color3.fromHex("#E8E25A"),
+	ReflectSilver = Color3.fromHex("#C9CCD0"),
+	GloveOlive = Color3.fromHex("#8C7A3A"),
+	HelmetRed = Color3.fromHex("#C0301E"),
+	HelmetShield = Color3.fromHex("#E8C24A"),
+	NumberInk = Color3.fromHex("#1A1210"),
+	SkinWarm = Color3.fromHex("#D98A4E"),
+	SkinPale = Color3.fromHex("#F0C49C"),
+	EyeWhite = Color3.fromHex("#FFFFFF"),
+	Pupil = Color3.fromHex("#111111"),
+	CivShirtRed = Color3.fromHex("#CF442B"),
+	CivTeeWhite = Color3.fromHex("#F2EEE6"),
+	-- vehicles, props, architecture
+	TruckRed = Color3.fromHex("#C8232B"),
+	TruckChrome = Color3.fromHex("#D6D8DC"),
+	HoseYellow = Color3.fromHex("#E8B83A"),
+	BrassCoupling = Color3.fromHex("#C89A3C"),
+	StationBrick = Color3.fromHex("#BF4835"),
+	StationFloor = Color3.fromHex("#8A7470"),
+	FloorLineYellow = Color3.fromHex("#E3B23C"),
+	LockerGrey = Color3.fromHex("#6E6A6E"),
+	WoodFloor = Color3.fromHex("#C8683A"),
+	RoomTeal = Color3.fromHex("#4F8A85"),
+	BookshelfWood = Color3.fromHex("#8A4A28"),
+	SidingCream = Color3.fromHex("#E8D3A8"),
+	SidingSalmon = Color3.fromHex("#D98B6F"),
+	SidingSage = Color3.fromHex("#9DB38A"),
+	SidingBlue = Color3.fromHex("#9EC1CC"),
+	RoofBrown = Color3.fromHex("#5A3A32"),
+	TrimWhite = Color3.fromHex("#F2EDE4"),
+	LawnGreen = Color3.fromHex("#7FAF4A"),
+	Asphalt = Color3.fromHex("#4A4650"),
+	Sidewalk = Color3.fromHex("#C9B8A8"),
+	AlarmRed = Color3.fromHex("#FF2A2A"),
+	-- UI
+	UiInk = Color3.fromHex("#2A1410"),
+	UiCream = Color3.fromHex("#FFF1D6"),
+	UiPanelDark = Color3.fromHex("#1E1A22"),
+	UiRed = Color3.fromHex("#D9372A"),
+	UiWater = Color3.fromHex("#4FB3D9"),
+	UiWarn = Color3.fromHex("#FFC531"),
+	UiGood = Color3.fromHex("#6BCB5A"),
+	UiShock = Color3.fromHex("#7FF5F0"),
+	UiFlameTop = Color3.fromHex("#FFE45C"),
+	UiFlameMid = Color3.fromHex("#FF8A1F"),
+	UiFlameLow = Color3.fromHex("#C8231B"),
+	SkyTitleTop = Color3.fromHex("#407E7B"),
+	HorizonOrange = Color3.fromHex("#EC9438"),
+})
+
+return Palette

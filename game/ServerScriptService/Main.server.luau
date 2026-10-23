@@ -54,6 +54,11 @@ for _, e in entries do
 	end
 end
 
+-- Shared/Notify belongs to no single service (anyone calls Net.notify), so the bootstrap declares
+-- it before any Start runs. Clients' Net.event("Shared", "Notify") then never waits on a lazy remote.
+local Net = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Net") :: ModuleScript)
+Net.event("Shared", "Notify")
+
 for _, e in entries do
 	if e.ok and type(e.mod.Start) == "function" then
 		task.spawn(function()
