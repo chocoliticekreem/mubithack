@@ -207,6 +207,61 @@ Spec.test("band lots stay off the loop street and inside the district", function
 	end
 end)
 
+Spec.test("avenue corridors: frontage lots off the roads, out of the districts and the creek", function()
+	Spec.truthy(#plan.corridors >= 30, `corridor runs {#plan.corridors}`)
+	local nLots, nSites = 0, 0
+	for _, run in plan.corridors do
+		for _, l in run.lots do
+			nLots += 1
+			local hx, hz = if run.axis == "x" then l.d / 2 else l.w / 2, if run.axis == "x" then l.w / 2 else l.d / 2
+			Spec.truthy(roadGap(g, l.x, l.z) >= math.min(hx, hz) - 1, `{run.district} corridor lot on a road`)
+			for _, d in plan.districts do
+				local ox = math.min(d.x + cfg.DistrictHalf, l.x + hx) - math.max(d.x - cfg.DistrictHalf, l.x - hx)
+				local oz = math.min(d.z + cfg.DistrictHalf, l.z + hz) - math.max(d.z - cfg.DistrictHalf, l.z - hz)
+				Spec.truthy(not (ox > 0.01 and oz > 0.01), `corridor lot inside {d.id}`)
+			end
+			for _, rv in plan.river do
+				local ox = math.min(rv.x1, l.x + hx) - math.max(rv.x0, l.x - hx)
+				local oz = math.min(rv.z1, l.z + hz) - math.max(rv.z0, l.z - hz)
+				Spec.truthy(not (ox > 0 and oz > 0), "corridor lot in the creek")
+			end
+			if l.site then
+				nSites += 1
+			end
+		end
+	end
+	Spec.truthy(nLots >= 80, `corridor lots {nLots}`)
+	Spec.truthy(nSites >= 8, `corridor sites {nSites}`)
+	-- corridor runs never overlap each other
+	for i, a in plan.corridors do
+		for j, b in plan.corridors do
+			if i < j and a.axis ~= b.axis then
+				for _, la in a.lots do
+					for _, lb in b.lots do
+						local ax, az = if a.axis == "x" then la.d / 2 else la.w / 2, if a.axis == "x" then la.w / 2 else la.d / 2
+						local bx, bz = if b.axis == "x" then lb.d / 2 else lb.w / 2, if b.axis == "x" then lb.w / 2 else lb.d / 2
+						local ox = math.min(la.x + ax, lb.x + bx) - math.max(la.x - ax, lb.x - bx)
+						local oz = math.min(la.z + az, lb.z + bz) - math.max(la.z - az, lb.z - bz)
+						Spec.truthy(not (ox > 0 and oz > 0), "corridor lots overlap")
+					end
+				end
+			end
+		end
+	end
+end)
+
+Spec.test("incident sites are spread out: most are a real drive from the station", function()
+	local st = g.nodes["Station"]
+	local far = 0
+	for _, s in plan.sites do
+		if math.abs(s.x - st.x) + math.abs(s.z - st.z) >= 700 then
+			far += 1
+		end
+	end
+	Spec.truthy(#plan.sites >= 30, `sites {#plan.sites}`)
+	Spec.truthy(far >= 25, `far sites {far}`)
+end)
+
 Spec.test("creek: carved out of the ground; every road crossing it is a bridge", function()
 	Spec.truthy(#plan.river >= 2, "creek segments")
 	Spec.truthy(#plan.bridges >= 5, `bridges {#plan.bridges}`)

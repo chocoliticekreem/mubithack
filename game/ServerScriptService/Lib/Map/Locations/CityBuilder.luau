@@ -884,6 +884,15 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		if not ok then
 			warn(`[CityBuilder] {d.id} band failed: {err}`)
 		end
+		-- avenue frontage between this neighbourhood and its avenues
+		for _, run in plan.corridors or {} do
+			if run.district == d.id then
+				local cok, cerr = pcall(BlockFiller.fillCorridor, fillCtx, folder, run)
+				if not cok then
+					warn(`[CityBuilder] {d.id} corridor failed: {cerr}`)
+				end
+			end
+		end
 		-- core
 		ok, err = pcall(function()
 			if d.useBuilder then
