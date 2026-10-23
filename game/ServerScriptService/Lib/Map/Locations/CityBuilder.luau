@@ -818,6 +818,18 @@ local function buildStationCore(ctx: Ctx, parent: Instance, d: any)
 		for k = -3, 3 do
 			BlockFiller.tree(m, CF(d.x + k * 50, 0.05, (d.z - h + back) / 2), ctx.rng, 1.2)
 		end
+		-- the station's drill tower out back: a 5-storey training tower with open window holes
+		local tz = d.z - h + 30
+		if tz < back - 10 then
+			local t = CF(d.x - 120, 0, tz)
+			SK.part(m, "DrillTower", t * CF(0, 24, 0), V(12, 48, 12), Color3.fromHex("#A8322A"))
+			for k = 1, 4 do
+				SK.part(m, "DrillWindow", t * CF(0, k * 10, -6.1), V(4, 5, 0.3), Color3.fromHex("#2B2B30"), { collide = false })
+			end
+			SK.part(m, "DrillRoof", t * CF(0, 48.6, 0), V(13.5, 1.2, 13.5), C.Trim)
+			local sign = SK.part(m, "DrillSign", t * CF(0, 44, -6.2), V(10, 2.4, 0.3), C.Trim)
+			SK.sign(sign, "DRILL TOWER", Enum.NormalId.Front, C.Red)
+		end
 	end
 	for _, s in { -1, 1 } do
 		local x0 = so.X + s * 164
