@@ -47,5 +47,4 @@ with the base model side by side.
   and the sync tools).
 - `runs/<game>/`: generated games, specs, iterations and call logs (gitignored).
 - `docs/research/`: Mubit and Roblox Studio MCP research.
-- `docs/vendor/`: Mubit docs and the Roblox AI-setup guides, pulled in.
-- `docs/reference/intofire/`: the earlier hand-built game this workflow comes from.
+- `docs/TEAM.md`: how 3 devs work in parallel (lanes, branches, PRs).
