@@ -77,9 +77,88 @@ local function bench(parent: Instance, cf: CFrame)
 	SK.part(parent, "BenchBack", cf * CF(0, 2.2, 0.8), V(6, 1.6, 0.4), C.Wood)
 end
 
+local hydrantCount = 0
 local function hydrant(parent: Instance, cf: CFrame)
+	hydrantCount += 1
 	local h = MapKit.hydrant(parent, cf)
-	h:SetAttribute("HydrantId", `H_{parent.Name}`)
+	h:SetAttribute("HydrantId", `H_{parent.Name}_{hydrantCount}`)
+end
+BlockFiller.hydrant = hydrant
+
+---------------------------------------------------------------------------------------------------
+-- street furniture: knockable (PhysicsFxService turns models named *TrashCan / *Bench / *Cone into
+-- props; the "Knockable" tag says so explicitly), hydrants refill hoses (MapKit.hydrant: tag Hydrant +
+-- Refill prompt). cf: base on the sidewalk, -Z = toward the road.
+---------------------------------------------------------------------------------------------------
+local KNOCKABLE = "Knockable"
+
+function BlockFiller.trashCan(parent: Instance, cf: CFrame, color: Color3?)
+	local m = Instance.new("Model")
+	m.Name = "TrashCan"
+	SK.cyl(m, "Can", cf * CF(0, 1.6, 0), 3.2, 2.2, color or Color3.fromHex("#2F6B4F"))
+	SK.cyl(m, "Lid", cf * CF(0, 3.35, 0), 0.3, 2.5, C.MetalDark)
+	m:AddTag(KNOCKABLE)
+	m.Parent = parent
+	return m
+end
+
+function BlockFiller.parkBench(parent: Instance, cf: CFrame)
+	local m = Instance.new("Model")
+	m.Name = "Bench"
+	SK.part(m, "Seat", cf * CF(0, 1.4, 0), V(6, 0.5, 2), C.Wood)
+	SK.part(m, "Back", cf * CF(0, 2.5, 0.9), V(6, 1.6, 0.3), C.Wood)
+	for _, x in { -2.6, 2.6 } do
+		SK.part(m, "Leg", cf * CF(x, 0.6, 0), V(0.4, 1.2, 1.8), C.MetalDark)
+	end
+	m:AddTag(KNOCKABLE)
+	m.Parent = parent
+	return m
+end
+
+-- Bus shelter: roof, glass back, a knockable bench inside, a stop sign on a post.
+function BlockFiller.busStop(parent: Instance, cf: CFrame, name: string?)
+	local m = Instance.new("Model")
+	m.Name = "BusStop"
+	SK.part(m, "Roof", cf * CF(0, 8.2, 0.2), V(12, 0.5, 4.2), C.MetalDark)
+	SK.part(m, "BackPanel", cf * CF(0, 4.3, 1.9), V(12, 7.2, 0.3), C.Glass, { material = Enum.Material.Glass, transparency = 0.45 })
+	SK.part(m, "Post", cf * CF(-5.8, 4.1, 1.9), V(0.4, 8.2, 0.4), C.MetalDark)
+	SK.part(m, "Post", cf * CF(5.8, 4.1, 1.9), V(0.4, 8.2, 0.4), C.MetalDark)
+	BlockFiller.parkBench(m, cf * CF(0, 0, 0.6))
+	SK.part(m, "SignPole", cf * CF(8.5, 4.5, -0.5), V(0.35, 9, 0.35), C.MetalDark)
+	local sign = SK.part(m, "StopSign", cf * CF(8.5, 8.4, -0.5), V(2.6, 2.6, 0.2), Color3.fromHex("#2A6FBB"))
+	SK.sign(sign, "BUS", Enum.NormalId.Front, C.Trim)
+	SK.sign(sign, "BUS", Enum.NormalId.Back, C.Trim)
+	if name then
+		m:SetAttribute("StopName", name)
+	end
+	m.Parent = parent
+	return m
+end
+
+-- A row of kerbside furniture along a straight stretch. along(t) -> CFrame on the kerb line facing
+-- the road; marks: sorted positions along the stretch (lot boundaries); skip(t) -> true for aprons.
+function BlockFiller.furnish(parent: Instance, rng: Random, along: (number) -> CFrame, marks: { number }, skip: (number) -> boolean, opts: any?)
+	local o = opts or {}
+	local n = #marks
+	if n == 0 then
+		return
+	end
+	local stopAt = if o.busStop then math.max(1, (n + 1) // 2) else -1
+	local hydrantAt = if n >= 2 then 1 else (if stopAt == 1 then -1 else 1)
+	for k, t in marks do
+		if not skip(t) then
+			local cf = along(t)
+			if k == stopAt then
+				BlockFiller.busStop(parent, cf, o.street)
+			elseif k == hydrantAt or (o.hydrantEvery and k % o.hydrantEvery == 0) then
+				hydrant(parent, cf)
+			elseif rng:NextNumber() < 0.55 then
+				BlockFiller.trashCan(parent, cf * CF(rng:NextNumber(-1, 1), 0, 0))
+			elseif o.benches then
+				BlockFiller.parkBench(parent, cf)
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -1109,6 +1188,16 @@ local BAND_GROUND = {
 }
 BlockFiller.BandGround = BAND_GROUND
 
+-- kerbside furniture per neighbourhood theme (BlockFiller.furnish opts)
+local FURNISH = {
+	downtown = { busStop = true, benches = true },
+	suburb = { busStop = true },
+	industrial = {},
+	park = { benches = true },
+	farmland = {},
+	woods = {},
+}
+
 -- The neighbourhood round one district's loop: themed ground, the loop's outer sidewalk (curb cuts at
 -- site aprons, gaps at the gates) and every band lot. gateHalf: half width of the gate gaps.
 function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any }, gateHalf: number): Model
@@ -1173,6 +1262,34 @@ function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any },
 		end
 		seg(cursor, inner, sy, C.Sidewalk, "Sidewalk")
 	end
+	-- kerbside furniture along the band's lot fronts (one mark per lot, off the curb cuts)
+	local furn = FURNISH[d.band]
+	if furn then
+		local outward = { N = V(0, 0, -1), S = V(0, 0, 1), W = V(-1, 0, 0), E = V(1, 0, 0) }
+		for side, list in cuts do
+			local marks = {}
+			for _, lot in lots do
+				if sideOf[lot.face] == side then
+					local at = if side == "N" or side == "S" then lot.x - cx else lot.z - cz
+					table.insert(marks, at - lot.w / 2 + 3)
+				end
+			end
+			table.sort(marks)
+			local o = outward[side]
+			BlockFiller.furnish(m, ctx.rng, function(t: number): CFrame
+				local across = inner + 1.4
+				local p = if side == "N" or side == "S" then V(cx + t, GY, cz + o.Z * across) else V(cx + o.X * across, GY, cz + t)
+				return CFrame.lookAt(p, p - o)
+			end, marks, function(t: number): boolean
+				for _, c in list do
+					if t > c.at - c.w / 2 - 3 and t < c.at + c.w / 2 + 3 then
+						return true
+					end
+				end
+				return false
+			end, table.clone(furn))
+		end
+	end
 	for _, lot in lots do
 		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
 		local site = ctx.siteFor(lot)
@@ -1226,6 +1343,27 @@ function BlockFiller.fillCorridor(ctx: any, parent: Instance, run: any): Model
 		cursor = c.b
 	end
 	slab(cursor, run.a1, run.near, front, cfg.SidewalkY, C.Sidewalk, nil, "Sidewalk")
+	-- kerbside furniture just inside the lot fronts (one mark per lot, off the aprons)
+	local marks = {}
+	for _, lot in run.lots do
+		local at = if run.axis == "x" then lot.z else lot.x
+		table.insert(marks, at - lot.w / 2 + 3)
+	end
+	table.sort(marks)
+	local toRoad = -s
+	BlockFiller.furnish(m, ctx.rng, function(t: number): CFrame
+		local c = front + s * 1.4
+		local p = if run.axis == "x" then V(c, GY, t) else V(t, GY, c)
+		local look = if run.axis == "x" then V(toRoad, 0, 0) else V(0, 0, toRoad)
+		return CFrame.lookAt(p, p + look)
+	end, marks, function(t: number): boolean
+		for _, c in cuts do
+			if t > c.a - 3 and t < c.b + 3 then
+				return true
+			end
+		end
+		return false
+	end, table.clone(FURNISH[run.theme] or {}))
 	for _, lot in run.lots do
 		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
 		local site = ctx.siteFor(lot)
