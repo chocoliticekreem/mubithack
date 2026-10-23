@@ -165,6 +165,29 @@ def cmd_sync(args) -> int:
     return 0
 
 
+def cmd_versions(args) -> int:
+    from forge.versions import GameVersions
+    rows = GameVersions(RunStore(load_settings(), args.slug).game_dir).log()
+    if not rows:
+        print(f"no versions for {args.slug} yet")
+    for r in rows:
+        print(f"{r['version']:>5}  {r['date'][:19]}  {r['message'].splitlines()[0][:100]}")
+    return 0
+
+
+def cmd_rollback(args) -> int:
+    from forge.versions import GameVersions
+    from forge.watch import sync_once
+    s = load_settings()
+    store = RunStore(s, args.slug)
+    tag = GameVersions(store.game_dir).restore(args.version, args.reason or "by hand")
+    print(f"restored {args.version} as {tag}")
+    if not args.no_sync:
+        print(asyncio.run(sync_once(s, store.game_dir, args.studio or os.environ.get("FORGE_STUDIO"),
+                                    prune=True)))
+    return 0
+
+
 def cmd_place(args) -> int:
     import subprocess
     s = load_settings()
@@ -326,7 +349,8 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
             cycle = await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=multi_playtest,
                                     faults=faults, goal=args.goal, rounds=args.rounds,
                                     players=args.players, steps=args.steps, fix=fix,
-                                    max_fixes=getattr(args, "max_fixes", 3), extra_anomalies=extra)
+                                    max_fixes=getattr(args, "max_fixes", 3), extra_anomalies=extra,
+                                    edit_human=getattr(args, "edit_human_files", False))
             if fix and cycle["open"] == 0:
                 print(f"quality bar met after {n + 1} cycle(s): no high or medium anomalies left")
                 break
@@ -502,6 +526,18 @@ def build_parser() -> argparse.ArgumentParser:
     fx.add_argument("--max-fixes", type=int, default=3, help="anomalies to fix per cycle")
     fx.add_argument("--reports", action="store_true", help="also fix anomalies from new tester reports")
     fx.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+    fx.add_argument("--edit-human-files", action="store_true",
+                    help="let the fixer edit a seeded game's human files (in runs/<slug>/game only)")
+
+    ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
+    ve.add_argument("slug")
+
+    rb = sub.add_parser("rollback", help="restore a saved version of a game and resync it into Studio")
+    rb.add_argument("slug")
+    rb.add_argument("version", help="e.g. v3 (see forge versions)")
+    rb.add_argument("--reason")
+    rb.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+    rb.add_argument("--no-sync", action="store_true", help="only restore the files")
 
     sub.add_parser("server", help="run the forge MCP server over stdio (build games from any MCP client)")
 
@@ -524,7 +560,8 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "report": cmd_report,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "versions": cmd_versions,
+               "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:

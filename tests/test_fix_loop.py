@@ -60,12 +60,24 @@ async def test_verified_code_fix_is_kept(settings):
     assert ImproveStore(settings, "fab").scores()[0]["code_kept"] == 1
 
 
-async def test_unverified_code_fix_is_rolled_back_and_resynced(settings):
+async def test_unverified_code_fix_is_retried_then_rolled_back_and_resynced(settings):
     game = _seeded_game(settings)
-    cycle, synced, _ = await _fix_cycle(settings, _fix_llm([HOSE], ["return {hose = 3}"], ["not_fixed"]))
-    assert cycle["code_fixes"][0]["status"] == "rolled_back"
+    llm = _fix_llm([HOSE], ["return {hose = 3}", "return {hose = 4}"], ["not_fixed", "not_fixed"])
+    cycle, synced, _ = await _fix_cycle(settings, llm)
+    fx = cycle["code_fixes"][0]
+    assert fx["status"] == "rolled_back" and len(fx["attempts"]) == 2
     assert (game / HOSE_FILE).read_text() == "return {hose = 1}\n"
-    assert [s.strip() for s in synced] == ["return {hose = 3}", "return {hose = 1}"]
+    assert [s.strip() for s in synced] == ["return {hose = 3}", "return {hose = 4}", "return {hose = 1}"]
+    retry = [c.user for c in llm.calls if c.role == "fixer"][1]
+    assert "previous fix was rejected" in retry and "not_fixed" in retry
+
+
+async def test_rejected_fix_that_works_on_retry_is_kept(settings):
+    game = _seeded_game(settings)
+    cycle, _, _ = await _fix_cycle(settings, _fix_llm([HOSE], ["return {hose = 3}", "return {hose = 4}"],
+                                                      ["not_fixed", "fixed"]))
+    assert cycle["code_fixes"][0]["status"] == "kept"
+    assert (game / HOSE_FILE).read_text().strip() == "return {hose = 4}"
 
 
 async def test_human_owned_file_only_gets_a_patch(settings):
@@ -80,7 +92,7 @@ async def test_human_owned_file_only_gets_a_patch(settings):
 
 async def test_code_that_does_not_compile_is_restored(settings):
     game = _seeded_game(settings)
-    cycle, synced, _ = await _fix_cycle(settings, _fix_llm([HOSE], ["local = = broken"], []))
+    cycle, synced, _ = await _fix_cycle(settings, _fix_llm([HOSE], ["local = = broken", "local = = again"], []))
     assert cycle["code_fixes"][0]["status"] == "compile_failed"
     assert (game / HOSE_FILE).read_text() == "return {hose = 1}\n"
     assert synced == []
@@ -117,3 +129,23 @@ async def test_tester_report_anomalies_are_fixed_too(settings):
                                    extra_anomalies=extra)
     assert cycle["code_kept"] == 1
     assert imp.pending_report_anomalies(store) == []  # older than the cycle now
+
+
+async def test_kept_fixes_are_versions_and_can_be_rolled_back(settings):
+    from forge.versions import GameVersions
+
+    game = _seeded_game(settings)
+    cycle, _, _ = await _fix_cycle(settings, _fix_llm([HOSE], ["return {hose = 2}"], ["fixed"]))
+    v = GameVersions(game)
+    assert v.tags() == ["v1", "v2"] and cycle["code_fixes"][0]["version"] == "v2"
+    assert v.log()[1]["message"].startswith("fix: HoseService never cools fire")
+    assert v.restore("v1", "testing") == "v3"
+    assert (game / HOSE_FILE).read_text() == "return {hose = 1}\n"
+
+
+async def test_edit_human_files_lets_the_fixer_change_them(settings):
+    game = _seeded_game(settings)
+    llm = _fix_llm([FIRE], ["return {fire = 2}"], ["fixed"])
+    cycle, _, _ = await _fix_cycle(settings, llm, edit_human=True)
+    assert cycle["code_fixes"][0]["status"] == "kept"
+    assert (game / FIRE_FILE).read_text().strip() == "return {fire = 2}"

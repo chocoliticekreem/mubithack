@@ -31,6 +31,9 @@ def seed(settings: Settings, slug: str, spec_path: Path | None = None) -> RunSto
     shutil.copytree(base, store.game_dir, dirs_exist_ok=True, ignore=_IGNORE)
     base_files = sorted(p.relative_to(base).as_posix() for p in base.rglob("*.luau"))
     store.save_spec({**spec, "slug": slug, "base_files": base_files})
+    from forge.versions import GameVersions
+
+    GameVersions(store.game_dir).snapshot(f"seeded from {base} ({len(base_files)} human files)")
     if not store.state_path.exists():
         store.save_state(store.new_state(str(spec.get("pitch", slug))))
     return store

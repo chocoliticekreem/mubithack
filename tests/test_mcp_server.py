@@ -96,9 +96,9 @@ def test_build_tools_start_the_right_forge_command(settings, monkeypatch):
     assert seen[3][1][-4:] == ["--only", "dry", "--studio", "abc"]
     fm.tester_report("g1", "hose broken", run_ids=["pt-1", "pt-2"], reporter="sam")
     assert seen[4][1] == ["report", "g1", "hose broken", "--run", "pt-1", "--run", "pt-2", "--by", "sam"]
-    fm.fix("g1", cycles=4, max_fixes=2, studio="abc")
+    fm.fix("g1", cycles=4, max_fixes=2, studio="abc", edit_human_files=True)
     assert seen[5][1] == ["fix", "g1", "--cycles", "4", "--rounds", "2", "--steps", "15", "--max-fixes", "2",
-                          "--reports", "--studio", "abc"]
+                          "--reports", "--edit-human-files", "--studio", "abc"]
 
 
 def test_build_tools_reject_bad_input(settings):
@@ -165,3 +165,36 @@ async def test_plugin_launcher_serves_setup_over_stdio():
         init = await s.initialize()
         assert "setup first" in (init.instructions or "")
         assert "setup" in {t.name for t in (await s.list_tools()).tools}
+
+
+def test_versions_and_rollback_tools(settings):
+    from forge.versions import GameVersions
+
+    store = _game(settings)
+    f = store.game_dir / "ServerScriptService/Round.server.luau"
+    v = GameVersions(store.game_dir)
+    v.snapshot("first build")
+    f.write_text("print('broken')\n")
+    v.snapshot("fix: something")
+    table = fm.versions("g1")
+    assert "| v1 |" in table and "fix: something" in table
+    assert "Restored v1 as v3" in fm.rollback("g1", "v1", reason="made it worse", sync_studio=False)
+    assert f.read_text() == "print('round')\n"
+    with pytest.raises(ToolError, match="no version"):
+        fm.rollback("g1", "v99", sync_studio=False)
+
+
+def test_cli_rollback_without_sync(settings, monkeypatch, capsys):
+    from forge import cli
+    from forge.versions import GameVersions
+
+    store = _game(settings)
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    v = GameVersions(store.game_dir)
+    v.snapshot("one")
+    (store.game_dir / "ServerScriptService/Round.server.luau").write_text("print('two')\n")
+    v.snapshot("two")
+    assert cli.main(["rollback", "g1", "v1", "--no-sync"]) == 0
+    assert "restored v1 as v3" in capsys.readouterr().out
+    assert cli.main(["versions", "g1"]) == 0
+    assert "rollback to v1: by hand" in capsys.readouterr().out

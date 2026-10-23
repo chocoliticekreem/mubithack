@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from forge.config import Settings, load_settings
+from forge.versions import GameVersions
 from forge.memory import (
     RunStore,
     now_iso,
@@ -206,7 +207,11 @@ def _load_check_fn(settings: Settings) -> Callable[[Path], list]:
 
 # The Forge runtime every generated game gets. Everything else in game/ is the human-built
 # Flame and Blame tree, which only `forge seed` copies (forge/seed.py).
-RUNTIME_FILES = ("ServerScriptService/ForgeProbe.server.luau", "ReplicatedStorage/ForgeTelemetry.luau")
+RUNTIME_FILES = ("ServerScriptService/ForgeProbe.server.luau", "ReplicatedStorage/ForgeTelemetry.luau",
+                 # the mubit-tester harness: lets AI testers drive every player in a Studio playtest
+                 "ServerScriptService/ForgeTest.server.luau", "StarterPlayerScripts/ForgeTestAgent.client.luau")
+# An iteration whose critic score is this far below the best version so far is rolled back to it.
+ROLLBACK_DROP = 1.0
 RUNTIME_DIRS = ("tools",)
 _IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "manifest.json", ".DS_Store")
 
@@ -489,6 +494,9 @@ class Run:
         # 1. compile check + fixer
         remaining = await self.compile_fix(rec)
         rec["compile_errors"] = [{"path": p, "error": m} for p, m in remaining]
+        versions = GameVersions(self.store.game_dir)
+        rec["version"] = versions.snapshot(f"iteration {n}: code under test")
+        self.ui.line("version", rec["version"], True, self.ui.dim("forge versions / forge rollback"))
 
         # 2. playtest in Studio
         report: dict = {}
@@ -540,8 +548,16 @@ class Run:
             self.ui.line("score", f"{colour(f'{score:g}/10')}  {len(rec['issues'])} issues", None,
                          self.ui.dim(rec["summary"][:70]))
 
-            # 4. fix critic issues: one fixer call per file
-            if not stop and rec["issues"]:
+            best = self.best_version()
+            if best and score <= best["score"] - ROLLBACK_DROP:
+                versions.restore(best["version"], f"iteration {n} scored {score:g}, below "
+                                 f"{best['score']:g} at {best['version']}")
+                rec["rolled_back_to"] = best["version"]
+                self.ui.line("rollback", f"score {score:g} < best {best['score']:g}", True,
+                             self.ui.dim(f"restored {best['version']}"))
+
+            # 4. fix critic issues: one fixer call per file (not on code that was just rolled back)
+            if not stop and rec["issues"] and not rec.get("rolled_back_to"):
                 await self.fix_issues(rec, report)
                 remaining = await self.compile_fix(rec)
                 rec["compile_errors_after_fix"] = [{"path": p, "error": m} for p, m in remaining]
@@ -567,7 +583,8 @@ class Run:
         state["iterations"].append({
             "n": n, "score": rec["score"], "issues": rec["issues"], "summary": rec["summary"],
             "errors": [f"{e['path']}: {e['error']}" for e in rec["compile_errors"]] + rec["runtime_errors"],
-            "studio": rec["studio"], "fixes": len(rec["fixes"]),
+            "studio": rec["studio"], "fixes": len(rec["fixes"]), "version": rec.get("version"),
+            "rolled_back_to": rec.get("rolled_back_to"),
             "failed_steps": [s["step"] for s in rec["steps"] if not s.get("ok")],
             "request_ids": [c.get("request_id") for c in self.calls if c.get("request_id")],
             "ended": rec["ended"],
@@ -607,6 +624,15 @@ class Run:
             except Exception as e:
                 rec["steps"].append({"step": f"fix:{path}", "ok": False, "error": str(e)})
 
+    def best_version(self) -> dict | None:
+        """The best-scoring earlier iteration that has a version: {"version", "score"}."""
+        scored = [it for it in self.store.load_state().get("iterations", [])
+                  if it.get("version") and it.get("score") is not None]
+        if not scored:
+            return None
+        top = max(scored, key=lambda it: (it["score"], it["n"]))
+        return {"version": top["version"], "score": float(top["score"])}
+
     def iteration_summary(self, rec: dict) -> str:
         lines = [spec_summary(self.spec), f"Iteration {rec['n']} (studio playtest: {rec['studio']})",
                  f"Score: {rec['score']}  {rec['summary']}"]
@@ -623,6 +649,9 @@ class Run:
         if rec["issues"]:
             lines.append("Critic issues:")
             lines += [f"- {i.get('path', '?')}: {i.get('problem', '')}" for i in rec["issues"]]
+        if rec.get("rolled_back_to"):
+            lines.append(f"Rolled back to {rec['rolled_back_to']}: this version scored lower than it, "
+                         "so the fixes made since then were undone. Learn what made it worse.")
         failed = [s for s in rec["steps"] if not s.get("ok")]
         if failed:
             lines.append("Failed steps: " + ", ".join(f"{s['step']} ({s.get('error', '')[:80]})" for s in failed))

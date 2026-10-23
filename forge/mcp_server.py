@@ -353,18 +353,58 @@ def improve(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: 
 
 @mcp.tool()
 def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes: int = 3,
-        reports: bool = True, studio: str | None = None) -> str:
+        reports: bool = True, studio: str | None = None, edit_human_files: bool = False) -> str:
     """The self-improving loop on the real game (background job): playtest rounds, the auditor
     finds anomalies (plus new tester reports), the fixer rewrites the file behind each one, the game
     is resynced and replayed, and the verifier keeps the fix or rolls it back. Repeats until no high
-    or medium anomaly is left or `cycles` run out. Human-owned files only get a saved patch."""
+    or medium anomaly is left or `cycles` run out. Each kept fix is a saved version (see
+    versions/rollback); a rejected fix is retried once with the verifier's evidence, then undone.
+    Human-owned files only get a saved patch unless `edit_human_files` (the edits stay in
+    runs/<slug>/game until promoted)."""
     args = ["fix", slug, "--cycles", str(max(1, cycles)), "--rounds", str(max(1, rounds)),
             "--steps", str(max(1, steps)), "--max-fixes", str(max(1, max_fixes))]
     if reports:
         args.append("--reports")
+    if edit_human_files:
+        args.append("--edit-human-files")
     if studio:
         args += ["--studio", studio]
     return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")
+
+
+@mcp.tool()
+def versions(slug: str) -> str:
+    """Every saved version of a game: builds, iterations (with their tested code), kept fixes and
+    rollbacks. Restore one with rollback."""
+    from forge.versions import GameVersions
+
+    rows = GameVersions(_store(slug).game_dir).log()
+    if not rows:
+        return f"No versions for {slug} yet."
+    return "\n".join(["| version | date | what |", "|---|---|---|"] + [
+        f"| {r['version']} | {r['date'][:19]} | {r['message'].splitlines()[0][:140]} |" for r in rows])
+
+
+@mcp.tool()
+def rollback(slug: str, version: str, reason: str | None = None, studio: str | None = None,
+             sync_studio: bool = True) -> str:
+    """Restore a saved version of a game (recorded as a new version, so it can be undone) and push
+    it into Studio. Use when a change made the game worse."""
+    from forge.versions import GameVersions, VersionError
+
+    store = _store(slug)
+    try:
+        tag = GameVersions(store.game_dir).restore(version, reason or "by hand")
+    except VersionError as e:
+        raise ToolError(str(e)) from e
+    out = f"Restored {version} as {tag}."
+    if sync_studio:
+        args = ["sync", slug, "--prune"] + (["--studio", studio] if studio else [])
+        res = subprocess.run(_forge_argv(args), cwd=_settings().repo_root, capture_output=True, text=True,
+                             timeout=300, env={**os.environ, **_studio_env(studio)})
+        last = [ln for ln in (res.stdout + res.stderr).splitlines() if "studio_mcp" not in ln][-1:]
+        out += f" Studio sync: {'ok' if res.returncode == 0 else 'failed'} {' '.join(last)[:300]}"
+    return out
 
 
 @mcp.tool()
@@ -583,7 +623,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 
 
 TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
-              "fix", "tester_report", "tester_reports",
+              "fix", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")
 

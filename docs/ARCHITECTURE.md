@@ -65,6 +65,8 @@ forge/                 Python package (uv), entry point `forge`
                        verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
                        run_cycle(..., fix=True) runs fix_code(): fixer, compile, resync, replay,
                        verifier, then keep or roll back; base_files only get improve/patches/
+  versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
+                       snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
   prompts/auditor.md, prompts/verifier.md, prompts/triage.md   Mubit tasks: anomaly detection,
                        fix verification, tester-report triage (improve.file_report)
@@ -227,6 +229,8 @@ forge improve <slug> [--cycles N --rounds R --only ids]  # faults -> playtests -
 forge scores <slug>                                  # detected / missed / fixed per improve cycle
 forge report <slug> "<text>" [--run ID] [--by NAME]  # tester report -> triage -> auditor correction
 forge reports <slug>
+forge versions <slug>                                # saved versions (iterations, fixes, rollbacks)
+forge rollback <slug> <vN> [--studio S] [--no-sync]  # restore a version, resync Studio
 forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
