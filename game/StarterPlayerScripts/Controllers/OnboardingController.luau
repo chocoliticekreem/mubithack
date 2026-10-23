@@ -325,6 +325,12 @@ local function buildHud()
 	help.Name = "HelpChip"
 	help.AnchorPoint = Vector2.new(0, 1)
 	help.Position = UDim2.new(0, 16, 1, -16)
+	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+		-- phones: the bottom-left corner is the touch thumbstick; sit on the left edge above it instead
+		help.AnchorPoint = Vector2.new(0, 0.5)
+		help.Position = UDim2.new(0, 16, 0.4, 0)
+		help.Text = "HELP"
+	end
 	help.Size = UDim2.fromOffset(118, 36)
 	help.BackgroundColor3 = Palette.UiPanelDark
 	help.BackgroundTransparency = 0.15
@@ -358,7 +364,7 @@ local function buildHud()
 		"ON FOOT:  WASD move  -  E grab / use  -  G drop  -  hold Q throw  -  M map  -  V camera",
 		`TRUCK:  E door  -  {VehicleConfig.KeyEnter or "F"} get in / out  -  {VehicleConfig.KeySiren or "G"} siren  -  {VehicleConfig.KeyHorn or "H"} horn  -  SPACE drift  -  {VehicleConfig.KeyRespawn or "R"} unflip`,
 		"FIRE: spray the base of the flames, carry people + pets to the truck, then blame someone.",
-		"EMOTES (station):  1 wave  -  2 facepalm  -  3 blame!",
+		"EMOTES (station):  Z wave  -  X facepalm  -  C blame!   -   1 / 2 swap hand + back",
 		"SETTINGS: graphics + pop-ups buttons are top left while this panel is open.",
 	}
 	for i, l in lines do

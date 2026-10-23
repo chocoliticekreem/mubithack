@@ -434,11 +434,15 @@ function RescueController:Start()
 		local c = charge()
 		fill.Size = UDim2.fromScale(c, 1)
 		fill.BackgroundColor3 = if c >= 1 then Palette.UiRed else Palette.UiFlameMid
+		-- sit above InventoryController's hotbar (its height follows the viewport UIScale)
+		local inv = player.PlayerGui:FindFirstChild("InventoryHud")
+		local bar = inv and inv:FindFirstChild("Hotbar")
+		local baseY = if bar and bar:IsA("GuiObject") and bar.Visible then -math.max(96, math.floor(bar.AbsoluteSize.Y + 16)) else -96
 		if c >= 1 then
 			-- full power: the panel trembles
-			slot.Position = UDim2.new(0.5, math.random(-3, 3), 1, -96 + math.random(-2, 2))
+			slot.Position = UDim2.new(0.5, math.random(-3, 3), 1, baseY + math.random(-2, 2))
 		else
-			slot.Position = UDim2.new(0.5, 0, 1, -96)
+			slot.Position = UDim2.new(0.5, 0, 1, baseY)
 		end
 	end)
 end

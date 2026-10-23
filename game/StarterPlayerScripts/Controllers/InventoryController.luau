@@ -6,6 +6,8 @@
 --   * input (bound only while you have something, so Rescue/Vehicle keep G and Q otherwise):
 --       G drop (Inventory/Drop), hold Q throw with a charge meter (Inventory/Throw(cameraLook, charge)),
 --       1 / 2 swap hand <-> back (Inventory/Swap). Gamepad: B drop, L1 throw, DPadUp swap.
+--     (lobby emotes live on Z / X / C in SquadController, so 1 / 2 are inventory-only)
+--   * the hotbar hides while you're seated (the truck key-hint bar takes the bottom centre)
 --   * draws every prompt with attr InvPrompt (Style Custom) as a chunky "[E] Grab Axe" sticker plus a
 --     yellow Highlight on the item; relabels the truck reel prompt locally (Grab / Stow Hose, Refill Foam)
 --   * Inventory/Fx world pops: GRAB!, BONK!, Butterfingers!, YEET!, POP!
@@ -32,9 +34,10 @@ InventoryController.Priority = 65
 local LocalPlayer = Players.LocalPlayer
 local controllers: { [string]: any } = {}
 
-type Slot = { frame: Frame, tile: Frame, glyph: TextLabel, name: TextLabel, bar: Frame, fill: Frame }
+type Slot = { frame: Frame, tile: Frame, glyph: TextLabel, name: TextLabel, bar: Frame, fill: Frame, charge: TextLabel }
 
 local slots: { [string]: Slot } = {}
+local hotbarRow: Frame? = nil
 local chargeFrame: Frame? = nil
 local chargeFill: Frame? = nil
 local chargeStart: number? = nil
@@ -60,55 +63,100 @@ local function shake(m: number, s: number)
 end
 
 -- hotbar --------------------------------------------------------------------------------------------
+-- Readable at every UIScale: no text strokes under ~18px (a contextual ink stroke on small text turns
+-- it into a dark blob), light text on dark pills, keycaps as cream chips with a Border-mode outline.
+local NAME_H = 22
+
+local function chip(parent: Instance, name: string, text: string, size: UDim2, pos: UDim2, bg: Color3, fg: Color3, textSize: number): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.Text = text
+	l.Size = size
+	l.Position = pos
+	l.BackgroundColor3 = bg
+	l.BackgroundTransparency = 0
+	l.BorderSizePixel = 0
+	l.Font = Enum.Font.GothamBold
+	l.TextSize = textSize
+	l.TextColor3 = fg
+	l.TextTruncate = Enum.TextTruncate.AtEnd
+	l.ZIndex = 4
+	UiKit.corner(l, 6)
+	local s = Instance.new("UIStroke")
+	s.Thickness = 2
+	s.Color = Palette.UiInk
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = l
+	l.Parent = parent
+	return l
+end
+
 local function makeSlot(parent: Instance, key: string, label: string, order: number): Slot
 	local size = Cfg.HotbarSlotSize
 	local frame = Instance.new("Frame")
 	frame.Name = key
 	frame.BackgroundTransparency = 1
-	frame.Size = UDim2.fromOffset(size, size + 26)
+	frame.Size = UDim2.fromOffset(size, size + NAME_H + 4)
 	frame.LayoutOrder = order
 	frame.Parent = parent
 	local tile = UiKit.panel(frame, "Tile", UDim2.fromOffset(size, size), UDim2.fromOffset(0, 0))
 	tile.BackgroundColor3 = Palette.UiPanelDark
 	tile.BackgroundTransparency = 0.25
-	local glyph = UiKit.label(tile, "Glyph", "", UDim2.new(1, -8, 0, size * 0.5), UDim2.fromOffset(4, size * 0.16), {
+	local glyph = UiKit.label(tile, "Glyph", "", UDim2.new(1, -8, 0, 30), UDim2.fromOffset(4, 16), {
 		font = UiKit.Header,
-		textSize = 30,
+		textSize = 26,
 		color = Palette.UiCream,
 		stroke = true,
+		strokeThickness = 2,
 	})
-	local keycap = UiKit.label(tile, "Key", label, UDim2.fromOffset(math.max(34, #label * 9 + 10), 20), UDim2.fromOffset(-6, -10), {
-		font = UiKit.Header,
-		textSize = 15,
-		color = Palette.UiInk,
-	})
-	keycap.BackgroundTransparency = 0
-	keycap.BackgroundColor3 = Palette.UiCream
-	UiKit.corner(keycap, 6)
-	UiKit.stroke(keycap, 2)
+	glyph.TextWrapped = false
+	glyph.TextScaled = true
+	local sizeLimit = Instance.new("UITextSizeConstraint")
+	sizeLimit.MaxTextSize = 26
+	sizeLimit.MinTextSize = 12
+	sizeLimit.Parent = glyph
+	-- keycap: what this slot's key does (cream chip, ink text, sits on the tile's top edge)
+	chip(tile, "Key", label, UDim2.fromOffset(math.max(30, #label * 8 + 12), 18), UDim2.fromOffset(-4, -9), Palette.UiCream, Palette.UiInk, 12)
 	local bar = Instance.new("Frame")
 	bar.Name = "Gauge"
-	bar.Size = UDim2.new(1, -16, 0, 9)
-	bar.Position = UDim2.new(0, 8, 1, -16)
+	bar.Size = UDim2.new(1, -12, 0, 14)
+	bar.Position = UDim2.new(0, 6, 1, -19)
 	bar.BackgroundColor3 = Palette.UiInk
 	bar.BorderSizePixel = 0
 	bar.Visible = false
+	bar.ZIndex = 3
 	bar.Parent = tile
-	UiKit.corner(bar, 4)
+	UiKit.corner(bar, 5)
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
 	fill.Size = UDim2.fromScale(1, 1)
 	fill.BackgroundColor3 = Palette.WaterSpray
 	fill.BorderSizePixel = 0
+	fill.ZIndex = 3
 	fill.Parent = bar
-	UiKit.corner(fill, 4)
-	local name = UiKit.label(frame, "Name", "", UDim2.new(1, 20, 0, 22), UDim2.new(0, -10, 0, size + 2), {
-		font = UiKit.Body,
-		textSize = 16,
-		color = Palette.UiCream,
-		stroke = true,
-	})
-	return { frame = frame, tile = tile, glyph = glyph, name = name, bar = bar, fill = fill }
+	UiKit.corner(fill, 5)
+	-- charge readout on the gauge ("72%"): cream on the dark track, a thin ink stroke so it reads over the fill
+	local charge = Instance.new("TextLabel")
+	charge.Name = "Charge"
+	charge.BackgroundTransparency = 1
+	charge.Size = UDim2.fromScale(1, 1)
+	charge.Font = Enum.Font.GothamBlack
+	charge.TextSize = 11
+	charge.TextColor3 = Color3.new(1, 1, 1)
+	charge.TextStrokeColor3 = Palette.UiInk
+	charge.TextStrokeTransparency = 0.2
+	charge.Text = ""
+	charge.ZIndex = 4
+	charge.Parent = bar
+	-- item name under the tile: light text on a dark pill
+	local name = chip(frame, "Name", "", UDim2.new(1, 16, 0, NAME_H), UDim2.new(0, -8, 0, size + 4), Palette.UiPanelDark, Palette.UiCream, 13)
+	name.BackgroundTransparency = 0.1
+	local nameStroke = name:FindFirstChildOfClass("UIStroke")
+	if nameStroke then
+		nameStroke.Thickness = 1
+		nameStroke.Transparency = 0.4
+	end
+	return { frame = frame, tile = tile, glyph = glyph, name = name, bar = bar, fill = fill, charge = charge }
 end
 
 local function buildHotbar()
@@ -117,23 +165,24 @@ local function buildHotbar()
 	row.Name = "Hotbar"
 	row.AnchorPoint = Vector2.new(0.5, 1)
 	row.Position = UDim2.new(0.5, 0, 1, -4) -- below HudController's toast stack (bottom -100)
-	row.Size = UDim2.fromOffset(Cfg.HotbarSlotSize * 3 + 28, Cfg.HotbarSlotSize + 26)
+	row.Size = UDim2.fromOffset(Cfg.HotbarSlotSize * 3 + 40, Cfg.HotbarSlotSize + NAME_H + 4)
 	row.BackgroundTransparency = 1
 	row.Parent = gui
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 14)
+	layout.Padding = UDim.new(0, 20)
 	layout.Parent = row
-	slots.hand = makeSlot(row, "Hand", "G / Q", 1)
-	slots.back = makeSlot(row, "Back", "2 SWAP", 2)
+	slots.hand = makeSlot(row, "Hand", "HAND", 1)
+	slots.back = makeSlot(row, "Back", "1/2 SWAP", 2)
 	slots.carry = makeSlot(row, "Carry", "CARRY", 3)
+	hotbarRow = row
 	-- throw charge meter, above the hotbar
 	local charge = Instance.new("Frame")
 	charge.Name = "Charge"
 	charge.AnchorPoint = Vector2.new(0.5, 1)
-	charge.Position = UDim2.new(0.5, 0, 1, -(Cfg.HotbarSlotSize + 40))
+	charge.Position = UDim2.new(0.5, 0, 1, -(Cfg.HotbarSlotSize + NAME_H + 16))
 	charge.Size = UDim2.fromOffset(240, 18)
 	charge.BackgroundColor3 = Palette.UiInk
 	charge.Visible = false
@@ -180,13 +229,16 @@ local function paint(key: string, id: string, isProp: boolean)
 	local def = ItemDefs.get(id)
 	if id == "" then
 		s.glyph.Text = ""
-		s.name.Text = if key == "hand" then "empty hands" elseif key == "back" then "back" else "carry"
+		s.name.Text = if key == "hand" then "empty" elseif key == "back" then "nothing" else "nothing"
+		s.name.TextColor3 = Color3.fromRGB(170, 160, 150)
 		s.tile.BackgroundColor3 = Palette.UiPanelDark
 		s.tile.BackgroundTransparency = 0.45
 		s.bar.Visible = false
+		s.charge.Text = ""
 	else
 		s.glyph.Text = if def then def.short elseif isProp then "PROP" else string.upper(id)
 		s.name.Text = if def then def.name else id
+		s.name.TextColor3 = Palette.UiCream
 		s.tile.BackgroundColor3 = if def then Color3.fromHex(def.color) else Palette.FloorLineYellow
 		s.tile.BackgroundTransparency = 0
 		local frac, color = gauge(id)
@@ -194,6 +246,9 @@ local function paint(key: string, id: string, isProp: boolean)
 		if frac then
 			s.fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
 			s.fill.BackgroundColor3 = if frac < 0.2 then Palette.UiRed else color
+			s.charge.Text = `{math.floor(math.clamp(frac, 0, 1) * 100 + 0.5)}%`
+		else
+			s.charge.Text = ""
 		end
 	end
 	if lastShown[key] ~= id then
@@ -275,8 +330,10 @@ local function rebind()
 		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
 		ContextActionService:SetTitle("InvDrop", "DROP")
 		ContextActionService:SetTitle("InvThrow", "THROW")
-		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -190, 1, -150))
-		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -260, 1, -110))
+		-- touch buttons hug the jump button (left of it, under the minimap) so they stay clear of the
+		-- lobby squad strip / GO NOW button in the bottom centre on phones
+		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -215, 1, -120))
+		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -170, 1, -75))
 		boundItem = true
 	elseif not wantItem and boundItem then
 		ContextActionService:UnbindAction("InvDrop")
@@ -288,7 +345,7 @@ local function rebind()
 	if wantSwap and not boundSwap then
 		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
 		ContextActionService:SetTitle("InvSwap", "SWAP")
-		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -190, 1, -220))
+		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -165, 1, -140))
 		boundSwap = true
 	elseif not wantSwap and boundSwap then
 		ContextActionService:UnbindAction("InvSwap")
@@ -457,6 +514,8 @@ local function hideBackpack()
 	for _ = 1, 10 do
 		local ok = pcall(function()
 			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+			-- the squad strip (HudController) replaces the Roblox player list, which overlaid the top right
+			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
 		end)
 		if ok then
 			return
@@ -500,6 +559,16 @@ function InventoryController:Start()
 	end)
 
 	RunService.RenderStepped:Connect(function()
+		-- seated (truck cab / tailboard): the hotbar would sit under VehicleController's key-hint bar
+		local row = hotbarRow
+		if row then
+			local char = LocalPlayer.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local seated = hum ~= nil and hum.SeatPart ~= nil
+			if row.Visible == seated then
+				row.Visible = not seated
+			end
+		end
 		local cf, fill = chargeFrame, chargeFill
 		if not cf or not fill then
 			return

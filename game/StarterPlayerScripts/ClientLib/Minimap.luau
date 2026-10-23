@@ -396,6 +396,11 @@ function Minimap.new()
 	local hint = frame(root, "Hint", Palette.UiPanelDark, 0.08)
 	hint.AnchorPoint = Vector2.new(0.5, 0)
 	hint.Position = UDim2.new(0.5, 0, 1, 8)
+	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+		-- phones: under the map is the jump button + touch actions; put the turn hint beside the map
+		hint.AnchorPoint = Vector2.new(1, 0)
+		hint.Position = UDim2.new(0, -10, 0, 0)
+	end
 	hint.Size = UDim2.fromOffset(size + 40, 52)
 	hint.ZIndex = 30
 	hint.Visible = false

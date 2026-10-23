@@ -33,6 +33,8 @@ export type Preset = {
 }
 
 -- Legacy fog stays out of the way in every preset: Atmosphere does the haze.
+-- Atmosphere Density/Haze are ~0.75x / 0.7x the doc values: at the doc numbers the city faded into
+-- green-grey fog from rooftops and the truck cam; this keeps the colour/glare look but lets you see the map.
 local NO_FOG = 100000
 
 -- Subtle far-only blur: softens the horizon, never blurs what you play near (research: DoF off in
@@ -61,7 +63,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.27, Offset = 0.18, Color = hex("F0B680"), Decay = hex("7A5050"), Glare = 0.5, Haze = 1.4 },
+		Atmosphere = { Density = 0.2, Offset = 0.18, Color = hex("F0B680"), Decay = hex("7A5050"), Glare = 0.5, Haze = 0.98 },
 		Sky = { SunAngularSize = 14, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.5, Density = 0.55, Color = hex("FFE0C0") },
 		ColorCorrection = { Enabled = true, Brightness = 0.02, Contrast = 0.1, Saturation = 0.15, TintColor = hex("FFF2E0") },
@@ -88,7 +90,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.30, Offset = 0.20, Color = hex("E8A46E"), Decay = hex("5A3D52"), Glare = 0.45, Haze = 1.8 }, -- (doc)
+		Atmosphere = { Density = 0.22, Offset = 0.20, Color = hex("E8A46E"), Decay = hex("5A3D52"), Glare = 0.45, Haze = 1.26 }, -- (doc)
 		Sky = { SunAngularSize = 16, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true }, -- (doc)
 		Clouds = { Enabled = true, Cover = 0.55, Density = 0.6, Color = hex("E8B8A0") },
 		ColorCorrection = { Enabled = true, Brightness = 0.02, Contrast = 0.12, Saturation = 0.18, TintColor = hex("FFF0DE") }, -- (doc)
@@ -115,7 +117,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.36, Offset = 0.10, Color = hex("2D3E66"), Decay = hex("0B1530"), Glare = 0, Haze = 0.8 }, -- (doc)
+		Atmosphere = { Density = 0.27, Offset = 0.10, Color = hex("2D3E66"), Decay = hex("0B1530"), Glare = 0, Haze = 0.56 }, -- (doc)
 		Sky = { SunAngularSize = 16, MoonAngularSize = 11, StarCount = 3000, CelestialBodiesShown = true }, -- big cartoon moon
 		Clouds = { Enabled = true, Cover = 0.35, Density = 0.4, Color = hex("3A4366") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.15, Saturation = 0.10, TintColor = hex("DCE4FF") }, -- (doc)
@@ -142,7 +144,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.22, Offset = 0.05, Color = hex("C8D0D8"), Decay = hex("808890"), Glare = 0, Haze = 0.6 },
+		Atmosphere = { Density = 0.17, Offset = 0.05, Color = hex("C8D0D8"), Decay = hex("808890"), Glare = 0, Haze = 0.42 },
 		Sky = { SunAngularSize = 12, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.7, Density = 0.5, Color = hex("F0F0F0") },
 		ColorCorrection = { Enabled = true, Brightness = 0.02, Contrast = 0.08, Saturation = -0.05, TintColor = hex("F4F8FF") },
@@ -169,7 +171,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.28, Offset = 0.25, Color = hex("F2C38A"), Decay = hex("8A5A3A"), Glare = 0.6, Haze = 1.2 }, -- (doc)
+		Atmosphere = { Density = 0.21, Offset = 0.25, Color = hex("F2C38A"), Decay = hex("8A5A3A"), Glare = 0.6, Haze = 0.84 }, -- (doc)
 		Sky = { SunAngularSize = 18, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.45, Density = 0.5, Color = hex("FFE6C0") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.10, Saturation = 0.22, TintColor = hex("FFF2D8") }, -- (doc)
@@ -197,7 +199,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.48, Offset = 0.0, Color = hex("E07A3A"), Decay = hex("6A2A1A"), Glare = 0.2, Haze = 3.0 }, -- (doc)
+		Atmosphere = { Density = 0.36, Offset = 0.0, Color = hex("E07A3A"), Decay = hex("6A2A1A"), Glare = 0.2, Haze = 2.1 }, -- (doc)
 		Sky = { SunAngularSize = 20, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true }, -- swollen red sun
 		Clouds = { Enabled = true, Cover = 0.8, Density = 0.75, Color = hex("8A5A48") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.08, Saturation = 0.05, TintColor = hex("FFD2A8") }, -- (doc)
@@ -224,7 +226,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.4, Offset = 0.12, Color = hex("A0A8B0"), Decay = hex("5A6068"), Glare = 0, Haze = 1.6 },
+		Atmosphere = { Density = 0.3, Offset = 0.12, Color = hex("A0A8B0"), Decay = hex("5A6068"), Glare = 0, Haze = 1.12 },
 		Sky = { SunAngularSize = 10, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.95, Density = 0.85, Color = hex("B4B8BE") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.1, Saturation = -0.15, TintColor = hex("E8EEF4") },
@@ -251,7 +253,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.35, Offset = 0.15, Color = hex("1E3A44"), Decay = hex("0D1C24"), Glare = 0, Haze = 1.2 }, -- (doc)
+		Atmosphere = { Density = 0.26, Offset = 0.15, Color = hex("1E3A44"), Decay = hex("0D1C24"), Glare = 0, Haze = 0.84 }, -- (doc)
 		Sky = { SunAngularSize = 16, MoonAngularSize = 10, StarCount = 2500, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.4, Density = 0.5, Color = hex("2A3A48") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.18, Saturation = 0.05, TintColor = hex("CFEFF0") }, -- (doc)
@@ -278,7 +280,7 @@ local Presets: { [string]: Preset } = {
 			FogEnd = NO_FOG,
 			FogStart = 0,
 		},
-		Atmosphere = { Density = 0.24, Offset = 0.1, Color = hex("C8E0F0"), Decay = hex("7A9AB0"), Glare = 0.3, Haze = 0.8 },
+		Atmosphere = { Density = 0.18, Offset = 0.1, Color = hex("C8E0F0"), Decay = hex("7A9AB0"), Glare = 0.3, Haze = 0.56 },
 		Sky = { SunAngularSize = 12, MoonAngularSize = 8, StarCount = 0, CelestialBodiesShown = true },
 		Clouds = { Enabled = true, Cover = 0.45, Density = 0.4, Color = hex("FFFFFF") },
 		ColorCorrection = { Enabled = true, Brightness = 0.02, Contrast = 0.1, Saturation = 0.25, TintColor = hex("FFFCF2") },

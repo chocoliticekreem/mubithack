@@ -257,9 +257,11 @@ local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: nu
 
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "PadBillboard"
-	bb.Size = UDim2.new(12, 0, 7.5, 0)
-	bb.StudsOffsetWorldSpace = Vector3.new(0, 7.5, 0)
-	bb.MaxDistance = 160
+	-- sized in studs (it is a sign over the pad, not a HUD element) and kept small + high so standing
+	-- on the pad doesn't fill your screen; readable across the apron, gone from the far side of the bay
+	bb.Size = UDim2.new(6, 0, 3.75, 0)
+	bb.StudsOffsetWorldSpace = Vector3.new(0, 8.5, 0)
+	bb.MaxDistance = 90
 	bb.LightInfluence = 0
 	bb.Parent = pad
 	local title = text(bb, "Pad", UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.16), `PAD {padId}`, C.Cream, Enum.Font.LuckiestGuy)

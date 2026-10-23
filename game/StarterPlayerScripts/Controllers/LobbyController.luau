@@ -10,6 +10,7 @@
 --   * Lobby/Fx: "slide" (fire pole), "welcome" / "toast" (compact centre toast).
 -- Everything hides while the local Player's InstanceId ~= "" (in a mission).
 local CollectionService = game:GetService("CollectionService")
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -162,6 +163,25 @@ local function buildUi()
 	toast.Visible = false
 	toast.ZIndex = 45
 	ui.toast = toast
+	-- The objective card is UIScale'd (bottom = top-bar inset + 88 px * scale, ~181 px at 1080p), so a
+	-- fixed 170 px banner / 16 % toast ran into it on big screens; stack them under its real bottom.
+	local function placeTopLines()
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		local v = cam.ViewportSize
+		local s = math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
+		local inset = GuiService:GetGuiInset().Y
+		local y = math.floor(inset + 88 * s + 10)
+		banner.Position = UDim2.new(0.25, 0, 0, y)
+		banner.Size = UDim2.new(0.5, 0, 0, math.floor(40 * math.max(s, 0.8)))
+		toast.Position = UDim2.new(0.3, 0, 0, y + math.floor(46 * math.max(s, 0.8)))
+	end
+	placeTopLines()
+	if workspace.CurrentCamera then
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(placeTopLines)
+	end
 
 	-- Squad strip
 	local strip = Instance.new("Frame")
@@ -174,6 +194,20 @@ local function buildUi()
 	strip.Visible = false
 	strip.Parent = gui
 	corner(strip, 12)
+	-- same viewport scale as UiKit HUDs: a fixed 520 px strip covered most of a phone screen
+	local stripScale = Instance.new("UIScale")
+	local function rescaleStrip()
+		local cam = workspace.CurrentCamera
+		if cam then
+			local v = cam.ViewportSize
+			stripScale.Scale = math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
+		end
+	end
+	rescaleStrip()
+	if workspace.CurrentCamera then
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescaleStrip)
+	end
+	stripScale.Parent = strip
 	ui.strip = strip
 	ui.stripText = label(strip, "Text", UDim2.new(0, 14, 0, 6), UDim2.new(1, -170, 1, -12), "", C.Cream, Enum.Font.FredokaOne)
 	ui.stripText.TextXAlignment = Enum.TextXAlignment.Left
@@ -313,10 +347,40 @@ local function openPicker()
 	ui.panel.Visible = true
 end
 
+-- Sit just above InventoryController's hotbar, whatever its UIScale (it is ~100px at 720p, ~145px at
+-- 1080p); a fixed offset overlapped it on big screens.
+local function placeStrip()
+	local strip = ui.strip
+	if not strip then
+		return
+	end
+	local inv = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("InventoryHud")
+	local bar = inv and inv:FindFirstChild("Hotbar")
+	local h = if bar and bar:IsA("GuiObject") and bar.Visible then bar.AbsoluteSize.Y + 22 else 24
+	local want = UDim2.new(0.5, 0, 1, -math.floor(h))
+	if strip.Position ~= want then
+		strip.Position = want
+	end
+end
+
+-- Local only: hide the sign over the pad you're standing on (you'd be right under it, so it filled the
+-- screen); the squad strip shows the same info. Other pads keep their signs.
+local function hideOwnPadSign()
+	local mine = if mySquad and not mySquad.instanceId then mySquad.padId else nil
+	for _, pad in CollectionService:GetTagged(Names.Tag.SquadPad) do
+		local bb = pad:FindFirstChild("PadBillboard")
+		if bb and bb:IsA("BillboardGui") then
+			bb.Enabled = pad:GetAttribute(Names.Attr.PadId) ~= mine
+		end
+	end
+end
+
 local function renderStrip()
 	if not ui.strip then
 		return
 	end
+	placeStrip()
+	hideOwnPadSign()
 	if inMission() or not mySquad or mySquad.instanceId then
 		ui.strip.Visible = false
 		return
@@ -466,6 +530,17 @@ function LobbyController:Start()
 		byId[m.id] = m
 	end
 	buildUi()
+	task.spawn(function()
+		-- the hotbar's size follows the viewport (UIScale); re-place the strip when it changes
+		local pg = player:WaitForChild("PlayerGui")
+		local inv = pg:WaitForChild("InventoryHud", 30)
+		local bar = inv and inv:WaitForChild("Hotbar", 10)
+		if bar and bar:IsA("GuiObject") then
+			bar:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeStrip)
+			bar:GetPropertyChangedSignal("Visible"):Connect(placeStrip)
+		end
+		placeStrip()
+	end)
 
 	local Board = Net.event("Lobby", "Board")
 	local Launch = Net.event("Lobby", "Launch")
