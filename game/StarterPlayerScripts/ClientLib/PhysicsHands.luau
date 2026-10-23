@@ -577,6 +577,7 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 	end
 	local handle = tool:FindFirstChild("Handle")
 	if not (handle and handle:IsA("BasePart")) then
+		self.toolFor = nil -- not replicated yet: try again next frame
 		return
 	end
 	local kind = toolKind(tool) :: string
