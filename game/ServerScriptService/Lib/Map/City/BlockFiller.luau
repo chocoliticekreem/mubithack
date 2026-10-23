@@ -1106,6 +1106,12 @@ function Scenery.cropfield(ctx: any, parent: Instance, F: CFrame, maxW: number, 
 	end
 	if rng:NextNumber() < 0.5 then
 		SK.part(parent, "HayBale", F * CF(maxW * 0.3, GY + 1.8, 6), V(5, 3.2, 3.2), Color3.fromHex("#D9B44A"))
+	elseif rng:NextNumber() < 0.6 then
+		-- a scarecrow who has clearly given up
+		local s = F * CF(rng:NextNumber(-maxW * 0.3, maxW * 0.3), GY + 1.2, maxD * 0.5) * ANG(0, 0, math.rad(rng:NextNumber(-12, 12)))
+		SK.part(parent, "ScarecrowPole", s * CF(0, 4, 0), V(0.6, 8, 0.6), C.Wood)
+		SK.part(parent, "ScarecrowArms", s * CF(0, 6, 0), V(7, 0.6, 0.6), Color3.fromHex("#3D5A80"))
+		SK.ball(parent, "ScarecrowHead", s * CF(0, 8.6, 0), 2.2, Color3.fromHex("#E2C35A"))
 	end
 end
 
