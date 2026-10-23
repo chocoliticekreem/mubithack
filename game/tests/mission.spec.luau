@@ -142,4 +142,142 @@ Spec.test("assignRescues matches marker kinds first, then fills in order", funct
 	Spec.eq(#many, 1, "more rescues than markers are dropped")
 end)
 
+-- v2 dispatch -----------------------------------------------------------------------------------------
+
+local D = { seconds = 180, travel = 60, fastArrival = 45, arrivalBonus = 20, alarm = 0, intro = 0, results = 15, grace = 10 }
+local function obsAt(arrived: boolean, o: { [string]: any }?): any
+	local base = table.clone(BUSY) :: any
+	base.arrived = arrived
+	for k, v in o or {} do
+		base[k] = v
+	end
+	return base
+end
+
+Spec.test("siteSupports parses comma lists (spaces, case)", function()
+	Spec.eq(Flow.siteSupports("house_fire", "house_fire"), true)
+	Spec.eq(Flow.siteSupports(" school_alarm , House_Fire ", "house_fire"), true)
+	Spec.eq(Flow.siteSupports("house_fire_big", "house_fire"), false, "no prefix match")
+	Spec.eq(Flow.siteSupports("", "house_fire"), false)
+	Spec.eq(Flow.siteSupports(nil, "house_fire"), false)
+end)
+
+Spec.test("pickSite: nearest free matching site", function()
+	local sites = {
+		{ id = "far", types = "house_fire", busy = false, dist = 900 },
+		{ id = "near", types = "house_fire", busy = false, dist = 200 },
+		{ id = "school", types = "school_alarm", busy = false, dist = 50 },
+		{ id = "busy", types = "house_fire", busy = true, dist = 10 },
+	}
+	Spec.eq(Flow.pickSite(sites, "house_fire"), "near")
+	Spec.eq(Flow.pickSite(sites, "school_alarm"), "school")
+	Spec.eq(Flow.pickSite(sites, "panda_zoo"), nil, "no site for the mission")
+	sites[2].busy = true
+	Spec.eq(Flow.pickSite(sites, "house_fire"), "far", "next nearest once the nearest is busy")
+	sites[1].busy = true
+	Spec.eq(Flow.pickSite(sites, "house_fire"), nil, "all busy")
+	Spec.eq(Flow.pickSite({}, "house_fire"), nil)
+end)
+
+Spec.test("pickSite: ties inside the band go to roll; outside it never", function()
+	local sites = {
+		{ id = "b", types = "house_fire", busy = false, dist = 105 },
+		{ id = "a", types = "house_fire", busy = false, dist = 100 },
+		{ id = "c", types = "house_fire", busy = false, dist = 500 },
+	}
+	Spec.eq(Flow.pickSite(sites, "house_fire", 10), "a", "no roll: nearest")
+	local seen = 0
+	Spec.eq(
+		Flow.pickSite(sites, "house_fire", 10, function(n)
+			seen = n
+			return n
+		end),
+		"b"
+	)
+	Spec.eq(seen, 2, "c is outside the tie band")
+	Spec.eq(Flow.pickSite(sites, "house_fire", 0, function(n)
+		return n
+	end), "a", "no band, no tie")
+	Spec.eq(Flow.pickSite(sites, "house_fire", 1000, function(_n)
+		return 99
+	end), "c", "roll is clamped")
+	local exact = { { id = "y", types = "house_fire", busy = false, dist = 5 }, { id = "x", types = "house_fire", busy = false, dist = 5 } }
+	Spec.eq(Flow.pickSite(exact, "house_fire"), "x", "exact tie, no roll: lowest id")
+end)
+
+Spec.test("travelAllowance clamps distance / speed", function()
+	local cfg = { speed = 40, min = 20, max = 90 }
+	Spec.eq(Flow.travelAllowance(0, cfg), 20)
+	Spec.eq(Flow.travelAllowance(2000, cfg), 50)
+	Spec.eq(Flow.travelAllowance(99999, cfg), 90)
+	Spec.eq(Flow.travelAllowance(100, { speed = 0, min = 0, max = 60 }), 60)
+end)
+
+Spec.test("dispatch: timer runs from dispatch, Dispatched until arrival", function()
+	local run = Flow.newDispatch(D, 100)
+	Spec.eq(run.state, "Dispatched")
+	Spec.eq(run.endsAt, 340, "180 + 60 travel")
+	Spec.eq(joined(Flow.tick(run, 110, obsAt(false))), "")
+	Spec.eq(joined(Flow.tick(run, 130, obsAt(false, { burning = 0, trapped = 0 }))), "", "no all-clear before arrival")
+	Spec.eq(run.state, "Dispatched")
+	Spec.eq(Flow.elapsed(run, 130), 0)
+	Spec.eq(Flow.sinceDispatch(run, 130), 30)
+end)
+
+Spec.test("dispatch: slow arrival -> Active, no bonus", function()
+	local run = Flow.newDispatch(D, 0)
+	Spec.eq(joined(Flow.tick(run, 90, obsAt(true))), "arrived")
+	Spec.eq(run.state, "Active")
+	Spec.eq(run.fast, false)
+	Spec.eq(run.arrivedAt, 90)
+	Spec.eq(run.endsAt, 240)
+	Spec.eq(joined(Flow.tick(run, 91, obsAt(true))), "", "arrived fires once")
+	Spec.eq(joined(Flow.tick(run, 240, obsAt(true))), "ended")
+	Spec.eq(run.outcome, "time")
+	Spec.eq(Flow.elapsed(run, 999), 150)
+	Spec.eq(joined(Flow.tick(run, 255, nil)), "done")
+end)
+
+Spec.test("dispatch: fast arrival adds the bonus; all clear after grace", function()
+	local run = Flow.newDispatch(D, 0)
+	Spec.eq(joined(Flow.tick(run, 45, obsAt(true))), "arrived")
+	Spec.eq(run.fast, true)
+	Spec.eq(run.endsAt, 260, "240 + 20 bonus")
+	local clear = table.clone(CLEAR) :: any
+	clear.arrived = true
+	Spec.eq(joined(Flow.tick(run, 50, clear)), "", "grace")
+	Spec.eq(joined(Flow.tick(run, 55, clear)), "ended")
+	Spec.eq(run.outcome, "success")
+	Spec.eq(Flow.elapsed(run, 99), 10)
+	Spec.eq(Flow.sinceDispatch(run, 999), 55)
+end)
+
+Spec.test("dispatch: never arriving runs out the clock; leaving or wiping ends it", function()
+	local run = Flow.newDispatch(D, 0)
+	Spec.eq(joined(Flow.tick(run, 239, obsAt(false))), "")
+	Spec.eq(joined(Flow.tick(run, 240, obsAt(false))), "ended")
+	Spec.eq(run.outcome, "time")
+	Spec.eq(Flow.elapsed(run, 300), 0, "never active")
+	local gone = Flow.newDispatch(D, 0)
+	Flow.tick(gone, 5, obsAt(false, { players = 0, alive = 0 }))
+	Spec.eq(gone.outcome, "forced")
+	local wiped = Flow.newDispatch(D, 0)
+	Flow.tick(wiped, 5, obsAt(true, { alive = 0 }))
+	Spec.eq(wiped.outcome, "wiped", "wipe beats arrival")
+	local aborted = Flow.newDispatch(D, 0)
+	Spec.eq(joined(Flow.finish(aborted, 3, "forced")), "ended", "finish works from Dispatched")
+end)
+
+Spec.test("dispatch and instance runs coexist", function()
+	local a = Flow.newDispatch(D, 0)
+	local b = Flow.newDispatch(D, 10)
+	Flow.tick(a, 20, obsAt(true))
+	Flow.tick(b, 20, obsAt(false))
+	Spec.eq(a.state, "Active")
+	Spec.eq(b.state, "Dispatched")
+	local v1 = Flow.new(T, 0)
+	Spec.eq(v1.dispatch, false)
+	Spec.eq(joined(Flow.tick(v1, 6, BUSY)), "teleport,count3,count2,count1,active", "v1.5 path unchanged")
+end)
+
 return Spec.finish()
