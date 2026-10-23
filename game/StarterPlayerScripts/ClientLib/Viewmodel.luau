@@ -1,0 +1,338 @@
+--!strict
+-- Viewmodel [owner: FirstPerson lane]. Client-only first-person arms: chunky olive gloves, tan
+-- turnout sleeves with the lime/silver/lime reflective 3-band at the wrist (the trailer's look),
+-- plus a client-only nozzle and axe prop. Built from blocks (docs/game/02-art-feel-ui.md §7).
+--
+--   local vm = Viewmodel.new()          -- builds the Model (call from Start, never at require time)
+--   vm:SetParent(workspace.CurrentCamera)
+--   vm:Update(dt, camCFrame, { pose = "hose", bob = Vector2, sway = Vector2, spraying = bool, dip = number })
+--   vm:Swing()                          -- axe swing animation (windup, strike, recover)
+--   vm:SetSoot(alpha)                   -- 0..1 darkens sleeves/gloves toward CharredWarm
+--   vm:SetVisible(bool)  vm:Destroy()
+--
+-- Parts in the Camera aren't simulated, so welds don't apply: every part keeps an offset from its
+-- arm's wrist frame and the whole thing moves with one workspace:BulkMoveTo per frame.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette") :: ModuleScript) :: any
+
+local Viewmodel = {}
+Viewmodel.__index = Viewmodel
+
+export type Pose = "empty" | "hose" | "axe" | "carry" | "item"
+
+export type Frame = {
+	pose: Pose,
+	bob: Vector2?, -- studs, already scaled
+	sway: Vector2?, -- radians (pitch, yaw)
+	spraying: boolean?,
+	dip: number?, -- landing dip, studs (negative = down)
+}
+
+local SLEEVE_TAN = Color3.fromHex("#B0804A") -- 02 §3 SleeveTan (not in Palette yet)
+local CUFF_DARK = Color3.fromHex("#3B3128")
+
+local function c(name: string, fallback: Color3): Color3
+	local v = Palette[name]
+	return if typeof(v) == "Color3" then v else fallback
+end
+
+-- Wrist frames in camera space (right hand). Left hand mirrors X and yaw unless given explicitly.
+local POSES: { [string]: { R: CFrame, L: CFrame } } = {
+	empty = {
+		R = CFrame.new(1.15, -1.45, -2.0) * CFrame.Angles(math.rad(12), math.rad(10), math.rad(-8)),
+		L = CFrame.new(-1.15, -1.45, -2.0) * CFrame.Angles(math.rad(12), math.rad(-10), math.rad(8)),
+	},
+	hose = {
+		R = CFrame.new(0.55, -1.05, -2.05) * CFrame.Angles(math.rad(4), math.rad(14), math.rad(-20)),
+		L = CFrame.new(-0.25, -0.95, -2.85) * CFrame.Angles(math.rad(6), math.rad(-6), math.rad(70)),
+	},
+	axe = {
+		R = CFrame.new(1.0, -0.75, -1.9) * CFrame.Angles(math.rad(30), math.rad(8), math.rad(-14)),
+		L = CFrame.new(-0.95, -1.6, -1.8) * CFrame.Angles(math.rad(8), math.rad(-14), math.rad(10)),
+	},
+	carry = {
+		R = CFrame.new(1.25, -0.55, -2.35) * CFrame.Angles(math.rad(35), math.rad(-18), math.rad(-40)),
+		L = CFrame.new(-1.25, -0.55, -2.35) * CFrame.Angles(math.rad(35), math.rad(18), math.rad(40)),
+	},
+	item = {
+		R = CFrame.new(0.9, -1.15, -2.0) * CFrame.Angles(math.rad(18), math.rad(10), math.rad(-10)),
+		L = CFrame.new(-1.2, -1.55, -1.9) * CFrame.Angles(math.rad(8), math.rad(-10), math.rad(8)),
+	},
+}
+
+type PartRec = { part: BasePart, offset: CFrame, base: Color3 }
+type Arm = { parts: { PartRec }, wrist: CFrame }
+
+local function block(
+	model: Model,
+	name: string,
+	size: Vector3,
+	color: Color3,
+	material: Enum.Material?,
+	shape: Enum.PartType?
+): BasePart
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	if shape then
+		p.Shape = shape
+	end
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Massless = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = model
+	return p
+end
+
+-- Arm-local frame: origin at the wrist, sleeve runs toward +Z (back to the camera), the glove
+-- sits at -Z. `side` is 1 for right, -1 for left (thumb points inward).
+local function buildArm(model: Model, side: number, prefix: string): Arm
+	local arm: Arm = { parts = {}, wrist = CFrame.new() }
+	local function add(p: BasePart, offset: CFrame)
+		table.insert(arm.parts, { part = p, offset = offset, base = p.Color })
+	end
+	local sleeveLen = 3.2
+	add(
+		block(model, prefix .. "Sleeve", Vector3.new(0.95, 0.95, sleeveLen), SLEEVE_TAN, Enum.Material.Fabric),
+		CFrame.new(0, 0, 0.35 + sleeveLen / 2)
+	)
+	-- reflective 3-band near the wrist: lime / silver / lime, slightly proud of the sleeve
+	local bands = { { "BandA", c("ReflectLime", Color3.fromHex("#E8E25A")), 0.55 }, { "BandB", c("ReflectSilver", Color3.fromHex("#C9CCD0")), 0.8 }, { "BandC", c("ReflectLime", Color3.fromHex("#E8E25A")), 1.05 } }
+	for _, b in bands do
+		local band = block(model, prefix .. (b[1] :: string), Vector3.new(1.0, 1.0, 0.18), b[2] :: Color3, Enum.Material.Neon)
+		band.Transparency = 0.05
+		add(band, CFrame.new(0, 0, b[3] :: number))
+	end
+	add(block(model, prefix .. "Cuff", Vector3.new(1.12, 1.0, 0.45), CUFF_DARK, Enum.Material.Fabric), CFrame.new(0, 0, 0.12))
+	-- chunky glove: palm block, four fat fingers, a thumb, a knuckle pad
+	local olive = c("GloveOlive", Color3.fromHex("#8C7A3A"))
+	add(block(model, prefix .. "Glove", Vector3.new(1.3, 0.75, 1.15), olive, Enum.Material.Leather), CFrame.new(0, 0, -0.55))
+	add(
+		block(model, prefix .. "Knuckles", Vector3.new(1.25, 0.3, 0.4), olive:Lerp(Color3.new(0, 0, 0), 0.18), Enum.Material.Leather),
+		CFrame.new(0, 0.35, -0.85)
+	)
+	for i = 1, 4 do
+		local x = (-0.48 + (i - 1) * 0.32) * side
+		local len = if i == 1 or i == 4 then 0.55 else 0.68
+		add(
+			block(model, prefix .. "Finger" .. i, Vector3.new(0.29, 0.32, len), olive, Enum.Material.Leather),
+			CFrame.new(x, -0.05, -1.12 - len / 2 + 0.05) * CFrame.Angles(math.rad(-18), 0, 0)
+		)
+	end
+	add(
+		block(model, prefix .. "Thumb", Vector3.new(0.3, 0.32, 0.6), olive, Enum.Material.Leather),
+		CFrame.new(-0.72 * side, -0.05, -0.6) * CFrame.Angles(0, math.rad(35 * side), 0)
+	)
+	return arm
+end
+
+type Prop = { parts: { PartRec }, hand: string }
+
+local function buildNozzle(model: Model): Prop
+	local prop: Prop = { parts = {}, hand = "R" }
+	local function add(p: BasePart, offset: CFrame)
+		table.insert(prop.parts, { part = p, offset = offset, base = p.Color })
+	end
+	local brass = c("BrassCoupling", Color3.fromHex("#C89A3C"))
+	add(block(model, "NozzleGrip", Vector3.new(0.5, 1.0, 0.5), Color3.fromHex("#2B2B2E")), CFrame.new(0, 0.1, -0.7))
+	add(block(model, "NozzleBody", Vector3.new(1.6, 0.6, 0.6), brass, Enum.Material.Metal, Enum.PartType.Cylinder), CFrame.new(0, 0.65, -1.3) * CFrame.Angles(0, math.rad(90), 0))
+	add(block(model, "NozzleTip", Vector3.new(0.5, 0.8, 0.8), Color3.fromHex("#1E1E22"), Enum.Material.Rubber, Enum.PartType.Cylinder), CFrame.new(0, 0.65, -2.25) * CFrame.Angles(0, math.rad(90), 0))
+	add(block(model, "NozzleBail", Vector3.new(0.15, 0.6, 0.9), Color3.fromHex("#C8231B")), CFrame.new(0.35, 1.0, -1.3))
+	add(block(model, "HoseTail", Vector3.new(2.4, 0.55, 0.55), c("HoseYellow", Color3.fromHex("#E8B83A")), Enum.Material.Fabric, Enum.PartType.Cylinder), CFrame.new(0, 0.55, 0.5) * CFrame.Angles(math.rad(-25), math.rad(90), 0))
+	return prop
+end
+
+local function buildAxe(model: Model): Prop
+	local prop: Prop = { parts = {}, hand = "R" }
+	local function add(p: BasePart, offset: CFrame)
+		table.insert(prop.parts, { part = p, offset = offset, base = p.Color })
+	end
+	add(block(model, "AxeHandle", Vector3.new(0.32, 3.4, 0.32), Color3.fromHex("#B5793F"), Enum.Material.Wood), CFrame.new(0, 1.2, -0.6))
+	add(block(model, "AxeHead", Vector3.new(0.25, 0.8, 1.25), Color3.fromHex("#C8232B"), Enum.Material.Metal), CFrame.new(0, 2.65, -0.95))
+	add(block(model, "AxeEdge", Vector3.new(0.27, 0.85, 0.2), Color3.fromHex("#D6D8DC"), Enum.Material.Metal), CFrame.new(0, 2.65, -1.62))
+	add(block(model, "AxePick", Vector3.new(0.22, 0.3, 0.6), Color3.fromHex("#5A5A60"), Enum.Material.Metal), CFrame.new(0, 2.65, -0.1))
+	return prop
+end
+
+export type Viewmodel = typeof(setmetatable(
+	{} :: {
+		model: Model,
+		arms: { [string]: Arm },
+		props: { [string]: Prop },
+		current: { [string]: CFrame },
+		pose: string,
+		swingT: number,
+		visible: boolean,
+		soot: number,
+		t: number,
+	},
+	Viewmodel
+))
+
+function Viewmodel.new(): Viewmodel
+	local model = Instance.new("Model")
+	model.Name = "Viewmodel"
+	local self = setmetatable({
+		model = model,
+		arms = { R = buildArm(model, 1, "Right"), L = buildArm(model, -1, "Left") },
+		props = { hose = buildNozzle(model), axe = buildAxe(model) },
+		current = { R = POSES.empty.R, L = POSES.empty.L },
+		pose = "empty",
+		swingT = -1,
+		visible = true,
+		soot = 0,
+		t = 0,
+	}, Viewmodel)
+	return self
+end
+
+function Viewmodel.SetParent(self: Viewmodel, parent: Instance?)
+	self.model.Parent = parent
+end
+
+function Viewmodel.Swing(self: Viewmodel)
+	if self.swingT < 0 or self.swingT > 0.3 then
+		self.swingT = 0
+	end
+end
+
+local function setPartsVisible(parts: { PartRec }, on: boolean)
+	for _, r in parts do
+		r.part.LocalTransparencyModifier = if on then 0 else 1
+	end
+end
+
+function Viewmodel.SetVisible(self: Viewmodel, on: boolean)
+	if self.visible == on then
+		return
+	end
+	self.visible = on
+	for _, arm in self.arms do
+		setPartsVisible(arm.parts, on)
+	end
+	for name, prop in self.props do
+		setPartsVisible(prop.parts, on and name == self.pose)
+	end
+end
+
+function Viewmodel.SetSoot(self: Viewmodel, alpha: number)
+	alpha = math.clamp(alpha, 0, 1)
+	if math.abs(alpha - self.soot) < 0.02 then
+		return
+	end
+	self.soot = alpha
+	local dark = c("CharredWarm", Color3.fromHex("#3A2A22"))
+	for _, arm in self.arms do
+		for _, r in arm.parts do
+			if r.part.Material ~= Enum.Material.Neon then
+				r.part.Color = r.base:Lerp(dark, alpha * 0.55)
+			end
+		end
+	end
+end
+
+-- Axe swing offset for the right wrist: windup (-30 deg, 0.12 s), strike (+50, 0.08 s), recover 0.25 s.
+local function swingOffset(t: number): CFrame
+	if t < 0 then
+		return CFrame.identity
+	end
+	local pitch
+	if t < 0.12 then
+		pitch = 30 * (t / 0.12)
+	elseif t < 0.2 then
+		pitch = 30 - 80 * ((t - 0.12) / 0.08)
+	elseif t < 0.45 then
+		pitch = -50 * (1 - (t - 0.2) / 0.25)
+	else
+		return CFrame.identity
+	end
+	return CFrame.new(0, 0, if pitch < 0 then -0.5 * (-pitch / 50) else 0) * CFrame.Angles(math.rad(pitch), 0, 0)
+end
+
+local parts: { BasePart } = {}
+local cframes: { CFrame } = {}
+
+function Viewmodel.Update(self: Viewmodel, dt: number, cam: CFrame, f: Frame)
+	self.t += dt
+	local pose = POSES[f.pose] and f.pose or "empty"
+	if pose ~= self.pose then
+		local old = self.props[self.pose]
+		if old then
+			setPartsVisible(old.parts, false)
+		end
+		self.pose = pose
+		local new = self.props[pose]
+		if new then
+			setPartsVisible(new.parts, self.visible)
+		end
+	end
+	if not self.visible then
+		return
+	end
+
+	local target = POSES[pose]
+	local a = 1 - math.exp(-14 * dt)
+	self.current.R = self.current.R:Lerp(target.R, a)
+	self.current.L = self.current.L:Lerp(target.L, a)
+
+	local bob = f.bob or Vector2.zero
+	local sway = f.sway or Vector2.zero
+	local root = cam
+		* CFrame.new(bob.X, bob.Y + (f.dip or 0), 0)
+		* CFrame.Angles(sway.X, sway.Y, sway.Y * 0.6)
+
+	local recoil = CFrame.identity
+	if f.spraying and pose == "hose" then
+		local n = self.t * 25
+		recoil = CFrame.new(math.noise(n, 1.3) * 0.02, math.noise(n, 7.1) * 0.02, 0.05) * CFrame.Angles(math.rad(2), 0, 0)
+	end
+	local swing = CFrame.identity
+	if self.swingT >= 0 then
+		self.swingT += dt
+		swing = swingOffset(self.swingT)
+		if self.swingT > 0.45 then
+			self.swingT = -1
+		end
+	end
+
+	local wrist = {
+		R = root * recoil * self.current.R * (if pose == "axe" then swing else CFrame.identity),
+		L = root * recoil * self.current.L,
+	}
+
+	table.clear(parts)
+	table.clear(cframes)
+	for side, arm in self.arms do
+		local w = wrist[side]
+		for _, r in arm.parts do
+			table.insert(parts, r.part)
+			table.insert(cframes, w * r.offset)
+		end
+	end
+	local prop = self.props[pose]
+	if prop then
+		local w = wrist[prop.hand]
+		for _, r in prop.parts do
+			table.insert(parts, r.part)
+			table.insert(cframes, w * r.offset)
+		end
+	end
+	workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+end
+
+function Viewmodel.Destroy(self: Viewmodel)
+	self.model:Destroy()
+end
+
+-- Exposed for tuning from the command bar / tests.
+Viewmodel.Poses = POSES
+
+return Viewmodel
