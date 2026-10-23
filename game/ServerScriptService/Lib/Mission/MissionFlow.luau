@@ -11,18 +11,38 @@
 --   MissionFlow.stars(rules, summary) -> (stars, { earned rule ids })
 --   MissionFlow.endReason(outcome) -> Types.EndReason
 --   MissionFlow.assignRescues(markerKinds, rescues) -> { kind | false } per marker
+-- v2 dispatch (docs/game/08 "Dispatch missions"):
+--   local run = MissionFlow.newDispatch({ seconds = 180, travel = 60, fastArrival = 45, arrivalBonus = 20,
+--                                         alarm = 0, intro = 0, results = 15, grace = 10 }, now)
+--   MissionFlow.tick(run, now, obs)   -- obs.arrived = a squad member or their truck is in the ArrivalZone
+--     events: "arrived" (Dispatched -> Active; run.fast + bonus seconds when quick), "ended", "done"
+--   MissionFlow.siteSupports(missionTypes, missionId) -> boolean     -- "house_fire, school_alarm"
+--   MissionFlow.pickSite(sites, missionId, tieStuds?, roll?) -> siteId?   -- nearest free site first
+--   MissionFlow.travelAllowance(studs, { speed, min, max }) -> seconds
+--   MissionFlow.sinceDispatch(run, now) -> seconds since the call came in
 --
 -- States follow Types.RoundState: Alarm -> Active -> Results; "Done" after results (instance destroyed).
+-- v2 dispatch runs: Dispatched -> Active (on arrival) -> Results -> Done; the timer starts at dispatch.
 
-export type State = "Alarm" | "Active" | "Results" | "Done"
+export type State = "Alarm" | "Dispatched" | "Active" | "Results" | "Done"
 export type Outcome = "success" | "time" | "wiped" | "forced"
-export type Timing = { seconds: number, alarm: number, intro: number, results: number, grace: number }
+export type Timing = {
+	seconds: number,
+	alarm: number,
+	intro: number,
+	results: number,
+	grace: number,
+	travel: number?, -- v2: driving allowance added to the timer at dispatch
+	fastArrival: number?, -- v2: arrive within this many seconds of dispatch for the bonus
+	arrivalBonus: number?, -- v2: seconds added to the timer on a fast arrival
+}
 export type Obs = {
 	burning: number, -- burning parts in the instance
 	rescued: number, -- rescues delivered
 	trapped: number, -- rescues not delivered yet (Trapped/Carried/Downed)
 	players: number, -- squad members still in the server
 	alive: number, -- squad members not Downed
+	arrived: boolean?, -- v2: a squad member or their truck is inside the site's ArrivalZone
 }
 export type Run = {
 	state: State,
@@ -37,6 +57,9 @@ export type Run = {
 	outcome: Outcome?,
 	countdown: number, -- next countdown number still to emit (3..1), 0 = done
 	teleported: boolean,
+	dispatch: boolean, -- v2 dispatch run (no alarm/intro; Dispatched until arrival)
+	arrivedAt: number, -- 0 until arrival
+	fast: boolean, -- arrived within timing.fastArrival
 }
 export type StarRule = { id: string, text: string?, seconds: number? }
 export type Summary = {
@@ -67,7 +90,37 @@ function MissionFlow.new(timing: Timing, now: number): Run
 		outcome = nil,
 		countdown = math.min(3, math.floor(intro)),
 		teleported = false,
+		dispatch = false,
+		arrivedAt = 0,
+		fast = false,
 	}
+end
+
+-- v2: the squad is dispatched now; the timer (seconds + travel allowance) is already running.
+function MissionFlow.newDispatch(timing: Timing, now: number): Run
+	return {
+		state = "Dispatched",
+		timing = timing,
+		startedAt = now,
+		alarmEndsAt = now,
+		introAt = now,
+		endsAt = now + math.max(timing.seconds, 0) + math.max(timing.travel or 0, 0),
+		activeSince = 0,
+		endedAt = 0,
+		resultsEndsAt = 0,
+		outcome = nil,
+		countdown = 0,
+		teleported = true,
+		dispatch = true,
+		arrivedAt = 0,
+		fast = false,
+	}
+end
+
+-- Seconds since the call came in (dispatch), frozen once the run ended.
+function MissionFlow.sinceDispatch(run: Run, now: number): number
+	local stop = if run.endedAt > 0 then run.endedAt else now
+	return math.max(0, stop - run.startedAt)
 end
 
 -- Every objective done: nothing burning and nobody left to deliver.
@@ -83,10 +136,10 @@ local function finishInto(run: Run, now: number, outcome: Outcome, out: { string
 	table.insert(out, "ended")
 end
 
--- End now (forced/abort). No-op unless Alarm or Active. Returns the events ({"ended"} or {}).
+-- End now (forced/abort). No-op unless Alarm, Dispatched or Active. Returns the events ({"ended"} or {}).
 function MissionFlow.finish(run: Run, now: number, outcome: Outcome): { string }
 	local out = {}
-	if run.state == "Alarm" or run.state == "Active" then
+	if run.state == "Alarm" or run.state == "Dispatched" or run.state == "Active" then
 		finishInto(run, now, outcome, out)
 	end
 	return out
@@ -98,7 +151,11 @@ function MissionFlow.elapsed(run: Run, now: number): number
 		return 0
 	end
 	local stop = if run.endedAt > 0 then run.endedAt else now
-	return math.clamp(stop - run.activeSince, 0, run.timing.seconds)
+	local cap = run.timing.seconds
+	if run.dispatch then
+		cap += math.max(run.timing.travel or 0, 0) + math.max(run.timing.arrivalBonus or 0, 0)
+	end
+	return math.clamp(stop - run.activeSince, 0, cap)
 end
 
 function MissionFlow.tick(run: Run, now: number, obs: Obs?): { string }
@@ -119,6 +176,26 @@ function MissionFlow.tick(run: Run, now: number, obs: Obs?): { string }
 			run.activeSince = now
 			run.endsAt = now + run.timing.seconds
 			table.insert(out, "active")
+		end
+		return out
+	end
+	if run.state == "Dispatched" then
+		if obs and obs.players <= 0 then
+			finishInto(run, now, "forced", out)
+		elseif obs and obs.alive <= 0 then
+			finishInto(run, now, "wiped", out)
+		elseif now >= run.endsAt then
+			finishInto(run, now, "time", out)
+		elseif obs and obs.arrived then
+			run.state = "Active"
+			run.activeSince = now
+			run.arrivedAt = now
+			local fastIn = run.timing.fastArrival or 0
+			if fastIn > 0 and now - run.startedAt <= fastIn then
+				run.fast = true
+				run.endsAt += math.max(run.timing.arrivalBonus or 0, 0)
+			end
+			table.insert(out, "arrived")
 		end
 		return out
 	end
@@ -213,6 +290,71 @@ function MissionFlow.assignRescues(markerKinds: { string }, rescues: { { kind: s
 		end
 	end
 	return out
+end
+
+-- v2 dispatch: incident site selection ------------------------------------------------------------
+
+local function trim(s: string): string
+	return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
+end
+
+-- `missionTypes` is an IncidentSite's MissionTypes attr: comma-separated MissionCatalog ids.
+function MissionFlow.siteSupports(missionTypes: string?, missionId: string): boolean
+	if type(missionTypes) ~= "string" or missionTypes == "" then
+		return false
+	end
+	local want = string.lower(missionId)
+	for part in string.gmatch(missionTypes, "[^,]+") do
+		if string.lower(trim(part)) == want then
+			return true
+		end
+	end
+	return false
+end
+
+export type SiteInfo = {
+	id: string,
+	types: string?, -- MissionTypes attr
+	busy: boolean, -- Busy attr, or already claimed by a run
+	dist: number, -- studs from the station
+}
+
+-- The nearest free site that can host `missionId`. Sites within `tieStuds` of the nearest one tie, and
+-- `roll(n) -> 1..n` picks among them (random in the service, fixed in tests); without `roll` the nearest
+-- wins (lowest id on an exact tie). nil when every matching site is busy, or none matches.
+function MissionFlow.pickSite(sites: { SiteInfo }, missionId: string, tieStuds: number?, roll: ((n: number) -> number)?): string?
+	local free: { SiteInfo } = {}
+	for _, s in sites do
+		if not s.busy and MissionFlow.siteSupports(s.types, missionId) then
+			table.insert(free, s)
+		end
+	end
+	if #free == 0 then
+		return nil
+	end
+	table.sort(free, function(a, b)
+		if a.dist ~= b.dist then
+			return a.dist < b.dist
+		end
+		return a.id < b.id
+	end)
+	local band = free[1].dist + math.max(tieStuds or 0, 0)
+	local tied = 0
+	for _, s in free do
+		if s.dist <= band then
+			tied += 1
+		end
+	end
+	if roll and tied > 1 then
+		return free[math.clamp(math.floor(roll(tied)), 1, tied)].id
+	end
+	return free[1].id
+end
+
+-- Extra timer seconds for the drive: studs / speed, clamped to [min, max].
+function MissionFlow.travelAllowance(studs: number, cfg: { speed: number, min: number, max: number }): number
+	local raw = if cfg.speed > 0 then math.ceil(math.max(studs, 0) / cfg.speed) else cfg.max
+	return math.clamp(raw, cfg.min, cfg.max)
 end
 
 return MissionFlow

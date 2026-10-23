@@ -6,11 +6,15 @@
 -- AtmosphereService:ApplyMission. A mission stays `enabled = false` until the MapService builder for
 -- its `locationId` exists; flipping it on is a one-line PR by the lane that ships the builder.
 -- v1 ships house_fire only.
+-- v2 dispatch: a mission runs at any IncidentSite whose MissionTypes attr lists its id; `call` is the
+-- dispatch line ("DISPATCH: House fire at 12 Maple St"), `seconds` is the on-scene timer (MissionService
+-- adds a driving allowance on top).
 
 local Missions = {
 	{
 		id = "house_fire",
 		title = "12 Maple Street",
+		call = "House fire", -- v2 dispatch: "DISPATCH: <call> at <address>"
 		blurb = "A kitchen fire on a sunset street. Two neighbours, a cat, a dog, and a confused panda.",
 		locationId = "Town",
 		enabled = true,
@@ -39,6 +43,7 @@ local Missions = {
 	{
 		id = "apartment_trampoline",
 		title = "Night Apartment",
+		call = "Apartment fire",
 		blurb = "Three floors of brick and bad wiring. Jumpers at the windows: hold the trampoline together.",
 		locationId = "Apartment",
 		enabled = false,
@@ -66,6 +71,7 @@ local Missions = {
 	{
 		id = "school_alarm",
 		title = "School Alarm",
+		call = "School fire",
 		blurb = "A kid pulled the alarm. This time it's real: smoke in the halls and a chem lab ready to pop.",
 		locationId = "School",
 		enabled = false,
@@ -92,6 +98,7 @@ local Missions = {
 	{
 		id = "farm_haystack",
 		title = "Haystack Farm",
+		call = "Barn fire",
 		blurb = "The farmer is smoking next to the hay again. Slap the cigarette out before it all goes up.",
 		locationId = "Farm",
 		enabled = false,
@@ -119,6 +126,7 @@ local Missions = {
 	{
 		id = "forest_walkie",
 		title = "Forest Wildfire",
+		call = "Wildfire",
 		blurb = "A campfire got away. No minimap out here: the walkie is how you find the campers.",
 		locationId = "Forest",
 		enabled = false,
@@ -145,6 +153,7 @@ local Missions = {
 	{
 		id = "storage_fusebox",
 		title = "Storage Units",
+		call = "Storage unit fire",
 		blurb = "Burst pipes, a burning unit, and a fuse box right above the puddle. Cut the power first.",
 		locationId = "Storage",
 		enabled = false,
@@ -172,6 +181,7 @@ local Missions = {
 	{
 		id = "tornado_field",
 		title = "Fire Tornado",
+		call = "Field fire",
 		blurb = "The field fire got big enough to spin. Hose it down before it eats the truck.",
 		locationId = "Field",
 		enabled = false,
@@ -197,6 +207,7 @@ local Missions = {
 	{
 		id = "dam_finale",
 		title = "Dam Finale",
+		call = "City-wide fire",
 		blurb = "The city is too big to put out. Move everyone to high ground, plant the charges, press the button.",
 		locationId = "Dam",
 		enabled = false,
@@ -222,6 +233,7 @@ local Missions = {
 	{
 		id = "panda_zoo",
 		title = "Panda Zoo",
+		call = "Zoo fire",
 		blurb = "The bamboo is burning and the panda will not walk. It takes two to carry a panda.",
 		locationId = "Zoo",
 		enabled = false,

@@ -18,6 +18,18 @@ return Config.define({
 	TickSeconds = 0.25, -- how often each running mission instance re-checks its objectives
 	SpawnSpread = 4, -- studs between squad members at the instance's PlayerSpawn
 	FireStartSearch = 24, -- studs: a non-Flammable FireStart marker lights the nearest Flammable part within this
+	-- v2 dispatch (docs/game/08): squads drive their trucks to an IncidentSite in the shared city.
+	UseInstances = false, -- true = v1.5 path (build a copy of the location and teleport the squad)
+	InstanceFallback = true, -- dispatch found no free IncidentSite for the mission: use the v1.5 instance path
+	SiteTieStuds = 60, -- free sites within this of the nearest one are a tie, picked at random
+	TravelSpeed = 45, -- studs/s used to size the driving allowance added to the timer
+	TravelMinSeconds = 20,
+	TravelMaxSeconds = 90,
+	FastArrivalSeconds = 0, -- arrive within this long of dispatch (0 = travel allowance * 0.75) for the bonus
+	ArrivalBonusSeconds = 20, -- timer seconds added on a fast arrival
+	ArrivalRadius = 40, -- studs from TruckSpot/site centre when a site has no ArrivalZone part
+	ArrivalMargin = 4, -- studs of slack around the ArrivalZone box
+	DispatchResultsSeconds = 15, -- results screen; keep below LobbyConfig.ReturnSeconds (its safety net teleports)
 	-- Sound ids are unverified, so they default to "" (silent). Set rbxassetid://... to enable.
 	Sounds = {
 		Alarm = "",

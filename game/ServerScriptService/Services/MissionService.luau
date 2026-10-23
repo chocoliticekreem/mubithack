@@ -31,6 +31,22 @@
 --   FireService:ClearInstance(instanceId)?, SquadService.Downed + :GetHelmet,
 --   BlameService:Reset/ResetPlayers?/GetStats/BuildAwards, LobbyService:ReturnToLobby,
 --   tags FireStart, Flammable, Burning, Rescuable, RescueSpawn, TruckSpot; attrs RescueState, Downed, Charred.
+-- v2 DISPATCH (docs/game/08 "Flow" + "Dispatch missions"; default, GameConfig.UseInstances = false):
+--   StartMission picks the nearest free IncidentSite (tag; attrs SiteId, MissionTypes, Busy, Address?)
+--   whose MissionTypes lists the mission (ties within SiteTieStuds: random), claims it
+--   (MapService:BindSite -> fresh copy, Busy, GetInstance(runId)), lights its FireStart markers and spawns
+--   its rescues straight away, fires Mission/Alarm + "DISPATCH: <call> at <address>", and sets a waypoint
+--   (NavigationService:SetWaypoint(squad, ArrivalZone|TruckSpot, label)). Nobody is teleported: the squad
+--   drives. RoundState Dispatched -> Active when a squad member or their truck enters the ArrivalZone
+--   (fast arrival = ArrivalBonusSeconds on the clock) -> Results -> done: ClearWaypoint,
+--   Rescue/FireService:ClearInstance, MapService:RebuildSite, Busy cleared. Players stay where they are
+--   (drive back, or BACK TO STATION on the results screen -> LobbyService:ReturnToLobby).
+--   No free site for the mission -> the v1.5 instance path (GameConfig.InstanceFallback).
+--   Run state: Workspace.Runs.<runId> Folder (attrs InstanceId, MissionId, RoundState, RoundEndsAt, SiteId,
+--   LocationId, Address, Call; ObjectValue Site). Back-compat mirror Workspace.Instances.<runId> carries
+--   the same attrs with RoundState "Active" while Dispatched (v1.5 readers: HUD, Audio, Blame, Graphics).
+--   Remote added: Lobby/BackToStation (C->S, no args, 1/s; ResultsController already fires it).
+--   Counters: missions_dispatched, missions_arrived, missions_fast_arrival, dispatch_no_site.
 -- Test hooks (DevHook only): _startRound(locationId, seconds), _startMission(userIds|nil, missionId, seconds),
 --   _endMission(instanceId), _selftest()
 local CollectionService = game:GetService("CollectionService")
@@ -55,13 +71,31 @@ MissionService.RoundEnded = Signal.new() :: Signal.Signal<Types.ResultsPayload>
 MissionService.MissionStarted = Signal.new() :: Signal.Signal<string, string>
 MissionService.MissionEnded = Signal.new() :: Signal.Signal<string, Types.ResultsPayload>
 
+-- v2 names from docs/game/08 (the frozen Names module doesn't carry them yet)
+local SITE = {
+	Tag = "IncidentSite",
+	SiteId = "SiteId",
+	MissionTypes = "MissionTypes",
+	Busy = "Busy",
+	Address = "Address",
+	ArrivalZone = "ArrivalZone",
+	TruckBay = "TruckBay",
+	OwnerUserId = "OwnerUserId",
+	Driver = "Driver",
+}
+
 type Live = {
 	id: string,
 	seq: number,
 	def: any, -- Types.MissionDef
 	missionId: string,
 	locationId: string,
-	model: Model,
+	model: Model, -- v1.5: the instance Model; v2: the bound IncidentSite Model
+	mode: "instance" | "dispatch",
+	siteId: string?,
+	folder: Folder?, -- v2: Workspace.Runs.<id>
+	mirror: Folder?, -- v2: Workspace.Instances.<id> (legacy readers)
+	label: string, -- "House fire at 12 Maple St"
 	squadId: string?,
 	players: { Player },
 	flow: MissionFlow.Run,
@@ -75,8 +109,10 @@ local services: { [string]: any } = {}
 local alarmRemote: RemoteEvent? = nil
 local resultsRemote: RemoteEvent? = nil
 local runs: { [string]: Live } = {}
+local claimed: { [string]: string } = {} -- v2: siteId -> runId
 local seq = 0
 local started = false
+local rng = Random.new()
 
 -- helpers ----------------------------------------------------------------------------------------
 
@@ -191,6 +227,21 @@ local function setAnchored(players: { Player }, anchored: boolean)
 	end
 end
 
+-- v1/v1.5 readers only know Alarm/Active/Results: driving to the call counts as Active for them.
+local function legacyState(state: string): string
+	return if state == "Dispatched" then "Active" else state
+end
+
+local function childFolder(parent: Instance, name: string): Folder
+	local f = parent:FindFirstChild(name)
+	if not (f and f:IsA("Folder")) then
+		f = Instance.new("Folder")
+		f.Name = name
+		f.Parent = parent
+	end
+	return f :: Folder
+end
+
 -- Workspace attrs = a summary of the newest live run (v1 HUD/Alarm controllers read these).
 local function summarize()
 	local newest: Live? = nil
@@ -200,7 +251,7 @@ local function summarize()
 		end
 	end
 	if newest then
-		workspace:SetAttribute(Names.Attr.RoundState, newest.flow.state)
+		workspace:SetAttribute(Names.Attr.RoundState, legacyState(newest.flow.state))
 		workspace:SetAttribute(Names.Attr.MissionId, newest.locationId)
 		local endsAt = if newest.flow.endsAt > 0
 			then newest.flow.endsAt
@@ -214,11 +265,29 @@ end
 
 local function publish(run: Live)
 	local state = run.flow.state
-	if state ~= "Done" then
-		run.model:SetAttribute(Names.Attr.RoundState, state)
-	end
 	local endsAt = if run.flow.endsAt > 0 then run.flow.endsAt else run.flow.alarmEndsAt + run.flow.timing.seconds
-	run.model:SetAttribute(Names.Attr.RoundEndsAt, endsAt)
+	if run.mode == "dispatch" then
+		local folder, mirror = run.folder, run.mirror
+		if state ~= "Done" then
+			if folder then
+				folder:SetAttribute(Names.Attr.RoundState, state)
+			end
+			if mirror then
+				mirror:SetAttribute(Names.Attr.RoundState, legacyState(state))
+			end
+		end
+		if folder then
+			folder:SetAttribute(Names.Attr.RoundEndsAt, endsAt)
+		end
+		if mirror then
+			mirror:SetAttribute(Names.Attr.RoundEndsAt, endsAt)
+		end
+	else
+		if state ~= "Done" then
+			run.model:SetAttribute(Names.Attr.RoundState, state)
+		end
+		run.model:SetAttribute(Names.Attr.RoundEndsAt, endsAt)
+	end
 	summarize()
 end
 
@@ -255,6 +324,98 @@ local function prunePlayers(run: Live)
 	end
 end
 
+-- v2: the site's arrival target: ArrivalZone part, else its TruckSpot, else nil (use the pivot).
+local function sitePart(site: Instance, name: string, tag: string?): BasePart?
+	local named = site:FindFirstChild(name, true)
+	if named and named:IsA("BasePart") then
+		return named
+	end
+	if tag then
+		for _, inst in CollectionService:GetTagged(tag) do
+			if inst:IsA("BasePart") and inst:IsDescendantOf(site) then
+				return inst
+			end
+		end
+	end
+	return nil
+end
+
+local function arrivalTarget(site: Instance): BasePart?
+	return sitePart(site, SITE.ArrivalZone, nil) or sitePart(site, "TruckSpot", Names.Tag.TruckSpot)
+end
+
+local function sitePos(site: Instance): Vector3
+	local target = arrivalTarget(site)
+	if target then
+		return target.Position
+	end
+	return if site:IsA("Model") then site:GetPivot().Position else Vector3.zero
+end
+
+local function inArrival(site: Instance, pos: Vector3): boolean
+	local zone = sitePart(site, SITE.ArrivalZone, nil)
+	local margin = GameConfig.ArrivalMargin or 4
+	if zone then
+		local rel = zone.CFrame:PointToObjectSpace(pos)
+		local half = zone.Size / 2
+		return math.abs(rel.X) <= half.X + margin
+			and math.abs(rel.Z) <= half.Z + margin
+			and math.abs(rel.Y) <= math.max(half.Y, 30) + margin
+	end
+	local centre = sitePos(site)
+	local flat = Vector3.new(pos.X - centre.X, 0, pos.Z - centre.Z)
+	return flat.Magnitude <= (GameConfig.ArrivalRadius or 40) and math.abs(pos.Y - centre.Y) <= 40
+end
+
+-- Every truck that belongs to (or is driven by) a squad member.
+local function squadTrucks(players: { Player }): { Model }
+	local ids: { [number]: boolean } = {}
+	for _, p in players do
+		ids[p.UserId] = true
+	end
+	local out: { Model } = {}
+	local seen: { [Instance]: boolean } = {}
+	for _, t in CollectionService:GetTagged(Names.Tag.Truck) do
+		if t:IsA("Model") and t:IsDescendantOf(workspace) then
+			local owner = t:GetAttribute(SITE.OwnerUserId)
+			local driver = t:GetAttribute(SITE.Driver)
+			if (type(owner) == "number" and ids[owner]) or (type(driver) == "number" and ids[driver]) then
+				seen[t] = true
+				table.insert(out, t)
+			end
+		end
+	end
+	local Vehicle = services.VehicleService
+	if Vehicle and type(Vehicle.GetTruck) == "function" then
+		for _, p in players do
+			local ok, t = pcall(Vehicle.GetTruck, Vehicle, p)
+			if ok and typeof(t) == "Instance" and t:IsA("Model") and not seen[t] and t:GetAttribute(SITE.OwnerUserId) == p.UserId then
+				seen[t] = true
+				table.insert(out, t)
+			end
+		end
+	end
+	return out
+end
+
+local function squadArrived(run: Live): boolean
+	if not run.model.Parent then
+		return false
+	end
+	for _, p in run.players do
+		local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") and inArrival(run.model, root.Position) then
+			return true
+		end
+	end
+	for _, t in squadTrucks(run.players) do
+		if inArrival(run.model, t:GetPivot().Position) then
+			return true
+		end
+	end
+	return false
+end
+
 local function observe(run: Live): MissionFlow.Obs
 	prunePlayers(run)
 	local alive = 0
@@ -270,6 +431,7 @@ local function observe(run: Live): MissionFlow.Obs
 		trapped = trapped,
 		players = #run.players,
 		alive = alive,
+		arrived = if run.flow.state == "Dispatched" then squadArrived(run) else nil,
 	}
 end
 
@@ -463,7 +625,11 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		stats = stats,
 		missionId = run.missionId,
 		instanceId = run.id,
-	}
+		-- v2 extras (ResultsController ignores unknown fields)
+		siteId = run.siteId,
+		arrivalSeconds = if run.flow.arrivedAt > 0 then math.floor(run.flow.arrivedAt - run.flow.startedAt) else nil,
+		fastArrival = run.flow.fast,
+	} :: any
 end
 
 local HEADLINE: { [string]: string } = {
@@ -513,9 +679,42 @@ local function onActive(run: Live)
 	print(`[MissionService] {run.id} ({run.missionId}) ACTIVE: {#run.players} players, {run.firesLit} fires lit`)
 end
 
+local function giveLoadout(players: { Player })
+	safe("GiveLoadout", function()
+		local Tool = services.ToolService
+		if Tool and type(Tool.GiveLoadout) == "function" then
+			for _, p in players do
+				Tool:GiveLoadout(p)
+			end
+		end
+	end)
+end
+
+-- v2: first squad member (or truck) inside the ArrivalZone.
+local function onArrived(run: Live)
+	local secs = math.floor(run.flow.arrivedAt - run.flow.startedAt)
+	if run.flow.fast then
+		notify(run.players, `ON SCENE in {secs}s! FAST RESPONSE +{GameConfig.ArrivalBonusSeconds}s`, "good")
+		count("missions_fast_arrival")
+	else
+		notify(run.players, `ON SCENE! Grab your gear from the truck.`, "good")
+	end
+	playSound(run.players, "RollOut")
+	-- v2 gear comes off the truck (InventoryService); until that lands, hand out the v1 loadout here
+	if services.InventoryService == nil then
+		giveLoadout(run.players)
+	end
+	MissionService.RoundStarted:Fire(run.locationId)
+	count("rounds_started")
+	count("missions_arrived")
+	print(`[MissionService] {run.id} ({run.missionId}) ARRIVED at {run.siteId} after {secs}s (fast={run.flow.fast})`)
+end
+
 local function onEnded(run: Live)
 	safe("release", function()
-		setAnchored(run.players, false)
+		if run.mode == "instance" then
+			setAnchored(run.players, false)
+		end
 	end)
 	local payload = buildPayload(run)
 	run.payload = payload
@@ -536,7 +735,59 @@ local function onEnded(run: Live)
 	)
 end
 
+-- v2: results over. Players stay where they are (they drive back); the site is reset and freed.
+local function onDoneDispatch(run: Live)
+	local players = table.clone(run.players)
+	runs[run.id] = nil
+	for _, p in players do
+		if p.Parent == Players and p:GetAttribute(Names.Attr.InstanceId) == run.id then
+			p:SetAttribute(Names.Attr.InstanceId, "")
+		end
+	end
+	notify(players, "Call closed. Drive back to the station!", "info")
+	safe("ClearWaypoint", function()
+		local Nav = services.NavigationService
+		if Nav and type(Nav.ClearWaypoint) == "function" then
+			Nav:ClearWaypoint(players)
+		end
+	end)
+	safe("cleanup peers", function()
+		local Rescue = services.RescueService
+		if Rescue and type(Rescue.ClearInstance) == "function" then
+			Rescue:ClearInstance(run.id)
+		end
+		local Fire = services.FireService
+		if Fire and type(Fire.ClearInstance) == "function" then
+			Fire:ClearInstance(run.id)
+		end
+	end)
+	local siteId = run.siteId
+	safe("RebuildSite", function()
+		local Map = services.MapService
+		if siteId and Map and type(Map.RebuildSite) == "function" then
+			Map:RebuildSite(siteId)
+		elseif run.model.Parent then
+			run.model:SetAttribute(SITE.Busy, false)
+			run.model:SetAttribute(Names.Attr.InstanceId, nil)
+		end
+	end)
+	if siteId and claimed[siteId] == run.id then
+		claimed[siteId] = nil
+	end
+	if run.folder then
+		run.folder:Destroy()
+	end
+	if run.mirror then
+		run.mirror:Destroy()
+	end
+	summarize()
+end
+
 local function onDone(run: Live)
+	if run.mode == "dispatch" then
+		onDoneDispatch(run)
+		return
+	end
 	local players = table.clone(run.players)
 	runs[run.id] = nil
 	for _, p in players do
@@ -592,6 +843,8 @@ local function handle(run: Live, events: { string })
 			playSound(run.players, "Countdown")
 		elseif ev == "active" then
 			onActive(run)
+		elseif ev == "arrived" then
+			onArrived(run)
 		elseif ev == "ended" then
 			onEnded(run)
 		elseif ev == "done" then
@@ -608,7 +861,8 @@ local function tickAll()
 	local t = now()
 	for _, run in runs do
 		local ok, err = pcall(function()
-			local obs = if run.flow.state == "Active" then observe(run) else nil
+			local st = run.flow.state
+			local obs = if st == "Active" or st == "Dispatched" then observe(run) else nil
 			handle(run, MissionFlow.tick(run.flow, t, obs))
 		end)
 		if not ok then
@@ -628,6 +882,20 @@ function MissionService:Start()
 	resultsRemote = Net.event("Mission", "Results")
 	started = true
 	summarize()
+
+	-- v2: "BACK TO STATION" on the results screen (ResultsController fires Lobby/BackToStation). Dispatched
+	-- squads aren't teleported home when a call closes, so this is their shortcut.
+	Net.onServer(Net.event("Lobby", "BackToStation"), { rate = 1, burst = 1 }, function(player: Player)
+		local run = runOf(player)
+		if run and (run.flow.state == "Dispatched" or run.flow.state == "Active" or run.flow.state == "Alarm") then
+			pcall(Net.notify, player, "Finish the call first!", "bad")
+			return
+		end
+		local Lobby = services.LobbyService
+		if Lobby and type(Lobby.ReturnToLobby) == "function" then
+			Lobby:ReturnToLobby({ player })
+		end
+	end)
 
 	local Fire = services.FireService
 	if Fire and Fire.Extinguished then
@@ -700,6 +968,226 @@ function MissionService:Start()
 	end)
 end
 
+-- run setup -----------------------------------------------------------------------------------------
+
+-- per-player blame ledger: a global Reset only when nobody else is mid-mission
+local function resetBlame(players: { Player })
+	safe("Blame reset", function()
+		local Blame = services.BlameService
+		if not Blame then
+			return
+		end
+		if type(Blame.ResetPlayers) == "function" then
+			Blame:ResetPlayers(players)
+		elseif next(runs) == nil and type(Blame.Reset) == "function" then
+			Blame:Reset()
+		end
+	end)
+end
+
+-- Where dispatch distances are measured from: the truck bays, else the station spawn pads.
+local function stationPos(): Vector3?
+	for _, tag in { SITE.TruckBay, Names.Tag.StationSpawn } do
+		local sum, n = Vector3.zero, 0
+		for _, inst in CollectionService:GetTagged(tag) do
+			if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) then
+				sum += inst.Position
+				n += 1
+			end
+		end
+		if n > 0 then
+			return sum / n
+		end
+	end
+	local Map = services.MapService
+	if Map and type(Map.GetSpawnCFrame) == "function" then
+		local ok, cf = pcall(Map.GetSpawnCFrame, Map, 1)
+		if ok and typeof(cf) == "CFrame" then
+			return cf.Position
+		end
+	end
+	return nil
+end
+
+local function siteIdOf(site: Instance): string
+	local v = site:GetAttribute(SITE.SiteId)
+	return if type(v) == "string" and v ~= "" then v else site.Name
+end
+
+local function allSites(): { Model }
+	local Map = services.MapService
+	if Map and type(Map.GetSites) == "function" then
+		local ok, list = pcall(Map.GetSites, Map)
+		if ok and type(list) == "table" then
+			return list
+		end
+	end
+	local out: { Model } = {}
+	for _, inst in CollectionService:GetTagged(SITE.Tag) do
+		if inst:IsA("Model") and inst:IsDescendantOf(workspace) then
+			table.insert(out, inst)
+		end
+	end
+	return out
+end
+
+-- The nearest free IncidentSite for the mission (MissionFlow.pickSite), or nil.
+local function chooseSite(missionId: string): (Model?, string?)
+	local origin = stationPos()
+	local infos: { MissionFlow.SiteInfo } = {}
+	local byId: { [string]: Model } = {}
+	for _, site in allSites() do
+		local sid = siteIdOf(site)
+		if byId[sid] then
+			continue -- duplicate SiteId: first one wins
+		end
+		byId[sid] = site
+		local types = site:GetAttribute(SITE.MissionTypes)
+		table.insert(infos, {
+			id = sid,
+			types = if type(types) == "string" then types else nil,
+			busy = site:GetAttribute(SITE.Busy) == true or claimed[sid] ~= nil,
+			dist = if origin then (sitePos(site) - origin).Magnitude else 0,
+		})
+	end
+	local sid = MissionFlow.pickSite(infos, missionId, GameConfig.SiteTieStuds, function(n: number): number
+		return rng:NextInteger(1, n)
+	end)
+	if not sid then
+		return nil, nil
+	end
+	return byId[sid], sid
+end
+
+-- v2: dispatch the squad to a free IncidentSite. nil when no site can host the mission.
+local function startDispatch(players: { Player }, def: any, seconds: number?): string?
+	local site, siteId = chooseSite(def.id)
+	if not (site and siteId) then
+		return nil
+	end
+	seq += 1
+	local id = `M{seq}`
+	claimed[siteId] = id
+	-- fresh copy of the site, scoped to this run (FireService indexes it under the run id)
+	local Map = services.MapService
+	if Map and type(Map.BindSite) == "function" then
+		local ok, bound = pcall(Map.BindSite, Map, siteId, id)
+		if ok and typeof(bound) == "Instance" and bound:IsA("Model") then
+			site = bound
+		elseif not ok then
+			warn(`[MissionService] BindSite {siteId} failed: {bound}`)
+		end
+	end
+	local model = site :: Model
+	model:SetAttribute(SITE.Busy, true)
+	model:SetAttribute(Names.Attr.InstanceId, id)
+
+	local origin = stationPos()
+	local dist = if origin then (sitePos(model) - origin).Magnitude else 0
+	local travel = MissionFlow.travelAllowance(dist, {
+		speed = GameConfig.TravelSpeed,
+		min = GameConfig.TravelMinSeconds,
+		max = GameConfig.TravelMaxSeconds,
+	})
+	local fastIn = if (GameConfig.FastArrivalSeconds or 0) > 0 then GameConfig.FastArrivalSeconds else math.floor(travel * 0.75)
+	local flow = MissionFlow.newDispatch({
+		seconds = seconds or def.seconds or GameConfig.RoundSeconds,
+		travel = travel,
+		fastArrival = fastIn,
+		arrivalBonus = GameConfig.ArrivalBonusSeconds,
+		alarm = 0,
+		intro = 0,
+		results = GameConfig.DispatchResultsSeconds or GameConfig.ResultsSeconds,
+		grace = GameConfig.AllOutGraceSeconds,
+	}, now())
+
+	local addr = model:GetAttribute(SITE.Address)
+	local address = if type(addr) == "string" and addr ~= "" then addr else siteId
+	local call = def.call or def.title or "Fire"
+	local siteLoc = model:GetAttribute(Names.Attr.LocationId)
+	local locationId = if type(siteLoc) == "string" and siteLoc ~= "" then siteLoc else def.locationId
+
+	local function runFolder(parent: Instance): Folder
+		local old = parent:FindFirstChild(id)
+		if old then
+			old:Destroy()
+		end
+		local f = Instance.new("Folder")
+		f.Name = id
+		f:SetAttribute(Names.Attr.InstanceId, id)
+		f:SetAttribute(Names.Attr.MissionId, def.id)
+		f:SetAttribute(SITE.SiteId, siteId)
+		f:SetAttribute(Names.Attr.LocationId, locationId)
+		f:SetAttribute(SITE.Address, address)
+		f:SetAttribute("Call", call)
+		f:SetAttribute("DispatchedAt", flow.startedAt)
+		local ref = Instance.new("ObjectValue")
+		ref.Name = "Site"
+		ref.Value = model
+		ref.Parent = f
+		f.Parent = parent
+		return f
+	end
+
+	local squadId = players[1]:GetAttribute(Names.Attr.SquadId)
+	local run: Live = {
+		id = id,
+		seq = seq,
+		def = def,
+		missionId = def.id,
+		locationId = locationId,
+		model = model,
+		mode = "dispatch",
+		siteId = siteId,
+		folder = runFolder(childFolder(workspace, "Runs")),
+		mirror = runFolder(childFolder(workspace, "Instances")),
+		label = `{call} at {address}`,
+		squadId = if type(squadId) == "string" and squadId ~= "" then squadId else nil,
+		players = players,
+		flow = flow,
+		firesOut = 0,
+		firesLit = 0,
+		downs = 0,
+		payload = nil,
+	}
+	resetBlame(players)
+	runs[id] = run
+	for _, p in players do
+		p:SetAttribute(Names.Attr.InstanceId, id)
+	end
+	publish(run)
+
+	-- the call comes in: station alarm, banner, toast
+	if alarmRemote then
+		for _, p in players do
+			alarmRemote:FireClient(p, def.id, address)
+		end
+	end
+	notify(players, `DISPATCH: {run.label}`, "bad")
+	playSound(players, "Alarm")
+	safe("SetWaypoint", function()
+		local Nav = services.NavigationService
+		if Nav and type(Nav.SetWaypoint) == "function" then
+			local target: any = arrivalTarget(model) or sitePos(model)
+			Nav:SetWaypoint(players, target, run.label)
+		end
+	end)
+	-- it gets worse while you drive
+	safe("start fires", function()
+		run.firesLit = lightFires(run)
+	end)
+	safe("spawn rescues", function()
+		spawnRescues(run)
+	end)
+	MissionService.MissionStarted:Fire(id, def.id)
+	count("missions_started")
+	count("missions_dispatched")
+	print(
+		`[MissionService] {id} DISPATCHED: {def.id} at {siteId} ({address}), {math.floor(dist)} studs, {travel}s travel, {run.firesLit} fires, {#players} player(s)`
+	)
+	return id
+end
+
 -- public API -----------------------------------------------------------------------------------------
 
 function MissionService:StartMission(squad: { Player }, missionId: string, seconds: number?): string?
@@ -725,6 +1213,18 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 	if #players == 0 then
 		warn(`[MissionService] StartMission {missionId}: nobody free to play`)
 		return nil
+	end
+	if GameConfig.UseInstances ~= true then
+		local id = startDispatch(players, def, seconds)
+		if id then
+			return id
+		end
+		count("dispatch_no_site")
+		if GameConfig.InstanceFallback ~= true then
+			notify(players, `No free {def.call or def.title} call right now. Try another mission!`, "bad")
+			return nil
+		end
+		warn(`[MissionService] no free IncidentSite for {missionId}: falling back to a mission instance`)
 	end
 	local Map = services.MapService
 	if not (Map and type(Map.BuildInstance) == "function") then
@@ -754,6 +1254,11 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 		missionId = def.id,
 		locationId = def.locationId,
 		model = model,
+		mode = "instance",
+		siteId = nil,
+		folder = nil,
+		mirror = nil,
+		label = def.title or GameConfig.LocationName,
 		squadId = if type(squadId) == "string" and squadId ~= "" then squadId else nil,
 		players = players,
 		flow = flow,
@@ -765,18 +1270,7 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 	model:SetAttribute(Names.Attr.InstanceId, id)
 	model:SetAttribute(Names.Attr.MissionId, def.id)
 
-	-- per-player blame ledger: a global Reset only when nobody else is mid-mission
-	safe("Blame reset", function()
-		local Blame = services.BlameService
-		if not Blame then
-			return
-		end
-		if type(Blame.ResetPlayers) == "function" then
-			Blame:ResetPlayers(players)
-		elseif next(runs) == nil and type(Blame.Reset) == "function" then
-			Blame:Reset()
-		end
-	end)
+	resetBlame(players)
 
 	runs[id] = run
 	for _, p in players do
@@ -823,9 +1317,13 @@ function MissionService:GetMission(instanceId: string): Types.MissionRun?
 		locationId = run.locationId,
 		squadId = run.squadId,
 		players = ids,
-		state = if state == "Done" then "Results" else state,
+		state = if state == "Done" then "Results" else legacyState(state),
 		endsAt = if run.flow.endsAt > 0 then run.flow.endsAt else run.flow.alarmEndsAt + run.flow.timing.seconds,
-	}
+		-- v2 extras
+		siteId = run.siteId,
+		roundState = state, -- raw: "Dispatched" while driving
+		mode = run.mode,
+	} :: any
 end
 
 function MissionService:GetMissions(): { Types.MissionRun }
@@ -900,14 +1398,32 @@ function MissionService:_selftest(): (boolean, string)
 	if evs ~= "teleport,count1,active" then
 		return false, `MissionFlow intro gave {evs}`
 	end
-	local live = 0
+	local d = MissionFlow.newDispatch({ seconds = 10, travel = 5, fastArrival = 3, arrivalBonus = 2, alarm = 0, intro = 0, results = 1, grace = 0 }, 0)
+	local obs = { burning = 1, rescued = 0, trapped = 0, players = 1, alive = 1, arrived = true }
+	evs = table.concat(MissionFlow.tick(d, 1, obs), ",")
+	if evs ~= "arrived" or d.endsAt ~= 17 then
+		return false, `MissionFlow dispatch gave {evs} (endsAt {d.endsAt})`
+	end
+	local live, sites = 0, 0
 	for _, run in runs do
 		live += 1
 		if not run.model then
 			return false, `{run.id} has no model`
 		end
+		if run.mode == "dispatch" then
+			if not (run.folder and run.folder.Parent and run.mirror and run.mirror.Parent) then
+				return false, `{run.id} lost its Runs/Instances folder`
+			end
+			if run.siteId and claimed[run.siteId] ~= run.id then
+				return false, `{run.id} does not hold its site {run.siteId}`
+			end
+		end
 	end
-	return true, `state {self:GetState()}, {live} running`
+	for _ in allSites() do
+		sites += 1
+	end
+	local mode = if GameConfig.UseInstances == true then "instances" else "dispatch"
+	return true, `{mode}: state {self:GetState()}, {live} running, {sites} incident sites`
 end
 
 return MissionService
