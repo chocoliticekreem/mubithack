@@ -4,15 +4,20 @@
 -- Lib/Map/Props/TruckBuilder at the TruckBay whose attr Bay = their Helmet (1-4), or at a reserve
 -- spot in front of the station when that bay is taken / there are no TruckBay parts yet. Trucks live
 -- in Workspace.Trucks (so a station rebuild never eats them) and are destroyed when the owner leaves.
--- Driving: the owner uses the "Drive" prompt on a cab door (hidden VehicleSeat "DriveSeat"); their
--- client owns the truck's physics and VehicleController simulates the goofy bouncy suspension.
--- Anyone else gets a "Ride" prompt: up to 4 crew on the back benches ("CrewSeat_1..4").
+-- Getting in is goofy: the cab doors are PHYSICAL (HingeConstraint "DoorHinge", servo + bouncy limits).
+-- "Open door" on the handle (or pull it with physics hands) swings it open with a wobble; only then
+-- does the seat prompt on that side show ("Drive" for the owner on the left, "Ride shotgun" on the
+-- right). Back benches ("CrewSeat_1..4") have their own "Hop on" prompts. Getting out pops the door
+-- open and puts you outside it. Driving off with a door open lets it swing on inertia and SLAM shut,
+-- bonking anyone in the way; a hard ram can knock a door clean off (RespawnTruck builds a new truck).
+-- The driver's client owns the truck's physics and VehicleController simulates the goofy suspension.
 -- With nobody driving a truck is anchored (parked), so it never drifts or blocks a round.
 --
 -- Public API (docs/game/08 "Vehicles"):
 --   VehicleService:GetTruck(player: Player): Model?
 --   VehicleService:RespawnTruck(player: Player): boolean   -- near your truck: flip it upright in place;
---                                                            far away / lost: back to your bay (rebuilt if gone)
+--                                                            far away: back to your bay; lost / a door
+--                                                            fell off: a fresh truck at your bay
 --   VehicleService:ParkAt(player: Player, cf: CFrame): boolean   -- cf = ground point, truck faces cf.LookVector
 --   VehicleService:GetDriver(truck: Model?): Player?
 --   VehicleService:GetOwner(truck: Model?): Player?
@@ -24,14 +29,18 @@
 --          Driven(driver: Player, studs: number)          -- a driver got out (studs travelled)
 --          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
 -- Remotes: Vehicle/Horn (C->S), Vehicle/Siren (C->S toggle), Vehicle/Respawn (C->S),
---          Vehicle/Honked (S->C all: truck: Model)
+--          Vehicle/Honked (S->C all: truck: Model), Vehicle/Pop (S->C all: part, text, kind) for SLAM!/BONK!
+-- Truck attrs also: DoorOpen_L/R, DoorGone_L/R (booleans). Optional: HandsService:RegisterGrabbable(doorPanel).
 -- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), SirenOn: boolean, Driver: number (UserId, 0 = none),
 --   InstanceId: string ("" for player trucks)
 -- Optional hook: PhysicsFxService:TruckHit(truck: Model, target: Model | BasePart, velocity: Vector3): boolean
 --   (true = handled; otherwise this service ragdolls players / launches loose props itself)
--- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns
+-- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns,
+--   truck_door_bonks, truck_doors_lost
 -- Test hooks (DevHook only): _selftest(), _seat(player)
 local CollectionService = game:GetService("CollectionService")
+local Debris = game:GetService("Debris")
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -56,6 +65,20 @@ VehicleService.Driven = Signal.new() :: Signal.Signal<Player, number>
 VehicleService.RanOver = Signal.new() :: Signal.Signal<Player, Player>
 
 local TRUCK_BAY_TAG = "TruckBay"
+local BODY_GROUP = "TruckBody"
+local DOOR_GROUP = "TruckDoor" -- doors don't collide with their own cab, only with people and props
+
+type Door = {
+	side: string, -- "L" | "R"
+	model: Model,
+	panel: BasePart,
+	hinge: HingeConstraint?,
+	prompt: ProximityPrompt?,
+	open: boolean,
+	gone: boolean, -- fell off
+	free: boolean, -- swinging on inertia (about to slam)
+	freeSince: number,
+}
 
 type Truck = {
 	model: Model,
@@ -71,6 +94,9 @@ type Truck = {
 	reserve: number, -- reserve slot when bay == 0
 	occupants: { [Seat | VehicleSeat]: Player },
 	removing: boolean, -- destroyed on purpose (no auto-respawn)
+	doors: { [string]: Door },
+	seatPrompts: { [Seat | VehicleSeat]: ProximityPrompt },
+	lastVel: Vector3?,
 }
 
 -- TruckBuilder's PrimaryPart (Chassis) sits 2 studs above the ground point it was built on.
@@ -85,6 +111,7 @@ local byInstance: { [string]: Truck } = {} -- legacy per-mission trucks
 local lastRespawn: { [Player]: number } = {}
 local runOverAt: { [Player]: number } = {}
 local propHitAt: { [BasePart]: number } = {}
+local bonkAt: { [Player]: number } = {}
 local trucksFolder: Folder? = nil
 local spawnFor: (player: Player) -> any -- forward (register's auto-respawn needs it)
 
@@ -368,7 +395,7 @@ local function clearDecor(cf: CFrame)
 	end
 end
 
----------------------------------------------------------------------------- seats
+---------------------------------------------------------------------------- seats + doors
 
 local function unseat(seat: Seat | VehicleSeat)
 	local weld = seat:FindFirstChild("SeatWeld")
@@ -386,14 +413,198 @@ local function occupantPlayer(seat: Seat | VehicleSeat): Player?
 	return if occ then Players:GetPlayerFromCharacter(occ.Parent) else nil
 end
 
-local function setDrivePrompts(t: Truck, enabled: boolean)
-	for _, side in { "L", "R" } do
-		local door = t.model:FindFirstChild(`DoorPanel_{side}`)
-		local p = door and door:FindFirstChild("DrivePrompt")
-		if p and p:IsA("ProximityPrompt") then
-			p.Enabled = enabled
+local function popAt(part: Instance, text: string, kind: string)
+	pcall(function()
+		Net.event("Vehicle", "Pop"):FireAllClients(part, text, kind)
+	end)
+end
+
+local function oneShot(parent: Instance, id: string, speed: number, volume: number)
+	if id == "" then
+		return
+	end
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	s.PlaybackSpeed = speed
+	s.Volume = volume
+	s.RollOffMaxDistance = 120
+	s.Parent = parent
+	s:Play()
+	Debris:AddItem(s, 4)
+end
+
+-- Seat prompts only show when you could actually get in: the seat is free and (for the cab) the door
+-- on that side is open or gone. Handle prompts say Open / Close.
+local function refreshPrompts(t: Truck)
+	for seat, p in t.seatPrompts do
+		local free = seat.Occupant == nil
+		local side = seat:GetAttribute("DoorSide")
+		local doorOk = true
+		if type(side) == "string" then
+			local d = t.doors[side]
+			doorOk = d == nil or d.open or d.gone
+		end
+		p.Enabled = free and doorOk
+	end
+	for _, d in t.doors do
+		if d.prompt then
+			d.prompt.Enabled = not d.gone
+			d.prompt.ActionText = if d.open then "Close door" else "Open door"
 		end
 	end
+end
+
+local function setDoor(t: Truck, d: Door, open: boolean)
+	local h = d.hinge
+	if d.gone or not h or not h.Parent then
+		return
+	end
+	local wasOpen = d.open
+	d.open = open
+	d.free = false
+	h.ActuatorType = Enum.ActuatorType.Servo
+	h.AngularSpeed = VehicleConfig.DoorSpeed
+	h.ServoMaxTorque = VehicleConfig.DoorTorque
+	-- aim AT the limit: the door slams into it and the limit's restitution makes it wobble back
+	h.TargetAngle = if open then VehicleConfig.DoorDir * VehicleConfig.DoorOpenAngle else 0
+	t.model:SetAttribute(`DoorOpen_{d.side}`, open)
+	if wasOpen ~= open then
+		oneShot(d.panel, VehicleConfig.DoorSlamSoundId, if open then 1.3 else 0.7, if open then 0.5 else 0.9)
+	end
+	refreshPrompts(t)
+end
+
+local function bonkNear(t: Truck, d: Door, now: number)
+	local panel = d.panel
+	if not panel.Parent or panel.AssemblyAngularVelocity.Magnitude < 1.5 then
+		return
+	end
+	for _, p in Players:GetPlayers() do
+		local char = p.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not char or not root or not hum or hum.SeatPart or (root.Position - panel.Position).Magnitude > 3.6 then
+			continue
+		end
+		if now - (bonkAt[p] or 0) < 1.2 then
+			continue
+		end
+		bonkAt[p] = now
+		count("truck_door_bonks")
+		local away = root.Position - t.chassis.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		away = if away.Magnitude > 0.1 then away.Unit else Vector3.new(1, 0, 0)
+		local push = away * VehicleConfig.DoorBonkPush + Vector3.new(0, 18, 0)
+		if not physicsFxHit(t, char, push) then
+			ragdoll(char, 1.2, push)
+		end
+		popAt(root, "BONK!", "bonk")
+		oneShot(root, VehicleConfig.BonkSoundId, 0.9 + math.random() * 0.3, 0.8)
+	end
+end
+
+-- Rammed hard: the door flies off (cartoon). The side then counts as open for getting in.
+local function breakDoor(t: Truck, d: Door)
+	if d.gone then
+		return
+	end
+	d.gone = true
+	d.open = true
+	if d.hinge then
+		d.hinge:Destroy()
+		d.hinge = nil
+	end
+	local panel = d.panel
+	t.model:SetAttribute(`DoorGone_{d.side}`, true)
+	d.model.Parent = folder()
+	d.model.Name = "LooseDoor"
+	for _, part in d.model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = "Default"
+			part.CanCollide = part == panel
+		end
+	end
+	pcall(function()
+		panel:SetNetworkOwner(nil)
+	end)
+	local out = (panel.Position - t.chassis.Position)
+	out = Vector3.new(out.X, 0, out.Z)
+	out = if out.Magnitude > 0.1 then out.Unit else Vector3.new(1, 0, 0)
+	panel.AssemblyLinearVelocity = t.chassis.AssemblyLinearVelocity * 0.6 + out * 30 + Vector3.new(0, 28, 0)
+	panel.AssemblyAngularVelocity = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 18
+	Debris:AddItem(d.model, 12)
+	popAt(panel, "CLONK! DOOR OFF!", "bonk")
+	oneShot(panel, soundId("", "DoorBreak"), 1.2, 0.8)
+	count("truck_doors_lost")
+	if t.driver then
+		Net.notify(t.driver, "Your door fell off. Very aerodynamic.", "info")
+	end
+	refreshPrompts(t)
+end
+
+-- 10 Hz: open doors swing free when the truck drives off and SLAM shut; pulled-open doors latch open.
+local function doorTick(t: Truck, now: number)
+	local c = t.chassis
+	local speed = c.AssemblyLinearVelocity.Magnitude
+	for _, d in t.doors do
+		local h = d.hinge
+		if d.gone then
+			continue
+		end
+		if not h or not h.Parent or not d.panel.Parent then
+			d.gone = true
+			refreshPrompts(t)
+			continue
+		end
+		local angle = h.CurrentAngle * VehicleConfig.DoorDir
+		if d.open and not d.free and t.driver and not c.Anchored and speed > VehicleConfig.DoorSwingSpeed then
+			d.free = true
+			d.freeSince = now
+			h.ActuatorType = Enum.ActuatorType.None -- inertia swings it shut as the truck pulls away
+		end
+		if d.free then
+			bonkNear(t, d, now)
+			if angle < 8 or now - d.freeSince > VehicleConfig.DoorFreeSeconds then
+				setDoor(t, d, false)
+				popAt(d.panel, "SLAM!", "slam")
+				bonkNear(t, d, now)
+			end
+		elseif not d.open and angle > 30 then
+			setDoor(t, d, true) -- yanked open by hand / physics
+		end
+	end
+end
+
+local function exitCF(t: Truck, seat: Instance): CFrame
+	local c = t.chassis.CFrame
+	if seat:IsA("BasePart") then
+		local rel = c:PointToObjectSpace(seat.Position)
+		if rel.Z < -4 then -- cab seat: out of the side door
+			local side = if rel.X < 0 then -1 else 1
+			local pos = c * Vector3.new(side * 7.6, 1.5, -4.2)
+			return CFrame.lookAt(pos, pos + c.RightVector * side)
+		end
+		local side = if rel.X < 0 then -1 else 1
+		local pos = c * Vector3.new(side * 3, 1.5, 16.5)
+		return CFrame.lookAt(pos, pos - c.LookVector)
+	end
+	return c * CFrame.new(-7.6, 1.5, -4.2)
+end
+
+-- Fallback for exits the client didn't place (e.g. the seat weld broke): don't leave anyone in the cab.
+local function placeOutside(t: Truck, seat: Instance, player: Player)
+	task.delay(0.3, function()
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not root or not hum or hum.SeatPart or not t.chassis.Parent then
+			return
+		end
+		local rel = t.chassis.CFrame:PointToObjectSpace(root.Position)
+		if math.abs(rel.X) < 5.2 and rel.Z > -13.5 and rel.Z < 14 and rel.Y < 9 then
+			char:PivotTo(exitCF(t, seat))
+		end
+	end)
 end
 
 local function onDriverChanged(t: Truck)
@@ -416,7 +627,6 @@ local function onDriverChanged(t: Truck)
 		t.driveStart = nil
 		VehicleService.Driven:Fire(old, studs)
 	end
-	setDrivePrompts(t, player == nil)
 	if player then
 		t.driver = player
 		t.driveStart = t.chassis.Position
@@ -425,8 +635,14 @@ local function onDriverChanged(t: Truck)
 		pcall(function()
 			t.chassis:SetNetworkOwner(player)
 		end)
+		for _, d in t.doors do
+			if not d.gone then
+				pcall(function()
+					d.panel:SetNetworkOwner(player)
+				end)
+			end
+		end
 		count("truck_drives")
-		Net.notify(player, "WASD drive · SPACE drift · H honk · F siren · R unflip · E hop out", "info")
 	else
 		t.model:SetAttribute("Driver", 0)
 		task.delay(0.4, function()
@@ -447,6 +663,13 @@ local function watchSeat(t: Truck, seat: Seat | VehicleSeat)
 		if was then
 			t.occupants[seat] = nil
 			VehicleService.Exited:Fire(was, t.model)
+			-- getting out of the cab pops that side's door open
+			local side = seat:GetAttribute("DoorSide")
+			local d = if type(side) == "string" then t.doors[side] else nil
+			if d and not d.open and not d.gone then
+				setDoor(t, d, true)
+			end
+			placeOutside(t, seat, was)
 		end
 		if now then
 			t.occupants[seat] = now
@@ -455,17 +678,8 @@ local function watchSeat(t: Truck, seat: Seat | VehicleSeat)
 		if seat == t.seat then
 			onDriverChanged(t)
 		end
+		refreshPrompts(t)
 	end)
-end
-
-local function freeCrewSeat(t: Truck): Seat?
-	for i = 1, 4 do
-		local s = t.model:FindFirstChild(`CrewSeat_{i}`)
-		if s and s:IsA("Seat") and not s.Occupant then
-			return s
-		end
-	end
-	return nil
 end
 
 local function canSit(player: Player): Humanoid?
@@ -477,30 +691,74 @@ local function canSit(player: Player): Humanoid?
 	return hum
 end
 
-local function ride(t: Truck, player: Player): boolean
-	local hum = canSit(player)
-	local s = freeCrewSeat(t)
-	if hum and s then
-		s:Sit(hum)
-		return true
-	end
-	return false
-end
-
-local function prompt(parent: Instance, name: string, action: string, objectText: string, key: Enum.KeyCode): ProximityPrompt
+local function prompt(parent: Instance, name: string, action: string, objectText: string, key: Enum.KeyCode, dist: number): ProximityPrompt
 	local p = Instance.new("ProximityPrompt")
 	p.Name = name
 	p.ActionText = action
 	p.ObjectText = objectText
 	p.KeyboardKeyCode = key
-	p.HoldDuration = 0.15
-	p.MaxActivationDistance = 10
+	p.HoldDuration = 0.1
+	p.MaxActivationDistance = dist
 	p.RequiresLineOfSight = false
 	p.Parent = parent
 	return p
 end
 
--- Weld every part to the chassis (one physics assembly); seats + Drive/Ride prompts.
+local function keyOf(name: string, fallback: Enum.KeyCode): Enum.KeyCode
+	local ok, k = pcall(function()
+		return (Enum.KeyCode :: any)[name]
+	end)
+	return if ok and k then k else fallback
+end
+
+local function rigDoor(t: Truck, side: string)
+	local m = t.model
+	local model = m:FindFirstChild(`Door_{side}`)
+	local panel = model and model:FindFirstChild(`DoorPanel_{side}`)
+	if not model or not model:IsA("Model") or not panel or not panel:IsA("BasePart") then
+		return
+	end
+	local hinge = panel:FindFirstChild("DoorHinge") :: HingeConstraint?
+	if not hinge then
+		return
+	end
+	hinge.LimitsEnabled = true
+	if VehicleConfig.DoorDir >= 0 then
+		hinge.LowerAngle, hinge.UpperAngle = 0, VehicleConfig.DoorOpenAngle
+	else
+		hinge.LowerAngle, hinge.UpperAngle = -VehicleConfig.DoorOpenAngle, 0
+	end
+	hinge.Restitution = VehicleConfig.DoorRestitution
+	local d: Door = {
+		side = side,
+		model = model,
+		panel = panel,
+		hinge = hinge,
+		prompt = nil,
+		open = false,
+		gone = false,
+		free = false,
+		freeSince = 0,
+	}
+	t.doors[side] = d
+	panel:SetAttribute("Grabbable", true)
+	local Hands = services.HandsService
+	if Hands and type(Hands.RegisterGrabbable) == "function" then
+		pcall(Hands.RegisterGrabbable, Hands, panel)
+	end
+	local handle = model:FindFirstChild(`DoorHandle_{side}`)
+	if handle and handle:IsA("BasePart") then
+		local p = prompt(handle, "DoorPrompt", "Open door", "Truck door", keyOf(VehicleConfig.KeyDoor, Enum.KeyCode.E), 8)
+		p.Triggered:Connect(function(_player: Player)
+			setDoor(t, d, not d.open)
+		end)
+		d.prompt = p
+	end
+	setDoor(t, d, false)
+end
+
+-- Weld every part to the chassis (one physics assembly) except Jointed ones (doors, steering wheel,
+-- bobblehead); hinged doors; seats + their prompts.
 local function rig(t: Truck)
 	local m, root = t.model, t.chassis
 	-- seats are TruckBuilder mount points; older builds may lack them
@@ -512,17 +770,31 @@ local function rig(t: Truck)
 		seat.CanCollide = false
 		seat.CanTouch = false
 		seat.HeadsUpDisplay = false
-		seat.CFrame = root.CFrame * CFrame.new(-2.4, 2.2, -8.6)
+		seat.CFrame = root.CFrame * CFrame.new(-2.4, 2.1, -7.0)
 		seat.Parent = m
 	end
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") and d ~= root then
+			d.Anchored = false
+			local anc = d:FindFirstAncestorWhichIsA("Model")
+			local isDoor = anc ~= nil and anc ~= m and string.sub(anc.Name, 1, 5) == "Door_"
+			if d:GetAttribute("Jointed") == true then
+				if isDoor then
+					d.Massless = false
+					d.CustomPhysicalProperties = PhysicalProperties.new(0.5, 0.3, 0.4)
+					d.CollisionGroup = DOOR_GROUP
+				else
+					d.Massless = true
+					d.CollisionGroup = BODY_GROUP
+				end
+				continue
+			end
 			local w = Instance.new("WeldConstraint")
 			w.Part0 = root
 			w.Part1 = d
 			w.Parent = d
-			d.Anchored = false
 			d.Massless = true
+			d.CollisionGroup = BODY_GROUP
 			for _, prefix in NO_COLLIDE_PREFIX do
 				if string.sub(d.Name, 1, #prefix) == prefix then
 					d.CanCollide = false
@@ -531,50 +803,50 @@ local function rig(t: Truck)
 		end
 	end
 	root.Anchored = true
+	root.CollisionGroup = BODY_GROUP
 	root.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.3, 0.6)
+	rigDoor(t, "L")
+	rigDoor(t, "R")
 
 	local seat = m:FindFirstChild("DriveSeat") :: VehicleSeat
 	seat.MaxSpeed = VehicleConfig.MaxSpeed
 	seat.CanTouch = false
+	seat:SetAttribute("DoorSide", "L")
 	t.seat = seat
 	watchSeat(t, seat)
-	for i = 1, 4 do
+	local ownerName = if t.owner then t.owner.DisplayName else "Crew"
+	local enterKey = keyOf(VehicleConfig.KeyEnter, Enum.KeyCode.F)
+	local dp = prompt(seat, "SeatPrompt", "Drive", `{ownerName}'s Truck`, enterKey, 9)
+	t.seatPrompts[seat] = dp
+	dp.Triggered:Connect(function(player: Player)
+		if VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner then
+			Net.notify(player, `{ownerName}'s truck! Ride shotgun or hop on the back. Yours is in bay {helmetOf(player)}.`, "info")
+			return
+		end
+		local hum = canSit(player)
+		if hum and not seat.Occupant then
+			seat:Sit(hum)
+		end
+	end)
+	for i = 1, 5 do
 		local s = m:FindFirstChild(`CrewSeat_{i}`)
 		if s and s:IsA("Seat") then
+			s.CanTouch = false
 			watchSeat(t, s)
-		end
-	end
-
-	local ownerName = if t.owner then t.owner.DisplayName else "Crew"
-	for _, side in { "L", "R" } do
-		local door = m:FindFirstChild(`DoorPanel_{side}`)
-		if door and door:IsA("BasePart") then
-			local p = prompt(door, "DrivePrompt", "Drive", `{ownerName}'s Truck`, Enum.KeyCode.E)
+			if i == 5 then
+				s:SetAttribute("DoorSide", "R")
+			end
+			local p = prompt(s, "SeatPrompt", if i == 5 then "Ride shotgun" else "Hop on", `{ownerName}'s Truck`, enterKey, 8)
+			t.seatPrompts[s] = p
 			p.Triggered:Connect(function(player: Player)
-				if VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner then
-					if ride(t, player) then
-						Net.notify(player, `This is {ownerName}'s truck. Hop on the back!`, "info")
-					else
-						Net.notify(player, `This is {ownerName}'s truck. Yours is in bay {helmetOf(player)}.`, "info")
-					end
-					return
-				end
 				local hum = canSit(player)
-				if hum and not seat.Occupant then
-					seat:Sit(hum)
+				if hum and not s.Occupant then
+					s:Sit(hum)
 				end
 			end)
 		end
 	end
-	local tail = m:FindFirstChild("Tailgate")
-	if tail and tail:IsA("BasePart") then
-		local p = prompt(tail, "RidePrompt", "Ride", `{ownerName}'s Truck`, Enum.KeyCode.E)
-		p.Triggered:Connect(function(player: Player)
-			if not ride(t, player) then
-				Net.notify(player, "The bench is full!", "info")
-			end
-		end)
-	end
+	refreshPrompts(t)
 end
 
 local function nameTag(t: Truck)
@@ -628,6 +900,9 @@ local function register(m: Model, instanceId: string, owner: Player?): Truck?
 		reserve = 0,
 		occupants = {},
 		removing = false,
+		doors = {},
+		seatPrompts = {},
+		lastVel = nil,
 	}
 	if VehicleConfig.Drivable then
 		rig(t)
@@ -837,6 +1112,7 @@ local function hitProps(t: Truck, v: Vector3, now: number)
 end
 
 local tickAcc = 0
+local doorAcc = 0
 local function collisionTick(dt: number)
 	tickAcc += dt
 	if tickAcc < 0.05 then
@@ -844,14 +1120,31 @@ local function collisionTick(dt: number)
 	end
 	tickAcc = 0
 	local now = os.clock()
+	doorAcc += 1
+	local doDoors = doorAcc % 2 == 0 -- doors at 10 Hz
 	for _, t in byModel do
 		local d = t.driver
 		local c = t.chassis
+		if doDoors and c.Parent then
+			doorTick(t, now)
+		end
 		if not d or c.Anchored or not c.Parent then
+			t.lastVel = nil
 			continue
 		end
 		local v = c.AssemblyLinearVelocity
 		local speed = v.Magnitude
+		-- rammed hard (sudden speed change): doors may fly off
+		local last = t.lastVel
+		t.lastVel = v
+		local dvFlat = if last then Vector3.new(v.X - last.X, 0, v.Z - last.Z).Magnitude else 0
+		if dvFlat > VehicleConfig.DoorBreakDv then -- horizontal only: hard landings don't count
+			for _, door in t.doors do
+				if not door.gone and (door.open or math.random() < VehicleConfig.DoorBreakClosedChance) then
+					breakDoor(t, door)
+				end
+			end
+		end
 		if speed >= VehicleConfig.RunOverSpeed then
 			hitPlayers(t, d, v, now)
 		end
@@ -932,6 +1225,15 @@ end
 
 function VehicleService:Start()
 	folder()
+	pcall(function()
+		for _, g in { BODY_GROUP, DOOR_GROUP } do
+			if not PhysicsService:IsCollisionGroupRegistered(g) then
+				PhysicsService:RegisterCollisionGroup(g)
+			end
+		end
+		PhysicsService:CollisionGroupSetCollidable(BODY_GROUP, DOOR_GROUP, false)
+	end)
+	Net.event("Vehicle", "Pop")
 	Net.onServer(Net.event("Vehicle", "Horn"), { rate = 4, burst = 2 }, honk)
 	Net.onServer(Net.event("Vehicle", "Siren"), { rate = 2, burst = 1 }, toggleSiren)
 	Net.onServer(Net.event("Vehicle", "Respawn"), { rate = 0.5, burst = 1 }, function(player: Player)
@@ -942,6 +1244,7 @@ function VehicleService:Start()
 	Players.PlayerRemoving:Connect(function(p: Player)
 		despawnFor(p)
 		runOverAt[p] = nil
+		bonkAt[p] = nil
 		lastRespawn[p] = nil
 	end)
 	RunService.Heartbeat:Connect(collisionTick)
@@ -1017,7 +1320,18 @@ function VehicleService:RespawnTruck(player: Player): boolean
 	lastRespawn[player] = now
 	count("truck_respawns")
 	local t = byOwner[player]
-	if not t or not t.model.Parent or not t.chassis.Parent or t.chassis.Position.Y < VehicleConfig.LostBelowY then
+	local doorLost = false
+	if t then
+		for _, d in t.doors do
+			doorLost = doorLost or d.gone
+		end
+	end
+	if not t or doorLost or not t.model.Parent or not t.chassis.Parent or t.chassis.Position.Y < VehicleConfig.LostBelowY then
+		if t then
+			for seat in t.occupants do
+				unseat(seat)
+			end
+		end
 		if t then
 			t.removing = true
 			byOwner[player] = nil

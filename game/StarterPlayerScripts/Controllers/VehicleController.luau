@@ -4,16 +4,22 @@
 --     ownership) this runs the goofy driving every physics step (ClientLib/TruckDrive maths,
 --     VehicleConfig numbers): jelly raycast suspension, body roll, wheelies on launch and bumps,
 --     handbrake drift, cartoon squash + "BOING!" on hard landings, self-righting.
---   * Chase camera while driving (Scriptable, spring follow, right-drag to look around, FOV by speed);
---     FirstPersonController is paused and comes back on exit.
---   * Keys while driving: WASD drive, SPACE handbrake/drift, H horn, F siren, R unflip/respawn, E hop out.
+--   * Camera while driving: chase cam (spring follow, right-drag to look around, FOV by speed) or the
+--     cab view through the windshield (V toggles; head/hats hidden so nothing clips). FirstPersonController
+--     is paused and comes back on exit.
+--   * Keys (VehicleConfig.Key*): WASD drive, SPACE handbrake/drift, F hop out, G siren, H horn, V camera,
+--     R unflip/respawn. Passengers: F hops off. While seated, every ProximityPrompt is hidden and a hint
+--     bar shows the keys instead. Getting out puts you outside the door (the server pops it open).
 --     A "RESPAWN TRUCK" button (and R) also shows on foot when your truck is flipped or far away.
+--   * Steering wheels turn with each truck's DriveSeat.SteerFloat and the dash bobblehead wobbles
+--     (Motor6D "SteeringMotor" / "BobbleMotor", nearby trucks only).
 --   * Everyone: light bars flash and sirens wail (pitch climbs with speed) on trucks with attr SirenOn;
---     "HONK!" pop over a truck on Vehicle/Honked.
+--     "HONK!" pop over a truck on Vehicle/Honked; "SLAM!" / "BONK!" pops on Vehicle/Pop.
 -- Local visuals only; gameplay effects (run over, prop hits, blame) are decided by VehicleService.
 local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -62,6 +68,17 @@ local savedCamType: Enum.CameraType? = nil
 local savedFov = 70
 
 local respawnButton: TextButton? = nil
+local hintLabel: TextLabel? = nil
+local camMode = "chase" -- "chase" | "cab"
+local riding: Model? = nil -- truck the local player sits in as a passenger
+local hiddenParts: { [BasePart]: boolean } = {}
+
+local function key(name: string, fallback: Enum.KeyCode): Enum.KeyCode
+	local ok, k = pcall(function()
+		return (Enum.KeyCode :: any)[(VehicleConfig :: any)[name]]
+	end)
+	return if ok and k then k else fallback
+end
 
 ---------------------------------------------------------------------------- helpers
 
@@ -255,16 +272,29 @@ local function camStep(dt: number)
 		return
 	end
 	cam.CameraType = Enum.CameraType.Scriptable
-	local look = chassis.CFrame.LookVector
-	local fwd = Vector3.new(look.X, 0, look.Z)
-	fwd = if fwd.Magnitude > 0.05 then fwd.Unit else Vector3.new(0, 0, -1)
-	local speed = chassis.AssemblyLinearVelocity.Magnitude
-
 	if not looking and os.clock() - lookReleasedAt > 0.8 then
 		local k = math.min(1, dt * 2.5)
 		camYaw -= camYaw * k
 		camPitch -= camPitch * k
 	end
+	local seat = truck:FindFirstChild("DriveSeat") :: BasePart?
+	if camMode == "cab" and seat then
+		-- through the windshield from the driver's head; a little sway from the suspension
+		local eye = seat.CFrame * CFrame.new(VehicleConfig.CabEye)
+		local lookCF = eye * CFrame.Angles(0, camYaw * 0.8, 0) * CFrame.Angles(math.clamp(-camPitch * 0.8, -0.6, 0.5), 0, 0)
+		cam.CFrame = lookCF * CFrame.new(0, -camDip * 0.15, 0)
+		camDip = math.max(0, camDip - dt * 5)
+		local speed = chassis.AssemblyLinearVelocity.Magnitude
+		local want = TruckDrive.fov(speed, VehicleConfig.MaxSpeed, VehicleConfig.CabFov, VehicleConfig.FovAdd * 0.5)
+		cam.FieldOfView += (want - cam.FieldOfView) * math.min(1, dt * 4)
+		camPos = nil
+		return
+	end
+	local look = chassis.CFrame.LookVector
+	local fwd = Vector3.new(look.X, 0, look.Z)
+	fwd = if fwd.Magnitude > 0.05 then fwd.Unit else Vector3.new(0, 0, -1)
+	local speed = chassis.AssemblyLinearVelocity.Magnitude
+
 	local orbit = CFrame.Angles(0, camYaw, 0)
 	local back = orbit:VectorToWorldSpace(-fwd)
 	local height = VehicleConfig.CamHeight + camPitch * VehicleConfig.CamDistance - camDip
@@ -285,6 +315,26 @@ local function camStep(dt: number)
 	cam.FieldOfView += (wantFov - cam.FieldOfView) * math.min(1, dt * 4)
 end
 
+-- Cab view: hide your own head + hats so the camera never looks out through your face.
+local function hideHead(on: boolean)
+	local char = player.Character
+	if on and char then
+		for _, d in char:GetDescendants() do
+			if d:IsA("BasePart") and (d.Name == "Head" or d:FindFirstAncestorOfClass("Accessory")) then
+				d.LocalTransparencyModifier = 1
+				hiddenParts[d] = true
+			end
+		end
+	elseif not on then
+		for part in hiddenParts do
+			if part.Parent then
+				part.LocalTransparencyModifier = 0
+			end
+		end
+		table.clear(hiddenParts)
+	end
+end
+
 ---------------------------------------------------------------------------- input
 
 local function respawn()
@@ -293,13 +343,47 @@ local function respawn()
 	end)
 end
 
+-- Where you land when you get out: cab seats -> outside that side's door; benches -> behind the tailgate.
+local function exitCF(truck: Model, seat: BasePart): CFrame?
+	local chassis = truck.PrimaryPart
+	if not chassis then
+		return nil
+	end
+	local c = chassis.CFrame
+	local rel = c:PointToObjectSpace(seat.Position)
+	local side = if rel.X < 0 then -1 else 1
+	if rel.Z < -4 then
+		local pos = c * Vector3.new(side * 7.6, 1.5, -4.2)
+		return CFrame.lookAt(pos, pos + c.RightVector * side)
+	end
+	local pos = c * Vector3.new(side * 3, 1.5, 16.5)
+	return CFrame.lookAt(pos, pos - c.LookVector)
+end
+
 local function hopOut()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if hum then
-		hum.Sit = false
-		hum.Jump = true
+	local seat = hum and hum.SeatPart
+	if not hum or not seat then
+		return
 	end
+	local truck = seat.Parent
+	local target = if truck and truck:IsA("Model") then exitCF(truck, seat) else nil
+	local weld = seat:FindFirstChild("SeatWeld")
+	if weld then
+		weld:Destroy()
+	end
+	hum.Sit = false
+	hum.Jump = true
+	task.delay(0.05, function()
+		if target and char.Parent and not hum.SeatPart then
+			char:PivotTo(target)
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root then
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+		end
+	end)
 end
 
 local function onAction(name: string, state: Enum.UserInputState, _input: InputObject): Enum.ContextActionResult
@@ -318,6 +402,9 @@ local function onAction(name: string, state: Enum.UserInputState, _input: InputO
 		respawn()
 	elseif name == "TruckExit" then
 		hopOut()
+	elseif name == "TruckCam" then
+		camMode = if camMode == "chase" then "cab" else "chase"
+		hideHead(camMode == "cab")
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -339,13 +426,16 @@ local function enterDrive(truck: Model)
 	end
 	local high = Enum.ContextActionPriority.High.Value
 	ContextActionService:BindActionAtPriority("TruckHandbrake", onAction, true, high, Enum.KeyCode.Space, Enum.KeyCode.ButtonA)
-	ContextActionService:BindActionAtPriority("TruckHorn", onAction, true, high, Enum.KeyCode.H, Enum.KeyCode.ButtonY)
-	ContextActionService:BindActionAtPriority("TruckSiren", onAction, true, high, Enum.KeyCode.F, Enum.KeyCode.ButtonX)
-	ContextActionService:BindActionAtPriority("TruckExit", onAction, true, high, Enum.KeyCode.E, Enum.KeyCode.ButtonB)
+	ContextActionService:BindActionAtPriority("TruckHorn", onAction, true, high, key("KeyHorn", Enum.KeyCode.H), Enum.KeyCode.ButtonY)
+	ContextActionService:BindActionAtPriority("TruckSiren", onAction, true, high, key("KeySiren", Enum.KeyCode.G), Enum.KeyCode.ButtonX)
+	ContextActionService:BindActionAtPriority("TruckExit", onAction, true, high, key("KeyExit", Enum.KeyCode.F), Enum.KeyCode.ButtonB)
+	ContextActionService:BindActionAtPriority("TruckCam", onAction, false, high, key("KeyCam", Enum.KeyCode.V), Enum.KeyCode.ButtonR3)
 	ContextActionService:SetTitle("TruckHandbrake", "DRIFT")
 	ContextActionService:SetTitle("TruckHorn", "HONK")
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
+	camMode = if VehicleConfig.DefaultCam == "cab" then "cab" else "chase"
+	hideHead(camMode == "cab")
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
 	local chassis = truck.PrimaryPart
 	if chassis and VehicleConfig.EngineSoundId ~= "" then
@@ -371,9 +461,10 @@ end
 local function exitDrive()
 	driving = nil
 	handbrake = false
-	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit" } do
+	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
 		ContextActionService:UnbindAction(a)
 	end
+	hideHead(false)
 	pcall(function()
 		RunService:UnbindFromRenderStep("TruckCam")
 	end)
@@ -411,7 +502,7 @@ local function onLookInput(input: InputObject, processed: boolean)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseMovement and looking then
 		camYaw -= input.Delta.X * 0.006
-		camPitch = math.clamp(camPitch - input.Delta.Y * 0.004, -0.25, 0.8)
+		camPitch = math.clamp(camPitch + input.Delta.Y * 0.004, -0.25, 0.8)
 	elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
 		local p = input.Position
 		if p.Magnitude > 0.2 then
@@ -439,7 +530,7 @@ local function makeRespawnButton()
 	b.TextColor3 = Color3.fromRGB(255, 244, 196)
 	b.Font = Enum.Font.LuckiestGuy
 	b.TextScaled = true
-	b.Text = "[R] RESPAWN TRUCK"
+	b.Text = `[{VehicleConfig.KeyRespawn}] RESPAWN TRUCK`
 	b.Visible = false
 	b.AutoButtonColor = true
 	local corner = Instance.new("UICorner")
@@ -452,6 +543,28 @@ local function makeRespawnButton()
 	stroke.Parent = b
 	b.Activated:Connect(respawn)
 	b.Parent = gui
+	local hint = Instance.new("TextLabel")
+	hint.Name = "Hints"
+	hint.AnchorPoint = Vector2.new(0.5, 1)
+	hint.Position = UDim2.new(0.5, 0, 1, -18)
+	hint.Size = UDim2.fromOffset(640, 34)
+	hint.BackgroundColor3 = Color3.fromRGB(26, 18, 16)
+	hint.BackgroundTransparency = 0.25
+	hint.TextColor3 = Color3.fromRGB(255, 244, 196)
+	hint.Font = Enum.Font.GothamBold
+	hint.TextScaled = true
+	hint.Visible = false
+	local hc = Instance.new("UICorner")
+	hc.CornerRadius = UDim.new(0, 10)
+	hc.Parent = hint
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 12)
+	pad.PaddingRight = UDim.new(0, 12)
+	pad.PaddingTop = UDim.new(0, 4)
+	pad.PaddingBottom = UDim.new(0, 4)
+	pad.Parent = hint
+	hint.Parent = gui
+	hintLabel = hint
 	gui.Parent = pg
 	respawnButton = b
 end
@@ -478,7 +591,7 @@ local function respawnLoop()
 		if show ~= respawnBound then
 			respawnBound = show
 			if show then
-				ContextActionService:BindAction("TruckRespawn", onAction, false, Enum.KeyCode.R)
+				ContextActionService:BindAction("TruckRespawn", onAction, false, key("KeyRespawn", Enum.KeyCode.R))
 			else
 				ContextActionService:UnbindAction("TruckRespawn")
 			end
@@ -569,6 +682,116 @@ local function sirenStep()
 	end
 end
 
+local POP_COLORS: { [string]: Color3 } = {
+	slam = Color3.fromRGB(255, 120, 60),
+	bonk = Color3.fromRGB(255, 228, 92),
+}
+
+local function onPop(part: Instance?, text: string?, kind: string?)
+	if typeof(part) == "Instance" and part:IsA("BasePart") and type(text) == "string" then
+		pop(part, text, POP_COLORS[kind or ""] or Color3.fromRGB(255, 255, 255), Vector3.new(0, 4, 0))
+	end
+end
+
+-- Steering wheels follow SteerFloat; bobbleheads wobble from the truck's sway. Nearby trucks only.
+local wheelAngle: { [Model]: number } = {}
+local bobble: { [Model]: { x: number, z: number, vx: number, vz: number, last: Vector3? } } = {}
+local function animateCabs(dt: number)
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local camPosNow = cam.CFrame.Position
+	for _, truck in CollectionService:GetTagged(Names.Tag.Truck) do
+		local chassis = truck:IsA("Model") and truck.PrimaryPart
+		if not chassis or (chassis.Position - camPosNow).Magnitude > 90 then
+			continue
+		end
+		local m = truck :: Model
+		local seat = m:FindFirstChild("DriveSeat") :: VehicleSeat?
+		local wheel = m:FindFirstChild("SteeringWheel")
+		local column = wheel and wheel:FindFirstChild("SteeringColumn")
+		local motor = column and column:FindFirstChild("SteeringMotor") :: Motor6D?
+		if seat and motor then
+			local want = -seat.SteerFloat * 2.4
+			local a = wheelAngle[m] or 0
+			a += (want - a) * math.min(1, dt * 8)
+			wheelAngle[m] = a
+			motor.Transform = CFrame.Angles(0, 0, a)
+		end
+		local body = m:FindFirstChild("BobbleBody")
+		local bm = body and body:FindFirstChild("BobbleMotor") :: Motor6D?
+		if bm then
+			local st = bobble[m] or { x = 0, z = 0, vx = 0, vz = 0, last = nil }
+			bobble[m] = st
+			local v = chassis.AssemblyLinearVelocity
+			local last = st.last or v
+			st.last = v
+			local acc = chassis.CFrame:VectorToObjectSpace(v - last) / math.max(dt, 1e-3)
+			-- spring-damper head: kicked by acceleration, wobbles back
+			st.vx += (-st.x * 120 - st.vx * 3 - acc.Z * 0.02) * dt
+			st.vz += (-st.z * 120 - st.vz * 3 + acc.X * 0.02) * dt
+			st.x = math.clamp(st.x + st.vx * dt, -0.9, 0.9)
+			st.z = math.clamp(st.z + st.vz * dt, -0.9, 0.9)
+			bm.Transform = CFrame.Angles(st.x, 0, st.z)
+		end
+	end
+	for m in wheelAngle do
+		if not m.Parent then
+			wheelAngle[m] = nil
+			bobble[m] = nil
+		end
+	end
+end
+
+-- Seated anywhere in a truck: hide every prompt (no "press F to sit" while sitting), show key hints,
+-- and let passengers hop off with the exit key.
+local function seatedTruck(): (Model?, BasePart?)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	local m = seat and seat.Parent
+	if seat and m and m:IsA("Model") and m:HasTag(Names.Tag.Truck) then
+		return m, seat
+	end
+	return nil, nil
+end
+
+local function updateSeated()
+	local truck, seat = seatedTruck()
+	local isDriver = seat ~= nil and seat.Name == "DriveSeat"
+	if ProximityPromptService.Enabled ~= (truck == nil) then
+		ProximityPromptService.Enabled = truck == nil
+	end
+	local passenger = if truck and not isDriver then truck else nil
+	if passenger ~= riding then
+		if riding then
+			ContextActionService:UnbindAction("TruckExit")
+		end
+		riding = passenger
+		if passenger then
+			ContextActionService:BindActionAtPriority(
+				"TruckExit",
+				onAction,
+				true,
+				Enum.ContextActionPriority.High.Value,
+				key("KeyExit", Enum.KeyCode.F),
+				Enum.KeyCode.ButtonB
+			)
+			ContextActionService:SetTitle("TruckExit", "OFF")
+		end
+	end
+	local hint = hintLabel
+	if hint then
+		hint.Visible = truck ~= nil
+		if isDriver then
+			hint.Text = `{VehicleConfig.KeyExit}: exit   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   SPACE: drift   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`
+		elseif truck then
+			hint.Text = `{VehicleConfig.KeyExit}: hop off`
+		end
+	end
+end
+
 ---------------------------------------------------------------------------- lifecycle
 
 function VehicleController:Init(all: { [string]: any })
@@ -583,6 +806,13 @@ function VehicleController:Start()
 			(Honked :: RemoteEvent).OnClientEvent:Connect(honkPop)
 		end
 	end)
+	task.spawn(function()
+		local ok, Pop = pcall(Net.event, "Vehicle", "Pop")
+		if ok then
+			(Pop :: RemoteEvent).OnClientEvent:Connect(onPop)
+		end
+	end)
+	RunService.RenderStepped:Connect(animateCabs)
 	task.spawn(function()
 		pcall(makeRespawnButton)
 		respawnLoop()
@@ -604,6 +834,7 @@ function VehicleController:Start()
 		elseif driving then
 			exitDrive()
 		end
+		updateSeated()
 	end)
 end
 

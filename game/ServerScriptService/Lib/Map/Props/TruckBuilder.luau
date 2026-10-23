@@ -9,13 +9,20 @@
 --   LightWhite, Siren, Headlight_L/R, TailLight_L/R, Bench_L/R (crew seats), Deck.
 -- v2 mount points (docs/game/08 "Vehicles" / "Inventory"):
 --   "Locker_<L|R><1..3>" tagged TruckCompartment, attr Item (TruckBuilder.CompartmentItems) -> InventoryService
---   "DriveSeat" (VehicleSeat, hidden in the cab) and "CrewSeat_1..4" (Seats on the back benches)
---   -> VehicleService welds everything to the Chassis when it makes the truck drivable.
+--   "DriveSeat" (VehicleSeat, driver side of the cab), "CrewSeat_1..4" (back benches), "CrewSeat_5" (shotgun)
+--   -> VehicleService welds everything to the Chassis when it makes the truck drivable, except parts
+--   with attr Jointed = true: the hinged doors ("Door_L"/"Door_R" Models, root "DoorPanel_<s>",
+--   HingeConstraint "DoorHinge", handle "DoorHandle_<s>"), the steering wheel (Motor6D "SteeringMotor")
+--   and the dash bobblehead (Motor6D "BobbleMotor").
+-- Cab interior: dash with gauges, glowing buttons, radio, siren switch panel, steering wheel, two
+--   cushioned seats, door trims, rear-view mirror, sun visors, dome light ("CabLight"), bobblehead.
+-- Optional mesh skins: AssetIds.TruckDoor / AssetIds.TruckCab (+ _Texture) when non-empty.
 -- TruckBuilder.Preview (Studio command bar or execute_luau, Edit mode):
 --   local T = require(game.ServerScriptService.Lib.Map.Props.TruckBuilder)
 --   local old = workspace:FindFirstChild("FireTruck67"); if old then old:Destroy() end
 --   T.Build(workspace, CFrame.new(0, 0, 0))   -- then frame it with F in the Explorer
 local CollectionService = game:GetService("CollectionService")
+local InsertService = game:GetService("InsertService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
@@ -42,6 +49,8 @@ local Brass = Color3.fromRGB(200, 154, 60) -- #C89A3C
 local GlassTint = Color3.fromRGB(120, 175, 200)
 local BenchWood = Color3.fromRGB(138, 74, 40) -- #8A4A28
 local HeadlightGlow = Color3.fromRGB(255, 244, 196)
+local Charcoal = Color3.fromRGB(52, 52, 58)
+local SeatLeather = Color3.fromRGB(92, 34, 30)
 
 local ROT_Z_AXIS = CFrame.Angles(0, math.rad(90), 0) -- cylinder axis (X) -> Z
 
@@ -69,6 +78,56 @@ local function label(part: BasePart, face: Enum.NormalId, text: string, color: C
 	end
 	t.Parent = gui
 	gui.Parent = part
+end
+
+-- Optional generated-mesh skin (AssetIds.<key>, e.g. TruckDoor / TruckCab, filled by the assets lane).
+-- "" or a failed load = keep the part-built look. With a skin, the parts in `hide` go invisible but
+-- keep colliding. weldTo = the door panel (the skin swings with the door).
+local function meshSkin(parent: Instance, name: string, key: string, weldTo: BasePart?, at: CFrame, size: Vector3, hide: { Instance })
+	local okA, A = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds") :: ModuleScript) :: any
+	end)
+	local id = if okA and type(A) == "table" then A[key] else nil
+	if type(id) ~= "string" or id == "" then
+		return
+	end
+	local ok, mp = pcall(function()
+		return InsertService:CreateMeshPartAsync(id, Enum.CollisionFidelity.Box, Enum.RenderFidelity.Automatic)
+	end)
+	if not ok or not mp then
+		warn(`[TruckBuilder] {key} mesh failed: {mp}`)
+		return
+	end
+	local skin = mp :: MeshPart
+	skin.Name = name
+	skin.Size = size
+	skin.CFrame = at
+	skin.Anchored = true
+	skin.CanCollide = false
+	skin.CanQuery = false
+	skin.CanTouch = false
+	local tex = A[`{key}_Texture`]
+	if type(tex) == "string" and tex ~= "" then
+		skin.TextureID = tex
+	end
+	if weldTo then
+		skin:SetAttribute("Jointed", true)
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = weldTo
+		w.Part1 = skin
+		w.Parent = skin
+	end
+	skin.Parent = parent
+	for _, p in hide do
+		if p:IsA("BasePart") and p ~= skin then
+			p.Transparency = 1
+			for _, g in p:GetChildren() do
+				if g:IsA("SurfaceGui") then
+					g.Enabled = false
+				end
+			end
+		end
+	end
 end
 
 function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
@@ -109,32 +168,225 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		end
 	end
 
-	---------------------------------------------------------------- cab (z -13 .. -5)
-	P("CabLower", Vector3.new(0, 4.2, -9), Vector3.new(10, 3.6, 8), TruckRed)
-	P("CabUpper", Vector3.new(0, 7.1, -8.7), Vector3.new(10, 2.2, 7.4), TruckRed)
-	P("CabRoof", Vector3.new(0, 8.45, -8.8), Vector3.new(10.2, 0.5, 7.8), TruckRed)
-	-- Windshield (front face of the upper cab) with a chrome frame and a centre pillar.
-	P("Windshield", Vector3.new(0, 7.1, -12.45), Vector3.new(8.8, 1.9, 0.15), GlassTint, { material = Enum.Material.Glass, transparency = 0.15, collide = false })
+	---------------------------------------------------------------- cab (z -13 .. -5): a hollow shell you can sit in
+	local shell: { Instance } = {} -- exterior shell parts (hidden when a TruckCab mesh skin is used)
+	local function S(part: Part): Part
+		table.insert(shell, part)
+		return part
+	end
+	S(P("CabFloor", Vector3.new(0, 2.75, -8.8), Vector3.new(9.4, 0.5, 7.6), Charcoal, { material = Enum.Material.DiamondPlate }))
+	S(P("CabNose", Vector3.new(0, 4.2, -12.75), Vector3.new(10, 3.6, 0.5), TruckRed))
+	S(P("CabCowl", Vector3.new(0, 6.08, -12.45), Vector3.new(10, 0.25, 0.45), TruckRedDark))
+	S(P("CabBack", Vector3.new(0, 5.3, -4.95), Vector3.new(10, 5.8, 0.3), TruckRed))
+	S(P("CabRoof", Vector3.new(0, 8.45, -8.8), Vector3.new(10.2, 0.5, 7.8), TruckRed))
+	S(P("CabHeader", Vector3.new(0, 8.07, -12.45), Vector3.new(10, 0.3, 0.4), TruckRed))
+	-- Windshield with a chrome frame and a centre pillar.
+	P("Windshield", Vector3.new(0, 7.1, -12.45), Vector3.new(8.8, 1.9, 0.15), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
 	P("WindshieldPillar", Vector3.new(0, 7.1, -12.5), Vector3.new(0.35, 1.9, 0.2), TruckRedDark, deco)
 	P("Visor", Vector3.new(0, 8.25, -12.65), Vector3.new(9.4, 0.35, 0.6), TruckRedDark, deco)
-	-- Side windows.
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
-		P(`SideWindow_{s}`, Vector3.new(side * 5.03, 7.1, -10.3), Vector3.new(0.12, 1.7, 3.6), GlassTint, { material = Enum.Material.Glass, transparency = 0.15, collide = false })
-		P(`RearWindow_{s}`, Vector3.new(side * 5.03, 7.1, -6.9), Vector3.new(0.12, 1.7, 2.6), GlassTint, { material = Enum.Material.Glass, transparency = 0.15, collide = false })
-		-- Door: darker seam + white badge with "67".
-		P(`DoorSeam_{s}`, Vector3.new(side * 5.02, 4.4, -6.9), Vector3.new(0.1, 3.4, 3.8), TruckRedDark, deco)
-		P(`DoorPanel_{s}`, Vector3.new(side * 5.06, 4.4, -6.9), Vector3.new(0.1, 3.1, 3.5), TruckRed, deco)
-		P(`DoorHandle_{s}`, Vector3.new(side * 5.15, 5.4, -5.6), Vector3.new(0.15, 0.25, 0.8), Chrome, deco)
-		local badge = P(`DoorBadge_{s}`, Vector3.new(side * 5.13, 4.4, -6.9), Vector3.new(0.08, 1.8, 2.4), White, deco)
-		P(`DoorBadgeRim_{s}`, Vector3.new(side * 5.11, 4.4, -6.9), Vector3.new(0.06, 2.1, 2.7), Gold, deco)
-		label(badge, if side < 0 then Enum.NormalId.Left else Enum.NormalId.Right, "67", TruckRed, Ink)
+		local x = side * 4.85
+		-- lower side wall in front of the door (over the front wheel) + quarter glass above it
+		S(P(`CabSideFront_{s}`, Vector3.new(x, 4.2, -10.6), Vector3.new(0.3, 3.6, 4.8), TruckRed))
+		P(`SideWindow_{s}`, Vector3.new(side * 4.95, 7.08, -10.25), Vector3.new(0.12, 2.0, 3.9), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
+		S(P(`APillar_{s}`, Vector3.new(x, 7.1, -12.35), Vector3.new(0.35, 2.2, 0.35), TruckRed))
+		S(P(`BPillar_{s}`, Vector3.new(x, 7.1, -8.27), Vector3.new(0.3, 2.2, 0.2), TruckRed))
+		S(P(`DoorSill_{s}`, Vector3.new(x, 2.62, -6.65), Vector3.new(0.3, 0.25, 3.1), TruckRedDark))
 		-- Mirror on an arm.
 		P(`MirrorArm_{s}`, Vector3.new(side * 5.5, 6.6, -11.6), Vector3.new(1.0, 0.2, 0.2), Ink, deco)
 		P(`Mirror_{s}`, Vector3.new(side * 6.05, 6.9, -11.6), Vector3.new(0.3, 1.3, 0.7), Ink, deco)
+		P(`MirrorGlass_{s}`, Vector3.new(side * 6.05, 6.9, -11.24), Vector3.new(0.22, 1.15, 0.04), GlassTint, { material = Enum.Material.Glass, collide = false })
 		-- Step under the door.
-		P(`CabStep_{s}`, Vector3.new(side * 4.9, 2.55, -6.9), Vector3.new(0.9, 0.3, 2.6), Chrome, { material = Enum.Material.DiamondPlate })
+		P(`CabStep_{s}`, Vector3.new(side * 4.9, 2.4, -6.65), Vector3.new(0.9, 0.3, 2.6), Chrome, { material = Enum.Material.DiamondPlate })
 	end
+
+	-- Doors: each one is its own Model ("Door_L"/"Door_R") welded to DoorPanel_<s>, hinged at its front
+	-- edge to CabSideFront_<s> (HingeConstraint "DoorHinge"). Parts carry attr Jointed = true so
+	-- VehicleService doesn't weld them to the chassis; it sets the hinge limits/servo.
+	for _, side in { -1, 1 } do
+		local s = if side < 0 then "L" else "R"
+		local door = Instance.new("Model")
+		door.Name = `Door_{s}`
+		door:SetAttribute("Side", s)
+		door.Parent = m
+		local function D(name: string, pos: Vector3, size: Vector3, color: Color3, opts: MapKit.PartOpts?, rot: CFrame?): Part
+			local part = P(name, pos, size, color, opts, rot)
+			part.Parent = door
+			part:SetAttribute("Jointed", true)
+			return part
+		end
+		local x = side * 4.85
+		local panel = D(`DoorPanel_{s}`, Vector3.new(x, 4.375, -6.65), Vector3.new(0.3, 3.25, 3.0), TruckRed)
+		D(`DoorFrameTop_{s}`, Vector3.new(x, 8.05, -6.65), Vector3.new(0.25, 0.2, 3.0), TruckRed)
+		D(`DoorFrameBack_{s}`, Vector3.new(x, 6.98, -5.25), Vector3.new(0.25, 1.95, 0.2), TruckRed)
+		D(`DoorFrameFront_{s}`, Vector3.new(x, 6.98, -8.05), Vector3.new(0.25, 1.95, 0.2), TruckRed)
+		D(`DoorWindow_{s}`, Vector3.new(x, 6.98, -6.65), Vector3.new(0.1, 1.95, 2.6), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
+		D(`DoorSeam_{s}`, Vector3.new(side * 5.01, 4.375, -6.65), Vector3.new(0.04, 3.05, 2.8), TruckRedDark, deco)
+		D(`DoorHandle_{s}`, Vector3.new(side * 5.08, 5.55, -5.7), Vector3.new(0.16, 0.28, 0.85), Chrome, { material = Enum.Material.Metal, collide = false })
+		local badge = D(`DoorBadge_{s}`, Vector3.new(side * 5.05, 4.25, -6.65), Vector3.new(0.06, 1.8, 2.2), White, deco)
+		D(`DoorBadgeRim_{s}`, Vector3.new(side * 5.03, 4.25, -6.65), Vector3.new(0.05, 2.1, 2.5), Gold, deco)
+		label(badge, if side < 0 then Enum.NormalId.Left else Enum.NormalId.Right, "67", TruckRed, Ink)
+		-- inside: trim, armrest, pull handle
+		D(`DoorTrim_{s}`, Vector3.new(side * 4.68, 4.5, -6.65), Vector3.new(0.05, 2.4, 2.6), Charcoal, deco)
+		D(`DoorArmrest_{s}`, Vector3.new(side * 4.55, 4.95, -6.5), Vector3.new(0.3, 0.25, 1.7), SeatLeather, { material = Enum.Material.Fabric, collide = false })
+		D(`DoorPull_{s}`, Vector3.new(side * 4.62, 5.45, -7.55), Vector3.new(0.12, 0.2, 0.6), Chrome, deco)
+		for _, part in door:GetChildren() do
+			if part:IsA("BasePart") and part ~= panel then
+				local w = Instance.new("WeldConstraint")
+				w.Part0 = panel
+				w.Part1 = part
+				w.Parent = part
+			end
+		end
+		door.PrimaryPart = panel
+		-- Hinge line: front edge of the door, vertical. Primary axis = -Y on the left and +Y on the
+		-- right, so a positive hinge angle swings the door OUT on both sides.
+		local post = m:FindFirstChild(`CabSideFront_{s}`) :: BasePart
+		local hingeWorld = CFrame.fromMatrix((cf * CFrame.new(side * 5.0, 5.3, -8.15)).Position, cf.UpVector * side, cf.LookVector)
+		local a0 = Instance.new("Attachment")
+		a0.Name = "DoorHingeA"
+		a0.Parent = post
+		a0.WorldCFrame = hingeWorld
+		local a1 = Instance.new("Attachment")
+		a1.Name = "DoorHingeB"
+		a1.Parent = panel
+		a1.WorldCFrame = hingeWorld
+		local hinge = Instance.new("HingeConstraint")
+		hinge.Name = "DoorHinge"
+		hinge.Attachment0 = a0
+		hinge.Attachment1 = a1
+		hinge.LimitsEnabled = true
+		hinge.LowerAngle = 0
+		hinge.UpperAngle = 95
+		hinge.Parent = panel
+		-- skin with a generated mesh when the assets lane has one
+		meshSkin(door, `DoorSkin_{s}`, "TruckDoor", panel, cf * CFrame.new(x, 5.4, -6.65), Vector3.new(0.4, 5.4, 3.1), door:GetChildren())
+	end
+
+	---------------------------------------------------------------- cab interior
+	-- dashboard
+	P("Dash", Vector3.new(0, 5.2, -11.6), Vector3.new(9.4, 1.6, 1.6), Charcoal, deco)
+	P("DashTop", Vector3.new(0, 6.05, -11.75), Vector3.new(9.4, 0.2, 1.4), Ink, { material = Enum.Material.Fabric, collide = false })
+	P("DashTrim", Vector3.new(0, 5.98, -10.82), Vector3.new(9.4, 0.08, 0.06), Chrome, deco)
+	-- gauge cluster (driver side) + big speedo
+	local function gauge(name: string, x: number, y: number, dia: number, needleDeg: number)
+		P(`{name}Rim`, Vector3.new(x, y, -10.78), Vector3.new(0.08, dia + 0.14, dia + 0.14), Chrome, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS)
+		P(`{name}Face`, Vector3.new(x, y, -10.74), Vector3.new(0.04, dia, dia), White, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS)
+		P(`{name}Needle`, Vector3.new(x, y, -10.71), Vector3.new(0.05, dia * 0.42, 0.03), Color3.fromRGB(255, 50, 40), { neon = true, collide = false }, CFrame.Angles(0, 0, math.rad(needleDeg)) * CFrame.new(0, dia * 0.18, 0))
+	end
+	gauge("GaugeFuel", -3.35, 5.45, 0.55, 50)
+	gauge("Speedo", -2.4, 5.2, 0.85, -35)
+	gauge("GaugeTemp", -1.45, 5.45, 0.55, -60)
+	-- glowing buttons
+	local btnColors = { Color3.fromRGB(255, 60, 60), Color3.fromRGB(80, 255, 120), Color3.fromRGB(255, 190, 40), Color3.fromRGB(70, 150, 255) }
+	for i, c in btnColors do
+		P(`DashButton_{i}`, Vector3.new(-0.85 + (i - 1) * 0.32, 5.62, -10.76), Vector3.new(0.22, 0.22, 0.06), c, { neon = true, collide = false })
+	end
+	-- radio
+	P("Radio", Vector3.new(0.45, 5.0, -10.77), Vector3.new(1.6, 0.55, 0.08), Ink, deco)
+	local radioDisplay = P("RadioDisplay", Vector3.new(0.3, 5.03, -10.72), Vector3.new(0.9, 0.26, 0.04), Color3.fromRGB(120, 255, 170), { neon = true, collide = false })
+	label(radioDisplay, Enum.NormalId.Back, "67.0 FM", Ink)
+	for i, dx in { -0.45, 1.0 } do
+		P(`RadioKnob_{i}`, Vector3.new(0.45 + dx * 0.6, 5.0, -10.7), Vector3.new(0.12, 0.22, 0.22), Chrome, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS)
+	end
+	-- siren switch panel
+	P("SirenPanel", Vector3.new(2.5, 5.35, -10.77), Vector3.new(1.9, 0.85, 0.08), Ink, deco)
+	local sirenLabel = P("SirenPanelLabel", Vector3.new(2.5, 5.9, -10.77), Vector3.new(1.9, 0.26, 0.05), TruckRed, deco)
+	label(sirenLabel, Enum.NormalId.Back, "SIREN", White)
+	for i = 1, 3 do
+		local sx = 1.9 + (i - 1) * 0.42
+		P(`SirenSwitch_{i}`, Vector3.new(sx, 5.42, -10.68), Vector3.new(0.1, 0.32, 0.1), Chrome, deco, CFrame.Angles(math.rad(25), 0, 0))
+		P(`SirenGuard_{i}`, Vector3.new(sx, 5.2, -10.7), Vector3.new(0.22, 0.08, 0.14), Color3.fromRGB(255, 60, 40), { neon = true, collide = false })
+	end
+	P("WailButton", Vector3.new(3.2, 5.3, -10.71), Vector3.new(0.08, 0.38, 0.38), Color3.fromRGB(255, 40, 40), { shape = Enum.PartType.Cylinder, neon = true, collide = false }, ROT_Z_AXIS)
+	-- rear-view mirror + sun visors
+	P("RearViewMirror", Vector3.new(0, 7.65, -12.1), Vector3.new(1.5, 0.42, 0.12), Ink, deco)
+	P("RearViewGlass", Vector3.new(0, 7.65, -12.03), Vector3.new(1.35, 0.3, 0.03), GlassTint, { material = Enum.Material.Glass, collide = false })
+	for _, side in { -1, 1 } do
+		P(`SunVisor_{if side < 0 then "L" else "R"}`, Vector3.new(side * 2.4, 7.97, -11.9), Vector3.new(2.4, 0.08, 0.9), Charcoal, deco)
+	end
+	-- headliner + dome light
+	P("Headliner", Vector3.new(0, 8.15, -8.7), Vector3.new(9.4, 0.08, 7.2), Color3.fromRGB(196, 188, 172), { material = Enum.Material.Fabric, collide = false })
+	local dome = P("DomeLight", Vector3.new(0, 8.09, -8.4), Vector3.new(1.2, 0.08, 0.6), HeadlightGlow, { neon = true, collide = false })
+	local domeLight = Instance.new("PointLight")
+	domeLight.Name = "CabLight"
+	domeLight.Color = Color3.fromRGB(255, 226, 170)
+	domeLight.Range = 9
+	domeLight.Brightness = 0.7
+	domeLight.Shadows = false
+	domeLight.Parent = dome
+	-- two cushioned seats (driver left, shotgun right)
+	for _, side in { -1, 1 } do
+		local s = if side < 0 then "L" else "R"
+		local x = side * 2.4
+		P(`CabSeatBase_{s}`, Vector3.new(x, 3.2, -7.0), Vector3.new(2.2, 0.4, 2.0), Ink, deco)
+		P(`CabSeatCushion_{s}`, Vector3.new(x, 3.62, -7.0), Vector3.new(2.6, 0.5, 2.4), SeatLeather, { material = Enum.Material.Fabric, collide = false })
+		P(`CabSeatPiping_{s}`, Vector3.new(x, 3.62, -8.21), Vector3.new(2.6, 0.5, 0.06), Gold, deco)
+		P(`CabSeatBack_{s}`, Vector3.new(x, 5.1, -5.62), Vector3.new(2.6, 2.6, 0.5), SeatLeather, { material = Enum.Material.Fabric, collide = false }, CFrame.Angles(math.rad(-8), 0, 0))
+		P(`CabSeatHeadrest_{s}`, Vector3.new(x, 6.75, -5.45), Vector3.new(1.6, 0.75, 0.45), SeatLeather, { material = Enum.Material.Fabric, collide = false })
+	end
+	P("GearStick", Vector3.new(-0.7, 3.7, -8.4), Vector3.new(0.12, 1.3, 0.12), Chrome, deco, CFrame.Angles(math.rad(-15), 0, 0))
+	P("GearKnob", Vector3.new(-0.7, 4.35, -8.55), Vector3.new(0.38, 0.38, 0.38), Ink, { shape = Enum.PartType.Ball, collide = false })
+	-- chunky steering wheel on a Motor6D ("SteeringMotor") so VehicleController can turn it
+	local hubCF = cf * CFrame.new(-2.4, 5.95, -9.05) * CFrame.Angles(math.rad(-35), 0, 0)
+	local wheel = Instance.new("Model")
+	wheel.Name = "SteeringWheel"
+	wheel.Parent = m
+	local column = MapKit.part(wheel, "SteeringColumn", hubCF * CFrame.new(0, 0, -0.8), Vector3.new(0.35, 0.35, 1.6), { color = Ink, collide = false })
+	local hub = MapKit.part(wheel, "SteeringHub", hubCF, Vector3.new(0.6, 0.6, 0.25), { color = TruckRed, collide = false })
+	hub:SetAttribute("Jointed", true)
+	local function W(name: string, at: CFrame, size: Vector3, color: Color3)
+		local part = MapKit.part(wheel, name, at, size, { color = color, collide = false })
+		part:SetAttribute("Jointed", true)
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = hub
+		w.Part1 = part
+		w.Parent = part
+	end
+	for i = 0, 11 do
+		local a = i * math.pi / 6
+		W(`Rim_{i}`, hubCF * CFrame.Angles(0, 0, a) * CFrame.new(0, 1.1, 0), Vector3.new(0.62, 0.24, 0.24), Ink)
+	end
+	for i, a in { 0, 2 * math.pi / 3, 4 * math.pi / 3 } do
+		W(`Spoke_{i}`, hubCF * CFrame.Angles(0, 0, a + math.pi) * CFrame.new(0, 0.55, 0), Vector3.new(0.18, 1.1, 0.1), Steel)
+	end
+	W("HornCap", hubCF * CFrame.new(0, 0, 0.14), Vector3.new(0.45, 0.45, 0.06), Gold)
+	local motor = Instance.new("Motor6D")
+	motor.Name = "SteeringMotor"
+	motor.Part0 = column
+	motor.Part1 = hub
+	motor.C0 = column.CFrame:ToObjectSpace(hubCF)
+	motor.C1 = CFrame.identity
+	motor.Parent = column
+	-- bobblehead firefighter on the dash ("BobbleMotor" wobbles on the client)
+	local bobBase = P("BobbleBody", Vector3.new(1.3, 6.38, -11.55), Vector3.new(0.45, 0.45, 0.45), TruckRed, { shape = Enum.PartType.Cylinder, collide = false }, CFrame.Angles(0, 0, math.rad(90)))
+	local headCF = cf * CFrame.new(1.3, 6.95, -11.55)
+	local head = MapKit.part(m, "BobbleHead", headCF, Vector3.new(0.6, 0.6, 0.6), { color = Color3.fromRGB(255, 205, 160), shape = Enum.PartType.Ball, collide = false })
+	head:SetAttribute("Jointed", true)
+	local helmet = MapKit.part(m, "BobbleHelmet", headCF * CFrame.new(0, 0.22, 0) * CFrame.Angles(0, 0, math.rad(90)), Vector3.new(0.4, 0.68, 0.68), { color = Gold, shape = Enum.PartType.Cylinder, collide = false })
+	helmet:SetAttribute("Jointed", true)
+	local hw = Instance.new("WeldConstraint")
+	hw.Part0 = head
+	hw.Part1 = helmet
+	hw.Parent = helmet
+	local face = MapKit.part(m, "BobbleFace", headCF * CFrame.new(0, -0.02, 0.29), Vector3.new(0.4, 0.3, 0.02), { color = White, transparency = 1, collide = false })
+	face:SetAttribute("Jointed", true)
+	label(face, Enum.NormalId.Back, ":D", Ink)
+	local fw = Instance.new("WeldConstraint")
+	fw.Part0 = head
+	fw.Part1 = face
+	fw.Parent = face
+	local bob = Instance.new("Motor6D")
+	bob.Name = "BobbleMotor"
+	bob.Part0 = bobBase
+	bob.Part1 = head
+	bob.C0 = bobBase.CFrame:ToObjectSpace(headCF * CFrame.new(0, -0.35, 0))
+	bob.C1 = CFrame.new(0, -0.35, 0)
+	bob.Parent = bobBase
+	-- skin the cab shell with a generated mesh when the assets lane has one
+	meshSkin(m, "CabSkin", "TruckCab", nil, cf * CFrame.new(0, 5.55, -8.9), Vector3.new(10.2, 6.4, 8.2), shell)
+
 	-- "67" on the roof for the overhead camera.
 	local roofBadge = P("RoofBadge", Vector3.new(0, 8.72, -7.8), Vector3.new(4.2, 0.06, 3.0), White, deco)
 	label(roofBadge, Enum.NormalId.Top, "67", TruckRed, Ink)
@@ -274,7 +526,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	driveSeat.CanTouch = false -- you get in through the door prompt, never by bumping it
 	driveSeat.HeadsUpDisplay = false
 	driveSeat.Anchored = true
-	driveSeat.CFrame = cf * CFrame.new(-2.4, 4.2, -8.6)
+	driveSeat.CFrame = cf * CFrame.new(-2.4, 4.1, -7.0)
 	driveSeat.Parent = m
 	local n = 0
 	for _, side in { -1, 1 } do
@@ -285,12 +537,24 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 			s.Size = Vector3.new(1.6, 0.3, 2)
 			s.Transparency = 1
 			s.CanCollide = false
+			s.CanTouch = false -- sit via the seat's prompt, never by bumping it
 			s.Anchored = true
 			-- face the middle of the deck
 			s.CFrame = cf * CFrame.new(side * 3.7, 4.8, 10.0 + dz) * CFrame.Angles(0, side * math.pi / 2, 0)
 			s.Parent = m
 		end
 	end
+
+	-- shotgun seat in the cab (right side)
+	local shotgun = Instance.new("Seat")
+	shotgun.Name = "CrewSeat_5"
+	shotgun.Size = Vector3.new(2, 0.4, 2)
+	shotgun.Transparency = 1
+	shotgun.CanCollide = false
+	shotgun.CanTouch = false
+	shotgun.Anchored = true
+	shotgun.CFrame = cf * CFrame.new(2.4, 4.1, -7.0)
+	shotgun.Parent = m
 
 	m.PrimaryPart = chassis
 	CollectionService:AddTag(m, Names.Tag.Truck)
