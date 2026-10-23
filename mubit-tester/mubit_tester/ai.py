@@ -46,12 +46,31 @@ EXPLORE_ROLES = [
     "resources (Water, FireLevel, Carrying and HUD values that do not change or change wrongly)",
     "abuse (tool misuse, acting while Downed, spamming, odd orderings)",
 ]
+SQUAD_LABELS = "ABCDEFGH"
+# Squads mode guidance. It goes in the USER message: player.md / judge.md are frozen Mubit prompts.
+SQUADS_GUIDE = (
+    "This run plays the full multiplayer loop: lobby -> squad pad -> countdown -> mission -> results.\n"
+    "- lobby: you start in the fire station. Walk onto YOUR squad's pad (a thing tagged SquadPad whose "
+    "PadId is your pad; see `pad_path`) with move_to_instance and stay on it.\n"
+    "- queued: you are in a squad (world.SquadId). Wait on the pad while the countdown runs; the leader "
+    "(first on the pad) may use the MissionBoard prompt. Don't walk off the pad.\n"
+    "- mission: world.InstanceId is your squad's own copy of the mission (other squads' instances are "
+    "hidden from you). Work toward the co-op goal WITH your squad: split jobs by role, revive Downed "
+    "squadmates (interact next to them), never spray a teammate (friendly fire is blamed on you), "
+    "carry heavy rescues (the panda) together.\n"
+    "- results / returned: the mission is over; wait (action wait) until you are back in the station, "
+    "then use done.\n"
+    "If the lobby isn't implemented yet the harness puts your squad straight into a mission."
+)
 HISTORY = 4
 PROBE_EVERY = 5
 EVENTS_MAX = 12
 TEAM_CHARS = 1200
 EVENTS_CHARS = 1500
 TRACE_CHARS = 12_000
+SQUAD_CHARS = 1500
+QUEUE_AFTER = 6     # squads mode assist: ticks a player may idle in the lobby before the harness queues them
+LAUNCH_AFTER = 4    # ticks a full squad may wait on its pad before the harness launches it
 ACT_TIMEOUT = 60.0
 MAX_EXPLORE_TICKS = 200
 
@@ -208,6 +227,10 @@ def team_summary(me: dict, roster: list[dict], observations: dict, last_actions:
         if p["userId"] == me["userId"]:
             continue
         item = {"name": p["name"], "role": p["role"], **_me_brief(observations.get(p["userId"]) or {})}
+        if p.get("squad"):
+            item["squad"] = p["squad"]
+            if me.get("squad"):
+                item["squadmate"] = p["squad"] == me["squad"]
         la = last_actions.get(p["userId"])
         if la:
             item["last"] = la
@@ -226,11 +249,15 @@ def _compact_events(events: list) -> list:
 
 
 def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: list[dict],
-                       observation: dict, history: list[dict], events: list) -> str:
+                       observation: dict, history: list[dict], events: list,
+                       squad: dict | None = None) -> str:
     team_text = _clip(_dumps(team), TEAM_CHARS) if team else "none (you are the only test player)"
+    who = f"{me['name']} (helmet {me.get('helmet')}); role: {me['role']}"
+    if me.get("squad"):
+        who += f"; squad {me['squad']} (pad {me.get('pad')})"
     lines = [
         "## Goal", goal.strip(), "",
-        "## You", f"{me['name']} (helmet {me.get('helmet')}); role: {me['role']}", "",
+        "## You", who, "",
         "## Step", f"{n} of {total}" if total else str(n), "",
         "## Team", team_text, "",
         "## Observation", _dumps(observation), "",
@@ -244,6 +271,8 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
     else:
         lines.append("- none yet")
     lines += ["", "## New game events", _clip(_dumps(events), EVENTS_CHARS) if events else "none"]
+    if squad:
+        lines += ["", "## Squads mode", SQUADS_GUIDE, "", "## Your squad now", _clip(_dumps(squad), SQUAD_CHARS)]
     return "\n".join(lines)
 
 
@@ -256,7 +285,7 @@ def _bug_from(action: dict, key: str) -> dict | None:
 
 
 def judge_message(goal: str, roster: list[dict], steps: list[dict], events: list, probe: dict,
-                  counters: Any, hints: list[dict], errors: list[str]) -> str:
+                  counters: Any, hints: list[dict], errors: list[str], squads: dict | None = None) -> str:
     names = {p["userId"]: p["name"] for p in roster}
     trace = []
     for s in steps:
@@ -269,15 +298,35 @@ def judge_message(goal: str, roster: list[dict], steps: list[dict], events: list
     text = "\n".join(trace)
     if len(text) > TRACE_CHARS:
         text = text[: TRACE_CHARS // 3] + "\n...[middle steps omitted]...\n" + text[-(TRACE_CHARS * 2 // 3):]
+    extra: list[str] = []
+    if squads:
+        extra = [
+            "", "## Squads mode",
+            "This was a multiplayer squads run (lobby -> pad -> countdown -> mission -> results). Judge the "
+            "co-op goal for the whole team, and treat lobby/launch/instance problems (a squad that never "
+            "launched, players in the wrong instance, another squad's things visible) as game bugs.",
+            "", "## Phases per player (tick: phase)", _clip(_dumps(squads.get("phases") or {}), 2000),
+            "", "## Mission instances seen", _clip(_dumps(squads.get("instances") or []), 1500),
+            "", "## Harness assists (the harness queued/launched for stuck players)",
+            _clip(_dumps(squads.get("assists") or []), 1000) if squads.get("assists") else "none",
+            "", "## Per-player stats (from game events and BlameService)", _clip(_dumps(squads.get("stats") or {}), 3000),
+            "", "## Per-player blame",
+            "In addition to goal_met, summary and bugs, add the key \"players\": one entry per player, "
+            "{\"name\": \"...\", \"blame\": \"what went wrong because of them (friendly fire, downs caused, "
+            "kinked hoses, left the squad), or empty\", \"credit\": \"what they did for the team\"}. "
+            "Base it on the stats and the trace, not on the players' own claims.",
+        ]
     return "\n".join([
         "## Goal", goal.strip(), "",
-        "## Players", _dumps([{"name": p["name"], "role": p["role"]} for p in roster]), "",
+        "## Players", _dumps([{"name": p["name"], "role": p["role"], **({"squad": p["squad"]} if p.get("squad") else {})}
+                              for p in roster]), "",
         "## Trace (step.player: action args | reason | -> result | obs)", text or "(no steps ran)", "",
         "## Game events (most recent)", _clip(_dumps(_compact_events(events)[-20:]), 3000) if events else "none", "",
         "## ForgeProbe (server)", _dumps(play.summarize_probe(probe or {})), "",
         "## Counters", _clip(_dumps(counters or {}), 800), "",
         "## Tool errors", _clip(_dumps(errors[-8:]), 1000) if errors else "none", "",
         "## Bugs flagged by the playtesters", _clip(_dumps(hints), 4000) if hints else "none",
+        *extra,
     ])
 
 
@@ -327,12 +376,191 @@ async def _observe(harness, user_id) -> dict:
     return obs
 
 
+# --------------------------------------------------------------------------- squads mode
+
+
+def assign_squads(roster: list[dict], squads: int = 1) -> list[dict]:
+    """Split the roster into `squads` contiguous squads A, B, ... on pads 1, 2, ... (in place)."""
+    n = len(roster)
+    k = max(1, min(int(squads or 1), n or 1, len(SQUAD_LABELS)))
+    for i, p in enumerate(roster):
+        s = i * k // max(1, n)
+        p["squad"], p["pad"] = SQUAD_LABELS[s], s + 1
+    return roster
+
+
+async def _safe(coro_fn, *args, **kwargs) -> Any:
+    """Call a harness helper; errors (incl. a harness that lacks it) come back as {"error": ...}."""
+    try:
+        return await asyncio.wait_for(coro_fn(*args, **kwargs), play.STUDIO_TIMEOUT)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {_clip(str(e), 300)}"}
+
+
+def _err(res: Any) -> str | None:
+    return res.get("error") if isinstance(res, dict) and res.get("error") else None
+
+
+def player_phase(obs: dict, prev: str | None, instances: dict) -> str:
+    """lobby | queued | mission | results | returned, from the raw observation."""
+    me = (obs or {}).get("me") or {}
+    attrs = me.get("attrs") or {}
+    world = (obs or {}).get("world") or {}
+    iid = attrs.get("InstanceId") or world.get("InstanceId")
+    if iid:
+        st = (instances.get(iid) or {}).get("state") or (world.get("instance") or {}).get("state")
+        return "results" if st == "Results" else "mission"
+    if prev in ("mission", "results", "returned"):
+        return "returned"
+    return "queued" if (attrs.get("SquadId") or world.get("SquadId")) else "lobby"
+
+
+def squad_context(p: dict, phase: str, lobby: dict, instances: dict, obs: dict) -> dict:
+    """What one agent is told about its squad / instance this tick."""
+    me = (obs or {}).get("me") or {}
+    attrs = me.get("attrs") or {}
+    ctx: dict = {"phase": phase, "squad": p.get("squad"), "pad": p.get("pad")}
+    pad = next((x for x in (lobby.get("pads") or []) if str(x.get("padId")) == str(p.get("pad"))), None)
+    if pad:
+        ctx["pad_path"] = pad.get("path")
+    sid = attrs.get("SquadId")
+    sq = next((s for s in (lobby.get("squads") or []) if sid and str(s.get("id")) == str(sid)), None)
+    if sq:
+        ctx["lobby_squad"] = {k: sq.get(k) for k in ("id", "padId", "missionId", "state", "countdown") if sq.get(k) is not None}
+        ctx["lobby_squad"]["members"] = [m.get("name") for m in sq.get("members") or [] if isinstance(m, dict)]
+    iid = attrs.get("InstanceId")
+    if iid and instances.get(iid):
+        run = instances[iid]
+        ctx["instance"] = {k: run.get(k) for k in ("instanceId", "missionId", "state", "secondsLeft", "fires", "rescues")
+                           if run.get(k) is not None}
+        ctx["instance"]["players"] = [m.get("name") for m in run.get("players") or [] if isinstance(m, dict)]
+    if lobby.get("error"):
+        ctx["lobby_error"] = _clip(lobby["error"], 160)
+    return ctx
+
+
+def blame_from_events(events: list, roster: list[dict]) -> dict:
+    """Per-player friendly-fire / downs / heat / rescue tallies from the harness event log."""
+    by_id = {str(p["userId"]): p["name"] for p in roster}
+    stats = {p["name"]: {"teammates_hosed": 0, "hosed_by_teammates": 0, "downed": 0, "downs_caused": 0,
+                         "overheated": 0, "ragdolled": 0, "kinked_others": 0, "delivered": 0} for p in roster}
+
+    def name_of(d: Any) -> str | None:
+        if isinstance(d, dict):
+            if d.get("name") in stats:
+                return d["name"]
+            return by_id.get(str(d.get("userId")))
+        return None
+
+    seen: set = set()
+    for e in events or []:
+        if not isinstance(e, dict):
+            continue
+        kind, d = e.get("kind"), e.get("data") or {}
+        if not isinstance(d, dict):
+            continue
+        actor, other = name_of(d), name_of(d.get("other"))
+        args = d.get("args") if isinstance(d.get("args"), list) else []
+        key = (kind, actor, round(float(e.get("t") or 0)))  # attr + signal duplicates within a second
+        if kind in ("downed", "overheated", "ragdolled", "delivered") and key in seen:
+            continue
+        seen.add(key)
+        if kind == "hose_hit" and actor:
+            stats[actor]["teammates_hosed"] += 1
+            if other:
+                stats[other]["hosed_by_teammates"] += 1
+        elif kind == "downed" and actor:
+            stats[actor]["downed"] += 1
+            culprit = name_of(args[2]) if len(args) > 2 else None
+            if culprit and culprit != actor:
+                stats[culprit]["downs_caused"] += 1
+        elif kind == "overheated" and actor:
+            stats[actor]["overheated"] += 1
+        elif kind == "ragdolled" and actor:
+            stats[actor]["ragdolled"] += 1
+        elif kind == "kinked" and other and other != actor:
+            stats[other]["kinked_others"] += 1
+        elif kind == "delivered":
+            who = actor or by_id.get(str(d.get("by")))
+            if who:
+                stats[who]["delivered"] += 1
+    return stats
+
+
+async def _squads_tick(harness, n: int, roster: list[dict], tick_players: list[dict], observations: dict,
+                       phases: dict, lobby_ticks: dict, queued_ticks: dict, started_direct: set,
+                       lobby_unsupported: bool, seen_mission: bool, report: dict, contexts: dict,
+                       assist: bool) -> tuple[bool, bool]:
+    """Read lobby + instances, update every player's phase, nudge stuck squads, build contexts."""
+    lobby = await _safe(harness.squads) if hasattr(harness, "squads") else {"error": "harness has no squads"}
+    lobby = lobby if isinstance(lobby, dict) else {}
+    if not lobby_unsupported and (lobby.get("service") in ("stub", "missing") or not lobby.get("pads")):
+        lobby_unsupported = True
+        report["assists"].append({"n": n, "who": "harness", "action": "lobby unavailable",
+                                  "result": _clip(lobby.get("error") or f"LobbyService {lobby.get('service')}, "
+                                                  f"{len(lobby.get('pads') or [])} pads", 200)})
+    inst_list = await _safe(harness.instances) if hasattr(harness, "instances") else []
+    inst_list = inst_list if isinstance(inst_list, list) else []
+    instances = {str(i.get("instanceId")): i for i in inst_list if isinstance(i, dict) and i.get("instanceId")}
+    for iid, run in instances.items():
+        if iid not in {x.get("instanceId") for x in report["instances"]}:
+            report["instances"].append({k: run.get(k) for k in ("instanceId", "missionId", "squadId")}
+                                       | {"first_seen": n,
+                                          "players": [m.get("name") for m in run.get("players") or [] if isinstance(m, dict)]})
+    for p in tick_players:
+        uid = p["userId"]
+        ph = player_phase(observations.get(uid) or {}, phases.get(uid), instances)
+        if ph != phases.get(uid):
+            report["phases"].setdefault(p["name"], []).append(f"{n}:{ph}")
+        phases[uid] = ph
+        if ph in ("mission", "results"):
+            seen_mission = True
+
+    def note(action: str, who: str, res: Any) -> None:
+        report["assists"].append({"n": n, "who": who, "action": action, "result": _clip(res, 200)})
+
+    if assist:
+        by_squad: dict[str, list[dict]] = {}
+        for p in roster:
+            by_squad.setdefault(p["squad"], []).append(p)
+        for label, members in by_squad.items():
+            uids = [m["userId"] for m in members]
+            pad = members[0]["pad"]
+            if lobby_unsupported and label not in started_direct and all(phases.get(u) == "lobby" for u in uids):
+                # no lobby yet: put the squad straight into a mission (MissionService:StartMission)
+                res = await _safe(harness.mission_start, players=uids) if hasattr(harness, "mission_start") \
+                    else {"error": "harness has no mission_start"}
+                started_direct.add(label)
+                note("mission_start (lobby not implemented)", f"squad {label}", res)
+                continue
+            for m in members:
+                u = m["userId"]
+                lobby_ticks[u] = lobby_ticks.get(u, 0) + 1 if phases.get(u) == "lobby" else 0
+                if not lobby_unsupported and lobby_ticks[u] >= QUEUE_AFTER and hasattr(harness, "queue"):
+                    res = await _safe(harness.queue, u, pad=m["pad"])
+                    note(f"queue pad {m['pad']}", m["name"], res)
+                    lobby_ticks[u] = 0
+                    if "unsupported" in str(_err(res) or ""):
+                        lobby_unsupported = True
+            queued_ticks[label] = queued_ticks.get(label, 0) + 1 if all(phases.get(u) == "queued" for u in uids) else 0
+            if queued_ticks[label] >= LAUNCH_AFTER and hasattr(harness, "launch"):
+                res = await _safe(harness.launch, pad=pad)
+                note(f"launch pad {pad}", f"squad {label}", res)
+                queued_ticks[label] = 0
+    for p in tick_players:
+        contexts[p["userId"]] = squad_context(p, phases[p["userId"]], lobby, instances,
+                                              observations.get(p["userId"]) or {})
+    return lobby_unsupported, seen_mission
+
+
 # --------------------------------------------------------------------------- the session loop
 
 
 async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str, players, roles,
                    max_ticks: int, deadline: float | None, llm, studio, harness, studio_name,
-                   step_seconds: float, bug_key: str) -> dict:
+                   step_seconds: float, bug_key: str, mode: str = "free", squads: int = 1,
+                   assist: bool = True) -> dict:
+    squads_mode = mode == "squads"
     run_id = play._new_run_id()
     run_dir = play._run_dir(settings, run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -344,11 +572,20 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
         "goal": goal, "studio": None, "started": play._now_iso(), "ended": None,
         "max_steps": max_ticks, "goal_met": None, "summary": "", "bugs": [], "steps": [],
         "players": [], "probe": {}, "counters": {}, "events": [], "request_ids": [], "bug_hints": [],
-        "corrections": [], "errors": [],
+        "corrections": [], "errors": [], "mode": mode,
     }
+    if squads_mode:
+        report.update({"squads": max(1, int(squads or 1)), "assists": [], "phases": {}, "instances": [],
+                       "per_player": []})
     play._save_report(settings, report)
 
     all_events: list = []
+    phases: dict = {}          # userId -> current phase
+    lobby_ticks: dict = {}     # userId -> ticks idle in the lobby
+    queued_ticks: dict = {}    # squad label -> ticks the whole squad waited on its pad
+    started_direct: set = set()  # squads put straight into a mission (lobby unsupported)
+    lobby_unsupported = False
+    seen_mission = False
     async with AsyncExitStack() as stack:
         try:
             if harness is None and _is_harness(studio):
@@ -370,6 +607,8 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
 
             connected = await harness.players()
             roster = assign_roles(_select_players(list(connected or []), players), roles)
+            if squads_mode:
+                assign_squads(roster, squads)
             report["players"] = roster
             if not roster:
                 raise RuntimeError("no players connected")
@@ -391,6 +630,11 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                         summary = play.summarize_probe(probe)
                         for o in observations.values():
                             o["probe"] = summary
+                contexts: dict = {}
+                if squads_mode:
+                    lobby_unsupported, seen_mission = await _squads_tick(
+                        harness, n, roster, tick_players, observations, phases, lobby_ticks, queued_ticks,
+                        started_direct, lobby_unsupported, seen_mission, report, contexts, assist)
                 observations = {k: play.compact_observation(v) for k, v in observations.items()}
                 new_events, since = await _events(harness, since)
                 all_events.extend(new_events)
@@ -402,9 +646,12 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                     step: dict = {"n": n, "player": uid, "player_name": p["name"], "role": p["role"],
                                   "observation": observations[uid], "team": team, "events": events,
                                   "action": {}, "result": "", "request_id": None, "latency_ms": 0}
+                    if uid in contexts:
+                        step["squad"] = contexts[uid]
                     try:
                         user = agent_user_message(goal, p, n, max_ticks if deadline is None else None, team,
-                                                  observations[uid], _history(report["steps"], uid, n), events)
+                                                  observations[uid], _history(report["steps"], uid, n), events,
+                                                  squad=contexts.get(uid))
                         action, res = await play._to_thread(
                             llm.complete_json, agent_role, user, session_id=session_id,
                             required=["action", "reason"], max_tokens=1024,
@@ -442,6 +689,9 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                         report["errors"].append(f"step {n} {s['player_name']}: {_clip(s['result'], 200)}")
                     report["steps"].append(s)
                 play._save_report(settings, report)
+                if squads_mode and seen_mission and all(phases.get(p["userId"]) in ("results", "returned")
+                                                        for p in roster):
+                    break  # every squad finished its mission
                 if step_seconds > 0 and active:
                     await asyncio.sleep(step_seconds)
 
@@ -449,13 +699,34 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
             report["counters"] = await _counters(harness)
             tail, since = await _events(harness, since)
             all_events.extend(tail)
+            if squads_mode and hasattr(harness, "blame"):
+                report["_blame_service"] = await _safe(harness.blame)
         except Exception as e:  # noqa: BLE001
             report["errors"].append(f"{type(e).__name__}: {_clip(str(e), 500)}")
     report["events"] = _compact_events(all_events)[-50:]
 
+    squads_info = None
+    if squads_mode:
+        ev_stats = blame_from_events(all_events, report["players"])
+        service = report.pop("_blame_service", None) or {}
+        svc_stats = {}
+        for s in (service.get("stats") or []) if isinstance(service, dict) else []:
+            if isinstance(s, dict) and s.get("name"):
+                svc_stats[s["name"]] = {k: v for k, v in s.items() if k not in ("name", "userId", "helmet")}
+        report["per_player"] = [
+            {"name": p["name"], "squad": p.get("squad"), "role": p["role"],
+             "phases": report["phases"].get(p["name"], []), "events": ev_stats.get(p["name"], {}),
+             **({"blame_service": svc_stats[p["name"]]} if p["name"] in svc_stats else {})}
+            for p in report["players"]
+        ]
+        squads_info = {"phases": report["phases"], "instances": report["instances"], "assists": report["assists"],
+                       "stats": {x["name"]: {"events": x["events"], **({"blame_service": x["blame_service"]}
+                                                                       if "blame_service" in x else {})}
+                                 for x in report["per_player"]}}
+
     try:
         user = judge_message(goal, report["players"], report["steps"], all_events, report["probe"],
-                             report["counters"], report["bug_hints"], report["errors"])
+                             report["counters"], report["bug_hints"], report["errors"], squads=squads_info)
         verdict, res = await play._to_thread(
             llm.complete_json, "judge", user, session_id=session_id,
             required=["goal_met", "bugs", "summary"], max_tokens=2048,
@@ -464,6 +735,13 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
         report["goal_met"] = gm if isinstance(gm, bool) else None
         report["summary"] = str(verdict.get("summary") or "")
         report["bugs"] = [b for b in (play._norm_bug(x) for x in verdict.get("bugs") or []) if b]
+        if squads_mode and isinstance(verdict.get("players"), list):
+            judged = {str(x.get("name")): x for x in verdict["players"] if isinstance(x, dict)}
+            for pp in report["per_player"]:
+                j = judged.get(pp["name"])
+                if j:
+                    pp["blame"] = str(j.get("blame") or "")
+                    pp["credit"] = str(j.get("credit") or "")
         report["judge_request_id"] = res.request_id
         if res.request_id:
             report["request_ids"].append(res.request_id)
@@ -479,11 +757,22 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
 
 async def multi_playtest(settings: Settings, goal: str, players: int | list | None = None, steps: int = 20,
                          roles: list[str] | None = None, *, llm=None, studio=None, harness=None,
-                         studio_name: str | None = None, step_seconds: float = 1.0) -> dict:
-    """One `player` agent per connected player (or the first N / the named ones), acting concurrently."""
+                         studio_name: str | None = None, step_seconds: float = 1.0, mode: str = "free",
+                         squads: int = 1, assist: bool = True) -> dict:
+    """One `player` agent per connected player (or the first N / the named ones), acting concurrently.
+
+    mode="squads": the full multiplayer loop lobby -> pad -> countdown -> mission -> results. Players
+    are split into `squads` squads (A on pad 1, B on pad 2, ...); every agent is told its phase,
+    squad and instance each tick (in the user message). With `assist`, the harness queues players
+    idle in the lobby, launches squads stuck on their pad, and starts missions directly when the
+    lobby isn't implemented yet. The judge also gets per-player stats and reports per-player blame.
+    """
+    if mode not in ("free", "squads"):
+        raise ValueError(f"mode must be 'free' or 'squads', got {mode!r}")
     return await _session(settings, kind="multi_playtest", agent_role="player", goal=goal, players=players,
                           roles=roles, max_ticks=max(1, int(steps)), deadline=None, llm=llm, studio=studio,
-                          harness=harness, studio_name=studio_name, step_seconds=step_seconds, bug_key="bug")
+                          harness=harness, studio_name=studio_name, step_seconds=step_seconds, bug_key="bug",
+                          mode=mode, squads=squads, assist=assist)
 
 
 async def explore(settings: Settings, minutes: float = 3, players: int | list | None = None, *, llm=None,
@@ -543,7 +832,7 @@ async def correct_step(settings: Settings, run_id: str, step: int, note: str, pl
     user = agent_user_message(report.get("goal", ""), me, step, total, target.get("team") or [],
                               target.get("observation") or {},
                               _history(report.get("steps") or [], target.get("player"), step),
-                              target.get("events") or [])
+                              target.get("events") or [], squad=target.get("squad"))
     user += "\n\n## Correction from a human tester\n" + note.strip()
     after, res = await play._to_thread(
         llm.complete_json, role, user, session_id=report.get("session_id") or "playtest-" + run_id,

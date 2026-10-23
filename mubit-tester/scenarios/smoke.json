@@ -1,10 +1,13 @@
 {
   "name": "smoke",
-  "description": "Every player spawns alive, walks 10 studs, and the ForgeProbe report has no errors.",
+  "description": "Every player (simulated clients or Team Test friends) spawns alive, walks 10 studs, and the ForgeProbe report has no errors; also checks every client agent is ready and snapshots the lobby and mission instances.",
   "steps": [
     {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "start"},
     {"label": "walk 10 studs", "act": {"player": "all", "action": "walk_to", "offset": [10, 0, 0], "args": {"timeout": 10}}},
     {"label": "everyone moved", "wait_until": {"cmd": "players", "path": "result.*.pos", "op": "moved", "from": "$start.*.pos", "value": 8, "timeout": 15}},
-    {"label": "no probe errors", "assert": {"cmd": "probe", "path": "result.errors", "op": "len==", "value": 0}}
+    {"label": "no probe errors", "assert": {"cmd": "probe", "path": "result.errors", "op": "len==", "value": 0}},
+    {"label": "every client agent ready", "soft": true, "assert": {"cmd": "players", "path": "result.*.agent", "op": "truthy"}},
+    {"label": "lobby snapshot", "soft": true, "call": {"cmd": "squads"}},
+    {"label": "instances snapshot", "soft": true, "call": {"cmd": "instances"}}
   ]
 }

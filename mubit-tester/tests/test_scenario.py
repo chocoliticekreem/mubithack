@@ -155,7 +155,10 @@ async def test_smoke_passes():
     w = World()
     res = await run_scenario(harness_for(w), load_scenario("smoke", REPO))
     assert res["passed"], res
-    assert [s["ok"] for s in res["steps"]] == [True] * 4
+    assert [s["ok"] for s in res["steps"]] == [True] * 7
+    # the old fake harness has no agents / squads / instances: soft steps only warn
+    assert len(res["warnings"]) == 3 and all(s.get("warning") for s in res["steps"][4:])
+    assert "### Warnings (3)" in sm.format_result(res)
     # offset walk: every player moved ~10 studs on x
     assert all(math.isclose(p["pos"][0] - q["pos"][0], 10) for p, q in zip(w.players, PLAYERS))
 
@@ -176,7 +179,7 @@ async def test_wait_until_times_out_and_stops():
     assert len(res["steps"]) == 2  # act failed (done=false) -> stop_on_fail
     sc["stop_on_fail"] = False
     res = await run_scenario(harness_for(World(move=False)), sc)
-    assert [s["ok"] for s in res["steps"]] == [True, False, False, True]
+    assert [s["ok"] for s in res["steps"]][:4] == [True, False, False, True]
     assert "after 0.2s" in res["steps"][2]["detail"]
     assert res["steps"][2]["ms"] >= 150
 

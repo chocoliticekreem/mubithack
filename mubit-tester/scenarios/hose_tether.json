@@ -1,0 +1,22 @@
+{
+  "name": "hose_tether",
+  "description": "Hose tether: give player 1 a physical hose (HoseLine test reel 6 studs away), walk 120 studs away; the hose (60 studs from a truck reel) yanks them back, so they end up well short of the target.",
+  "requires": ["players>=1", "HoseLine"],
+  "steps": [
+    {"label": "player spawned", "wait_until": {"cmd": "players", "path": "result.0.health", "op": ">", "value": 0, "timeout": 20}, "save": "p"},
+    {"label": "hose length", "call": {"cmd": "config", "args": {"module": "HoseLineConfig", "key": "LengthTruck"}}, "save": "len"},
+    {"label": "attach a hose", "call": {"cmd": "hook", "args": {"module": "HoseLine", "fn": "._attachTest", "args": [{"player": "$p.0.userId"}, 6]}}, "save": "att"},
+    {"label": "hose attached", "assert": {"cmd": "players", "path": "result.0.attrs.HoseKind", "op": "exists"}},
+    {"label": "start position", "call": {"cmd": "players"}, "save": "start"},
+    {"label": "counters", "call": {"cmd": "counters"}, "save": "c0"},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "walk 120 studs away", "act": {"player": "$p.0.userId", "action": "walk_to", "offset": [120, 0, 0], "args": {"timeout": 15}}, "allow_fail": true},
+    {"label": "yanked back (still within ~hose length)", "wait_until": {"timeout": 5, "any": [
+      {"cmd": "players", "path": "result.0.pos", "op": "within", "from": "$start.0.pos", "value": 100},
+      {"cmd": "counters", "path": "result.hose_yanks", "op": "increased", "from": "$c0.hose_yanks"}
+    ]}},
+    {"label": "never got to the target", "assert": {"cmd": "players", "path": "result.0.pos", "op": "within", "from": "$start.0.pos", "value": 110}},
+    {"label": "hose events logged", "soft": true, "assert": {"cmd": "events", "args": {"since": "$t0.now"}, "path": "result.events", "op": "contains", "value": "hose_"}},
+    {"label": "detach", "soft": true, "call": {"cmd": "hook", "args": {"module": "HoseLine", "fn": ".detach", "args": [{"player": "$p.0.userId"}]}}}
+  ]
+}

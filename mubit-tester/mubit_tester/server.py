@@ -3,8 +3,15 @@
 Session: status, studios, play_start, play_stop, multiplayer_start, sync, preview.
 World:   players, observe, query, inspect, counters, events, errors, console, screenshot.
 Control: act, act_all, teleport, ignite, extinguish, set_attr, config, reset, round.
+Squads:  squads, instances, queue, launch, mission_start, mission_end (lobby, pads, mission instances).
 Testing: scenario_run, scenario_list.
 AI:      playtest, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
+
+Multiplayer routing: harness calls run in the Server datamodel of the selected Studio window. A
+"Clients and Servers" test opens separate Server/Client windows; `multiplayer_start` picks the
+server window, and if a call still lands on a window without a Server datamodel `_relocate` finds
+the one that has it. In a Team Test with real friends the server is in the cloud, so calls are
+relayed from a Client datamodel (Harness mode "client").
 
 stdout is the MCP wire. Everything else goes to stderr: tool bodies run under
 `redirect_stdout(sys.stderr)` so progress prints never corrupt the protocol stream. (The mcp SDK
@@ -43,29 +50,51 @@ INSTRUCTIONS = (
     "query/events to look, act/act_all/teleport/ignite/... to poke. For open-ended checks use playtest "
     "(Mubit AI players + judge) or explore (bug hunt); if an AI player chose wrong, playtest_correct "
     "records the right choice as a Mubit training example. Players are addressed by name, UserId or "
-    "helmet number '1'..'4'."
+    "helmet number '1'..'4'. Multiplayer: multiplayer_start(players=N) (or a Team Test with friends), "
+    "then squads/queue/launch for the station lobby, instances/mission_start/mission_end for parallel "
+    "mission instances, and instance_id on players/observe/query/events to look at one instance; "
+    "playtest(mode='squads', squads=2) runs AI squads through lobby -> mission -> results."
 )
 
 mcp = MCPServer("mubit-tester", instructions=INSTRUCTIONS)
 
-STATE: dict[str, Any] = {"studio_id": None, "hint": os.environ.get("FORGE_STUDIO") or None}
+STATE: dict[str, Any] = {"studio_id": None, "hint": os.environ.get("FORGE_STUDIO") or None,
+                         "mode": "server", "clients": []}
 MAX_TEXT = 20000
 MULTIPLAYER_WAIT = 90.0
 MULTIPLAYER_POLL = 2.0
+MULTIPLAYER_JOIN_WAIT = 45.0
 
+# StudioTestService:ExecuteMultiplayerTestAsync(numPlayers: int (1-8), args: Variant): Variant
+# (PluginSecurity, yields until the test ends, so it runs in its own thread; errors if a test is
+# already running). Verified against create.roblox.com/docs/reference/engine/classes/StudioTestService.
+# The Edit datamodel of execute_luau runs with plugin security. We wait briefly so an immediate error
+# (no permission, test already running) is reported instead of a silent "started".
 MULTIPLAYER_LUAU = r"""
 local STS = game:GetService("StudioTestService")
 local ok, fn = pcall(function() return STS.ExecuteMultiplayerTestAsync end)
 if not ok or fn == nil then return "unsupported: StudioTestService.ExecuteMultiplayerTestAsync not available" end
-task.spawn(function() STS:ExecuteMultiplayerTestAsync(%d, {}) end)
+local err = nil
+task.spawn(function()
+	local okRun, e = pcall(function() return STS:ExecuteMultiplayerTestAsync(%d, "mubit-tester") end)
+	if not okRun then err = tostring(e) end
+end)
+task.wait(1.5)
+if err then return "error: " .. err end
 return "started"
 """
+
+# StudioTestService:AddPlayers(numPlayers) must run in the Server datamodel of a running test.
+ADD_PLAYERS_LUAU = 'game:GetService("StudioTestService"):AddPlayers(%d) return "added"'
 
 MANUAL_MULTIPLAYER = (
     "Start it by hand: Studio → Test tab → Clients and Servers → set Players to {n} → Start. "
     "Studio opens a server window plus {n} client windows. Then call `studios` to see them and "
     "`studios(select=\"<server id or name>\")` if the server isn't picked automatically, and "
-    "`players` to check everyone joined. For real friends: Team Test in the shared place instead."
+    "`players` to check everyone joined. For real friends: Team Create the place, then Test tab → "
+    "Team Test → Start; every tool still works (calls are relayed through a client) and players "
+    "are addressed by name or helmet. Outside local Studio tests, add a BoolValue "
+    "ServerStorage.ForgeTestEnabled = true (remove before publishing)."
 )
 
 
@@ -110,9 +139,26 @@ def format_report(report: dict) -> str:
         names = [p.get("name") or p.get("userId") if isinstance(p, dict) else p for p in players]
         roles = [p.get("role") for p in players if isinstance(p, dict) and p.get("role")]
         out.append(f"**Players:** {', '.join(map(str, names))}" + (f" (roles: {', '.join(roles)})" if roles else ""))
+    if report.get("mode") == "squads":
+        out.append(f"**Mode:** squads ({report.get('squads', 1)} squad(s)); instances: "
+                   + (", ".join(f"{i.get('instanceId')} ({i.get('missionId')})" for i in report.get("instances") or [])
+                      or "none reached"))
     out.append("")
     if report.get("summary"):
         out += [str(report["summary"]).strip(), ""]
+    per = report.get("per_player") or []
+    if per:
+        out += ["### Per player", "", "| player | squad | phases | blame | credit | stats |", "|---|---|---|---|---|---|"]
+        for p in per:
+            stats = {k: v for k, v in (p.get("events") or {}).items() if v}
+            out.append(f"| {_cell(p.get('name'), 20)} | {_cell(p.get('squad'), 4)} | {_cell(' '.join(p.get('phases') or []), 50)} | "
+                       f"{_cell(p.get('blame'), 80)} | {_cell(p.get('credit'), 80)} | {_cell(stats or '', 80)} |")
+        out.append("")
+    assists = report.get("assists") or []
+    if assists:
+        out.append(f"Harness assists ({len(assists)}): " + "; ".join(
+            f"t{a.get('n')} {a.get('who')}: {a.get('action')}" for a in assists[:8]))
+        out.append("")
 
     bugs = report.get("bugs") or []
     out.append(f"### Bugs ({len(bugs)})")
@@ -181,16 +227,61 @@ def format_list(reports: list[dict]) -> str:
 def format_players(players: list[dict]) -> str:
     if not players:
         return "No players connected (is play running? `play_start` / `multiplayer_start`)."
-    out = [f"## Players ({len(players)})", "", "| helmet | name | userId | pos | health | tool | carrying | downed | attrs |",
-           "|---|---|---|---|---|---|---|---|---|"]
+    out = [f"## Players ({len(players)})", "",
+           "| helmet | name | userId | squad | instance | pos | health | heat | tool | carrying | downed | attrs |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for p in players:
         pos = p.get("pos")
         if isinstance(pos, list):
             pos = [builtins.round(x, 1) if isinstance(x, (int, float)) else x for x in pos]
         hp = f"{p.get('health')}/{p.get('maxHealth')}" if p.get("maxHealth") is not None else p.get("health")
         out.append(f"| {_cell(p.get('helmet'), 6)} | {_cell(p.get('name'), 20)} | {_cell(p.get('userId'), 14)} | "
-                   f"{_cell(pos, 30)} | {_cell(hp, 10)} | {_cell(p.get('tool'), 16)} | {_cell(p.get('carrying'), 16)} | "
-                   f"{_cell(p.get('downed'), 6)} | {_cell(p.get('attrs'), 80)} |")
+                   f"{_cell(p.get('squadId'), 8)} | {_cell(p.get('instanceId'), 10)} | "
+                   f"{_cell(pos, 30)} | {_cell(hp, 10)} | {_cell(p.get('heat'), 6)} | {_cell(p.get('tool'), 16)} | "
+                   f"{_cell(p.get('carrying'), 16)} | {_cell(p.get('downed'), 6)} | {_cell(p.get('attrs'), 80)} |")
+    return "\n".join(out)
+
+
+def format_squads(res: dict) -> str:
+    """Lobby: service status, squads (members, pad, countdown, mission, instance) and pads."""
+    if not isinstance(res, dict):
+        return _j(res)
+    squads = res.get("squads") or []
+    pads = res.get("pads") or []
+    out = [f"## Lobby: LobbyService {res.get('service', '?')} (via {res.get('via', '?')}); "
+           f"{len(squads)} squad(s), {len(pads)} pad(s); catalog: {', '.join(res.get('catalog') or []) or 'none'}", ""]
+    if squads:
+        out += ["| squad | pad | state | countdown | mission | instance | members |", "|---|---|---|---|---|---|---|"]
+        for s in squads:
+            members = ", ".join(str(m.get("name") or m.get("userId")) for m in s.get("members") or [] if isinstance(m, dict))
+            out.append(f"| {_cell(s.get('id'), 8)} | {_cell(s.get('padId'), 4)} | {_cell(s.get('state'), 12)} | "
+                       f"{_cell(s.get('countdown'), 6)} | {_cell(s.get('missionId'), 20)} | {_cell(s.get('instanceId'), 10)} | "
+                       f"{_cell(members, 60)} |")
+        out.append("")
+    if pads:
+        out += ["| pad | squad | standing | path |", "|---|---|---|---|"]
+        for p in pads:
+            standing = ", ".join(str(m.get("name")) for m in p.get("standing") or [] if isinstance(m, dict))
+            out.append(f"| {_cell(p.get('padId'), 4)} | {_cell(p.get('squadId'), 8)} | {_cell(standing, 50)} | "
+                       f"{_cell(p.get('path'), 60)} |")
+        out.append("")
+    lobby = res.get("lobby") or []
+    out.append(f"In the lobby: {', '.join(str(m.get('name')) for m in lobby if isinstance(m, dict)) or 'nobody'}")
+    return "\n".join(out)
+
+
+def format_instances(rows: list) -> str:
+    if not rows:
+        return "No mission instances running."
+    out = [f"## Mission instances ({len(rows)})", "",
+           "| instance | mission | squad | state | ends in | fires | rescues | players |", "|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        players = ", ".join(str(m.get("name") or m.get("userId")) for m in r.get("players") or [] if isinstance(m, dict))
+        out.append(f"| {_cell(r.get('instanceId'), 10)} | {_cell(r.get('missionId'), 20)} | {_cell(r.get('squadId'), 8)} | "
+                   f"{_cell(r.get('state'), 10)} | {_cell(r.get('secondsLeft'), 8)} | {_cell(r.get('fires'), 6)} | "
+                   f"{_cell(r.get('rescues'), 50)} | {_cell(players, 60)} |")
     return "\n".join(out)
 
 
@@ -259,10 +350,45 @@ async def _default_open_studio(select: bool = True) -> AsyncIterator[Any]:
 open_studio = _default_open_studio
 
 
+async def _studio_datamodels(studio: Any, sid: str) -> set[str]:
+    from forge.studio import available_datamodels
+    try:
+        return available_datamodels(await studio.call("get_studio_state", studio_id=sid))
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+async def _relocate(studio: Any) -> str | None:
+    """Point `studio` at the window with a Server datamodel ("server"), else one with a Client
+    datamodel for relay ("client", Team Test), else None. Remembers the choice in STATE."""
+    try:
+        items = await studio.list_studios()
+    except Exception:  # noqa: BLE001
+        return None
+    clients = []
+    for x in items:
+        dms = await _studio_datamodels(studio, x["id"])
+        if "Server" in dms:
+            if x["id"] == studio.studio_id and STATE.get("mode") == "server":
+                continue  # the one that just failed
+            studio.studio_id = STATE["studio_id"] = x["id"]
+            STATE["mode"] = "server"
+            return "server"
+        if "Client" in dms:
+            clients.append(x["id"])
+    if clients:
+        studio.studio_id = STATE["studio_id"] = clients[0]
+        STATE["mode"] = "client"
+        print(f"mubit-tester: no Server datamodel in any window; relaying through client {clients[0]}",
+              file=sys.stderr)
+        return "client"
+    return None
+
+
 @contextlib.asynccontextmanager
 async def _harness() -> AsyncIterator[Harness]:
     async with open_studio() as studio:
-        yield Harness(studio)
+        yield Harness(studio, relocate=lambda: _relocate(studio), mode=STATE.get("mode") or "server")
 
 
 def _play():
@@ -287,7 +413,8 @@ def _root() -> Path:
 # ---------------------------------------------------------------- core (shared with the CLI)
 
 async def run_playtest(goal: str, steps: int = 20, studio: str | None = None,
-                       players: int | None = None, roles: list[str] | None = None) -> str:
+                       players: int | None = None, roles: list[str] | None = None,
+                       mode: str = "free", squads: int = 1) -> str:
     with _stdout_to_stderr():
         if studio:
             STATE["hint"] = studio
@@ -296,8 +423,14 @@ async def run_playtest(goal: str, steps: int = 20, studio: str | None = None,
         ai = _ai()
         async with open_studio() as st:
             if ai is not None and hasattr(ai, "multi_playtest"):
-                report = await ai.multi_playtest(s, goal, players=players, steps=steps, roles=roles, studio=st)
+                h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server")
+                kw: dict = {"studio": st, "harness": h}
+                if mode != "free":
+                    kw.update(mode=mode, squads=squads)
+                report = await ai.multi_playtest(s, goal, players=players, steps=steps, roles=roles, **kw)
             else:
+                if mode != "free":
+                    raise ToolError("mode='squads' needs mubit_tester.ai")
                 report = await _play().playtest(s, goal, steps, studio=st)
     return format_report(report)
 
@@ -354,10 +487,21 @@ async def status() -> str:
                 state = await st.state()
                 lines.append(f"- play: {'running' if state.get('playing') else 'stopped'}; "
                              f"datamodels {state.get('datamodels')}")
-                if state.get("playing"):
+                if state.get("playing") or STATE.get("mode") == "client":
+                    h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server")
                     try:
-                        ping = await Harness(st).call("ping")
-                        lines.append(f"- harness: ok {_cell(ping, 200)}")
+                        ping = await h.call("ping")
+                        lines.append(f"- harness: ok via {h.mode} {_cell(ping, 200)}")
+                        try:
+                            caps = await h.caps()
+                            svc = caps.get("services") or {}
+                            lines.append("- game services: " + ", ".join(
+                                f"{k} {v.get('status')}" for k, v in sorted(svc.items()) if isinstance(v, dict)))
+                            tags = caps.get("tags") or {}
+                            lines.append(f"- lobby: {tags.get('SquadPad', 0)} SquadPad(s); instances "
+                                         f"{caps.get('instanceModels') or []}; catalog {caps.get('catalog') or []}")
+                        except HarnessError:
+                            lines.append("- game services: unknown (old harness: sync ForgeTest.server.luau)")
                     except HarnessError as e:
                         lines.append(f"- harness: NOT ready ({e})")
                 else:
@@ -391,6 +535,7 @@ async def studios(select: str | None = None) -> str:
 async def play_start() -> str:
     """Start a solo playtest (if not already playing) and wait until ForgeTest answers `ping`."""
     with _tool_errors():
+        STATE["mode"] = "server"
         async with _harness() as h:
             ping = await h.ensure_ready(timeout=45)
             return f"play running (started now: {h.started_play}). ping: {_cell(ping, 400)}"
@@ -400,6 +545,7 @@ async def play_start() -> str:
 async def play_stop() -> str:
     """Stop the playtest and return to Edit (always call this before finishing)."""
     with _tool_errors():
+        STATE["mode"], STATE["clients"] = "server", []
         async with open_studio() as st:
             try:
                 await st.stop()
@@ -412,18 +558,47 @@ async def play_stop() -> str:
                     raise ToolError(f"could not stop: {e}; EndTest also failed: {e2}") from e2
 
 
+async def _wait_players(st: Any, n: int, timeout: float) -> int:
+    """Poll ForgeTest ping on the selected server window until `n` players joined; returns the count."""
+    h = Harness(st, timeout=15)
+    deadline = time.monotonic() + timeout
+    count = 0
+    while True:
+        try:
+            ping = await h.call("ping")
+            count = int((ping or {}).get("players") or 0) if isinstance(ping, dict) else 0
+        except HarnessError:
+            pass
+        if count >= n or time.monotonic() >= deadline:
+            return count
+        await anyio.sleep(MULTIPLAYER_POLL)
+
+
 @mcp.tool()
-async def multiplayer_start(players: int = 2) -> str:
-    """Start a local multiplayer test (1 server + N simulated clients), best effort via
-    StudioTestService; picks the server window for later tools. If Studio can't do it from code,
-    returns the manual steps (Test tab → Clients and Servers)."""
+async def multiplayer_start(players: int = 2, add: bool = False) -> str:
+    """Start a local multiplayer test: 1 server + N (1-8) simulated clients, via
+    StudioTestService:ExecuteMultiplayerTestAsync. Finds the spawned Server and Client windows
+    (list_roblox_studios), routes every harness call to the Server window and waits until the
+    players joined. `add=true` during a running test adds N more clients (StudioTestService:
+    AddPlayers). If Studio can't do it from code, returns the manual steps (Test tab → Clients and
+    Servers) and how to run a Team Test with real friends."""
     with _tool_errors():
         n = max(1, min(int(players), 8))
         manual = MANUAL_MULTIPLAYER.format(n=n)
-        from forge.studio import available_datamodels
         async with open_studio() as st:
-            if (await st.state()).get("playing"):
-                return "A playtest is already running; `play_stop` first, then multiplayer_start."
+            if (await st.state()).get("playing") or (add and STATE.get("clients")):
+                if not add:
+                    return ("A playtest is already running; `play_stop` first, or "
+                            "`multiplayer_start(players=N, add=true)` to add N clients to it.")
+                if "Server" not in await _studio_datamodels(st, st.studio_id) and not await _relocate(st):
+                    return f"No Server window found to add players to.\n\n{manual}"
+                try:
+                    out = await st.execute_luau(ADD_PLAYERS_LUAU % n, "Server")
+                except Exception as e:  # noqa: BLE001
+                    return f"StudioTestService:AddPlayers failed ({e}). Only works in a Clients and Servers test."
+                have = await _wait_players(st, 0, 0)
+                count = await _wait_players(st, have + n if "added" in str(out) else have, MULTIPLAYER_JOIN_WAIT)
+                return f"AddPlayers({n}): {_cell(out, 80)}; {count} player(s) connected now."
             before = {x["id"] for x in await st.list_studios()}
             try:
                 out = await st.execute_luau(MULTIPLAYER_LUAU % n, "Edit")
@@ -431,23 +606,38 @@ async def multiplayer_start(players: int = 2) -> str:
                 return f"Could not start multiplayer from code ({e}).\n\n{manual}"
             if "started" not in str(out):
                 return f"Could not start multiplayer from code ({_cell(out, 200)}).\n\n{manual}"
+            server: dict | None = None
+            clients: list[dict] = []
             deadline = time.monotonic() + MULTIPLAYER_WAIT
-            while time.monotonic() < deadline:
+            while time.monotonic() < deadline and (server is None or len(clients) < n):
                 await anyio.sleep(MULTIPLAYER_POLL)
                 try:
                     items = await st.list_studios()
                 except Exception:  # noqa: BLE001
                     continue
                 for x in sorted(items, key=lambda x: x["id"] in before):  # new windows first
-                    try:
-                        state = await st.call("get_studio_state", studio_id=x["id"])
-                    except Exception:  # noqa: BLE001
+                    if (server and x["id"] == server["id"]) or any(c["id"] == x["id"] for c in clients):
                         continue
-                    if "Server" in available_datamodels(state):
-                        STATE["studio_id"] = x["id"]
-                        return (f"multiplayer test with {n} player(s) started; server window `{x['id']}` "
-                                f"({_cell(x.get('name'), 60)}) selected. Call `players` to check everyone joined.")
-            return f"Started the test but no Server datamodel showed up within {MULTIPLAYER_WAIT:.0f}s.\n\n{manual}"
+                    dms = await _studio_datamodels(st, x["id"])
+                    if "Server" in dms and server is None:
+                        server = x
+                    elif "Client" in dms and x["id"] not in before:
+                        clients.append(x)
+                if server is not None and not clients and time.monotonic() > deadline - MULTIPLAYER_WAIT / 2:
+                    break  # client windows may not be listed separately; the player count decides
+            if server is None:
+                return f"Started the test but no Server datamodel showed up within {MULTIPLAYER_WAIT:.0f}s.\n\n{manual}"
+            st.studio_id = STATE["studio_id"] = server["id"]
+            STATE["mode"] = "server"
+            STATE["clients"] = [c["id"] for c in clients]
+            count = await _wait_players(st, n, MULTIPLAYER_JOIN_WAIT)
+            rows = [f"| server | `{server['id']}` | {_cell(server.get('name'), 60)} |"] + \
+                [f"| client | `{c['id']}` | {_cell(c.get('name'), 60)} |" for c in clients]
+            head = (f"Multiplayer test started: {count}/{n} player(s) joined; harness calls go to the server "
+                    f"window `{server['id']}`.")
+            if count < n:
+                head += " Not everyone joined yet: check `players` in a moment (the harness needs ForgeTest synced)."
+            return "\n".join([head, "", "| role | id | name |", "|---|---|---|", *rows])
 
 
 @mcp.tool()
@@ -471,29 +661,34 @@ async def preview(screenshot: bool = False) -> str:
 # ================================================================ MCP tools: world
 
 @mcp.tool()
-async def players() -> str:
-    """Every connected player: helmet, name, userId, position, health, tool, carrying, downed, attrs."""
+async def players(instance_id: str | None = None, squad_id: str | None = None) -> str:
+    """Every connected player: helmet, name, userId, squad, mission instance, position, health,
+    Heat, tool, carrying, downed, attrs. `instance_id` / `squad_id` keep only that instance/squad."""
     with _tool_errors():
         async with _harness() as h:
-            return format_players(await h.players())
+            return format_players(await h.players(instance_id, squad_id))
 
 
 @mcp.tool()
-async def observe(player: str, radius: float = 120, max: int = 12) -> str:
-    """What one player sees: self, nearby world things, prompts and their HUD (from their client)."""
+async def observe(player: str, radius: float = 120, max: int = 12, instance_id: str | None = None) -> str:
+    """What one player sees: self, nearby world things, prompts and their HUD (from their client).
+    Things inside OTHER mission instances are hidden (the player's own instance, or `instance_id`)."""
     with _tool_errors():
         async with _harness() as h:
-            return _j(await h.observe(player, radius, max), f"observe {player}")
+            return _j(await h.observe(player, radius, max, instance_id), f"observe {player}")
 
 
 @mcp.tool()
 async def query(tag: str | None = None, near: str | list[float] | None = None, radius: float | None = None,
-                attrs: list[str] | None = None, limit: int = 25) -> str:
+                attrs: list[str] | None = None, limit: int = 25, instance_id: str | None = None,
+                where: dict | None = None) -> str:
     """Find instances by CollectionService tag, optionally near a position [x,y,z] or a player
-    (name/userId/helmet), returning path, name, tags, pos, dist and the requested attrs."""
+    (name/userId/helmet), returning path, name, tags, pos, dist, instanceId and the requested attrs.
+    `instance_id` keeps only things inside that mission instance; `where` {attr: value} filters."""
     with _tool_errors():
         async with _harness() as h:
-            res = await h.query(tag=tag, near=near, radius=radius, attrs=attrs, limit=limit)
+            res = await h.query(tag=tag, near=near, radius=radius, attrs=attrs, limit=limit,
+                                instanceId=instance_id, where=where)
             return _j(res, f"query ({len(res)} hit(s))")
 
 
@@ -514,12 +709,16 @@ async def counters() -> str:
 
 
 @mcp.tool()
-async def events(since: float | None = None, limit: int = 60) -> str:
-    """Server event log (players, tools, prompts, Burning/Rescuable tags, key attributes, counters)
-    since server time `since` (use `now` from a previous call). Shows the last `limit` events."""
+async def events(since: float | None = None, limit: int = 60, instance_id: str | None = None,
+                 squad_id: str | None = None, kinds: list[str] | None = None) -> str:
+    """Server event log since server time `since` (use `now` from a previous call), last `limit`.
+    Kinds include players/tools/prompts/tags/attrs/counters plus lobby (joined_pad, left_pad,
+    countdown, launched) and mission (mission_started, mission_state, entered_instance, delivered,
+    overheated, downed, revived, ragdolled, hose_hit, kinked). `instance_id` / `squad_id` scope it
+    to one mission instance / squad; `kinds` filters."""
     with _tool_errors():
         async with _harness() as h:
-            res = await h.events(since)
+            res = await h.events(since, instance_id, squad_id, kinds)
         evs = (res or {}).get("events") or []
         out = [f"## Events: {len(evs)} (now={res.get('now')}; pass since={res.get('now')} next time)"]
         for e in evs[-limit:]:
@@ -586,13 +785,23 @@ async def act_all(action: str, args: dict | None = None) -> str:
 
 
 @mcp.tool()
-async def teleport(player: str, pos: list[float] | None = None, path: str | None = None) -> str:
-    """Teleport a player to a position [x,y,z] or next to the instance at `path`."""
+async def teleport(player: str, pos: list[float] | None = None, path: str | None = None,
+                   to: str | None = None, offset: list[float] | None = None) -> str:
+    """Teleport a player to a position [x,y,z], next to the instance at `path`, or next to another
+    player `to` (name/userId/helmet); `offset` [dx,dy,dz] shifts the spot."""
     with _tool_errors():
-        if pos is None and not path:
-            raise ToolError("give pos or path")
+        if pos is None and not path and not to:
+            raise ToolError("give pos, path or to")
         async with _harness() as h:
-            args = {"userId": player, **({"pos": pos} if pos is not None else {"path": path})}
+            args: dict = {"userId": player}
+            if pos is not None:
+                args["pos"] = pos
+            elif path:
+                args["path"] = path
+            else:
+                args["to"] = to
+            if offset is not None:
+                args["offset"] = offset
             return _j(await h.call("teleport", **args))
 
 
@@ -655,6 +864,79 @@ async def round(state: str | None = None) -> str:
             return _j(await h.call("round", **({"state": state} if state else {})))
 
 
+# ================================================================ MCP tools: squads / co-op
+
+@mcp.tool()
+async def squads(squad_id: str | None = None, pad: int | None = None) -> str:
+    """Station lobby: LobbyService status, squads (pad, leader, members, chosen mission, countdown,
+    instance), SquadPads (who stands on each), players still in the lobby, enabled missions."""
+    with _tool_errors():
+        async with _harness() as h:
+            return format_squads(await h.squads(squad_id, pad))
+
+
+@mcp.tool()
+async def instances(instance_id: str | None = None) -> str:
+    """Running mission instances (parallel squads): id, mission, squad, state, seconds left, fires
+    burning, rescues by state, players."""
+    with _tool_errors():
+        async with _harness() as h:
+            return format_instances(await h.instances(instance_id))
+
+
+@mcp.tool()
+async def queue(player: str, pad: int = 1, walk: bool = False, join: bool | None = None) -> str:
+    """Put a player onto squad pad `pad` (teleport, or walk there with walk=true) and wait for
+    their SquadId; if the pad doesn't sign them up, LobbyService:Join is called (join=false: never,
+    join=true: at once)."""
+    with _tool_errors():
+        async with _harness() as h:
+            args: dict = {"userId": player, "pad": pad}
+            if walk:
+                args["walk"] = True
+            if join is not None:
+                args["join"] = join
+            return _j(await h.call("queue", **args), f"queue {player} -> pad {pad}")
+
+
+@mcp.tool()
+async def launch(pad: int | None = None, squad_id: str | None = None, mission_id: str | None = None) -> str:
+    """Launch a squad now (skip the board and countdown): LobbyService:Launch(squadId, missionId) for
+    the squad on `pad` or `squad_id`; waits until its members are in the mission instance."""
+    with _tool_errors():
+        if pad is None and not squad_id:
+            raise ToolError("give pad or squad_id")
+        async with _harness() as h:
+            return _j(await h.launch(pad=pad, squad_id=squad_id, mission_id=mission_id, wait=20), "launch")
+
+
+@mcp.tool()
+async def mission_start(mission_id: str | None = None, players: list[str] | None = None,
+                        seconds: float | None = None) -> str:
+    """Start a mission instance directly: MissionService:StartMission(players, missionId, seconds?)
+    (players: names/UserIds/helmets, default everyone; mission default: first enabled in the
+    catalog). Returns the instanceId and who is in it."""
+    with _tool_errors():
+        async with _harness() as h:
+            args: dict = {"wait": 15}
+            if mission_id:
+                args["missionId"] = mission_id
+            if players:
+                args["players"] = players
+            if seconds is not None:
+                args["seconds"] = seconds
+            return _j(await h.call("mission_start", **args), "mission_start")
+
+
+@mcp.tool()
+async def mission_end(instance_id: str, reason: str = "forced") -> str:
+    """End one mission instance: MissionService:EndMission(instanceId, reason) ("forced", "time",
+    "allOut"); waits for the results state / the squad back in the lobby."""
+    with _tool_errors():
+        async with _harness() as h:
+            return _j(await h.mission_end(instance_id, reason, wait=10), "mission_end")
+
+
 # ================================================================ MCP tools: testing
 
 @mcp.tool()
@@ -684,20 +966,28 @@ def scenario_list() -> str:
         items = list_scenarios(load_settings().repo_root)
         if not items:
             return "No scenarios in scenarios/."
-        return "\n".join(["| name | steps | description |", "|---|---|---|"] + [
-            f"| {x['name']} | {x.get('steps', '?')} | {_cell(x.get('description') or x.get('error'), 120)} |"
+        return "\n".join(["| name | steps | requires | description |", "|---|---|---|---|"] + [
+            f"| {x['name']} | {x.get('steps', '?')} | "
+            f"{_cell(', '.join(r if isinstance(r, str) else str(r.get('reason') or 'condition') for r in x.get('requires') or []), 60)} | "
+            f"{_cell(x.get('description') or x.get('error'), 120)} |"
             for x in items])
 
 
 # ================================================================ MCP tools: AI (Mubit)
 
 @mcp.tool()
-async def playtest(goal: str, players: int | None = None, steps: int = 20, roles: list[str] | None = None) -> str:
+async def playtest(goal: str, players: int | None = None, steps: int = 20, roles: list[str] | None = None,
+                   mode: str = "free", squads: int = 1) -> str:
     """AI-playtest toward a concrete goal: one Mubit `player` agent per connected player (roles like
     "nozzle", "rescuer", "chaos"), acting each tick, then a `judge`. Returns goal met, bugs (#i),
-    a step table and the run_id. Start multiplayer first for several players."""
+    a step table and the run_id. Start multiplayer first for several players.
+    mode="squads": the full loop lobby -> pad -> countdown -> mission -> results with the players
+    split into `squads` squads acting concurrently toward a co-op goal (the harness nudges stuck
+    squads); the report adds phases, instances and per-player blame/credit from the judge."""
     with _tool_errors():
-        return await run_playtest(goal, steps, None, players, roles)
+        if mode not in ("free", "squads"):
+            raise ToolError("mode must be 'free' or 'squads'")
+        return await run_playtest(goal, steps, None, players, roles, mode, squads)
 
 
 @mcp.tool()
@@ -756,6 +1046,7 @@ TOOL_NAMES = (
     "status", "studios", "play_start", "play_stop", "multiplayer_start", "sync", "preview",
     "players", "observe", "query", "inspect", "counters", "events", "errors", "console", "screenshot",
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
+    "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
     "playtest", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 )
