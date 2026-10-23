@@ -417,6 +417,9 @@ local function sampleOverlays()
 		end
 	end
 	state.smokeTarget = if near > 0 then AvLogic.smokeWeight(near, isIndoors(pos), Cfg.SmokeFullAt or 5) else 0
+	if player:GetAttribute("GasMask") == true then
+		state.smokeTarget = 0 -- gear: the gas mask sees through smoke (GearController draws the mask frame)
+	end
 	local heat = player:GetAttribute(Names.Attr.Heat)
 	local from = Cfg.HeatFrom or 25
 	state.heatTarget = if type(heat) == "number" then math.clamp((heat - from) / math.max(1, 100 - from), 0, 1) else 0

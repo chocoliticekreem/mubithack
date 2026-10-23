@@ -13,6 +13,11 @@
 --   prompts are InventoryService's (nozzle off the reel, supply lines), not hooked here.
 --   ToolService:HitDoor(player, door, hits?)             -- v2: HandsService axe-head impact (1..DoorHits)
 --   ToolService:PushDoor(door): boolean                  -- v2: hand shove opens an unlocked closed door
+--   ToolService:PryDoor(door): boolean                   -- gear: Halligan/Crowbar pop a locked door open
+--     quietly (unlocked + opened, no planks; ResetDoors re-locks it)
+-- Axe tiers (gear progression): CreateTool("Axe" | "FireAxe" | "GoldenAxe") always makes a Tool named
+--   "Axe" (attr AxeTier = the item id) painted by ItemProps.paintAxe. Door damage (HitDoor, the door
+--   prompt) is multiplied and the swing cooldown divided by the tier (Lib/Items/Progression).
 -- Signals: DoorBroken(player, door: BasePart), WaterUsed(player, litres: number),
 --          HoseHit(sprayer: Player, victim: Player)       -- once per pair per HoseHitCooldown
 --          HoseRecoil(sprayer: Player, impulse: Vector3)  -- every hose spray event (-aim * HoseRecoil * pressure).
@@ -50,6 +55,8 @@ local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
+local Progression = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
+local AXE_TIERS = { Axe = true, FireAxe = true, GoldenAxe = true }
 
 local ToolService = {}
 ToolService.Priority = 50
@@ -762,6 +769,17 @@ local function nearestDoor(root: BasePart, reach: number, lockedOnly: boolean): 
 end
 
 -- axe --------------------------------------------------------------------------------------
+-- The held axe's tier id ("Axe" = rusty), nil-guarded: a plain "Axe" Tool with no attr is the rusty one.
+local function axeTier(player: Player): string?
+	local char = player.Character
+	local t = char and char:FindFirstChild("Axe")
+	if not t then
+		return nil
+	end
+	local tier = t:GetAttribute("AxeTier") or t:GetAttribute("InvItem")
+	return if type(tier) == "string" then tier else "Axe"
+end
+
 local function bonk(player: Player, root: BasePart): boolean
 	local any = false
 	local look = root.CFrame.LookVector
@@ -797,7 +815,7 @@ swing = function(player: Player)
 		return
 	end
 	local now = os.clock()
-	if now - (lastSwing[player] or 0) < ToolConfig.AxeCooldown then
+	if now - (lastSwing[player] or 0) < Progression.swingCooldown(ToolConfig.AxeCooldown, axeTier(player)) then
 		return
 	end
 	lastSwing[player] = now
@@ -809,7 +827,12 @@ swing = function(player: Player)
 	fx("whoosh", root.Position, player.UserId)
 	local door = nearestDoor(root, ToolConfig.AxeReach, false)
 	if door then
-		hitDoor(player, door)
+		for _ = 1, Progression.doorHits(1, axeTier(player), ToolConfig.DoorHits) do
+			if door:GetAttribute(Names.Attr.Broken) == true then
+				break
+			end
+			hitDoor(player, door)
+		end
 	end
 	bonk(player, root)
 end
@@ -825,11 +848,16 @@ local function onDoorPrompt(player: Player, door: BasePart)
 	local char = player.Character
 	if char and char:FindFirstChild("Axe") and not blocked(player) then
 		local now = os.clock()
-		if now - (lastSwing[player] or 0) < ToolConfig.AxeCooldown then
+		if now - (lastSwing[player] or 0) < Progression.swingCooldown(ToolConfig.AxeCooldown, axeTier(player)) then
 			return
 		end
 		lastSwing[player] = now
-		hitDoor(player, door)
+		for _ = 1, Progression.doorHits(1, axeTier(player), ToolConfig.DoorHits) do
+			if door:GetAttribute(Names.Attr.Broken) == true then
+				break
+			end
+			hitDoor(player, door)
+		end
 	else
 		Popup.show(door, "Locked! Use the axe", "info", player)
 	end
@@ -942,8 +970,19 @@ end
 function ToolService:CreateTool(itemId: string, player: Player): Tool?
 	if itemId == "Hose" then
 		return makeHose()
-	elseif itemId == "Axe" then
-		return makeAxe(player)
+	elseif AXE_TIERS[itemId] then
+		local axe = makeAxe(player)
+		axe:SetAttribute("AxeTier", itemId)
+		local ok, ItemProps = pcall(function()
+			return require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemProps") :: ModuleScript) :: any
+		end)
+		if ok and ItemProps and ItemProps.paintAxe then
+			pcall(ItemProps.paintAxe, axe, itemId)
+		end
+		if itemId ~= "Axe" then
+			axe.ToolTip = `{if itemId == "GoldenAxe" then "Golden Axe" else "Fire Axe"}: click to break doors (hits harder, swings faster)`
+		end
+		return axe
 	elseif itemId == "Extinguisher" then
 		return makeExtinguisher()
 	end
@@ -978,12 +1017,27 @@ end
 -- v2 physics hands (HandsService validates first): an axe-head impact worth `hits` door hits, and a
 -- hand shove that swings an unlocked closed door open. PushDoor returns true when it opened.
 function ToolService:HitDoor(player: Player, door: BasePart, hits: number?)
-	for _ = 1, math.clamp(math.floor(tonumber(hits) or 1), 1, math.max(1, ToolConfig.DoorHits)) do
+	local base = math.clamp(math.floor(tonumber(hits) or 1), 1, math.max(1, ToolConfig.DoorHits))
+	-- axe tiers hit harder (a kick or a saw passes the full DoorHits, so the tier can't add to it)
+	for _ = 1, Progression.doorHits(base, axeTier(player), ToolConfig.DoorHits) do
 		if door:GetAttribute(Names.Attr.Broken) == true then
 			break
 		end
 		hitDoor(player, door)
 	end
+end
+
+function ToolService:PryDoor(door: BasePart): boolean
+	if door:GetAttribute(Names.Attr.Broken) == true or not door:HasTag(Names.Tag.Door) then
+		return false
+	end
+	remember(door) -- the original Locked state, so ResetDoors re-locks it
+	door:SetAttribute(Names.Attr.Locked, false)
+	doorHits[door] = nil
+	if door.CanCollide then
+		toggleDoor(door)
+	end
+	return true
 end
 
 function ToolService:PushDoor(door: BasePart): boolean

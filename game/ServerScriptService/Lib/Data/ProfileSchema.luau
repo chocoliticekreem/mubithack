@@ -18,6 +18,8 @@
 --   ProfileSchema.addRescue(p, kind)
 --   ProfileSchema.unlockCosmetics(p, catalog): { string }   -- newly owned ids
 --   ProfileSchema.equip(p, slot, id): boolean
+--   ProfileSchema.unlockGear(p, ids): { string }            -- newly unlocked gear ids (v3)
+--   ProfileSchema.setLoadout(p, ids): boolean               -- locker picks (GearService validates ids)
 --   ProfileSchema.setSetting(p, key, value): boolean
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
@@ -41,6 +43,7 @@ export type Profile = {
 		equipped: { helmet: string, hose: string },
 	},
 	settings: { [string]: any },
+	gear: { unlocked: { [string]: boolean }, loadout: { string } }, -- v3: locker (Lib/Items/Progression)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -59,7 +62,8 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 2
+ProfileSchema.Version = 3
+ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
 -- Level curve: reaching level L+1 from L costs Base + Step * (L - 1) XP. Level 1 -> 2 = 100 XP.
 ProfileSchema.Curve = { Base = 100, Step = 50, MaxLevel = 99 }
@@ -126,6 +130,7 @@ function ProfileSchema.default(now: number): Profile
 			equipped = { helmet = ProfileSchema.DefaultCosmetics.helmet, hose = ProfileSchema.DefaultCosmetics.hose },
 		},
 		settings = settings,
+		gear = { unlocked = {}, loadout = {} },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -199,6 +204,12 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 		t.weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 }
 		t.version = 2
 	end,
+	-- v2 -> v3: gear progression (unlocked gear ids + the locker loadout). Unlocks are re-derived from
+	-- the level by GearService on load, so an empty map is the right start.
+	[2] = function(t: any, _now: number)
+		t.gear = { unlocked = {}, loadout = {} }
+		t.version = 3
+	end,
 }
 
 local function fillMap(t: any, key: string)
@@ -266,6 +277,23 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 			p.settings[key] = nil
 		end
 	end
+
+	fillMap(p, "gear")
+	fillMap(p.gear, "unlocked")
+	for id, v in p.gear.unlocked do
+		if type(id) ~= "string" or v ~= true then
+			p.gear.unlocked[id] = nil
+		end
+	end
+	local loadout: { string } = {}
+	if type(p.gear.loadout) == "table" then
+		for _, id in p.gear.loadout do
+			if type(id) == "string" and #loadout < ProfileSchema.MaxLoadout then
+				table.insert(loadout, id)
+			end
+		end
+	end
+	p.gear.loadout = loadout
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -463,6 +491,33 @@ function ProfileSchema.equip(p: Profile, slot: string, id: string): boolean
 		return false
 	end
 	(p.cosmetics.equipped :: any)[slot] = id
+	return true
+end
+
+------------------------------------------------------------------------------------------- gear
+
+function ProfileSchema.unlockGear(p: Profile, ids: { string }): { string }
+	local new: { string } = {}
+	for _, id in ids do
+		if type(id) == "string" and not p.gear.unlocked[id] then
+			p.gear.unlocked[id] = true
+			table.insert(new, id)
+		end
+	end
+	return new
+end
+
+function ProfileSchema.setLoadout(p: Profile, ids: any): boolean
+	if type(ids) ~= "table" then
+		return false
+	end
+	local out: { string } = {}
+	for _, id in ids do
+		if type(id) == "string" and #out < ProfileSchema.MaxLoadout then
+			table.insert(out, id)
+		end
+	end
+	p.gear.loadout = out
 	return true
 end
 
