@@ -438,6 +438,19 @@ def rollback(slug: str, version: str, reason: str | None = None, studio: str | N
 
 
 @mcp.tool()
+def feature(slug: str, request: str, iterations: int = 1, use_studio: bool = True, studio: str | None = None) -> str:
+    """Add a feature to an existing game (background job): the planner (Mubit) splits the request into
+    new modules and small hook-in edits, the coder and patcher build them, then playtests, the critic
+    and fixer iterate. Saved as a version first, so `rollback` undoes it. The job log ends with the
+    feature's telemetry check."""
+    _store(slug)
+    if not request.strip():
+        raise ToolError("the feature request is empty")
+    args = ["feature", slug, request, "--iterations", str(max(0, iterations))] + ([] if use_studio else ["--no-studio"])
+    return _job_reply(start_job("feature", args, _studio_env(studio)), f"the feature '{request[:60]}' on {slug}")
+
+
+@mcp.tool()
 def tester_report(slug: str, text: str, run_ids: list[str] | None = None, reporter: str | None = None) -> str:
     """A human tester's report in their own words -> triage (Mubit) -> anomalies, and an auditor
     correction for anything the auditor missed (background job).
@@ -653,7 +666,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 
 
 TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
-              "fix", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
+              "fix", "feature", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")
 
