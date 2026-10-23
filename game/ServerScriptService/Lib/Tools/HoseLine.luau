@@ -171,6 +171,7 @@ type Hose = {
 	segs: { BasePart },
 	ends: { Attachment }, -- ends[i] = attachment "B" of segment i
 	rope: RopeConstraint,
+	follow: AlignPosition,
 	born: number,
 	lastYank: number,
 	contact: { [Player]: number },
@@ -485,9 +486,21 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	rope.Name = "HandRope"
 	rope.Attachment0 = ends[n]
 	rope.Attachment1 = endAtt
-	rope.Length = Cfg.HandRopeLength
+	-- only a last-resort leash: a hose snagged on a wall or truck must never hold the holder in place
+	rope.Length = length
 	rope.Visible = false
 	rope.Parent = segs[n]
+
+	-- the tip follows the hand with a capped force that acts on the hose only (OneAttachment), so a
+	-- free hose trails behind you and a snagged one just stretches its drawn end to your hand
+	local follow = Instance.new("AlignPosition")
+	follow.Name = "HandFollow"
+	follow.Mode = Enum.PositionAlignmentMode.OneAttachment
+	follow.Attachment0 = ends[n]
+	follow.MaxForce = Cfg.FollowForce
+	follow.Responsiveness = Cfg.FollowResponsiveness
+	follow.Position = endAtt.WorldPosition
+	follow.Parent = segs[n]
 
 	model.PrimaryPart = segs[1]
 	model.Parent = folder()
@@ -508,6 +521,7 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 		segs = segs,
 		ends = ends,
 		rope = rope,
+		follow = follow,
 		born = os.clock(),
 		lastYank = 0,
 		contact = {},
@@ -601,6 +615,7 @@ tick = function(dt: number)
 		if h.rope.Attachment1 ~= endAtt then
 			h.rope.Attachment1 = endAtt -- tool equipped/unequipped: re-hook to the new end
 		end
+		h.follow.Position = endAtt.WorldPosition
 		local srcPos = h.sourceAtt.WorldPosition
 		local tip = h.ends[#h.ends].WorldPosition
 		local dist = (endAtt.WorldPosition - srcPos).Magnitude

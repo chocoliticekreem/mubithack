@@ -16,6 +16,8 @@ return Config.define({
 	Density = 0.35, -- light: the hose drapes, it doesn't anchor you
 	Friction = 0.8,
 	HandRopeLength = 1.5, -- rope from the last segment to the holder's hand
+	FollowForce = 2500, -- pull on the hose tip toward the hand (never on the holder)
+	FollowResponsiveness = 30,
 	OwnerSplit = 0.5, -- segments [1..N*split] stay server-owned, the rest are owned by the holder
 
 	-- tug of war
