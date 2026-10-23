@@ -48,7 +48,7 @@ words, for example "make a lava obby game and keep improving it".
 
 | Server | What it does |
 |---|---|
-| `forge` (`forge server`) | Builds and improves games. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
+| `forge` (`forge server`) | Builds and improves games. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`, `tester_report`, `tester_reports`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
 | `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
 | `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
 
@@ -101,6 +101,12 @@ forge improve flame-and-blame --only hose-drains-instantly   # one fault
 forge scores flame-and-blame                                  # detected / missed / fixed per cycle
 ```
 
+**Real testers:** `forge report <slug> "<what they saw>" [--run <playtest run id>] [--by name]`
+(MCP: `tester_report`). The **triage** role (Mubit task) turns the report into anomalies backed by
+the round telemetry. For each one the auditor had not flagged, the auditor call is re-sent with
+it as a verified outcome (a correction in the auditor's task) and a lesson goes into the playbook,
+so real players teach the auditor. `forge reports <slug>` lists them.
+
 Faults only work when the game's services read those config keys at use time, and when the
 ForgeTest harness (`game/ServerScriptService/ForgeTest.server.luau`) is in the place.
 
@@ -117,7 +123,7 @@ models** compares an adapter with the base model side by side.
 
 - `forge/`: the agent (Python). Contracts are in `docs/ARCHITECTURE.md`.
   - `prompts/`: one fixed system prompt per role (designer, coder, fixer, critic, reflector,
-    auditor, verifier).
+    auditor, verifier, triage).
   - `improve.py`, `faults/`: the self-improving loop. `mcp_server.py`: the `forge` MCP server.
 - `mubit-tester/`: the game tester (MCP server, ForgeTest harness, AI players, judge, explorer).
 - `game/`: the human-built Flame and Blame game plus the Forge runtime (ForgeProbe,
