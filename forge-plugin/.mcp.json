@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "forge": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/forge-mcp.sh",
+      "args": [],
+      "env": {
+        "MUBIT_API_KEY": "${user_config.mubit_api_key}",
+        "FORGE_MODEL": "${user_config.model}",
+        "FORGE_PROJECT_DIR": "${user_config.project_dir}"
+      }
+    }
+  }
+}

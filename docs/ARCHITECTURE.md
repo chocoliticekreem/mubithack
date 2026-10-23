@@ -245,7 +245,8 @@ def list_reports(settings) -> list[dict]
 async def correct_step(settings, run_id: str, step: int, note: str, *, llm=None) -> dict
     # {run_id, step, before, after, request_id}; a new call in the playtester's Mubit task
 
-# forge/mcp_server.py  (MCPServer "forge", stdio, `forge server`; registered in .mcp.json)
+# forge/mcp_server.py  (MCPServer "forge", stdio, `forge server`; shipped as the forge plugin: forge-plugin/)
+setup(mubit_api_key=None, install_luau=False, open_place=False) -> str   # guided first run
 doctor() -> str
 new_game(idea, iterations=3, use_studio=True, studio=None) -> str       # starts job "new-..."
 iterate(slug, iterations=1, use_studio=True, studio=None) -> str        # forge run

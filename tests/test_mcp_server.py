@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -142,6 +143,25 @@ async def test_stdio_server_lists_tools_end_to_end():
         assert res.content and not res.is_error
 
 
-def test_project_mcp_config_registers_the_server():
-    cfg = json.loads((REPO / ".mcp.json").read_text())
-    assert "forge server" in " ".join(cfg["mcpServers"]["forge"]["args"])
+def test_forge_plugin_is_in_the_marketplace_and_starts_the_server():
+    market = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text())
+    assert {"name": "forge", "source": "./forge-plugin"}.items() <= next(
+        p for p in market["plugins"] if p["name"] == "forge").items()
+    cfg = json.loads((REPO / "forge-plugin" / ".mcp.json").read_text())["mcpServers"]["forge"]
+    assert cfg["command"] == "${CLAUDE_PLUGIN_ROOT}/bin/forge-mcp.sh"
+    launcher = (REPO / "forge-plugin" / "bin" / "forge-mcp.sh")
+    assert launcher.stat().st_mode & 0o111 and "forge\" server" in launcher.read_text()
+    assert not (REPO / ".mcp.json").exists()  # the plugin replaces the project-level server
+
+
+@pytest.mark.skipif(not (REPO / ".venv" / "bin" / "forge").exists(), reason="needs the checkout's .venv")
+async def test_plugin_launcher_serves_setup_over_stdio():
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    params = StdioServerParameters(command=str(REPO / "forge-plugin" / "bin" / "forge-mcp.sh"),
+                                   env={**os.environ, "FORGE_PROJECT_DIR": str(REPO)}, cwd="/")
+    async with stdio_client(params) as (r, w), ClientSession(r, w) as s:
+        init = await s.initialize()
+        assert "setup first" in (init.instructions or "")
+        assert "setup" in {t.name for t in (await s.list_tools()).tools}

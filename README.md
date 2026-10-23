@@ -41,14 +41,33 @@ brew install luau           # luau-compile for syntax checks
 - **Mubit console:** an admin must switch training on (Settings). Tasks first train at 25 kept
   examples.
 
-## Use from Claude Code (MCP)
+## Quick start: the Forge plugin for Claude Code
 
-Open this repo in Claude Code and approve the project MCP servers (`.mcp.json`). Then ask in plain
-words, for example "make a lava obby game and keep improving it".
+In Claude Code:
+
+```
+/plugin marketplace add chocoliticekreem/mubithack
+/plugin install forge@mubithack
+```
+
+Then say "set up Forge". Claude calls the `setup` tool, which walks you through everything:
+1. Your Mubit key: it checks the key against Mubit and saves it.
+2. The model.
+3. Installing `luau-compile`.
+4. Roblox Studio.
+5. Opening a Forge place and the per-window MCP toggle.
+
+When it says ready, ask for a game ("make a co-op lava escape and keep improving it"). The plugin's
+launcher finds a mubithack checkout (the plugin's *mubithack checkout* option, the current project,
+or the marketplace's own copy) and creates its venv with `uv` on first launch. Add
+`mubit-tester@mubithack` too, to play and inspect the game in Studio. Inside this repo both plugins
+are enabled by `.claude/settings.json`.
+
+## Use from Claude Code (MCP)
 
 | Server | What it does |
 |---|---|
-| `forge` (`forge server`) | Builds and improves games. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`, `fix`, `tester_report`, `tester_reports`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
+| `forge` (plugin, `forge server`) | Builds and improves games. Setup: `setup`. Build: `doctor`, `new_game`, `iterate`, `correct`, `improve`, `fix`, `tester_report`, `tester_reports`. Jobs: `job`, `jobs`, `cancel_job`. Read: `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls`. Ship: `seed`, `promote`, `sync`. |
 | `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
 | `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
 
