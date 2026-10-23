@@ -17,7 +17,7 @@
 -- on the -Z face. TruckLightBar's lenses face -Z (red at +X). TruckDoor's art is on +X (manifest).
 
 local VisualConfig = {
-	UseHeroMeshes = true, -- master switch: false = everything part-built
+	UseHeroMeshes = false, -- master switch: false = everything part-built
 	RenderFidelity = "Automatic", -- Enum.RenderFidelity name (Automatic = LOD, mobile friendly)
 	CollisionFidelity = "Box", -- skins never collide; Box is the cheapest
 
