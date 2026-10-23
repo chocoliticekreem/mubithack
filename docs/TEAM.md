@@ -74,5 +74,6 @@ python3 game/tools/make_place.py --out place/Forge.rbxlx && open place/Forge.rbx
 
 - **Every ~3 hours:** 5-minute standup. What merged, what's blocked, and whether the contract
   needs to change.
-- **Sat evening:** feature freeze for the demo path. After that, only fixes and polish.
-- **Sun 08:00:** demo rehearsal on a clean clone. **Sun 10:00: code freeze.**
+- **Sat 12:00:** check-in (Max, Discord). Demo path working end to end.
+- **Sat 18:00:** feature freeze. Record the demo video (MP4/MOV, max 3 min) and make the PDF deck.
+- **Sat midnight:** submission due (video + deck). **Sun 05:00: hard code freeze.**
