@@ -5,7 +5,9 @@
 --     VehicleConfig numbers): jelly raycast suspension, body roll, wheelies on launch and bumps,
 --     handbrake drift, cartoon squash + "BOING!" on hard landings, self-righting.
 --   * Camera while driving: chase cam (spring follow, right-drag to look around, FOV by speed) or the
---     cab view through the windshield (V toggles; head/hats hidden so nothing clips). FirstPersonController
+--     cab view through the windshield (V toggles; for the local viewer only, the cab/door mesh skins,
+--     roof, visors, pillars and your own body go see-through - shotgun passengers in first person get
+--     the same). FirstPersonController
 --     is paused and comes back on exit.
 --   * Keys (VehicleConfig.Key*): WASD drive, SPACE handbrake/drift, F hop out, G siren, H horn, V camera,
 --     R unflip/respawn. Passengers: F hops off. While seated, every ProximityPrompt is hidden and a hint
@@ -263,7 +265,8 @@ local function camStep(dt: number)
 	if camMode == "cab" and seat then
 		-- through the windshield from the driver's head; a little sway from the suspension
 		local eye = seat.CFrame * CFrame.new(VehicleConfig.CabEye)
-		local lookCF = eye * CFrame.Angles(0, camYaw * 0.8, 0) * CFrame.Angles(math.clamp(-camPitch * 0.8, -0.6, 0.5), 0, 0)
+		local pitch = (tonumber((VehicleConfig :: any).CabPitch) or 0) - camPitch * 0.8
+		local lookCF = eye * CFrame.Angles(0, camYaw * 0.8, 0) * CFrame.Angles(math.clamp(pitch, -0.6, 0.5), 0, 0)
 		cam.CFrame = lookCF * CFrame.new(0, -camDip * 0.15, 0)
 		camDip = math.max(0, camDip - dt * 5)
 		local speed = chassis.AssemblyLinearVelocity.Magnitude
@@ -281,7 +284,7 @@ local function camStep(dt: number)
 	local back = orbit:VectorToWorldSpace(-fwd)
 	local height = VehicleConfig.CamHeight + camPitch * VehicleConfig.CamDistance - camDip
 	local desired = chassis.Position + back * VehicleConfig.CamDistance + Vector3.new(0, height, 0)
-	local target = chassis.Position + fwd * VehicleConfig.CamLookAhead + Vector3.new(0, 3, 0)
+	local target = chassis.Position + fwd * VehicleConfig.CamLookAhead + Vector3.new(0, 5, 0)
 
 	local cur = camPos or desired
 	cur = cur:Lerp(desired, 1 - math.exp(-VehicleConfig.CamStiffness * dt))
@@ -297,23 +300,116 @@ local function camStep(dt: number)
 	cam.FieldOfView += (wantFov - cam.FieldOfView) * math.min(1, dt * 4)
 end
 
--- Cab view: hide your own head + hats so the camera never looks out through your face.
-local function hideHead(on: boolean)
-	local char = player.Character
-	if on and char then
-		for _, d in char:GetDescendants() do
-			if d:IsA("BasePart") and (d.Name == "Head" or d:FindFirstAncestorOfClass("Accessory")) then
-				d.LocalTransparencyModifier = 1
-				hiddenParts[d] = true
+-- Cab see-through (local only, LocalTransparencyModifier): when you look out from a cab seat in first
+-- person (driver in cab view, or the shotgun passenger), hide what sits between your eyes and the
+-- road: the generated cab/door mesh skins (opaque shells), the roof, visors, mirror, light bar and the
+-- windshield pillars; thin the glass. Your own body is hidden too (no arms or hats in the way).
+local CAB_HIDE_NAMES = { "^CabSkin$", "^DoorSkin", "^WindshieldPillar$", "^APillar" }
+local CAB_THIN: { [string]: number } = { Windshield = 0.75, SideWindow_L = 0.6, SideWindow_R = 0.6 }
+local cabSeeFor: Model? = nil
+local cabSeeSet: { [BasePart]: number } = {}
+
+local function cabSeeParts(truck: Model): { [BasePart]: number }
+	local chassis = truck.PrimaryPart
+	local out: { [BasePart]: number } = {}
+	if not chassis then
+		return out
+	end
+	local inv = chassis.CFrame:Inverse()
+	for _, d in truck:GetDescendants() do
+		if d:IsA("BasePart") then
+			local name = d.Name
+			local thin = CAB_THIN[name]
+			if thin then
+				out[d] = thin
+			else
+				local hide = false
+				for _, pat in CAB_HIDE_NAMES do
+					if string.match(name, pat) then
+						hide = true
+						break
+					end
+				end
+				if not hide then
+					-- anything over the cab above the windshield's top edge (roof, headliner, visors,
+					-- rear-view mirror, light bar, roof badge); chassis space, front is -Z
+					local r = inv * d.Position
+					hide = r.Z > -13.8 and r.Z < -4.6 and math.abs(r.X) < 5.8 and r.Y > 5.75
+				end
+				if hide then
+					out[d] = 1
+				end
 			end
 		end
-	elseif not on then
+	end
+	return out
+end
+
+local function setCabSee(truck: Model?)
+	if truck == cabSeeFor then
+		return
+	end
+	for part in cabSeeSet do
+		if part.Parent then
+			part.LocalTransparencyModifier = 0
+		end
+	end
+	cabSeeSet = {}
+	cabSeeFor = truck
+	if truck then
+		cabSeeSet = cabSeeParts(truck)
+		for part, t in cabSeeSet do
+			part.LocalTransparencyModifier = t
+		end
+	else
 		for part in hiddenParts do
 			if part.Parent then
 				part.LocalTransparencyModifier = 0
 			end
 		end
 		table.clear(hiddenParts)
+	end
+end
+
+-- Every frame while looking out of a cab: keep your own body hidden (the default camera scripts also
+-- write LocalTransparencyModifier on the character).
+local function hideBody()
+	local char = player.Character
+	if not char then
+		return
+	end
+	for _, d in char:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.LocalTransparencyModifier = 1
+			hiddenParts[d] = true
+		end
+	end
+end
+
+-- Is the local player looking out of a cab seat right now? Driver: cab view (V). Passenger: a cab
+-- seat (shotgun) with the camera at the head (first person).
+local function cabSeeStep()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	local truck = seat and seat.Parent
+	local want: Model? = nil
+	if char and seat and truck and truck:IsA("Model") and truck:HasTag(Names.Tag.Truck) then
+		if seat.Name == "DriveSeat" then
+			want = if driving == truck and camMode == "cab" then truck else nil
+		else
+			local chassis = truck.PrimaryPart
+			local head = char:FindFirstChild("Head") :: BasePart?
+			local cam = workspace.CurrentCamera
+			local inCab = chassis ~= nil and chassis.CFrame:PointToObjectSpace(seat.Position).Z < -4
+			if inCab and head and cam and (cam.CFrame.Position - head.Position).Magnitude < 2 then
+				want = truck
+			end
+		end
+	end
+	setCabSee(want)
+	if want then
+		hideBody()
 	end
 end
 
@@ -386,7 +482,7 @@ local function onAction(name: string, state: Enum.UserInputState, _input: InputO
 		hopOut()
 	elseif name == "TruckCam" then
 		camMode = if camMode == "chase" then "cab" else "chase"
-		hideHead(camMode == "cab")
+		cabSeeStep()
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -417,7 +513,6 @@ local function enterDrive(truck: Model)
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
 	camMode = if VehicleConfig.DefaultCam == "cab" then "cab" else "chase"
-	hideHead(camMode == "cab")
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
 	local chassis = truck.PrimaryPart
 	if chassis and VehicleConfig.EngineSoundId ~= "" then
@@ -446,7 +541,7 @@ local function exitDrive()
 	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
 		ContextActionService:UnbindAction(a)
 	end
-	hideHead(false)
+	setCabSee(nil)
 	pcall(function()
 		RunService:UnbindFromRenderStep("TruckCam")
 	end)
@@ -795,6 +890,7 @@ function VehicleController:Start()
 		end
 	end)
 	RunService.RenderStepped:Connect(animateCabs)
+	RunService:BindToRenderStep("TruckCabSee", Enum.RenderPriority.Camera.Value + 20, cabSeeStep)
 	task.spawn(function()
 		pcall(makeRespawnButton)
 		respawnLoop()

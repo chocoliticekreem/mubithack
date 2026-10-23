@@ -614,7 +614,7 @@ local function step(dt: number)
 	if v then
 		local pose, tool = poseFor(char)
 		bindSwing(tool, pose)
-		local show = fp and not downed
+		local show = fp and not downed and not (hum ~= nil and hum.Sit) -- no hands over the windshield
 		v:SetVisible(show)
 		if show then
 			hideToolLocally(tool)
