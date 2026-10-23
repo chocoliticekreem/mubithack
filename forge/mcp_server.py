@@ -1,6 +1,6 @@
 """`forge server`: the `forge` stdio MCP server. Make a Roblox game with Forge from any MCP client.
 
-Build:   doctor, new_game, iterate, correct, improve, tester_report (long ones start a background job)
+Build:   doctor, new_game, iterate, correct, improve, fix, tester_report (long ones start a background job)
 Jobs:    job, jobs, cancel_job
 Read:    games, game, read_file, scores, playbook, lessons, calls
 Ship:    seed, promote, sync
@@ -194,6 +194,22 @@ def improve(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: 
 
 
 @mcp.tool()
+def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes: int = 3,
+        reports: bool = True, studio: str | None = None) -> str:
+    """The self-improving loop on the real game (background job): playtest rounds, the auditor
+    finds anomalies (plus new tester reports), the fixer rewrites the file behind each one, the game
+    is resynced and replayed, and the verifier keeps the fix or rolls it back. Repeats until no high
+    or medium anomaly is left or `cycles` run out. Human-owned files only get a saved patch."""
+    args = ["fix", slug, "--cycles", str(max(1, cycles)), "--rounds", str(max(1, rounds)),
+            "--steps", str(max(1, steps)), "--max-fixes", str(max(1, max_fixes))]
+    if reports:
+        args.append("--reports")
+    if studio:
+        args += ["--studio", studio]
+    return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")
+
+
+@mcp.tool()
 def tester_report(slug: str, text: str, run_ids: list[str] | None = None, reporter: str | None = None) -> str:
     """A human tester's report in their own words -> triage (Mubit) -> anomalies, and an auditor
     correction for anything the auditor missed (background job).
@@ -332,9 +348,11 @@ def scores(slug: str) -> str:
     rows = ImproveStore(_settings(), slug).scores()
     if not rows:
         return f"No improve cycles for {slug} yet. Run improve({slug!r})."
-    out = ["| cycle | planted | detected | missed | unmatched | fixed+verified |", "|---|---|---|---|---|---|"]
+    out = ["| cycle | planted | detected | missed | unmatched | fixed+verified | open | code kept |",
+           "|---|---|---|---|---|---|---|---|"]
     out += [f"| {r['cycle']} | {r['planted']} | {r['detected']} | {r['missed']} | {r['unmatched']} | "
-            f"{r['fixed_verified']} |" for r in rows]
+            f"{r['fixed_verified']} | {r.get('open', '-')} | {r.get('code_kept', 0)}/{r.get('code_tried', 0)} |"
+            for r in rows]
     return "\n".join(out)
 
 
@@ -407,7 +425,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 
 
 TOOL_NAMES = ("doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
-              "tester_report", "tester_reports",
+              "fix", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")
 

@@ -304,24 +304,37 @@ def cmd_mcp(args) -> int:
 
 # ---------------------------------------------------------------- improve (docs/MUBIT_LOOP.md)
 
-async def _improve(args) -> None:
-    from forge.improve import ImproveStore, default_faults, load_faults, run_cycle
+async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
+    from forge.improve import ImproveStore, default_faults, load_faults, pending_report_anomalies, run_cycle
     from forge.llm import make_llm
     from forge.studio import Studio
     from mubit_tester.ai import multi_playtest
     from mubit_tester.harness import Harness
 
     s = load_settings()
-    faults = default_faults(load_faults(args.slug, Path(args.faults_file) if args.faults_file else None),
-                            args.only.split(",") if args.only else None)
-    llm = make_llm(s, log_path=ImproveStore(s, args.slug).dir / "calls.jsonl")
+    faults = []
+    if faults_on:
+        faults = default_faults(load_faults(args.slug, Path(args.faults_file) if args.faults_file else None),
+                                args.only.split(",") if args.only else None)
+    store = ImproveStore(s, args.slug)
+    llm = make_llm(s, log_path=store.dir / "calls.jsonl")
     async with Studio(s) as studio:
         await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
         harness = Harness(studio)
-        for _ in range(args.cycles):
-            await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=multi_playtest,
-                            faults=faults, goal=args.goal, rounds=args.rounds,
-                            players=args.players, steps=args.steps)
+        for n in range(args.cycles):
+            extra = pending_report_anomalies(store) if getattr(args, "reports", False) else []
+            cycle = await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=multi_playtest,
+                                    faults=faults, goal=args.goal, rounds=args.rounds,
+                                    players=args.players, steps=args.steps, fix=fix,
+                                    max_fixes=getattr(args, "max_fixes", 3), extra_anomalies=extra)
+            if fix and cycle["open"] == 0:
+                print(f"quality bar met after {n + 1} cycle(s): no high or medium anomalies left")
+                break
+
+
+def cmd_fix(args) -> int:
+    asyncio.run(_improve(args, faults_on=False, fix=True))
+    return cmd_scores(args)
 
 
 def cmd_report(args) -> int:
@@ -358,7 +371,7 @@ def cmd_server(args) -> int:
 
 
 def cmd_improve(args) -> int:
-    asyncio.run(_improve(args))
+    asyncio.run(_improve(args, fix=args.fix))
     return cmd_scores(args)
 
 
@@ -368,10 +381,12 @@ def cmd_scores(args) -> int:
     if not rows:
         print(f"no improve cycles for {args.slug} yet")
         return 0
-    print(f"{'cycle':>5} {'planted':>7} {'detected':>8} {'missed':>6} {'unmatched':>9} {'fixed':>5}  ts")
+    print(f"{'cycle':>5} {'planted':>7} {'detected':>8} {'missed':>6} {'unmatched':>9} {'fixed':>5} "
+          f"{'open':>4} {'code kept':>9}  ts")
     for r in rows:
         print(f"{r['cycle']:>5} {r['planted']:>7} {r['detected']:>8} {r['missed']:>6} "
-              f"{r['unmatched']:>9} {r['fixed_verified']:>5}  {r['ts']}")
+              f"{r['unmatched']:>9} {r['fixed_verified']:>5} {r.get('open', '-'):>4} "
+              f"{str(r.get('code_kept', 0)) + '/' + str(r.get('code_tried', 0)):>9}  {r['ts']}")
     return 0
 
 
@@ -475,6 +490,18 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--only", help="comma-separated fault ids (default: every default fault)")
     im.add_argument("--faults-file", help="faults JSON (default forge/faults/<slug>.json)")
     im.add_argument("--studio", help="Studio name part (default FORGE_STUDIO)")
+    im.add_argument("--fix", action="store_true", help="also fix real (non-planted) anomalies in code")
+
+    fx = sub.add_parser("fix", help="playtest -> auditor -> fix real anomalies in code -> verify, until clean")
+    fx.add_argument("slug")
+    fx.add_argument("--goal", default="Play a full round: put out fires, rescue everyone, refill water")
+    fx.add_argument("--cycles", type=int, default=3, help="stop early once nothing high/medium is open")
+    fx.add_argument("--rounds", type=int, default=2, help="playtest rounds before each audit")
+    fx.add_argument("--steps", type=int, default=15)
+    fx.add_argument("--players", type=int, default=None)
+    fx.add_argument("--max-fixes", type=int, default=3, help="anomalies to fix per cycle")
+    fx.add_argument("--reports", action="store_true", help="also fix anomalies from new tester reports")
+    fx.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
 
     sub.add_parser("server", help="run the forge MCP server over stdio (build games from any MCP client)")
 
@@ -497,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "report": cmd_report,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
