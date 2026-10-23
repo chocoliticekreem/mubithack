@@ -268,6 +268,33 @@ def fix_file(
     return _complete_luau(llm, "fixer", user, session_id=session_id)
 
 
+
+def patch_file(
+    llm: LLM, path: str, source: str, problem: str, context: str, lessons: str, *, session_id: str
+) -> str:
+    """Large files: the `patcher` role returns exact find/replace edits (forge/patch.py), applied here.
+    Returns the patched source; an edit that does not apply raises LLMError with the reason."""
+    from forge.patch import PatchError, apply_edits, outline, relevant_excerpt
+
+    n = len(source.splitlines())
+    user = _fit(
+        "## File\n"
+        f"path: {path} ({n} lines)\nOutline (line: function):\n{outline(source)}\n\n"
+        "## Relevant code\n"
+        f"```\n{relevant_excerpt(source, problem)}\n```\n\n"
+        "## Problem\n"
+        f"{_truncate(problem.strip(), 3000, keep='both', label='problem')}\n\n"
+        "## Context\n"
+        f"{_truncate((context or '').strip() or '(none)', 2500, keep='both', label='context')}\n\n"
+        f"{_lessons_block(lessons, 3000)}\n"
+        "Return only the patch JSON object."
+    )
+    obj, _ = llm.complete_json("patcher", user, session_id=session_id, required=["edits"], max_tokens=4096)
+    try:
+        return apply_edits(source, obj.get("edits"))
+    except PatchError as e:
+        raise LLMError(f"patch could not be applied: {e}") from e
+
 # ---------------------------------------------------------------------------------------------
 # critic
 

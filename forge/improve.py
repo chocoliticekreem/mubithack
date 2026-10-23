@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Callable
 from forge.config import Settings
 from forge.llm import LLM, LLMError
 from forge.memory import RunStore, now_iso
+from forge.patch import PATCH_ABOVE_LINES
 
 AUDIT_KEYS = ["summary", "anomalies"]
 VERIFY_KEYS = ["verdict", "evidence"]
@@ -387,12 +388,16 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                 ask = problem if not why else (
                     f"{problem}\n\n## Your previous fix was rejected\n{why}\n"
                     "Try a different approach; the file below is the original.")
+                # big files get exact edits (patcher); small ones a whole-file rewrite (fixer)
+                big = len(old.splitlines()) > PATCH_ABOVE_LINES
+                rewrite = roles.patch_file if big else roles.fix_file
                 try:
-                    new = await asyncio.to_thread(roles.fix_file, llm, rel, old, ask, context,
+                    new = await asyncio.to_thread(rewrite, llm, rel, old, ask, context,
                                                   read_lessons(settings), session_id=session_id)
                 except LLMError as e:
                     rec["attempts"].append({"status": "fixer_error", "error": str(e)[:300]})
-                    why = "Your reply could not be used: return the full file in one ```luau block."
+                    why = (f"Your patch could not be applied: {e}" if big else
+                           "Your reply could not be used: return the full file in one ```luau block.")
                     log(f"[fix] {a['title']}: attempt {attempt + 1} fixer reply unusable ({str(e)[:80]})")
                     continue
                 too_big = destructive(old, new)
