@@ -594,6 +594,7 @@ local LANDMARK_TOP = {
 	belltower = 68,
 	skyscraper = 222,
 	ferriswheel = 64,
+	dam = 60,
 }
 
 -- A tall silhouette in the band corner nearest the hub.
@@ -664,6 +665,14 @@ local function landmark(ctx: Ctx, parent: Instance, d: any)
 		SK.part(m, "Glass", cf * CF(0, 92, -20.3), V(36, 170, 0.5), Color3.fromHex("#6FA8C8"), { material = Enum.Material.Glass })
 		SK.part(m, "Crown", cf * CF(0, 184, 0), V(30, 8, 30), col)
 		SK.cyl(m, "Spire", cf * CF(0, 205, 0), 34, 1.2, C.Trim)
+	elseif kind == "dam" then
+		-- the water-level gauge tower: a tall striped mast with a "HOW FULL IS IT?" board
+		SK.part(m, "GaugeTower", cf * CF(0, 30, 0), V(8, 60, 8), Color3.fromHex("#A8A39A"), { material = Enum.Material.Concrete })
+		for k = 1, 5 do
+			SK.part(m, "GaugeBand", cf * CF(0, k * 10, -4.1), V(6, 1.2, 0.3), if k >= 4 then C.Red else C.Trim, { collide = false })
+		end
+		local board = SK.part(m, "GaugeBoard", cf * CF(0, 54, -4.3), V(12, 5, 0.4), col)
+		SK.sign(board, "HOW FULL IS IT?", Enum.NormalId.Front, C.Trim)
 	elseif kind == "ferriswheel" then
 		local hub = cf * CF(0, 34, 0)
 		SK.part(m, "Stand", hub * CF(-5, -17, 0) * ANG(0, 0, math.rad(-12)), V(2, 36, 2), C.Trim)

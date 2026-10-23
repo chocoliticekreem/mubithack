@@ -1378,7 +1378,7 @@ function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any },
 					end
 				end
 				return false
-			end, table.clone(furn))
+			end, (function() local o = table.clone(furn); o.street = d.street; return o end)())
 		end
 	end
 	for _, lot in lots do
@@ -1454,7 +1454,7 @@ function BlockFiller.fillCorridor(ctx: any, parent: Instance, run: any): Model
 			end
 		end
 		return false
-	end, table.clone(FURNISH[run.theme] or {}))
+	end, (function() local o = table.clone(FURNISH[run.theme] or {}); o.street = run.street; return o end)())
 	for _, lot in run.lots do
 		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
 		local site = ctx.siteFor(lot)
