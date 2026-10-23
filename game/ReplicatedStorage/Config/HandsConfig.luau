@@ -8,7 +8,14 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	Enabled = true, -- false = the simple camera-attached viewmodel everywhere (no grabbing)
 	MobileEnabled = false, -- touch-only devices use the simple viewmodel unless this is true
-	GloveScale = 0.5, -- glove/sleeve size vs the old viewmodel blocks (1 = the old huge gloves)
+	GloveScale = 0.6, -- glove rig size (1 = a 1-stud-wide palm); the collider palm matches it
+	IdleCurl = 0.3, -- 0 open .. 1 fist: how curled the relaxed gloves' fingers are
+
+	-- framing on top of the HandsMath poses (studs / degrees, right hand; the left mirrors).
+	-- Live-tune in Studio with Camera attributes HandsTweak_<name> / HandsTweakRot_<name>.
+	PoseTweak = {
+		idle = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0 },
+	},
 
 	-- hand springs: the target pose is sprung (lag, overshoot, wobble) and the physical palm is
 	-- pulled to it by AlignPosition/AlignOrientation, so walls and props push back

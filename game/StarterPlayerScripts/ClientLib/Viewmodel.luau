@@ -1,13 +1,15 @@
 --!strict
--- Viewmodel [owner: G1; v2 glove look + fallback role by the Hands agent]. Client-only first-person
--- arms: olive/yellow gloves, yellow turnout sleeves with the lime/silver/lime reflective 3-band at
--- the wrist (the trailer's look), plus a client-only nozzle and axe prop. Built from blocks
--- (docs/game/02-art-feel-ui.md §7). Sized by HandsConfig.GloveScale and posed low in the bottom
--- corners (HandsMath.Poses) so the gloves frame the screen instead of covering it.
+-- Viewmodel [owner: G1; v2 glove rig by the Hands agent]. Client-only first-person arms in the
+-- trailer's look: chunky olive rubber work gloves (rounded palm, four two-jointed fingers and a
+-- thumb that curl, a gauntlet cuff with a lime band) and tan turnout sleeves with two lime/silver/
+-- lime reflective bands and a few soot smudges. Built from primitives (no mesh assets needed).
 --
--- This is the simple camera-attached fallback (touch devices, or HandsConfig.Enabled = false).
--- The full game uses ClientLib/PhysicsHands, which builds its gloves with Viewmodel.buildArmParts.
+-- The glove "rig" is shared with ClientLib/PhysicsHands: there the physics palm is an invisible
+-- collider and this rig is drawn on top of it every frame. Rig parts live in the Camera (local,
+-- never simulated, CastShadow off) and move with one workspace:BulkMoveTo per frame.
 --
+-- This module is also the simple camera-attached fallback (touch devices, or
+-- HandsConfig.Enabled = false):
 --   local vm = Viewmodel.new()          -- builds the Model (call from Start, never at require time)
 --   vm:SetParent(workspace.CurrentCamera)
 --   vm:Update(dt, camCFrame, { pose = "hose", bob = Vector2, sway = Vector2, spraying = bool, dip = number })
@@ -15,11 +17,11 @@
 --   vm:SetSoot(alpha)                   -- 0..1 darkens sleeves/gloves toward CharredWarm
 --   vm:SetVisible(bool)  vm:Destroy()
 --   vm:GetNozzle(): BasePart?           -- the nozzle tip while the hose pose shows (stream origin)
---   Viewmodel.buildArmParts(model, side, prefix, scale, withSleeve) -> { PartRec } (wrist-relative)
---   Viewmodel.Colors                    -- Glove / Sleeve / Cuff / Knuckle
---
--- Parts in the Camera aren't simulated, so welds don't apply: every part keeps an offset from its
--- arm's wrist frame and the whole thing moves with one workspace:BulkMoveTo per frame.
+-- Rig API (PhysicsHands):
+--   Viewmodel.newRig(parent, side, prefix, scale) -> Rig      side 1 = right, -1 = left
+--   Viewmodel.poseRig(rig, wrist, shoulder, up, curl, t, parts, cframes)  -- appends to the lists
+--   Viewmodel.setRigSoot(rig, alpha)
+--   Viewmodel.Colors                    -- Glove / Sleeve / Cuff / Band / Silver / Soot
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette") :: ModuleScript) :: any
@@ -45,15 +47,19 @@ local function c(name: string, fallback: Color3): Color3
 	return if typeof(v) == "Color3" then v else fallback
 end
 
-local OLIVE = c("GloveOlive", Color3.fromHex("#8C7A3A"))
-local YELLOW = c("CoatYellow", Color3.fromHex("#D9A030"))
--- Trailer gloves read as a warm olive-yellow leather, sleeves as bright turnout yellow.
-local SHADOW = c("CoatShadow", Color3.fromHex("#9A6A30"))
+-- Trailer colours: olive-green rubber gloves, tan turnout coat, lime + silver reflective tape.
 local COLORS = {
-	Glove = OLIVE:Lerp(YELLOW, 0.5),
-	Knuckle = OLIVE:Lerp(YELLOW, 0.3),
-	Sleeve = YELLOW:Lerp(SHADOW, 0.25),
-	Cuff = SHADOW,
+	Glove = Color3.fromHex("#6B7A2A"),
+	GloveDark = Color3.fromHex("#55621F"),
+	Patch = Color3.fromHex("#B59A55"),
+	Sleeve = Color3.fromHex("#C9A44A"),
+	SleeveDark = Color3.fromHex("#A9883A"),
+	Band = Color3.fromHex("#C6F04A"),
+	Silver = Color3.fromHex("#D5D9DE"),
+	Soot = Color3.fromHex("#3A2E26"),
+	-- legacy names
+	Knuckle = Color3.fromHex("#6B7A2A"),
+	Cuff = Color3.fromHex("#55621F"),
 }
 Viewmodel.Colors = COLORS
 
@@ -76,7 +82,6 @@ local POSES: { [string]: { R: CFrame, L: CFrame } } = {
 
 type PartRec = { part: BasePart, offset: CFrame, base: Color3 }
 export type PartRecord = PartRec
-type Arm = { parts: { PartRec }, wrist: CFrame }
 
 local function block(
 	model: Instance,
@@ -88,12 +93,12 @@ local function block(
 ): BasePart
 	local p = Instance.new("Part")
 	p.Name = name
-	p.Size = size
-	p.Color = color
-	p.Material = material or Enum.Material.SmoothPlastic
 	if shape then
 		p.Shape = shape
 	end
+	p.Size = size
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
 	p.Anchored = true
 	p.CanCollide = false
 	p.CanQuery = false
@@ -115,10 +120,6 @@ local function round(p: BasePart, kind: Enum.MeshType): BasePart
 end
 Viewmodel.round = round
 
-local SPHERE = Enum.MeshType.Sphere
-local CYL = Enum.MeshType.Cylinder
-local ALONG_Z = CFrame.Angles(math.rad(90), 0, 0) -- a Y-axis cylinder lying along the arm (Z)
-
 local function scaled(offset: CFrame, s: number): CFrame
 	return CFrame.new(offset.Position * s) * offset.Rotation
 end
@@ -128,54 +129,278 @@ local function scale(): number
 	return math.clamp(s, 0.2, 1.5)
 end
 
--- Arm-local frame: origin at the wrist, sleeve runs toward +Z (back to the camera), the glove sits
--- at -Z, back of the hand up (+Y). `side` is 1 for right, -1 for left (thumb points inward).
--- Every part is anchored/non-colliding; callers that want physics (PhysicsHands) re-flag them.
--- The first record is always the palm ("Glove").
-function Viewmodel.buildArmParts(model: Instance, side: number, prefix: string, s: number, withSleeve: boolean): { PartRec }
-	local parts: { PartRec } = {}
-	local function add(p: BasePart, offset: CFrame)
+-- glove rig ---------------------------------------------------------------------------------------
+-- Wrist frame: origin at the wrist, fingers toward -Z, back of the hand up (+Y), sleeve toward +Z.
+-- `side` 1 = right hand, -1 = left (the thumb is on the -X * side edge).
+local X_TO_FWD = CFrame.Angles(0, math.rad(90), 0) -- a Part cylinder's X axis -> the frame's -Z
+
+type Finger = {
+	base: CFrame, -- wrist-relative frame at the knuckle, pointing along the finger (-Z)
+	lens: { number },
+	dia: number,
+	curlMul: number,
+	thumb: boolean,
+	balls: { BasePart }, -- knuckle, middle joint, tip
+	segs: { BasePart },
+}
+
+type Band = { part: BasePart, at: number }
+type Soot = { part: BasePart, at: number, ang: number }
+
+export type Rig = {
+	model: Instance,
+	side: number,
+	s: number,
+	static: { PartRec }, -- wrist-relative
+	fingers: { Finger },
+	sleeveEnd: number, -- wrist-space z where the coat sleeve starts
+	rim: BasePart,
+	body: BasePart,
+	bands: { Band },
+	soot: { Soot },
+	all: { PartRec },
+	sootAlpha: number,
+}
+
+local GLOVE_MAT = Enum.Material.SmoothPlastic
+local SLEEVE_MAT = Enum.Material.SmoothPlastic
+
+function Viewmodel.newRig(parent: Instance, side: number, prefix: string, s: number): Rig
+	local rig: Rig = {
+		model = parent,
+		side = side,
+		s = s,
+		static = {},
+		fingers = {},
+		sleeveEnd = 0.5 * s,
+		rim = nil :: any,
+		body = nil :: any,
+		bands = {},
+		soot = {},
+		all = {},
+		sootAlpha = 0,
+	}
+	local function track(p: BasePart): BasePart
+		table.insert(rig.all, { part = p, offset = CFrame.identity, base = p.Color })
+		return p
+	end
+	local function static(p: BasePart, offset: CFrame): BasePart
 		p.Size *= s
-		table.insert(parts, { part = p, offset = scaled(offset, s), base = p.Color })
+		table.insert(rig.static, { part = p, offset = scaled(offset, s), base = p.Color })
+		return track(p)
 	end
-	local glove, knuckle = COLORS.Glove, COLORS.Knuckle
-	local mat = Enum.Material.SmoothPlastic
-	-- puffy cartoon glove: ellipsoid palm, four sausage fingers, a thumb, a knuckle ridge
-	add(round(block(model, prefix .. "Glove", Vector3.new(1.3, 0.8, 1.2), glove, mat), SPHERE), CFrame.new(0, 0, -0.55))
-	add(round(block(model, prefix .. "Knuckles", Vector3.new(1.2, 0.4, 0.45), knuckle, mat), SPHERE), CFrame.new(0, 0.28, -0.9))
-	for i = 1, 4 do
-		local x = (-0.45 + (i - 1) * 0.3) * side
-		local len = if i == 1 or i == 4 then 0.6 else 0.72
-		add(
-			round(block(model, prefix .. "Finger" .. i, Vector3.new(0.3, 0.32, len), glove, mat), SPHERE),
-			CFrame.new(x, -0.04, -1.1 - len / 2 + 0.12) * CFrame.Angles(math.rad(-20), 0, 0)
-		)
+	local glove, dark = COLORS.Glove, COLORS.GloveDark
+
+	-- palm: a rounded slab (core + edge cylinders + corner balls)
+	local W, H, D, CZ = 1.0, 0.48, 0.86, -0.5
+	local r = H / 2
+	local a, d = W - H, D - H
+	local function palmPart(name: string, size: Vector3, shape: Enum.PartType, offset: CFrame)
+		local p = block(parent, prefix .. name, size, glove, GLOVE_MAT, shape)
+		p.Reflectance = 0.04
+		static(p, offset)
 	end
-	add(
-		round(block(model, prefix .. "Thumb", Vector3.new(0.32, 0.34, 0.7), glove, mat), SPHERE),
-		CFrame.new(-0.62 * side, -0.08, -0.62) * CFrame.Angles(0, math.rad(35 * side), 0)
-	)
-	-- gauntlet cuff + the reflective 3-band (lime / silver / lime), rings slightly proud of the sleeve
-	add(round(block(model, prefix .. "Cuff", Vector3.new(1.1, 0.42, 1.0), COLORS.Cuff, mat), CYL), CFrame.new(0, 0, 0.1) * ALONG_Z)
-	local lime = c("ReflectLime", Color3.fromHex("#E8E25A"))
-	local silver = c("ReflectSilver", Color3.fromHex("#C9CCD0"))
-	for i, b in { { lime, 0.5 }, { silver, 0.7 }, { lime, 0.9 } } do
-		local band = block(model, prefix .. "Band" .. i, Vector3.new(1.0, 0.15, 1.0), b[1] :: Color3, mat)
-		band.Reflectance = 0.15
-		add(round(band, CYL), CFrame.new(0, 0, b[2] :: number) * ALONG_Z)
+	palmPart("Palm", Vector3.new(a, H, d), Enum.PartType.Block, CFrame.new(0, 0, CZ))
+	for _, z in { -d / 2, d / 2 } do
+		palmPart("PalmEdgeZ", Vector3.new(a, H, H), Enum.PartType.Cylinder, CFrame.new(0, 0, CZ + z))
 	end
-	if withSleeve then
-		local sleeveLen = 2.2
-		add(
-			round(block(model, prefix .. "Sleeve", Vector3.new(0.92, sleeveLen, 0.92), COLORS.Sleeve, Enum.Material.Fabric), CYL),
-			CFrame.new(0, 0, 0.3 + sleeveLen / 2) * ALONG_Z
-		)
+	for _, x in { -a / 2, a / 2 } do
+		palmPart("PalmEdgeX", Vector3.new(d, H, H), Enum.PartType.Cylinder, CFrame.new(x, 0, CZ) * X_TO_FWD)
+		for _, z in { -d / 2, d / 2 } do
+			palmPart("PalmCorner", Vector3.new(H, H, H), Enum.PartType.Ball, CFrame.new(x, 0, CZ + z))
+		end
 	end
-	return parts
+	-- tan patch on the back of the hand (trailer glove detail)
+	local patch = block(parent, prefix .. "Patch", Vector3.new(0.5, 0.06, 0.4), COLORS.Patch, GLOVE_MAT)
+	static(round(patch, Enum.MeshType.Sphere), CFrame.new(0.06 * side, r - 0.005, CZ + 0.02))
+
+	-- fingers: index (thumb side) -> pinky; two segments each, ball joints for chunky knuckles
+	local fingerSpec = {
+		{ x = -0.36, len = 0.56, dia = 0.27, mul = 0.9 },
+		{ x = -0.12, len = 0.62, dia = 0.28, mul = 1.0 },
+		{ x = 0.12, len = 0.57, dia = 0.27, mul = 1.05 },
+		{ x = 0.36, len = 0.45, dia = 0.25, mul = 1.15 },
+	}
+	for i, f in fingerSpec do
+		local yaw = math.rad((2.5 - i) * 3.5 * side)
+		local base = CFrame.new(f.x * side * s, -0.02 * s, (CZ - D / 2 + 0.06) * s) * CFrame.Angles(0, yaw, 0)
+		local finger: Finger = {
+			base = base,
+			lens = { f.len * 0.55 * s, f.len * 0.45 * s },
+			dia = f.dia * s,
+			curlMul = f.mul,
+			thumb = false,
+			balls = {},
+			segs = {},
+		}
+		for j = 1, 3 do
+			local b = block(parent, prefix .. "Finger" .. i .. "J" .. j, Vector3.one * f.dia * s * (if j == 1 then 1.04 else 1), glove, GLOVE_MAT, Enum.PartType.Ball)
+			b.Reflectance = 0.04
+			table.insert(finger.balls, track(b))
+		end
+		for j = 1, 2 do
+			local seg = block(parent, prefix .. "Finger" .. i .. "S" .. j, Vector3.new(finger.lens[j], f.dia * s, f.dia * s), glove, GLOVE_MAT, Enum.PartType.Cylinder)
+			seg.Reflectance = 0.04
+			table.insert(finger.segs, track(seg))
+		end
+		table.insert(rig.fingers, finger)
+	end
+	-- thumb: from the heel of the palm, angled forward and in
+	do
+		local base = CFrame.new(-0.44 * side * s, -0.1 * s, (CZ + 0.2) * s)
+			* CFrame.Angles(0, math.rad(32 * side), 0)
+			* CFrame.Angles(math.rad(-12), 0, math.rad(-20 * side))
+		local thumb: Finger = {
+			base = base,
+			lens = { 0.34 * s, 0.28 * s },
+			dia = 0.3 * s,
+			curlMul = 1,
+			thumb = true,
+			balls = {},
+			segs = {},
+		}
+		for j = 1, 3 do
+			local b = block(parent, prefix .. "ThumbJ" .. j, Vector3.one * 0.3 * s * (if j == 1 then 1.15 else 1), glove, GLOVE_MAT, Enum.PartType.Ball)
+			table.insert(thumb.balls, track(b))
+		end
+		for j = 1, 2 do
+			local seg = block(parent, prefix .. "ThumbS" .. j, Vector3.new(thumb.lens[j], 0.3 * s, 0.3 * s), glove, GLOVE_MAT, Enum.PartType.Cylinder)
+			table.insert(thumb.segs, track(seg))
+		end
+		table.insert(rig.fingers, thumb)
+	end
+
+	-- gauntlet cuff with a reflective band, flaring into the coat sleeve
+	static(block(parent, prefix .. "Cuff", Vector3.new(0.62, 0.9, 0.9), dark, GLOVE_MAT, Enum.PartType.Cylinder), CFrame.new(0, 0, 0.22) * X_TO_FWD)
+	static(block(parent, prefix .. "CuffFlare", Vector3.new(0.14, 0.98, 0.98), dark, GLOVE_MAT, Enum.PartType.Cylinder), CFrame.new(0, 0, 0.5) * X_TO_FWD)
+	local cuffBand = block(parent, prefix .. "CuffBand", Vector3.new(0.09, 0.93, 0.93), COLORS.Band, GLOVE_MAT, Enum.PartType.Cylinder)
+	cuffBand.Reflectance = 0.12
+	static(cuffBand, CFrame.new(0, 0, 0.3) * X_TO_FWD)
+
+	-- coat sleeve: a rim at the wrist end and a body stretched to the shoulder (see poseRig)
+	rig.sleeveEnd = 0.42 * s
+	rig.rim = track(block(parent, prefix .. "SleeveRim", Vector3.new(0.24, 1.24, 1.24) * s, COLORS.SleeveDark, SLEEVE_MAT, Enum.PartType.Cylinder))
+	rig.body = track(block(parent, prefix .. "Sleeve", Vector3.new(2, 1.16, 1.16) * s, COLORS.Sleeve, SLEEVE_MAT, Enum.PartType.Cylinder))
+	-- two lime / silver / lime reflective bands
+	for _, g in { 0.45, 1.45 } do
+		for k, spec in { { COLORS.Band, -0.13, 0.1 }, { COLORS.Silver, 0, 0.12 }, { COLORS.Band, 0.13, 0.1 } } do
+			local band = block(parent, prefix .. "Band" .. k, Vector3.new(spec[3] :: number, 1.2, 1.2) * s, spec[1] :: Color3, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+			band.Reflectance = if k == 2 then 0.25 else 0.1
+			table.insert(rig.bands, { part = track(band), at = (g + (spec[2] :: number)) * s })
+		end
+	end
+	-- soot smudges (flat ellipsoids sitting on the sleeve / glove)
+	for _, sp in { { 0.95, 35, 0.42, 0.3 }, { 1.95, -25, 0.5, 0.34 }, { 2.4, 70, 0.3, 0.24 } } do
+		local smudge = block(parent, prefix .. "Soot", Vector3.new(sp[3], 0.05, sp[4]) * s, COLORS.Soot, Enum.Material.SmoothPlastic)
+		smudge.Transparency = 0.45
+		round(smudge, Enum.MeshType.Sphere)
+		table.insert(rig.soot, { part = track(smudge), at = sp[1] * s, ang = math.rad(sp[2] * side) })
+	end
+	local gloveSoot = block(parent, prefix .. "GloveSoot", Vector3.new(0.34, 0.05, 0.26), COLORS.Soot, Enum.Material.SmoothPlastic)
+	gloveSoot.Transparency = 0.55
+	static(round(gloveSoot, Enum.MeshType.Sphere), CFrame.new(-0.22 * side, r + 0.01, CZ - 0.2))
+	return rig
 end
 
-local function buildArm(model: Model, side: number, prefix: string): Arm
-	return { parts = Viewmodel.buildArmParts(model, side, prefix, scale(), true), wrist = CFrame.new() }
+-- Curl angles (radians) for a 0..1 grip amount: 0 = open hand, ~0.3 = relaxed, 1 = fist/wrapped.
+local function curlAngles(f: Finger, curl: number): (CFrame, CFrame)
+	if f.thumb then
+		local a = (0.15 + 0.75 * curl)
+		local rot = CFrame.Angles(-a * 0.35, 0, 0) * CFrame.Angles(0, -a * 0.9, 0)
+		return rot, CFrame.Angles(-a * 0.5, 0, 0)
+	end
+	local m = f.curlMul
+	local a1 = (0.12 + 1.35 * curl) * m
+	local a2 = (0.18 + 1.5 * curl) * m
+	return CFrame.Angles(-a1, 0, 0), CFrame.Angles(-a2, 0, 0)
+end
+
+local function thumbSide(f: Finger, rot: CFrame, side: number): CFrame
+	-- the thumb's yaw curls toward the palm centre, which is +X for the right hand
+	if f.thumb and side < 0 then
+		local x, y, z = rot:ToEulerAnglesXYZ()
+		return CFrame.Angles(x, -y, -z)
+	end
+	return rot
+end
+
+-- Appends every rig part and its world CFrame for this frame. `wrist` is the world wrist frame,
+-- `shoulder` the world point the coat sleeve runs to, `up` the camera up vector.
+function Viewmodel.poseRig(
+	rig: Rig,
+	wrist: CFrame,
+	shoulder: Vector3,
+	up: Vector3,
+	curl: number,
+	parts: { BasePart },
+	cframes: { CFrame }
+)
+	for _, r in rig.static do
+		table.insert(parts, r.part)
+		table.insert(cframes, wrist * r.offset)
+	end
+	for _, f in rig.fingers do
+		local r1, r2 = curlAngles(f, curl)
+		r1 = thumbSide(f, r1, rig.side)
+		local j0 = wrist * f.base * r1
+		local j1 = j0 * CFrame.new(0, 0, -f.lens[1]) * r2
+		local tip = j1 * CFrame.new(0, 0, -f.lens[2])
+		table.insert(parts, f.balls[1])
+		table.insert(cframes, j0)
+		table.insert(parts, f.segs[1])
+		table.insert(cframes, j0 * CFrame.new(0, 0, -f.lens[1] / 2) * X_TO_FWD)
+		table.insert(parts, f.balls[2])
+		table.insert(cframes, j1)
+		table.insert(parts, f.segs[2])
+		table.insert(cframes, j1 * CFrame.new(0, 0, -f.lens[2] / 2) * X_TO_FWD)
+		table.insert(parts, f.balls[3])
+		table.insert(cframes, tip)
+	end
+	-- sleeve: from just past the cuff to (a bit beyond) the shoulder
+	local e = (wrist * CFrame.new(0, 0, rig.sleeveEnd)).Position
+	local span = shoulder - e
+	local len = span.Magnitude
+	if len < 0.05 then
+		span = wrist.LookVector * -1
+		len = 1
+	end
+	local frame = CFrame.lookAt(e, e + span, up)
+	local bodyLen = len + 0.6 * rig.s
+	local body = rig.body
+	if math.abs(body.Size.X - bodyLen) > 0.01 then
+		body.Size = Vector3.new(bodyLen, body.Size.Y, body.Size.Z)
+	end
+	table.insert(parts, rig.rim)
+	table.insert(cframes, frame * CFrame.new(0, 0, -rig.rim.Size.X / 2 + 0.02 * rig.s) * X_TO_FWD)
+	table.insert(parts, body)
+	table.insert(cframes, frame * CFrame.new(0, 0, -bodyLen / 2) * X_TO_FWD)
+	for _, b in rig.bands do
+		table.insert(parts, b.part)
+		table.insert(cframes, frame * CFrame.new(0, 0, -math.min(b.at, len)) * X_TO_FWD)
+	end
+	local radius = body.Size.Y / 2
+	for _, sm in rig.soot do
+		table.insert(parts, sm.part)
+		table.insert(cframes, frame * CFrame.new(0, 0, -math.min(sm.at, len)) * CFrame.Angles(0, 0, sm.ang) * CFrame.new(0, radius, 0))
+	end
+end
+
+-- Soot: 0..1 darkens everything but the reflective tape; smudges get stronger.
+function Viewmodel.setRigSoot(rig: Rig, alpha: number)
+	alpha = math.clamp(alpha, 0, 1)
+	if math.abs(alpha - rig.sootAlpha) < 0.02 then
+		return
+	end
+	rig.sootAlpha = alpha
+	local dark = c("CharredWarm", Color3.fromHex("#3A2A22"))
+	for _, r in rig.all do
+		local n = r.part.Name
+		if string.find(n, "Soot") then
+			r.part.Transparency = 0.5 - 0.3 * alpha
+		elseif not string.find(n, "Band") then
+			r.part.Color = r.base:Lerp(dark, alpha * 0.45)
+		end
+	end
 end
 
 type Prop = { parts: { PartRec }, hand: string }
@@ -219,7 +444,7 @@ end
 export type Viewmodel = typeof(setmetatable(
 	{} :: {
 		model: Model,
-		arms: { [string]: Arm },
+		rigs: { [string]: Rig },
 		props: { [string]: Prop },
 		current: { [string]: CFrame },
 		pose: string,
@@ -234,9 +459,10 @@ export type Viewmodel = typeof(setmetatable(
 function Viewmodel.new(): Viewmodel
 	local model = Instance.new("Model")
 	model.Name = "Viewmodel"
+	local s = scale()
 	local self = setmetatable({
 		model = model,
-		arms = { R = buildArm(model, 1, "Right"), L = buildArm(model, -1, "Left") },
+		rigs = { R = Viewmodel.newRig(model, 1, "Right", s), L = Viewmodel.newRig(model, -1, "Left", s) },
 		props = { hose = buildNozzle(model), axe = buildAxe(model) },
 		current = { R = POSES.empty.R, L = POSES.empty.L },
 		pose = "empty",
@@ -266,8 +492,8 @@ function Viewmodel.SetVisible(self: Viewmodel, on: boolean)
 		return
 	end
 	self.visible = on
-	for _, arm in self.arms do
-		setPartsVisible(arm.parts, on)
+	for _, rig in self.rigs do
+		setPartsVisible(rig.all, on)
 	end
 	for name, prop in self.props do
 		setPartsVisible(prop.parts, on and name == self.pose)
@@ -280,13 +506,8 @@ function Viewmodel.SetSoot(self: Viewmodel, alpha: number)
 		return
 	end
 	self.soot = alpha
-	local dark = c("CharredWarm", Color3.fromHex("#3A2A22"))
-	for _, arm in self.arms do
-		for _, r in arm.parts do
-			if not string.find(r.part.Name, "Band") then
-				r.part.Color = r.base:Lerp(dark, alpha * 0.55)
-			end
-		end
+	for _, rig in self.rigs do
+		Viewmodel.setRigSoot(rig, alpha)
 	end
 end
 
@@ -371,12 +592,13 @@ function Viewmodel.Update(self: Viewmodel, dt: number, cam: CFrame, f: Frame)
 
 	table.clear(parts)
 	table.clear(cframes)
-	for side, arm in self.arms do
-		local w = wrist[side]
-		for _, r in arm.parts do
-			table.insert(parts, r.part)
-			table.insert(cframes, w * r.offset)
-		end
+	for side, rig in self.rigs do
+		local sign = if side == "R" then 1 else -1
+		local shoulder = root
+			* Vector3.new(HandsConfig.ShoulderX * sign, HandsConfig.ShoulderY, HandsConfig.ShoulderZ)
+		local holding = (side == "R" and pose ~= "empty") or (side == "L" and pose == "hose") or pose == "carry"
+		local curl = if holding then 0.9 else 0.3 + 0.05 * math.sin(self.t * 1.6 + sign)
+		Viewmodel.poseRig(rig, wrist[side], shoulder, cam.UpVector, curl, parts, cframes)
 	end
 	local prop = self.props[pose]
 	if prop then

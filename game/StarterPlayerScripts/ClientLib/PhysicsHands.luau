@@ -68,13 +68,13 @@ type Grip = {
 type Hand = {
 	side: string,
 	sign: number,
-	palm: BasePart,
-	recs: { Viewmodel.PartRecord },
+	palm: BasePart, -- invisible physics collider; the glove you see is `rig`
+	rig: Viewmodel.Rig,
+	curl: number,
 	wrist: Attachment,
 	gripAtt: Attachment,
 	ap: AlignPosition,
 	ao: AlignOrientation,
-	sleeve: BasePart,
 	sp: Vec,
 	sv: Vec,
 	pressed: boolean,
@@ -107,6 +107,7 @@ PhysicsHands.__index = PhysicsHands
 export type PhysicsHands = typeof(setmetatable(
 	{} :: {
 		folder: Folder,
+		visual: Model,
 		hands: { [string]: Hand },
 		active: boolean,
 		item: Item?,
@@ -288,30 +289,26 @@ local function playSound(id: string, parent: Instance, volume: number)
 end
 
 -- construction -----------------------------------------------------------------------------------
-local function buildHand(folder: Folder, side: string): Hand
+local function buildHand(folder: Folder, visual: Model, side: string): Hand
 	local sign = if side == "R" then 1 else -1
 	local s = scale()
 	local model = Instance.new("Model")
 	model.Name = side .. "Hand"
 	model.Parent = folder
-	local recs = Viewmodel.buildArmParts(model, sign, if side == "R" then "Right" else "Left", s, false)
-	local palmRec = recs[1]
-	local palm = palmRec.part
+	-- the collider: a palm-sized box at the palm centre (wrist-relative), never drawn
+	local palmOffset = CFrame.new(0, 0, -0.5 * s)
+	local palm = Instance.new("Part")
+	palm.Name = side .. "Palm"
+	palm.Size = Vector3.new(1.0, 0.48, 0.86) * s
+	palm.Transparency = 1
+	palm.CastShadow = false
 	palm.Anchored = true
 	palm.CanCollide = false -- turned on by SetActive(true)
 	palm.Massless = false
 	palm.CustomPhysicalProperties = PhysicalProperties.new(HandsConfig.HandDensity, 0.8, 0.25, 1, 1)
+	palm.Parent = model
 	model.PrimaryPart = palm
-	local palmInv = palmRec.offset:Inverse()
-	for i = 2, #recs do
-		local r = recs[i]
-		r.part.Anchored = false
-		r.part.CFrame = palm.CFrame * palmInv * r.offset
-		local w = Instance.new("WeldConstraint")
-		w.Part0 = palm
-		w.Part1 = r.part
-		w.Parent = r.part
-	end
+	local palmInv = palmOffset:Inverse()
 	-- Wrist attachment: its world frame IS the wrist frame the poses describe.
 	local wrist = Instance.new("Attachment")
 	wrist.Name = "Wrist"
@@ -319,8 +316,9 @@ local function buildHand(folder: Folder, side: string): Hand
 	wrist.Parent = palm
 	local gripAtt = Instance.new("Attachment")
 	gripAtt.Name = "Grip"
-	gripAtt.CFrame = palmInv * CFrame.new(0, -0.3 * s, -0.95 * s)
+	gripAtt.CFrame = palmInv * CFrame.new(0, -0.34 * s, -0.82 * s)
 	gripAtt.Parent = palm
+	local rig = Viewmodel.newRig(visual, sign, if side == "R" then "Right" else "Left", s)
 
 	local ap = Instance.new("AlignPosition")
 	ap.Mode = Enum.PositionAlignmentMode.OneAttachment
@@ -336,37 +334,20 @@ local function buildHand(folder: Folder, side: string): Hand
 	ao.MaxTorque = HandsConfig.HandMaxTorque
 	ao.Parent = palm
 
-	local sleeve = Instance.new("Part")
-	sleeve.Name = side .. "Sleeve"
-	sleeve.Size = Vector3.new(0.92 * s, 1, 0.92 * s) -- a Y-axis cylinder stretched shoulder -> wrist
-	sleeve.Color = Viewmodel.Colors.Sleeve
-	sleeve.Material = Enum.Material.Fabric
-	sleeve.Anchored = true
-	sleeve.CanCollide = false
-	sleeve.CanQuery = false
-	sleeve.CanTouch = false
-	sleeve.CastShadow = false
-	sleeve.Parent = model
-	Viewmodel.round(sleeve, Enum.MeshType.Cylinder)
-	table.insert(recs, { part = sleeve, offset = CFrame.identity, base = sleeve.Color })
-
-	for _, r in recs do
-		r.part.CanQuery = false
-		r.part.CanTouch = false
-		r.part.LocalTransparencyModifier = 1
-	end
+	palm.CanQuery = false
+	palm.CanTouch = false
 
 	local p = HandsMath.pose("idle", side)
 	return {
 		side = side,
 		sign = sign,
 		palm = palm,
-		recs = recs,
+		rig = rig,
+		curl = 0.3,
 		wrist = wrist,
 		gripAtt = gripAtt,
 		ap = ap,
 		ao = ao,
-		sleeve = sleeve,
 		sp = { x = p.x, y = p.y, z = p.z },
 		sv = { x = 0, y = 0, z = 0 },
 		pressed = false,
@@ -388,9 +369,13 @@ function PhysicsHands.new(): PhysicsHands
 	local folder = Instance.new("Folder")
 	folder.Name = "PhysicsHands_" .. LocalPlayer.Name
 	folder.Parent = workspace
+	-- what you see: the glove rigs, drawn in the Camera (local, unsimulated, no shadows cast)
+	local visual = Instance.new("Model")
+	visual.Name = "FirstPersonHands"
 	local self = setmetatable({
 		folder = folder,
-		hands = { L = buildHand(folder, "L"), R = buildHand(folder, "R") },
+		visual = visual,
+		hands = { L = buildHand(folder, visual, "L"), R = buildHand(folder, visual, "R") },
 		active = false,
 		item = nil,
 		toolFor = nil,
@@ -758,11 +743,9 @@ function PhysicsHands.SetActive(self: PhysicsHands, on: boolean)
 		end
 		hand.palm.Anchored = not on
 		hand.palm.CanCollide = on
-		for _, r in hand.recs do
-			r.part.LocalTransparencyModifier = if on then 0 else 1
-		end
 		hand.stuck = if on then math.huge else 0 -- snap straight to the pose on wake
 	end
+	self.visual.Parent = if on then workspace.CurrentCamera else nil
 	if not on then
 		self:_dropItem()
 	end
@@ -774,13 +757,8 @@ function PhysicsHands.SetSoot(self: PhysicsHands, alpha: number)
 		return
 	end
 	self.soot = alpha
-	local dark = Palette.CharredWarm or Color3.fromHex("#3A2A22")
 	for _, hand in self.hands do
-		for _, r in hand.recs do
-			if not string.find(r.part.Name, "Band") then
-				r.part.Color = r.base:Lerp(dark, alpha * 0.55)
-			end
-		end
+		Viewmodel.setRigSoot(hand.rig, alpha)
 	end
 end
 
@@ -814,12 +792,42 @@ local function aim(hand: Hand, cam: CFrame): (Vec, BasePart?, Vector3?)
 	return pt, nil, nil
 end
 
+-- Framing tweaks on top of the shared HandsMath poses (HandsConfig.PoseTweak[name], given for the
+-- right hand and mirrored for the left). In Studio, Camera attributes HandsTweak_<name> (Vector3
+-- studs) and HandsTweakRot_<name> (Vector3 degrees) override them live for tuning.
+local IS_STUDIO = RunService:IsStudio()
+
+local function tweak(p: HandsMath.Pose, name: string, side: string): HandsMath.Pose
+	local t = (HandsConfig.PoseTweak or {})[name]
+	local dx, dy, dz, drx, dry, drz = 0, 0, 0, 0, 0, 0
+	if t then
+		dx, dy, dz = t.x or 0, t.y or 0, t.z or 0
+		drx, dry, drz = t.rx or 0, t.ry or 0, t.rz or 0
+	end
+	if IS_STUDIO then
+		local cam = workspace.CurrentCamera
+		local pos = cam and cam:GetAttribute("HandsTweak_" .. name)
+		local rot = cam and cam:GetAttribute("HandsTweakRot_" .. name)
+		if typeof(pos) == "Vector3" then
+			dx, dy, dz = pos.X, pos.Y, pos.Z
+		end
+		if typeof(rot) == "Vector3" then
+			drx, dry, drz = rot.X, rot.Y, rot.Z
+		end
+	end
+	if dx == 0 and dy == 0 and dz == 0 and drx == 0 and dry == 0 and drz == 0 then
+		return p
+	end
+	local m = if side == "L" then -1 else 1
+	return { x = p.x + dx * m, y = p.y + dy, z = p.z + dz, rx = p.rx + drx, ry = p.ry + dry * m, rz = p.rz + drz * m }
+end
+
 function PhysicsHands._basePose(self: PhysicsHands, hand: Hand, cam: CFrame, f: Frame, char: Model?): HandsMath.Pose
 	local side = hand.side
 	local item = self.item
 	local carrying = LocalPlayer:GetAttribute(Names.Attr.Carrying)
 	if type(carrying) == "string" and carrying ~= "" then
-		return HandsMath.pose("carry", side)
+		return tweak(HandsMath.pose("carry", side), "carry", side)
 	end
 	local rest: HandsMath.Pose
 	if side == "R" and item then
@@ -831,16 +839,18 @@ function PhysicsHands._basePose(self: PhysicsHands, hand: Hand, cam: CFrame, f: 
 			end
 			return HandsMath.axePose(charge, if self.strikeT >= 0 then self.strikeT else nil, HandsConfig.AxeStrikeSeconds, self.strikeFrom)
 		elseif item.kind == "hose" then
-			return HandsMath.Poses.hose
+			return tweak(HandsMath.Poses.hose, "hose", side)
 		elseif item.kind == "extinguisher" then
-			return HandsMath.Poses.extinguisher
+			return tweak(HandsMath.Poses.extinguisher, "extinguisher", side)
 		end
-		return HandsMath.Poses.item
+		return tweak(HandsMath.Poses.item, "item", side)
 	end
 	if side == "L" and item then
-		rest = if item.kind == "hose" then HandsMath.Poses.hoseSupport else HandsMath.pose("lowered", "L")
+		rest = if item.kind == "hose"
+			then tweak(HandsMath.Poses.hoseSupport, "hoseSupport", "R")
+			else tweak(HandsMath.pose("lowered", "L"), "lowered", "L")
 	else
-		rest = HandsMath.pose("idle", side)
+		rest = tweak(HandsMath.pose("idle", side), "idle", side)
 	end
 	local g = hand.grip
 	if g then
@@ -946,8 +956,25 @@ function PhysicsHands._axeCheck(self: PhysicsHands, item: Item, onShake: ((numbe
 	end
 end
 
-local sleeveParts: { BasePart } = {}
-local sleeveCFrames: { CFrame } = {}
+local rigParts: { BasePart } = {}
+local rigCFrames: { CFrame } = {}
+
+-- How closed each glove is: 0 open (reaching), ~0.3 relaxed with a slow idle flex, ~0.95 wrapped
+-- around a held tool / grabbed prop.
+function PhysicsHands._curlTarget(self: PhysicsHands, hand: Hand): number
+	local carrying = LocalPlayer:GetAttribute(Names.Attr.Carrying)
+	if hand.grip or (hand.side == "R" and self.item) then
+		return 0.95
+	elseif type(carrying) == "string" and carrying ~= "" then
+		return 0.7
+	elseif hand.side == "L" and self.item and self.item.kind == "hose" then
+		return 0.85
+	elseif hand.pressed or hand.reachT > 0.05 then
+		return 0.02
+	end
+	local idle = tonumber(HandsConfig.IdleCurl) or 0.3
+	return idle + 0.06 * math.sin(self.t * 1.7 + hand.sign * 1.3) + 0.03 * math.sin(self.t * 3.1 + hand.sign)
+end
 
 function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Frame, onShake: ((number, number) -> ())?)
 	if not self.active then
@@ -984,10 +1011,13 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 	local sway = f.sway or Vector2.zero
 	local base = cam * CFrame.new(bob.X, bob.Y + (f.dip or 0), 0) * CFrame.Angles(sway.X, sway.Y, sway.Y * 0.6)
 	local gravity = workspace.Gravity
-	local s = scale()
 
-	table.clear(sleeveParts)
-	table.clear(sleeveCFrames)
+	table.clear(rigParts)
+	table.clear(rigCFrames)
+	local camObj = workspace.CurrentCamera
+	if camObj and self.visual.Parent ~= camObj then
+		self.visual.Parent = camObj
+	end
 	for side, hand in self.hands do
 		-- reach ramp
 		local rate = dt / math.max(HandsConfig.ReachSeconds, 0.01)
@@ -1060,19 +1090,13 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 		local rel = hand.palm.AssemblyLinearVelocity - root.AssemblyLinearVelocity
 		self:_probe(hand, char, rel, "hand")
 
-		-- stretchy sleeve: shoulder -> back of the wrist
+		-- the glove you see, drawn on the physics palm, sleeve stretched from the shoulder
 		local shoulder = base
 			* Vector3.new(HandsConfig.ShoulderX * hand.sign, HandsConfig.ShoulderY, HandsConfig.ShoulderZ)
-		local wristBack = (hand.wrist.WorldCFrame * CFrame.new(0, 0, 1.0 * s)).Position
-		local span = wristBack - shoulder
-		local len = math.max(span.Magnitude, 0.1)
-		if math.abs(hand.sleeve.Size.Y - len) > 0.01 then
-			hand.sleeve.Size = Vector3.new(hand.sleeve.Size.X, len, hand.sleeve.Size.Z)
-		end
-		table.insert(sleeveParts, hand.sleeve)
-		table.insert(sleeveCFrames, CFrame.lookAt(shoulder + span / 2, wristBack, cam.UpVector) * CFrame.Angles(math.rad(90), 0, 0))
+		hand.curl += (self:_curlTarget(hand) - hand.curl) * math.min(1, dt * 14)
+		Viewmodel.poseRig(hand.rig, hand.wrist.WorldCFrame, shoulder, cam.UpVector, hand.curl, rigParts, rigCFrames)
 	end
-	workspace:BulkMoveTo(sleeveParts, sleeveCFrames, Enum.BulkMoveMode.FireCFrameChanged)
+	workspace:BulkMoveTo(rigParts, rigCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 
 	-- the floppy axe and the bucking nozzle
 	if item then
@@ -1122,6 +1146,7 @@ function PhysicsHands.Destroy(self: PhysicsHands)
 	end
 	table.clear(self.conns)
 	self.folder:Destroy()
+	self.visual:Destroy()
 end
 
 -- remote players' arms ---------------------------------------------------------------------------
