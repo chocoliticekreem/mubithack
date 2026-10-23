@@ -352,7 +352,7 @@ Districts.FaceDir = FACE_DIR
 -- Lots run from the district's gate street out to its edge (|along| <= DistrictHalf), so the corners
 -- where two strips meet stay open. The creek side of the east avenue stays a greenbelt.
 Districts.CorridorStyle = {
-	downtown = { lotW = 68, kinds = { "facade", "facade", "midrise", "facade", "plaza", "carpark" }, sites = { "apartment", "shop", "apartment", "diner", "gas" } },
+	downtown = { lotW = 68, kinds = { "facade", "facade", "midrise", "facade", "midrise", "carpark" }, sites = { "apartment", "shop", "apartment", "diner", "gas" } },
 	suburb = { lotW = 54, kinds = { "duplex", "duplex", "duplex", "grove" }, sites = { "house" } },
 	industrial = { lotW = 92, kinds = { "warehouse", "shed", "tanks", "warehouse", "carpark" }, sites = { "storage" } },
 	farmland = { lotW = 130, kinds = { "cropfield", "cropfield", "barn" }, sites = { "house" } },

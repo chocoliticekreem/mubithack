@@ -854,11 +854,31 @@ function Scenery.plaza(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	local c = F * CF(0, GY, d / 2)
 	SK.cyl(parent, "FountainRim", c * CF(0, 1, 0), 2, 22, C.Concrete)
 	SK.cyl(parent, "FountainWater", c * CF(0, 1.6, 0), 1.4, 20, C.Water, { material = Enum.Material.Glass, transparency = 0.25 })
-	-- the statue of a firefighter who looks very sure of himself
-	SK.part(parent, "Plinth", c * CF(0, 4, 0), V(4, 6, 4), C.Concrete)
-	SK.part(parent, "Statue", c * CF(0, 9.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#6D8F7A"))
-	SK.ball(parent, "StatueHead", c * CF(0, 12.8, 0), 2, Color3.fromHex("#6D8F7A"))
-	SK.part(parent, "StatueHelmet", c * CF(0, 13.8, 0), V(2.6, 0.8, 2.6), Color3.fromHex("#6D8F7A"))
+	-- a centrepiece in the fountain (so the plazas round downtown are not all the same)
+	local piece = rng:NextInteger(1, 4)
+	if piece == 1 then
+		-- the statue of a firefighter who looks very sure of himself
+		SK.part(parent, "Plinth", c * CF(0, 4, 0), V(4, 6, 4), C.Concrete)
+		SK.part(parent, "Statue", c * CF(0, 9.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#6D8F7A"))
+		SK.ball(parent, "StatueHead", c * CF(0, 12.8, 0), 2, Color3.fromHex("#6D8F7A"))
+		SK.part(parent, "StatueHelmet", c * CF(0, 13.8, 0), V(2.6, 0.8, 2.6), Color3.fromHex("#6D8F7A"))
+	elseif piece == 2 then
+		-- a giant rubber duck (googly eyes, obviously)
+		SK.ball(parent, "GiantDuck", c * CF(0, 5, 0), 8, Color3.fromHex("#F2D13C"))
+		SK.ball(parent, "GiantDuckHead", c * CF(0, 10, -2.4), 5, Color3.fromHex("#F2D13C"))
+		SK.part(parent, "GiantDuckBeak", c * CF(0, 9.6, -5.2), V(2.4, 1, 2), Color3.fromHex("#E76F51"))
+		MapKit.googlyEyes(parent, c * CF(0, 11, -4.6), 1.3)
+	elseif piece == 3 then
+		-- a golden fire hydrant on a plinth ("To Our Most Reliable Citizen")
+		SK.part(parent, "Plinth", c * CF(0, 3, 0), V(5, 4, 5), C.Concrete)
+		SK.cyl(parent, "GoldHydrant", c * CF(0, 8, 0), 6, 3.4, Color3.fromHex("#E9C46A"))
+		SK.ball(parent, "GoldHydrantCap", c * CF(0, 11.2, 0), 3.4, Color3.fromHex("#E9C46A"))
+	else
+		-- an abstract donut sculpture nobody asked for
+		SK.part(parent, "Plinth", c * CF(0, 3, 0), V(4, 4, 4), C.Concrete)
+		SK.cyl(parent, "Donut", c * CF(0, 10, 0) * ANG(math.rad(90), 0, 0), 2.6, 9, Color3.fromHex("#D98B6F"))
+		SK.cyl(parent, "DonutHole", c * CF(0, 10, 0) * ANG(math.rad(90), 0, 0), 2.8, 3.4, Color3.fromHex("#9EC9DA"))
+	end
 	for _, s in { { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } } do
 		BlockFiller.tree(parent, c * CF(s[1] * w * 0.35, 0, s[2] * d * 0.32), rng)
 		bench(parent, c * CF(s[1] * 16, 0, s[2] * 4) * ANG(0, math.rad(90 * s[1]), 0))
