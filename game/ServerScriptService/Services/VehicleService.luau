@@ -8,7 +8,7 @@
 -- Public API (contract, docs/game/03-tech-architecture.md §10):
 --   VehicleService:GetTruck(): Model?
 --   VehicleService:ResetTruck()                         -- ParkAt(VehicleConfig.HomeLocation)
---   VehicleService:ParkAt(locationId: string): boolean  -- truck ground point onto that location's TruckSpot
+--   VehicleService:ParkAt(locationId: string): boolean  -- locationId or v1.5 instanceId: onto its TruckSpot (riders come along)
 --   VehicleService:GetDriver(): Player?
 -- Signals: Driven(driver: Player, studs: number)        -- fires when a driver gets out (studs travelled)
 --          RanOver(driver: Player, victim: Player)      -- a player bowled over by the moving truck
@@ -44,7 +44,8 @@ local driveSeat: VehicleSeat? = nil
 local hornSound: Sound? = nil
 local sirenSound: Sound? = nil
 -- TruckBuilder's PrimaryPart (Chassis) sits 2 studs above the ground point it was built on.
-local groundToPivot = CFrame.identity
+local groundToPivot = CFrame.new(0, 2, 0)
+local homeGround: CFrame? = nil -- where the truck was first parked, if the home location has no TruckSpot
 local parkedAt: string? = nil
 local driver: Player? = nil
 local driveStart: Vector3? = nil
@@ -54,14 +55,23 @@ local runOverAt: { [Player]: number } = {}
 -- Parts that only look like wheels: the suspension rays carry the truck, so these never touch the road.
 local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "Fender_", "CabStep_", "SideSkirt_" }
 
-local function findSpot(locationId: string): BasePart?
+local function locationModel(id: string): Instance?
 	local Map = services.MapService
-	local location = Map and Map:GetLocation(locationId)
+	if not Map then
+		return nil
+	end
+	local inst = if type(Map.GetInstance) == "function" then Map:GetInstance(id) else nil
+	return inst or Map:GetLocation(id)
+end
+
+-- `id` is a locationId ("Station", "Town") or a v1.5 mission instanceId.
+local function findSpot(id: string): BasePart?
+	local location = locationModel(id)
 	if not location then
 		return nil
 	end
 	for _, d in location:GetDescendants() do
-		if d:IsA("BasePart") and d:HasTag(Names.Tag.TruckSpot) then
+		if d:IsA("BasePart") and (d:HasTag(Names.Tag.TruckSpot) or d.Name == "TruckSpot") then
 			return d
 		end
 	end
@@ -69,17 +79,19 @@ local function findSpot(locationId: string): BasePart?
 end
 
 local function ragdoll(character: Model, seconds: number, push: Vector3?)
-	-- Shared/Ragdoll lands with the kickoff; fall back to PlatformStand if it is missing.
-	local mod = Shared:FindFirstChild("Ragdoll")
-	if mod and mod:IsA("ModuleScript") then
-		local ok, R = pcall(require, mod)
-		if ok and type(R) == "table" and type((R :: any).ragdoll) == "function" then
-			pcall((R :: any).ragdoll, character, seconds, push)
-			return
+	-- Shared/Ragdoll (body by G1). Fall back to PlatformStand while it is still a stub.
+	local ok, R = pcall(require, Shared:WaitForChild("Ragdoll") :: ModuleScript)
+	local done = false
+	if ok and type(R) == "table" then
+		done = (R :: any).enable(character, seconds) == true
+		if push then
+			(R :: any).knockback(character, push)
 		end
 	end
+	if done then
+		return
+	end
 	local hum = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if hum then
 		hum.PlatformStand = true
 		task.delay(seconds, function()
@@ -87,9 +99,6 @@ local function ragdoll(character: Model, seconds: number, push: Vector3?)
 				hum.PlatformStand = false
 			end
 		end)
-	end
-	if root and push then
-		root.AssemblyLinearVelocity = push
 	end
 end
 
@@ -320,10 +329,6 @@ local function runOverTick()
 			Telemetry.count("truck_run_over")
 			local d = driver :: Player
 			VehicleService.RanOver:Fire(d, p)
-			local Blame = services.BlameService
-			if Blame and type(Blame.Record) == "function" then
-				pcall(Blame.Record, Blame, d, "road_rage", 1)
-			end
 			Net.notify("all", `{d.DisplayName} ran over {p.DisplayName}! ROAD RAGE`, "blame")
 		end
 	end
@@ -346,30 +351,49 @@ function VehicleService:Start()
 	end
 	local home = VehicleConfig.HomeLocation
 	local spot = findSpot(home)
-	local cf = if spot then spot.CFrame else CFrame.new(0, 0.2, 0)
-	local m = TruckBuilder.Build(workspace, cf)
-	groundToPivot = cf:Inverse() * m:GetPivot()
-	local dropoff = m:FindFirstChild("RescueDropoff")
+	-- StationBuilder may already have placed truck 67 in bay 2: adopt it instead of building a twin.
+	local m: Model? = nil
+	local homeModel = locationModel(home)
+	if homeModel then
+		for _, d in homeModel:GetDescendants() do
+			if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and d.PrimaryPart then
+				m = d
+				break
+			end
+		end
+	end
+	if m then
+		homeGround = (m :: Model):GetPivot() * groundToPivot:Inverse()
+		m.Parent = workspace
+	else
+		local cf = if spot then spot.CFrame else CFrame.new(0, 0.2, 0)
+		m = TruckBuilder.Build(workspace, cf)
+		homeGround = cf
+		groundToPivot = cf:Inverse() * (m :: Model):GetPivot()
+	end
+	local truckModel = m :: Model
+	truckModel.Name = "FireTruck67"
+	local dropoff = truckModel:FindFirstChild("RescueDropoff")
 	if dropoff and dropoff:IsA("BasePart") then
 		dropoff.CanQuery = false -- invisible volume must not block raycasts
 	end
-	truck = m
-	m:SetAttribute("SirenOn", false)
-	m:SetAttribute("Driver", 0)
-	local root = m.PrimaryPart
+	truck = truckModel
+	truckModel:SetAttribute("SirenOn", false)
+	truckModel:SetAttribute("Driver", 0)
+	local root = truckModel.PrimaryPart
 	chassis = root
-	parkedAt = if spot then home else nil
+	parkedAt = home
 
 	if root then
 		hornSound = makeSound(root, "HornSound", VehicleConfig.HornSoundId, false, 1)
-		local sirenPart = m:FindFirstChild("Siren")
+		local sirenPart = truckModel:FindFirstChild("Siren")
 		local existing = sirenPart and sirenPart:FindFirstChild("SirenSound") :: Sound?
 		sirenSound = existing or makeSound(root, "SirenSound", VehicleConfig.SirenSoundId, true, 0.6)
 		if sirenSound and sirenSound.SoundId == "" then
 			sirenSound.SoundId = VehicleConfig.SirenSoundId
 		end
 		if VehicleConfig.Drivable then
-			rig(m, root)
+			rig(truckModel, root)
 			if driveSeat then
 				(driveSeat :: VehicleSeat):GetPropertyChangedSignal("Occupant"):Connect(onDriverChanged)
 			end
@@ -378,7 +402,13 @@ function VehicleService:Start()
 
 	local Map = services.MapService
 	if Map and Map.LocationBuilt then
-		Map.LocationBuilt:Connect(function(_model: Model, id: string)
+		Map.LocationBuilt:Connect(function(model: Model, id: string)
+			-- a rebuilt station brings its own truck: keep only ours
+			for _, d in model:GetDescendants() do
+				if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and d ~= truck then
+					d:Destroy()
+				end
+			end
 			if id == parkedAt and not driver then
 				VehicleService:ParkAt(id)
 			end
@@ -403,7 +433,7 @@ function VehicleService:Start()
 		runOverAt[p] = nil
 	end)
 	RunService.Heartbeat:Connect(runOverTick)
-	print(`[VehicleService] truck {VehicleConfig.TruckNumber} parked at {parkedAt or "origin (no TruckSpot)"}`)
+	print(`[VehicleService] truck {VehicleConfig.TruckNumber} parked at {parkedAt} ({if spot then "TruckSpot" else "builder's bay"})`)
 end
 
 function VehicleService:GetTruck(): Model?
@@ -418,7 +448,8 @@ end
 function VehicleService:ParkAt(locationId: string): boolean
 	local spot = findSpot(locationId)
 	local m = truck
-	if not m or not spot then
+	local target: CFrame? = if spot then spot.CFrame elseif locationId == VehicleConfig.HomeLocation then homeGround else nil
+	if not m or not target then
 		return false
 	end
 	setAnchored(true)
@@ -426,7 +457,7 @@ function VehicleService:ParkAt(locationId: string): boolean
 		chassis.AssemblyLinearVelocity = Vector3.zero
 		chassis.AssemblyAngularVelocity = Vector3.zero
 	end
-	m:PivotTo(spot.CFrame * groundToPivot)
+	m:PivotTo((target :: CFrame) * groundToPivot)
 	parkedAt = locationId
 	if driver then
 		-- keep it drivable at the new spot
