@@ -12,6 +12,7 @@
 --   RescueService:ClearInstance(instanceId: string)
 --   RescueService:Clear()
 --   RescueService:Deliver(player: Player): boolean       -- carrier reached a RescueDropoff volume
+--   RescueService:Hurt(rescueId: string, amount: number, culprit: Player?): boolean  -- v2: collapse damage
 -- Signals: Rescued(player, rescueId, kind)        -- once per NPC (objective count)
 --          Dropped(player, rescueId)
 --          Picked(player, rescueId, kind)         -- per carrier (two for the panda)
@@ -1010,6 +1011,16 @@ function RescueService:Deliver(player: Player): boolean
 end
 
 -- test hooks -------------------------------------------------------------------------------------
+
+-- v2 (StructureService): a collapse landed on them. Same Health as fire damage; 0 = Toasted.
+function RescueService:Hurt(rescueId: string, amount: number, culprit: Player?): boolean
+	local npc = npcs[rescueId]
+	if not npc or type(amount) ~= "number" or npc.state == "Rescued" or npc.state == "Toasted" then
+		return false
+	end
+	hurt(npc, amount, culprit)
+	return true
+end
 
 function RescueService:_carry(player: Player, rescueId: string): boolean
 	local npc = npcs[rescueId]

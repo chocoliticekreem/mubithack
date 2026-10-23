@@ -61,7 +61,7 @@ export type Run = {
 	arrivedAt: number, -- 0 until arrival
 	fast: boolean, -- arrived within timing.fastArrival
 }
-export type StarRule = { id: string, text: string?, seconds: number? }
+export type StarRule = { id: string, text: string?, seconds: number?, min: number? } -- min: buildingSaved integrity
 export type Summary = {
 	outcome: Outcome,
 	burningAtEnd: number,
@@ -70,6 +70,7 @@ export type Summary = {
 	elapsed: number, -- seconds the Active phase lasted
 	downs: number, -- times any squad member was downed
 	hadFires: boolean?, -- false when nothing was ever lit (stubs): allOut still counts
+	integrity: number?, -- building integrity 0..100 at the end (StructureService); nil = never burned
 }
 
 local MissionFlow = {}
@@ -241,6 +242,8 @@ function MissionFlow.starEarned(rule: StarRule, s: Summary): boolean
 		return finished and s.rescued > 0 and s.trapped == 0
 	elseif rule.id == "underTime" then
 		return s.outcome == "success" and s.elapsed <= (rule.seconds or math.huge)
+	elseif rule.id == "buildingSaved" then
+		return finished and (s.integrity == nil or s.integrity >= (rule.min or 50))
 	elseif rule.id == "noDowns" then
 		return finished and s.downs == 0
 	end
