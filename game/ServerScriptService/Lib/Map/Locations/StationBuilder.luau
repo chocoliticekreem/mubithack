@@ -32,7 +32,7 @@
 --   Grounds (lot X -164..164, Z -164..68, all real ground): paved plaza with planters + benches,
 --       memorial garden west (fountain, bronze statue, flags), parking lot east (stalls, cars), training
 --       yard behind (drill tower, burn box), hedges on the property edge, rooftop "STATION 67" sign, and
---       a skyline backdrop (behind always; sides + across the avenue only when there is no CityConfig).
+--       a skyline backdrop (only when there is no CityConfig; the city provides the real skyline).
 -- Alarm parts (AlarmController drives them, client-side only):
 --   Models "AlarmLight" (attr Bay, 0 = shared) with Neon "Bulb" (disabled PointLight "AlarmGlow"),
 --   glass "Dome" and a "Reflector" the client spins. Parts "AlarmSpeaker" (tag StationAlarm, attrs Bay
@@ -1407,7 +1407,10 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			a += w
 		end
 	end
-	skyRow(-230, 230, -230, -176, 50, 150) -- behind the station (it sits on the city's north edge)
+	-- the backdrop is only for a standalone station: inside the city it would sit on real roads
+	if not inCity then
+		skyRow(-230, 230, -230, -176, 50, 150) -- behind the station
+	end
 	if not inCity then
 		span(ground, "BackdropGround", -240, 240, LAWN_Y - 1.2, LAWN_Y - 0.2, -240, 200, C.Lawn)
 		skyRow(-230, -176, -170, 60, 30, 90)
