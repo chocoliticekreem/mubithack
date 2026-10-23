@@ -944,7 +944,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local gok, gres = pcall(Greenbelt.build, {
 		cfg = cfg,
 		plan = plan,
-		rng = rng,
+		rng = Random.new(seed + 4242), -- its own stream: greenbelt tweaks never reshuffle the districts
 		blocked = ctx.blocked,
 		clear = function(p: Vector3, r: number): boolean
 			return clear(ctx, p, r)

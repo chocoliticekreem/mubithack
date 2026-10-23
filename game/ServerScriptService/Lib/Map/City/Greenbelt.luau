@@ -229,6 +229,25 @@ local function outskirts(ctx: any, parent: Instance)
 						})
 					end
 				end
+				-- now and then a red barn + silo out in the fields (faces the highway)
+				if rng:NextNumber() < 0.3 then
+					local fc = (f0 + f1) / 2
+					local at = a0 + (a1 - a0) * rng:NextNumber(0.25, 0.75)
+					local p = if axis == "x" then V(fc, GY, at) else V(at, GY, fc)
+					local toRoad = if axis == "x" then V(-out, 0, 0) else V(0, 0, -out)
+					if not wet(ctx, p.X - 30, p.Z - 30, p.X + 30, p.Z + 30) then
+						local cf = CFrame.lookAt(p, p + toRoad)
+						local barn = Instance.new("Model")
+						barn.Name = "OutskirtsBarn"
+						SK.part(barn, "Body", cf * CF(0, 8, 0), V(26, 16, 30), Color3.fromHex("#A8322A"))
+						SK.wedge(barn, "Roof1", cf * CF(-6.5, 20, 0) * ANG(0, math.rad(90), 0), V(31, 8, 14), C.RoofSlate)
+						SK.wedge(barn, "Roof2", cf * CF(6.5, 20, 0) * ANG(0, math.rad(-90), 0), V(31, 8, 14), C.RoofSlate)
+						SK.part(barn, "Door", cf * CF(0, 6, -15.2), V(10, 12, 0.4), C.Trim)
+						SK.cyl(barn, "Silo", cf * CF(20, 18, 6), 36, 10, Color3.fromHex("#B7B1A8"))
+						SK.ball(barn, "SiloDome", cf * CF(20, 36, 6), 10, C.Red)
+						barn.Parent = m
+					end
+				end
 				-- a clump of pines on the verge mid-stretch
 				local mid = (a0 + a1) / 2
 				for t = -1, 1 do

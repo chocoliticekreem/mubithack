@@ -780,7 +780,7 @@ function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 		SK.part(m, "WindowFake", F * CF(0, GY + 15, -0.1), V(w * 0.7, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	end
 	m.Parent = parent
-	if rng:NextNumber() < 0.5 then
+	if rng:NextNumber() < 0.3 then
 		BlockFiller.tree(parent, F * CF(w / 2 + 6, GY, -6), rng)
 	end
 	if rng:NextNumber() < 0.25 then
