@@ -34,7 +34,8 @@
 -- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), SirenOn: boolean, Driver: number (UserId, 0 = none),
 --   InstanceId: string ("" for player trucks)
 -- Optional hook: PhysicsFxService:TruckHit(truck: Model, target: Model | BasePart, velocity: Vector3): boolean
---   (true = handled; otherwise this service ragdolls players / launches loose props itself)
+--   (true = handled; otherwise this service ragdolls players itself). Loose props are launched here only
+--   when PhysicsFxService is absent (it ploughs its own registered props in front of moving trucks).
 -- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns,
 --   truck_door_bonks, truck_doors_lost
 -- Test hooks (DevHook only): _selftest(), _seat(player)
@@ -1148,7 +1149,8 @@ local function collisionTick(dt: number)
 		if speed >= VehicleConfig.RunOverSpeed then
 			hitPlayers(t, d, v, now)
 		end
-		if speed >= VehicleConfig.PropHitSpeed then
+		-- PhysicsFxService ploughs its registered props itself; only do it here without it
+		if speed >= VehicleConfig.PropHitSpeed and not services.PhysicsFxService then
 			hitProps(t, v, now)
 		end
 	end
