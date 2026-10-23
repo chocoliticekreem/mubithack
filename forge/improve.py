@@ -346,13 +346,15 @@ def telemetry_changes(before: list[dict], after: list[dict]) -> tuple[list[str],
 
 FIX_SEVERITIES = ("high", "medium")
 UNPROVEN_SIMILAR = 0.6
-UNPROVEN_MARKERS = ("not conclusively proven", "unproven", "testing artefact", "testing artifact",
-                    "best guess", "could not prove", "no probe results", "not a game bug")
+# Only skip when the investigator says the problem is not in the game's code. A plausible but unproven
+# cause is still worth one attempt: the guards and the verifier reject a fix that does not help.
+UNPROVEN_MARKERS = ("testing artefact", "testing artifact", "not a game bug", "test expectation",
+                    "no code fix is needed", "no code change is needed")
 
 
 def unproven(conclusion: dict) -> bool:
-    """The investigator could not prove a code cause (or says it is the test, not the game)."""
-    if not conclusion:
+    """No conclusion, no file to change, or the investigator says it is the test, not the game."""
+    if not conclusion or not conclusion.get("file"):
         return True
     text = str(conclusion.get("root_cause", "")).lower()
     return any(m in text for m in UNPROVEN_MARKERS)
