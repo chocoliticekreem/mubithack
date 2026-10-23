@@ -2,6 +2,7 @@
 -- Structure: classification, support graph, burn/char damage, failures, windows, integrity, shell.
 local Spec = require("./Spec")
 local S = require("../ServerScriptService/Lib/Fire/Structure")
+local MissionFlow = require("../ServerScriptService/Lib/Mission/MissionFlow")
 
 local cfg = {
 	GroundTolerance = 2.5,
@@ -226,6 +227,20 @@ Spec.test("burningCount ignores collapsed chunks", function()
 	Spec.eq(S.burningCount(s), 2)
 	S.collapse(s, 3)
 	Spec.eq(S.burningCount(s), 1)
+end)
+
+Spec.test("buildingSaved star: integrity at/above min, nil = never burned", function()
+	local rule = { id = "buildingSaved", min = 50 }
+	local base = { outcome = "success", burningAtEnd = 0, rescued = 1, trapped = 0, elapsed = 60, downs = 0 } :: any
+	base.integrity = 50
+	Spec.truthy(MissionFlow.starEarned(rule, base))
+	base.integrity = 49
+	Spec.truthy(not MissionFlow.starEarned(rule, base))
+	base.integrity = nil
+	Spec.truthy(MissionFlow.starEarned(rule, base))
+	base.integrity = 90
+	base.outcome = "wiped"
+	Spec.truthy(not MissionFlow.starEarned(rule, base), "needs a finished shift")
 end)
 
 return Spec.finish()

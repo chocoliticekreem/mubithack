@@ -10,7 +10,8 @@
 --
 -- Public API:
 --   StructureService:Index(model: Model): boolean                 -- eager (otherwise indexed on first fire)
---   StructureService:GetIntegrity(key: string | Instance): number? -- key = SiteId, BuildingId or a Model/part
+--   StructureService:GetIntegrity(key: string | Instance): number? -- key = SiteId, BuildingId or a Model/part;
+--                                                                   a container -> its worst building (nil: none)
 --   StructureService:IsTotalLoss(key): boolean
 --   StructureService:Saved(key): boolean                           -- mission star "save the building"
 --   StructureService:ResetSite(key): boolean                        -- restore moved parts, forget the state
@@ -900,7 +901,20 @@ end
 
 function StructureService:GetIntegrity(key: string | Instance): number?
 	local rec = find(key)
-	return if rec then rec.integrity else nil
+	if rec then
+		return rec.integrity
+	end
+	-- a container (v1.5 mission instance, a location): its worst damaged building, nil if none indexed
+	if typeof(key) == "Instance" then
+		local worst: number? = nil
+		for m, r in recs do
+			if m:IsDescendantOf(key) then
+				worst = math.min(worst or 100, r.integrity)
+			end
+		end
+		return worst
+	end
+	return nil
 end
 
 function StructureService:IsTotalLoss(key: string | Instance): boolean

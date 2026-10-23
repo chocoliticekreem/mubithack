@@ -603,6 +603,12 @@ local function buildPayload(run: Live): Types.ResultsPayload
 	end
 	local outcome: MissionFlow.Outcome = run.flow.outcome or "forced"
 	local elapsed = MissionFlow.elapsed(run.flow, now())
+	local integrity: number? = nil
+	local Structure = services.StructureService
+	if Structure and type(Structure.GetIntegrity) == "function" then
+		local ok, v = pcall(Structure.GetIntegrity, Structure, run.model)
+		integrity = if ok and type(v) == "number" then v else nil
+	end
 	local stars = MissionFlow.stars(run.def.stars or {}, {
 		outcome = outcome,
 		burningAtEnd = burning,
@@ -610,6 +616,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		trapped = trapped,
 		elapsed = elapsed,
 		downs = downs,
+		integrity = integrity,
 	})
 	return {
 		locationId = run.locationId,
@@ -627,6 +634,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		instanceId = run.id,
 		-- v2 extras (ResultsController ignores unknown fields)
 		siteId = run.siteId,
+		buildingIntegrity = integrity, -- StructureService; nil = no building burned
 		arrivalSeconds = if run.flow.arrivedAt > 0 then math.floor(run.flow.arrivedAt - run.flow.startedAt) else nil,
 		fastArrival = run.flow.fast,
 	} :: any
