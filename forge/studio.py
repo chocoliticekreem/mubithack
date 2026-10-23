@@ -294,7 +294,9 @@ class Studio:
             raise StudioError(f"No Roblox Studio is connected to MCP. {OPEN_STUDIO_HINT}")
         chosen = studios[0]
         if name_hint:
-            matches = [s for s in studios if name_hint.lower() in str(s.get("name", "")).lower()]
+            hint = name_hint.lower()
+            matches = [s for s in studios if hint == str(s.get("id", "")).lower()
+                       or hint in str(s.get("name", "")).lower()]
             if not matches:
                 names = ", ".join(repr(s.get("name")) for s in studios)
                 raise StudioError(f"No connected Studio matches {name_hint!r}; open: {names}")

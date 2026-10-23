@@ -153,3 +153,10 @@ async def test_play_polls_state_until_server(monkeypatch):
     monkeypatch.setattr(st, "POLL_INTERVAL", 0.01)
     await s.play()
     assert [c[0] for c in s._session.calls].count("start_stop_play") == 1
+
+
+async def test_select_by_id_when_two_studios_share_a_name():
+    studios = '{"studios":[{"id":"a1","name":"Forge.rbxlx"},{"id":"b2","name":"Forge.rbxlx"}]}'
+    s = _fake_studio({"list_roblox_studios": FakeResult([TextContent(text=studios)])})
+    assert await s.select("b2") == "b2"
+    assert await s.select("Forge.rbxlx") == "a1"
