@@ -28,11 +28,12 @@ end
 
 local function duck(parent: Instance, cf: CFrame)
 	local m = Instance.new("Model")
-	m.Name = "Duck" -- PhysicsFxService knockable name
+	m.Name = "Duck"
 	SK.ball(m, "Body", cf, 1.8, Color3.fromHex("#F2D13C"))
 	SK.ball(m, "Head", cf * CF(0, 1, -0.7), 1.1, Color3.fromHex("#F2D13C"))
 	SK.part(m, "Beak", cf * CF(0, 0.95, -1.35), V(0.45, 0.22, 0.6), Color3.fromHex("#E76F51"))
-	m:AddTag("Knockable")
+	-- floating on non-collidable water: a knocked duck would sink to the creek bed, so opt out
+	m:SetAttribute("Knockable", false)
 	m.Parent = parent
 end
 
@@ -62,7 +63,7 @@ local function pond(ctx: any, parent: Instance)
 	local _ = ring
 	-- a rowboat tied to the dock
 	SK.part(m, "Rowboat", CF(lk.x0 + 18, waterY + 0.6, dz + 7), V(4, 1.4, 10), Color3.fromHex("#3D5A80"))
-	-- ducks paddling about (knockable)
+	-- ducks paddling about
 	for _ = 1, 6 do
 		duck(m, CF(rng:NextNumber(lk.x0 + 26, lk.x1 - 8), waterY + 0.9, rng:NextNumber(lk.z0 + 8, lk.z1 - 8)) * ANG(0, rng:NextNumber(0, 6.28), 0))
 	end
