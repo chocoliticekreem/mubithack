@@ -99,6 +99,10 @@ return Config.define({
 	TensionSeconds = 30, -- last N seconds of a round: mission music PlaybackSpeed -> TensionSpeed
 	TensionSpeed = 1.06,
 
+	AlarmSeconds = 4, -- Mission/Alarm: bell at the nearest AlarmLamps (+ quiet 2D copy)
+	SirenSeconds = 8, -- Mission/Alarm: truck siren while the crew gears up
+	ArriveSirenSeconds = 5, -- siren burst when my instance goes Active (truck arrives on scene)
+
 	RescueDingStep = 0.05, -- +5% pitch per consecutive rescue
 	RescueStreakReset = 12, -- seconds without a rescue before the streak resets
 
