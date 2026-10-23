@@ -49,11 +49,11 @@ end
 
 -- Trailer colours: olive-green rubber gloves, tan turnout coat, lime + silver reflective tape.
 local COLORS = {
-	Glove = Color3.fromHex("#6B7A2A"),
-	GloveDark = Color3.fromHex("#55621F"),
+	Glove = Color3.fromHex("#606C2B"),
+	GloveDark = Color3.fromHex("#4C5622"),
 	Patch = Color3.fromHex("#B59A55"),
-	Sleeve = Color3.fromHex("#C9A44A"),
-	SleeveDark = Color3.fromHex("#A9883A"),
+	Sleeve = Color3.fromHex("#C4A050"),
+	SleeveDark = Color3.fromHex("#A8894A"),
 	Band = Color3.fromHex("#C6F04A"),
 	Silver = Color3.fromHex("#D5D9DE"),
 	Soot = Color3.fromHex("#3A2E26"),
@@ -197,7 +197,7 @@ function Viewmodel.newRig(parent: Instance, side: number, prefix: string, s: num
 	local a, d = W - H, D - H
 	local function palmPart(name: string, size: Vector3, shape: Enum.PartType, offset: CFrame)
 		local p = block(parent, prefix .. name, size, glove, GLOVE_MAT, shape)
-		p.Reflectance = 0.04
+		p.Reflectance = 0.02
 		static(p, offset)
 	end
 	palmPart("Palm", Vector3.new(a, H, d), Enum.PartType.Block, CFrame.new(0, 0, CZ))
@@ -216,10 +216,10 @@ function Viewmodel.newRig(parent: Instance, side: number, prefix: string, s: num
 
 	-- fingers: index (thumb side) -> pinky; two segments each, ball joints for chunky knuckles
 	local fingerSpec = {
-		{ x = -0.36, len = 0.56, dia = 0.27, mul = 0.9 },
-		{ x = -0.12, len = 0.62, dia = 0.28, mul = 1.0 },
-		{ x = 0.12, len = 0.57, dia = 0.27, mul = 1.05 },
-		{ x = 0.36, len = 0.45, dia = 0.25, mul = 1.15 },
+		{ x = -0.36, len = 0.52, dia = 0.29, mul = 0.9 },
+		{ x = -0.12, len = 0.58, dia = 0.3, mul = 1.0 },
+		{ x = 0.12, len = 0.54, dia = 0.29, mul = 1.05 },
+		{ x = 0.36, len = 0.43, dia = 0.27, mul = 1.15 },
 	}
 	for i, f in fingerSpec do
 		local yaw = math.rad((2.5 - i) * 3.5 * side)
@@ -235,12 +235,12 @@ function Viewmodel.newRig(parent: Instance, side: number, prefix: string, s: num
 		}
 		for j = 1, 3 do
 			local b = block(parent, prefix .. "Finger" .. i .. "J" .. j, Vector3.one * f.dia * s * (if j == 1 then 1.04 else 1), glove, GLOVE_MAT, Enum.PartType.Ball)
-			b.Reflectance = 0.04
+			b.Reflectance = 0.02
 			table.insert(finger.balls, track(b))
 		end
 		for j = 1, 2 do
 			local seg = block(parent, prefix .. "Finger" .. i .. "S" .. j, Vector3.new(finger.lens[j], f.dia * s, f.dia * s), glove, GLOVE_MAT, Enum.PartType.Cylinder)
-			seg.Reflectance = 0.04
+			seg.Reflectance = 0.02
 			table.insert(finger.segs, track(seg))
 		end
 		table.insert(rig.fingers, finger)

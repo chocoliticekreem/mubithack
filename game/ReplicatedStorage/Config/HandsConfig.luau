@@ -9,12 +9,18 @@ return Config.define({
 	Enabled = true, -- false = the simple camera-attached viewmodel everywhere (no grabbing)
 	MobileEnabled = false, -- touch-only devices use the simple viewmodel unless this is true
 	GloveScale = 0.6, -- glove rig size (1 = a 1-stud-wide palm); the collider palm matches it
-	IdleCurl = 0.3, -- 0 open .. 1 fist: how curled the relaxed gloves' fingers are
+	IdleCurl = 0.24, -- 0 open .. 1 fist: how curled the relaxed gloves' fingers are
 
 	-- framing on top of the HandsMath poses (studs / degrees, right hand; the left mirrors).
 	-- Live-tune in Studio with Camera attributes HandsTweak_<name> / HandsTweakRot_<name>.
 	PoseTweak = {
-		idle = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0 },
+		idle = { x = 0.1, y = 0.2, z = 0.05, rx = 45, ry = 12, rz = -32 },
+		lowered = { x = 0.1, y = 0.4, z = -0.1, rx = 35, ry = 10, rz = -25 },
+		-- held tools: the fist rolls thumb-up so the handle stands up out of it
+		hose = { x = 0.15, y = 0, z = -0.35, rx = 0, ry = 0, rz = -80 },
+		extinguisher = { x = 0.1, y = 0.1, z = -0.2, rx = 0, ry = 0, rz = -80 },
+		item = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = -80 },
+		axe = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = -80 },
 	},
 
 	-- hand springs: the target pose is sprung (lag, overshoot, wobble) and the physical palm is
@@ -76,7 +82,9 @@ return Config.define({
 	AxeReach = 12, -- server: max studs root -> door centre
 	AxeHitCooldown = 0.35,
 	AxeHeadFlopDeg = 55, -- ball socket cone
-	AxeHeadDensity = 2.5,
+	AxeHeadDensity = 0.9, -- light enough that the palm springs stay in charge (no flailing)
+	AxeHeadFriction = 4, -- ball socket friction torque: damps the flop
+	AxeResetDistance = 2, -- studs: a head that ever separates from its socket snaps back
 	AxeBonkPush = 32,
 	AxeBonkLift = 18,
 

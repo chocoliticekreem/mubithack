@@ -356,11 +356,16 @@ local function scanFire(root: BasePart?)
 	state.fireProx = if best == math.huge then 0 else math.clamp(1 - best / CAM.SmokeRange, 0, 1)
 end
 
+-- In first person the real Tool (welded to the invisible body's hand) is hidden locally, trail
+-- included, so only the glove-held copy shows; others always see the real one.
 local function hideToolLocally(tool: Tool?)
 	if state.hiddenTool and state.hiddenTool ~= tool then
 		for _, d in state.hiddenTool:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.LocalTransparencyModifier = 0
+			elseif d:IsA("Trail") and d:GetAttribute("FPHidden") then
+				d.Enabled = true
+				d:SetAttribute("FPHidden", nil)
 			end
 		end
 		state.hiddenTool = nil
@@ -369,6 +374,9 @@ local function hideToolLocally(tool: Tool?)
 		for _, d in tool:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.LocalTransparencyModifier = 1
+			elseif d:IsA("Trail") and d.Enabled then
+				d.Enabled = false
+				d:SetAttribute("FPHidden", true)
 			end
 		end
 		state.hiddenTool = tool

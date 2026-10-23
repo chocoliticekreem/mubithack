@@ -178,7 +178,7 @@ local function makeHose(): Tool
 	nozzle.Name = "Nozzle"
 	nozzle.Position = Vector3.new(0, 0, -1.9)
 	nozzle.Parent = handle
-	tool.Grip = CFrame.new(0, 0, 0.6)
+	tool.Grip = CFrame.new(0, -0.6, 0.2) -- fist on the pistol grip, nozzle forward above it
 	return tool
 end
 
@@ -203,7 +203,7 @@ local function makeExtinguisher(): Tool
 	nozzle.Name = "Nozzle"
 	nozzle.Position = Vector3.new(0, 1.2, -1.45)
 	nozzle.Parent = handle
-	tool.Grip = CFrame.new(0, -0.2, 0)
+	tool.Grip = CFrame.new(0, 1.35, 0) -- carried by the top lever, the tank hangs below the fist
 	return tool
 end
 
