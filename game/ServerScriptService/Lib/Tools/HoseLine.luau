@@ -21,7 +21,8 @@
 -- Collision groups: "HoseLine" (hoses) never collides with "Players" (character parts we move
 --   from Default into "Players", or whatever group another system put them in).
 -- Counters: hose_attached, hose_kinks, hose_tangles, hose_trips, hose_yanks, hose_snapped
--- Test hooks (DevHook): _selftest(), _state(player), _attachTest(player, dist?)
+-- Test hooks (DevHook, dot-call: DevHook:Invoke("HoseLine", "._attachTest", player, 6)):
+--   _selftest(), _state(player), _attachTest(player, dist?)
 --
 -- The pure maths at the top uses no Roblox API, so game/tests/hoseline.spec.luau can run it in the
 -- luau CLI; the module returns early there (no `game`).
