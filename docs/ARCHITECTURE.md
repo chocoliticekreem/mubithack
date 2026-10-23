@@ -66,6 +66,11 @@ forge/                 Python package (uv), entry point `forge`
                        run_cycle(..., fix=True) runs fix_code(): fixer, compile, resync, replay,
                        verifier, then keep or roll back; base_files only get improve/patches/
   dashboard.py         `forge dashboard`: read-only live view of runs/ (collect() -> /api/state + dashboard.html)
+  feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish) -> result:
+                       planner plan -> coder (new modules) -> patcher/fixer (hook edits, destructive guard) ->
+                       compile -> version -> iterate -> polish_feature (round_starting AI testers, auditor vs
+                       spec acceptance, run_cycle fix=True until open == 0) -> verified by planned counters
+  prompts/planner.md   Mubit task: feature request -> {summary, new_modules, edits, telemetry, acceptance}
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
                        snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against

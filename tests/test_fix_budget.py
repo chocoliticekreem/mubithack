@@ -37,6 +37,9 @@ def test_unproven_markers():
     assert imp.unproven({"root_cause": "Most likely a testing artefact, not a game bug", "file": f})
     assert imp.unproven({}) and imp.unproven({"root_cause": "x", "file": None})
     assert not imp.unproven({"root_cause": "HudController reads FireCount before MissionService sets it", "file": f})
+    # run 9: a concrete cause phrased as a negation was skipped
+    assert not imp.unproven({"root_cause": "Delivery never fires. This is a game bug, not a testing artefact.",
+                             "file": f})
     # plausible but unproven causes get one attempt (run 8 skipped all four of these)
     assert not imp.unproven({"root_cause": "Probably a balance problem in the fire numbers, though I could "
                                            "not fully prove it", "file": f})

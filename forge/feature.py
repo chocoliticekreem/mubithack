@@ -21,7 +21,7 @@ from forge.memory import RunStore, now_iso, read_lessons
 from forge.versions import GameVersions
 
 PLAN_KEYS = ["summary", "new_modules"]
-MAX_NEW_MODULES = 3
+MAX_NEW_MODULES = 5  # a real feature (config, service, data, UI, hook) needs room
 MAX_EDITS = 3
 ROOTS = ("ServerScriptService/", "ReplicatedStorage/", "StarterPlayerScripts/")
 
@@ -61,7 +61,7 @@ def validate_plan(plan: dict, game_dir) -> dict:
 
 
 async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any = None, ui=None,
-                      iterations: int = 1, use_studio: bool = True,
+                      iterations: int = 1, use_studio: bool = True, polish: int = 0,
                       log: Callable[[str], None] = print) -> dict:
     from forge import roles
     from forge.improve import destructive, file_index
@@ -143,9 +143,60 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
             verified = all((counters.get(t) or 0) > 0 for t in plan["telemetry"])
             log(f"[feature] telemetry {dict((t, counters.get(t)) for t in plan['telemetry'])} -> "
                 f"{'verified' if verified else 'not seen in the playtest'}")
+    polished = await polish_feature(settings, slug, cycles=polish, log=log) if polish > 0 and use_studio else []
+    if polished:
+        verified = polished[-1].get("feature_verified", verified)
     result = {"request": request.strip(), "plan": plan, "built": built, "edited": edited, "skipped": skipped,
               "compile_errors": [list(x) for x in remaining], "version": version, "before": before,
-              "verified": verified, "ts": now_iso()}
+              "verified": verified, "polish": [{k: c.get(k) for k in ("cycle", "open", "code_kept", "code_tried",
+                                                                       "feature_verified")} for c in polished],
+              "ts": now_iso()}
     with (store.dir / "features.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(result) + "\n")
     return result
+
+
+async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest: Any = None, harness: Any = None,
+                         llm: Any = None, log: Callable[[str], None] = print) -> list[dict]:
+    """End to end after a build: AI testers play inside a round, the auditor checks every acceptance item
+    (the feature's included), and investigate -> fix -> verify runs, cycle after cycle, until nothing high
+    or medium is open. Each cycle also checks the feature's planned counters."""
+    import os
+
+    from forge.improve import ImproveStore, round_starting, run_cycle
+    from forge.llm import make_llm
+
+    spec = RunStore(settings, slug).load_spec()
+    telemetry = [t for f in spec.get("features", [])[-1:] for t in (f.get("plan") or {}).get("telemetry", [])]
+    llm = llm or make_llm(settings, log_path=ImproveStore(settings, slug).dir / "calls.jsonl")
+    results: list[dict] = []
+
+    async def go(h, pt):
+        for _ in range(max(0, cycles)):
+            cycle = await run_cycle(settings, slug, llm=llm, harness=h, playtest=pt, faults=[],
+                                    goal="Play a full round and use every feature of the game", rounds=1,
+                                    steps=12, fix=True, max_fixes=4, edit_human=True, log=log)
+            peaks: dict = {}
+            for d in cycle.get("before", []):
+                for k, v in (d.get("counters") or {}).items():
+                    peaks[k] = max(peaks.get(k, 0), v or 0)
+            cycle["feature_verified"] = bool(telemetry) and all(peaks.get(t, 0) > 0 for t in telemetry)
+            log(f"[feature] polish cycle {cycle['cycle']}: open {cycle['open']}, kept "
+                f"{cycle['code_kept']}/{len(cycle.get('code_fixes') or [])}, feature counters "
+                f"{dict((t, peaks.get(t)) for t in telemetry)}")
+            results.append(cycle)
+            if cycle["open"] == 0:
+                log("[feature] quality bar met: nothing high or medium open")
+                break
+
+    if harness is not None:
+        await go(harness, playtest)
+        return results
+    from forge.studio import Studio
+    from mubit_tester.ai import multi_playtest
+    from mubit_tester.harness import Harness
+
+    async with Studio(settings) as studio:
+        await studio.select(os.environ.get("FORGE_STUDIO") or None)
+        await go(Harness(studio), playtest or round_starting(multi_playtest, seconds=180))
+    return results
