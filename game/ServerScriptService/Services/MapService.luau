@@ -182,6 +182,17 @@ function MapService:BuildAll(): number
 		end
 	end
 	table.sort(ids)
+	-- Clear anything left in Workspace.Map that this build doesn't own (an old Edit-mode preview saved
+	-- into the place, or standalone locations the city has absorbed), so maps never stack up.
+	local keep: { [string]: boolean } = {}
+	for _, id in ids do
+		keep[id] = true
+	end
+	for _, child in mapFolder():GetChildren() do
+		if not keep[child.Name] then
+			child:Destroy()
+		end
+	end
 	for _, id in ids do
 		MapService:BuildLocation(id)
 	end
