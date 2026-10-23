@@ -17,6 +17,7 @@ local IDS = {
 local function cfg(over: { [string]: any }?): any
 	local c = table.clone(Cfg)
 	c.Meshes = table.clone(Cfg.Meshes)
+	c.UseHeroMeshes = true -- the rules under test, independent of the shipped master switch
 	for k, v in over or {} do
 		c[k] = v
 	end
