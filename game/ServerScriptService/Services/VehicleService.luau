@@ -1,22 +1,28 @@
 --!strict
--- VehicleService [owner: G2]. Fire truck No. 67: built at boot by Lib/Map/Props/TruckBuilder, parked on a
--- location's TruckSpot marker, and DRIVABLE: a "Drive" prompt on the cab doors seats you in a hidden
--- VehicleSeat; the driver's client owns the truck's physics and VehicleController simulates bouncy
--- raycast suspension (ClientLib/TruckDrive). Up to 4 crew ride on the back benches (touch the bench).
--- With nobody driving the truck is anchored (parked), so it never drifts or blocks a round.
+-- VehicleService [owner: G2]. Fire trucks No. 67. The station keeps ONE lobby truck (adopted from
+-- StationBuilder's bay 2, or built by Lib/Map/Props/TruckBuilder on the Station TruckSpot). Every
+-- parallel mission instance gets its OWN truck, built inside the instance Model on its TruckSpot by
+-- ParkAt(instanceId), so it is destroyed with the instance (MapService:DestroyInstance).
+-- Every truck is DRIVABLE: a "Drive" prompt on the cab doors seats you in a hidden VehicleSeat; the
+-- driver's client owns that truck's physics and VehicleController simulates bouncy raycast suspension
+-- (ClientLib/TruckDrive). Up to 4 crew ride the back benches (touch a bench, jump to hop off).
+-- With nobody driving a truck is anchored (parked), so it never drifts or blocks a round.
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10):
---   VehicleService:GetTruck(): Model?
---   VehicleService:ResetTruck()                         -- ParkAt(VehicleConfig.HomeLocation)
---   VehicleService:ParkAt(locationId: string): boolean  -- locationId or v1.5 instanceId: onto its TruckSpot (riders come along)
---   VehicleService:GetDriver(): Player?
--- Signals: Driven(driver: Player, studs: number)        -- fires when a driver gets out (studs travelled)
---          RanOver(driver: Player, victim: Player)      -- a player bowled over by the moving truck
--- Remotes: Vehicle/Horn (C->S, no args), Vehicle/Siren (C->S, no args: toggle), Vehicle/Honked (S->C all: no args)
--- Writes: workspace.FireTruck67 (tag Truck; parts "Reel" tag TruckRefill, "RescueDropoff" tag RescueDropoff,
---   "DriveSeat" VehicleSeat, "CrewSeat_1..4" Seats); truck attrs SirenOn: boolean, Driver: number (UserId, 0 = none)
--- Telemetry: truck_drives, truck_distance, truck_honks, truck_run_over
--- Test hooks (DevHook only): _selftest(), _seat(player)
+--   VehicleService:GetTruck(id: string?): Model?          -- nil/"Station" = lobby truck; else that instance's truck
+--   VehicleService:ResetTruck()                           -- lobby truck back to the station bay
+--   VehicleService:ParkAt(id: string): boolean            -- locationId or v1.5 instanceId (builds the instance's
+--                                                            truck on first call); riders come along
+--   VehicleService:GetDriver(truck: Model?): Player?
+-- Signals: Driven(driver: Player, studs: number)          -- fires when a driver gets out (studs travelled)
+--          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
+-- Remotes: Vehicle/Horn (C->S, no args), Vehicle/Siren (C->S, no args: toggle),
+--          Vehicle/Honked (S->C all: truck: Model)
+-- Writes: workspace.FireTruck67 (lobby) and Instances.<id>.FireTruck67 (tag Truck; "Reel" tag TruckRefill,
+--   "RescueDropoff" tag RescueDropoff, "DriveSeat" VehicleSeat, "CrewSeat_1..4" Seats);
+--   truck attrs SirenOn: boolean, Driver: number (UserId, 0 = none), InstanceId: string ("" = lobby truck)
+-- Telemetry: truck_drives, truck_distance, truck_honks, truck_run_over, trucks_built
+-- Test hooks (DevHook only): _selftest(), _seat(player, id?)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -37,23 +43,28 @@ VehicleService.Priority = 50
 VehicleService.Driven = Signal.new() :: Signal.Signal<Player, number>
 VehicleService.RanOver = Signal.new() :: Signal.Signal<Player, Player>
 
-local services: { [string]: any } = {}
-local truck: Model? = nil
-local chassis: BasePart? = nil
-local driveSeat: VehicleSeat? = nil
-local hornSound: Sound? = nil
-local sirenSound: Sound? = nil
--- TruckBuilder's PrimaryPart (Chassis) sits 2 studs above the ground point it was built on.
-local groundToPivot = CFrame.new(0, 2, 0)
-local homeGround: CFrame? = nil -- where the truck was first parked, if the home location has no TruckSpot
-local parkedAt: string? = nil
-local driver: Player? = nil
-local driveStart: Vector3? = nil
-local lastHonk = 0
-local runOverAt: { [Player]: number } = {}
+type Truck = {
+	model: Model,
+	chassis: BasePart,
+	seat: VehicleSeat?,
+	horn: Sound?,
+	siren: Sound?,
+	driver: Player?,
+	driveStart: Vector3?,
+	lastHonk: number,
+}
 
+-- TruckBuilder's PrimaryPart (Chassis) sits 2 studs above the ground point it was built on.
+local GROUND_TO_PIVOT = CFrame.new(0, 2, 0)
 -- Parts that only look like wheels: the suspension rays carry the truck, so these never touch the road.
 local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "Fender_", "CabStep_", "SideSkirt_" }
+
+local services: { [string]: any } = {}
+local lobby: Truck? = nil
+local byInstance: { [string]: Truck } = {}
+local byModel: { [Model]: Truck } = {}
+local homeGround: CFrame? = nil -- lobby truck's bay (used when the Station has no TruckSpot)
+local runOverAt: { [Player]: number } = {}
 
 local function locationModel(id: string): Instance?
 	local Map = services.MapService
@@ -64,14 +75,23 @@ local function locationModel(id: string): Instance?
 	return inst or Map:GetLocation(id)
 end
 
--- `id` is a locationId ("Station", "Town") or a v1.5 mission instanceId.
-local function findSpot(id: string): BasePart?
-	local location = locationModel(id)
-	if not location then
-		return nil
-	end
-	for _, d in location:GetDescendants() do
+local function isInstance(id: string): boolean
+	local Map = services.MapService
+	return Map ~= nil and type(Map.GetInstance) == "function" and Map:GetInstance(id) ~= nil
+end
+
+local function findSpot(root: Instance): BasePart?
+	for _, d in root:GetDescendants() do
 		if d:IsA("BasePart") and (d:HasTag(Names.Tag.TruckSpot) or d.Name == "TruckSpot") then
+			return d
+		end
+	end
+	return nil
+end
+
+local function findTruckModel(root: Instance): Model?
+	for _, d in root:GetDescendants() do
+		if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and d.PrimaryPart then
 			return d
 		end
 	end
@@ -111,21 +131,97 @@ local function makeSound(parent: Instance, name: string, id: string, looped: boo
 		s = made
 	end
 	local snd = s :: Sound
-	snd.SoundId = id
+	if snd.SoundId == "" then
+		snd.SoundId = id
+	end
 	snd.Looped = looped
 	snd.Volume = volume
 	snd.RollOffMaxDistance = 300
 	return snd
 end
 
-local function setAnchored(on: boolean)
-	if chassis then
-		chassis.Anchored = on
+local function setSiren(t: Truck, on: boolean)
+	t.model:SetAttribute("SirenOn", on)
+	if t.siren then
+		if on then
+			t.siren:Play()
+		else
+			t.siren:Stop()
+		end
 	end
 end
 
--- Weld every part to the chassis so the truck is one physics assembly.
-local function rig(m: Model, root: BasePart)
+-- Snap a truck upright onto the ground under it (keep yaw) and anchor it as parked.
+local function settle(t: Truck)
+	local c = t.chassis
+	if not c.Parent then
+		return
+	end
+	local look = c.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.1 then
+		flat = Vector3.new(0, 0, -1)
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = { t.model }
+	for _, p in Players:GetPlayers() do
+		if p.Character then
+			table.insert(ignore, p.Character)
+		end
+	end
+	params.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(c.Position + Vector3.new(0, 6, 0), Vector3.new(0, -80, 0), params)
+	local groundY = if hit then hit.Position.Y else c.Position.Y - 2
+	local pos = Vector3.new(c.Position.X, groundY, c.Position.Z)
+	c.Anchored = true
+	t.model:PivotTo(CFrame.lookAt(pos, pos + flat.Unit) * GROUND_TO_PIVOT)
+end
+
+local function onDriverChanged(t: Truck)
+	local seat = t.seat
+	if not seat then
+		return
+	end
+	local occ = seat.Occupant
+	local player = if occ then Players:GetPlayerFromCharacter(occ.Parent) else nil
+	if player == t.driver then
+		return
+	end
+	local old = t.driver
+	if old then
+		local studs = 0
+		if t.driveStart and t.chassis.Parent then
+			studs = math.floor((t.chassis.Position - t.driveStart).Magnitude)
+		end
+		Telemetry.count("truck_distance", studs)
+		t.driver = nil
+		t.driveStart = nil
+		VehicleService.Driven:Fire(old, studs)
+	end
+	if player then
+		t.driver = player
+		t.driveStart = t.chassis.Position
+		t.model:SetAttribute("Driver", player.UserId)
+		t.chassis.Anchored = false
+		pcall(function()
+			t.chassis:SetNetworkOwner(player)
+		end)
+		Telemetry.count("truck_drives")
+		Net.notify(player, "WASD to drive, H to honk, G for the siren. Space to hop out.", "info")
+	else
+		t.model:SetAttribute("Driver", 0)
+		task.delay(0.4, function()
+			if not t.driver then
+				settle(t)
+			end
+		end)
+	end
+end
+
+-- Weld every part to the chassis (one physics assembly) and add the seats + Drive prompts.
+local function rig(t: Truck)
+	local m, root = t.model, t.chassis
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") and d ~= root then
 			local w = Instance.new("WeldConstraint")
@@ -142,7 +238,7 @@ local function rig(m: Model, root: BasePart)
 		end
 	end
 	root.Anchored = true
-	root.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.3, 0.6) -- heavy-ish, bouncy
+	root.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.3, 0.6)
 
 	-- Driver seat: hidden inside the cab; you get in through the door prompt, not by touching it.
 	local seat = Instance.new("VehicleSeat")
@@ -150,17 +246,20 @@ local function rig(m: Model, root: BasePart)
 	seat.Size = Vector3.new(2, 0.4, 2)
 	seat.Transparency = 1
 	seat.CanCollide = false
-	seat.CanTouch = false -- no accidental sits
+	seat.CanTouch = false
 	seat.MaxSpeed = VehicleConfig.MaxSpeed
 	seat.HeadsUpDisplay = false
-	seat.CFrame = root.CFrame * CFrame.new(-2.4, 2.2, -8.6)
 	seat.Massless = true
+	seat.CFrame = root.CFrame * CFrame.new(-2.4, 2.2, -8.6)
 	local sw = Instance.new("WeldConstraint")
 	sw.Part0 = root
 	sw.Part1 = seat
 	sw.Parent = seat
 	seat.Parent = m
-	driveSeat = seat
+	t.seat = seat
+	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+		onDriverChanged(t)
+	end)
 
 	for _, side in { "L", "R" } do
 		local door = m:FindFirstChild(`DoorPanel_{side}`)
@@ -175,12 +274,16 @@ local function rig(m: Model, root: BasePart)
 			p.RequiresLineOfSight = false
 			p.Parent = door
 			p.Triggered:Connect(function(player: Player)
-				VehicleService:_seat(player)
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 and not seat.Occupant and player:GetAttribute(Names.Attr.Downed) ~= true then
+					seat:Sit(hum)
+				end
 			end)
 		end
 	end
 
-	-- Crew benches: two seats per bench, touch to hop on, jump to hop off.
+	-- Crew benches: two seats per bench, facing the middle of the deck.
 	local n = 0
 	for _, side in { "L", "R" } do
 		local bench = m:FindFirstChild(`BenchSeat_{side}`)
@@ -193,7 +296,6 @@ local function rig(m: Model, root: BasePart)
 				s.Transparency = 1
 				s.CanCollide = false
 				s.Massless = true
-				-- face the middle of the deck
 				local yaw = if side == "L" then -math.pi / 2 else math.pi / 2
 				s.CFrame = bench.CFrame * CFrame.new(0, 0.3, dz) * CFrame.Angles(0, yaw, 0)
 				local w = Instance.new("WeldConstraint")
@@ -206,130 +308,115 @@ local function rig(m: Model, root: BasePart)
 	end
 end
 
-local function onDriverChanged()
-	local seat = driveSeat
-	local m = truck
-	if not seat or not m then
-		return
+local function register(m: Model, instanceId: string): Truck?
+	local root = m.PrimaryPart
+	if not root then
+		return nil
 	end
-	local occ = seat.Occupant
-	local player = if occ then Players:GetPlayerFromCharacter(occ.Parent) else nil
-	if player == driver then
-		return
+	m.Name = "FireTruck67"
+	m:SetAttribute("SirenOn", false)
+	m:SetAttribute("Driver", 0)
+	m:SetAttribute(Names.Attr.InstanceId, instanceId)
+	local dropoff = m:FindFirstChild("RescueDropoff")
+	if dropoff and dropoff:IsA("BasePart") then
+		dropoff.CanQuery = false -- invisible volume must not block raycasts
 	end
-	-- previous driver got out
-	if driver then
-		local studs = 0
-		if driveStart and chassis then
-			studs = math.floor((chassis.Position - driveStart).Magnitude)
+	local sirenPart = m:FindFirstChild("Siren")
+	local sirenParent: Instance = if sirenPart then sirenPart else root
+	local t: Truck = {
+		model = m,
+		chassis = root,
+		seat = nil,
+		horn = makeSound(root, "HornSound", VehicleConfig.HornSoundId, false, 1),
+		siren = makeSound(sirenParent, "SirenSound", VehicleConfig.SirenSoundId, true, 0.6),
+		driver = nil,
+		driveStart = nil,
+		lastHonk = 0,
+	}
+	if VehicleConfig.Drivable then
+		rig(t)
+	end
+	byModel[m] = t
+	m.Destroying:Connect(function()
+		byModel[m] = nil
+		if instanceId ~= "" and byInstance[instanceId] == t then
+			byInstance[instanceId] = nil
 		end
-		Telemetry.count("truck_distance", studs)
-		VehicleService.Driven:Fire(driver, studs)
-		driver = nil
-		driveStart = nil
+	end)
+	Telemetry.count("trucks_built")
+	return t
+end
+
+local function truckOf(player: Player): Truck?
+	for _, t in byModel do
+		if t.driver == player then
+			return t
+		end
 	end
-	if player and chassis then
-		driver = player
-		driveStart = chassis.Position
-		m:SetAttribute("Driver", player.UserId)
-		setAnchored(false)
-		pcall(function()
-			(chassis :: BasePart):SetNetworkOwner(player)
-		end)
-		Telemetry.count("truck_drives")
-		Net.notify(player, "WASD to drive, H to honk, G for the siren. Space to hop out.", "info")
-	else
-		m:SetAttribute("Driver", 0)
-		-- settle: snap upright onto the ground under us (keep yaw), then anchor as parked
-		task.delay(0.4, function()
-			if driver or not chassis then
-				return
-			end
-			local c = chassis :: BasePart
-			local look = c.CFrame.LookVector
-			local flat = Vector3.new(look.X, 0, look.Z)
-			if flat.Magnitude < 0.1 then
-				flat = Vector3.new(0, 0, -1)
-			end
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Exclude
-			params.FilterDescendantsInstances = { m }
-			local hit = workspace:Raycast(c.Position + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), params)
-			local groundY = if hit then hit.Position.Y else c.Position.Y - 2
-			local pos = Vector3.new(c.Position.X, groundY, c.Position.Z)
-			setAnchored(true)
-			m:PivotTo(CFrame.lookAt(pos, pos + flat.Unit) * groundToPivot)
-		end)
-	end
+	return nil
 end
 
 local function honk(player: Player)
-	if player ~= driver or not hornSound then
+	local t = truckOf(player)
+	if not t then
 		return
 	end
-	local t = os.clock()
-	if t - lastHonk < VehicleConfig.HonkCooldown then
+	local now = os.clock()
+	if now - t.lastHonk < VehicleConfig.HonkCooldown then
 		return
 	end
-	lastHonk = t
-	hornSound.PlaybackSpeed = 0.9 + math.random() * 0.25 -- every honk a bit different
-	hornSound:Play()
-	Net.event("Vehicle", "Honked"):FireAllClients()
+	t.lastHonk = now
+	if t.horn then
+		t.horn.PlaybackSpeed = 0.9 + math.random() * 0.25 -- every honk a bit different
+		t.horn:Play()
+	end
+	Net.event("Vehicle", "Honked"):FireAllClients(t.model)
 	Telemetry.count("truck_honks")
 end
 
 local function toggleSiren(player: Player)
-	local m = truck
-	if not m or player ~= driver then
-		return
-	end
-	local on = not (m:GetAttribute("SirenOn") == true)
-	m:SetAttribute("SirenOn", on)
-	if sirenSound then
-		if on then
-			sirenSound:Play()
-		else
-			sirenSound:Stop()
-		end
+	local t = truckOf(player)
+	if t then
+		setSiren(t, not (t.model:GetAttribute("SirenOn") == true))
 	end
 end
 
--- Bowl over anyone standing in front of a fast truck (the trailer's "Road Rage").
+-- Bowl over anyone standing in front of a fast truck ("Road Rage").
 local function runOverTick()
-	local m = truck
-	local c = chassis
-	if not m or not c or not driver or c.Anchored then
-		return
-	end
-	local v = c.AssemblyLinearVelocity
-	local speed = v.Magnitude
-	if speed < VehicleConfig.RunOverSpeed then
-		return
-	end
-	local front = c.CFrame * CFrame.new(0, 2, -15)
 	local now = os.clock()
-	for _, p in Players:GetPlayers() do
-		if p == driver then
+	for _, t in byModel do
+		local d = t.driver
+		local c = t.chassis
+		if not d or c.Anchored or not c.Parent then
 			continue
 		end
-		local char = p.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not char or not root or not hum or hum.SeatPart then
+		local v = c.AssemblyLinearVelocity
+		if v.Magnitude < VehicleConfig.RunOverSpeed then
 			continue
 		end
-		local rel = front:PointToObjectSpace(root.Position)
-		if math.abs(rel.X) < 6.5 and math.abs(rel.Y) < 6 and math.abs(rel.Z) < 4 then
-			if now - (runOverAt[p] or 0) < VehicleConfig.RunOverCooldown then
+		local front = c.CFrame * CFrame.new(0, 2, -15)
+		for _, p in Players:GetPlayers() do
+			if p == d then
 				continue
 			end
-			runOverAt[p] = now
-			local dir = (v.Unit + Vector3.new(0, 0.9, 0)).Unit
-			ragdoll(char, 2.5, dir * VehicleConfig.RunOverLaunch)
-			Telemetry.count("truck_run_over")
-			local d = driver :: Player
-			VehicleService.RanOver:Fire(d, p)
-			Net.notify("all", `{d.DisplayName} ran over {p.DisplayName}! ROAD RAGE`, "blame")
+			local char = p.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not char or not root or not hum or hum.SeatPart then
+				continue
+			end
+			local rel = front:PointToObjectSpace(root.Position)
+			if math.abs(rel.X) < 6.5 and math.abs(rel.Y) < 6 and math.abs(rel.Z) < 4 then
+				if now - (runOverAt[p] or 0) < VehicleConfig.RunOverCooldown then
+					continue
+				end
+				runOverAt[p] = now
+				local dir = (v.Unit + Vector3.new(0, 0.9, 0)).Unit
+				ragdoll(char, 2.5, dir * VehicleConfig.RunOverLaunch)
+				Telemetry.count("truck_run_over")
+				VehicleService.RanOver:Fire(d, p)
+				Net.notify("all", `{d.DisplayName} ran over {p.DisplayName}! ROAD RAGE`, "blame")
+			end
 		end
 	end
 end
@@ -350,54 +437,21 @@ function VehicleService:Start()
 		task.wait(0.1)
 	end
 	local home = VehicleConfig.HomeLocation
-	local spot = findSpot(home)
-	-- StationBuilder may already have placed truck 67 in bay 2: adopt it instead of building a twin.
-	local m: Model? = nil
 	local homeModel = locationModel(home)
-	if homeModel then
-		for _, d in homeModel:GetDescendants() do
-			if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and d.PrimaryPart then
-				m = d
-				break
-			end
-		end
-	end
+	local spot = homeModel and findSpot(homeModel)
+	-- StationBuilder may already have placed truck 67 in bay 2: adopt it instead of building a twin.
+	local m = homeModel and findTruckModel(homeModel)
 	if m then
-		homeGround = (m :: Model):GetPivot() * groundToPivot:Inverse()
+		homeGround = m:GetPivot() * GROUND_TO_PIVOT:Inverse()
 		m.Parent = workspace
 	else
 		local cf = if spot then spot.CFrame else CFrame.new(0, 0.2, 0)
 		m = TruckBuilder.Build(workspace, cf)
 		homeGround = cf
-		groundToPivot = cf:Inverse() * (m :: Model):GetPivot()
 	end
-	local truckModel = m :: Model
-	truckModel.Name = "FireTruck67"
-	local dropoff = truckModel:FindFirstChild("RescueDropoff")
-	if dropoff and dropoff:IsA("BasePart") then
-		dropoff.CanQuery = false -- invisible volume must not block raycasts
-	end
-	truck = truckModel
-	truckModel:SetAttribute("SirenOn", false)
-	truckModel:SetAttribute("Driver", 0)
-	local root = truckModel.PrimaryPart
-	chassis = root
-	parkedAt = home
-
-	if root then
-		hornSound = makeSound(root, "HornSound", VehicleConfig.HornSoundId, false, 1)
-		local sirenPart = truckModel:FindFirstChild("Siren")
-		local existing = sirenPart and sirenPart:FindFirstChild("SirenSound") :: Sound?
-		sirenSound = existing or makeSound(root, "SirenSound", VehicleConfig.SirenSoundId, true, 0.6)
-		if sirenSound and sirenSound.SoundId == "" then
-			sirenSound.SoundId = VehicleConfig.SirenSoundId
-		end
-		if VehicleConfig.Drivable then
-			rig(truckModel, root)
-			if driveSeat then
-				(driveSeat :: VehicleSeat):GetPropertyChangedSignal("Occupant"):Connect(onDriverChanged)
-			end
-		end
+	lobby = register(m :: Model, "")
+	if spot and lobby then
+		VehicleService:ParkAt(home)
 	end
 
 	local Map = services.MapService
@@ -405,109 +459,138 @@ function VehicleService:Start()
 		Map.LocationBuilt:Connect(function(model: Model, id: string)
 			-- a rebuilt station brings its own truck: keep only ours
 			for _, d in model:GetDescendants() do
-				if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and d ~= truck then
+				if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and not byModel[d] then
 					d:Destroy()
 				end
 			end
-			if id == parkedAt and not driver then
-				VehicleService:ParkAt(id)
+			if id == home and lobby and not lobby.driver then
+				VehicleService:ParkAt(home)
 			end
 		end)
 	end
-	-- The siren wails on its own while the round is hot.
+	-- Lobby siren wails on its own while the (v1) round is hot.
 	workspace:GetAttributeChangedSignal(Names.Attr.RoundState):Connect(function()
 		local st = workspace:GetAttribute(Names.Attr.RoundState)
-		if st == "Alarm" and truck then
-			truck:SetAttribute("SirenOn", true)
-			if sirenSound then
-				sirenSound:Play()
-			end
-		elseif (st == "Results" or st == "Lobby") and truck then
-			truck:SetAttribute("SirenOn", false)
-			if sirenSound then
-				sirenSound:Stop()
-			end
+		if lobby and st == "Alarm" then
+			setSiren(lobby, true)
+		elseif lobby and (st == "Results" or st == "Lobby") then
+			setSiren(lobby, false)
 		end
 	end)
 	Players.PlayerRemoving:Connect(function(p: Player)
 		runOverAt[p] = nil
 	end)
 	RunService.Heartbeat:Connect(runOverTick)
-	print(`[VehicleService] truck {VehicleConfig.TruckNumber} parked at {parkedAt} ({if spot then "TruckSpot" else "builder's bay"})`)
+	print(`[VehicleService] truck {VehicleConfig.TruckNumber} at {home} ({if spot then "TruckSpot" else "builder's bay"})`)
 end
 
-function VehicleService:GetTruck(): Model?
-	return truck
+function VehicleService:GetTruck(id: string?): Model?
+	if id == nil or id == "" or id == VehicleConfig.HomeLocation then
+		return if lobby then lobby.model else nil
+	end
+	local t = byInstance[id]
+	return if t then t.model else nil
 end
 
-function VehicleService:GetDriver(): Player?
-	return driver
+function VehicleService:GetDriver(truck: Model?): Player?
+	local t = if truck then byModel[truck] else lobby
+	return if t then t.driver else nil
 end
 
--- Teleports the truck (and anyone sitting in it: seats are welded) onto the location's TruckSpot.
-function VehicleService:ParkAt(locationId: string): boolean
-	local spot = findSpot(locationId)
-	local m = truck
-	local target: CFrame? = if spot then spot.CFrame elseif locationId == VehicleConfig.HomeLocation then homeGround else nil
-	if not m or not target then
+-- Locations (Station, Town) move the lobby truck; a mission instance gets its own truck, built on its
+-- TruckSpot inside the instance Model the first time (so it dies with the instance).
+function VehicleService:ParkAt(id: string): boolean
+	local root = locationModel(id)
+	local spot = root and findSpot(root)
+	if root and isInstance(id) then
+		local existing = byInstance[id]
+		if existing and existing.model.Parent then
+			if spot then
+				existing.chassis.Anchored = true
+				existing.model:PivotTo(spot.CFrame * GROUND_TO_PIVOT)
+			end
+			return true
+		end
+		-- the instance's builder may have made its own truck model; else build one on the TruckSpot
+		local m = findTruckModel(root)
+		if not m then
+			if not spot then
+				return false
+			end
+			m = TruckBuilder.Build(root, spot.CFrame)
+		end
+		local t = register(m :: Model, id)
+		if not t then
+			return false
+		end
+		byInstance[id] = t
+		setSiren(t, true) -- arrives wailing
+		task.delay(8, function()
+			if t.model.Parent and not t.driver then
+				setSiren(t, false)
+			end
+		end)
+		return true
+	end
+	local t = lobby
+	local target: CFrame? = if spot then spot.CFrame elseif id == VehicleConfig.HomeLocation then homeGround else nil
+	if not t or not target then
 		return false
 	end
-	setAnchored(true)
-	if chassis then
-		chassis.AssemblyLinearVelocity = Vector3.zero
-		chassis.AssemblyAngularVelocity = Vector3.zero
-	end
-	m:PivotTo((target :: CFrame) * groundToPivot)
-	parkedAt = locationId
-	if driver then
-		-- keep it drivable at the new spot
-		setAnchored(false)
+	t.chassis.Anchored = true
+	t.chassis.AssemblyLinearVelocity = Vector3.zero
+	t.chassis.AssemblyAngularVelocity = Vector3.zero
+	t.model:PivotTo((target :: CFrame) * GROUND_TO_PIVOT)
+	local d = t.driver
+	if d then
+		t.chassis.Anchored = false
 		pcall(function()
-			(chassis :: BasePart):SetNetworkOwner(driver)
+			t.chassis:SetNetworkOwner(d)
 		end)
 	end
 	return true
 end
 
 function VehicleService:ResetTruck()
-	-- kick the driver out first so the truck doesn't drive away from the bay
-	local seat = driveSeat
-	if seat and seat.Occupant then
-		seat.Occupant.Sit = false
-		seat.Occupant.Jump = true
+	local t = lobby
+	if t and t.seat and t.seat.Occupant then
+		t.seat.Occupant.Sit = false
+		t.seat.Occupant.Jump = true
 	end
 	VehicleService:ParkAt(VehicleConfig.HomeLocation)
 end
 
-function VehicleService:_seat(player: Player): boolean
-	local seat = driveSeat
+function VehicleService:_seat(player: Player, id: string?): boolean
+	local m = VehicleService:GetTruck(id)
+	local t = m and byModel[m]
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not seat or not hum or hum.Health <= 0 or seat.Occupant then
+	if not t or not t.seat or not hum or t.seat.Occupant then
 		return false
 	end
-	if hum:GetAttribute(Names.Attr.Downed) or char and char:GetAttribute(Names.Attr.Downed) then
-		return false
-	end
-	seat:Sit(hum)
+	t.seat:Sit(hum)
 	return true
 end
 
 function VehicleService:_selftest(): (boolean, string)
-	local m = truck
-	if not m then
-		return false, "no truck built"
+	local t = lobby
+	if not t then
+		return false, "no lobby truck"
 	end
-	if not m:HasTag(Names.Tag.Truck) then
+	if not t.model:HasTag(Names.Tag.Truck) then
 		return false, "truck not tagged Truck"
 	end
-	if VehicleConfig.Drivable and not m:FindFirstChild("DriveSeat") then
+	if VehicleConfig.Drivable and not t.model:FindFirstChild("DriveSeat") then
 		return false, "no DriveSeat"
 	end
-	if not driver and not VehicleService:ParkAt(VehicleConfig.HomeLocation) then
-		return false, `no TruckSpot at {VehicleConfig.HomeLocation}`
+	if not t.driver and not VehicleService:ParkAt(VehicleConfig.HomeLocation) then
+		return false, `cannot park at {VehicleConfig.HomeLocation}`
 	end
-	return true, `parked at {parkedAt}`
+	local n = 0
+	for _ in byModel do
+		n += 1
+	end
+	return true, `lobby truck parked; {n} truck(s) live`
 end
 
 return VehicleService

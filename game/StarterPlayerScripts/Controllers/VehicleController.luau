@@ -39,9 +39,16 @@ local airborne = 0
 local engine: Sound? = nil
 local boing: Sound? = nil
 
-local function getTruck(): Model?
-	local t = CollectionService:GetTagged(Names.Tag.Truck)[1]
-	return if t and t:IsA("Model") then t else nil
+-- The truck model the local player is sitting in the DriveSeat of, if any.
+local function drivenTruck(): Model?
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seatPart = hum and hum.SeatPart
+	if not seatPart or seatPart.Name ~= "DriveSeat" then
+		return nil
+	end
+	local m = seatPart.Parent
+	return if m and m:IsA("Model") and m:HasTag(Names.Tag.Truck) then m else nil
 end
 
 local function rayParams(truck: Model): RaycastParams
@@ -58,11 +65,10 @@ local function rayParams(truck: Model): RaycastParams
 	return params
 end
 
-local function step(dt: number)
-	local truck = getTruck()
-	local seat = truck and truck:FindFirstChild("DriveSeat") :: VehicleSeat?
-	local chassis = truck and truck.PrimaryPart
-	if not truck or not seat or not chassis or chassis.Anchored then
+local function step(truck: Model, dt: number)
+	local seat = truck:FindFirstChild("DriveSeat") :: VehicleSeat?
+	local chassis = truck.PrimaryPart
+	if not seat or not chassis or chassis.Anchored then
 		return
 	end
 	local cf = chassis.CFrame
@@ -207,9 +213,8 @@ local function exitDrive()
 	savedCam = nil
 end
 
-local function honkPop()
-	local truck = getTruck()
-	local root = truck and truck.PrimaryPart
+local function honkPop(truck: Model?)
+	local root = if typeof(truck) == "Instance" and truck:IsA("Model") then truck.PrimaryPart else nil
 	if not root then
 		return
 	end
@@ -250,30 +255,37 @@ local function glow(part: BasePart, color: Color3): PointLight
 	return made
 end
 
+local function lightBar(truck: Model, roundHot: boolean, phase: boolean)
+	local r = truck:FindFirstChild("LightRed")
+	local b = truck:FindFirstChild("LightBlue")
+	local w = truck:FindFirstChild("LightWhite")
+	local flashing = roundHot or truck:GetAttribute("SirenOn") == true
+	if r and r:IsA("BasePart") then
+		r.Transparency = if flashing and not phase then 0.7 else (if flashing then 0 else 0.5)
+		glow(r, Color3.fromRGB(255, 45, 45)).Enabled = flashing and phase
+	end
+	if b and b:IsA("BasePart") then
+		b.Transparency = if flashing and phase then 0.7 else (if flashing then 0 else 0.5)
+		glow(b, Color3.fromRGB(45, 120, 255)).Enabled = flashing and not phase
+	end
+	if w and w:IsA("BasePart") then
+		w.Transparency = if flashing then (if math.random() < 0.5 then 0 else 0.6) else 0.5
+	end
+end
+
 local function lightBarLoop()
 	local phase = false
 	while true do
 		task.wait(0.16)
-		local truck = getTruck()
-		if not truck then
-			continue
-		end
-		local r = truck:FindFirstChild("LightRed") :: BasePart?
-		local b = truck:FindFirstChild("LightBlue") :: BasePart?
-		local w = truck:FindFirstChild("LightWhite") :: BasePart?
-		local state = workspace:GetAttribute(Names.Attr.RoundState)
-		local flashing = truck:GetAttribute("SirenOn") == true or state == "Alarm" or state == "Active"
 		phase = not phase
-		if r and r:IsA("BasePart") then
-			r.Transparency = if flashing and not phase then 0.7 else (if flashing then 0 else 0.5)
-			glow(r, Color3.fromRGB(255, 45, 45)).Enabled = flashing and phase
-		end
-		if b and b:IsA("BasePart") then
-			b.Transparency = if flashing and phase then 0.7 else (if flashing then 0 else 0.5)
-			glow(b, Color3.fromRGB(45, 120, 255)).Enabled = flashing and not phase
-		end
-		if w and w:IsA("BasePart") then
-			w.Transparency = if flashing then (if math.random() < 0.5 then 0 else 0.6) else 0.5
+		local state = workspace:GetAttribute(Names.Attr.RoundState)
+		for _, truck in CollectionService:GetTagged(Names.Tag.Truck) do
+			if truck:IsA("Model") then
+				-- lobby truck follows the v1 round summary; instance trucks follow their instance's RoundState
+				local inst = truck:FindFirstAncestorWhichIsA("Model")
+				local st = if inst and inst:GetAttribute(Names.Attr.InstanceId) then inst:GetAttribute(Names.Attr.RoundState) else state
+				lightBar(truck, st == "Alarm" or st == "Active", phase)
+			end
 		end
 	end
 end
@@ -289,14 +301,10 @@ function VehicleController:Start()
 		end
 	end)
 	RunService.PreSimulation:Connect(function(dt: number)
-		local char = player.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local seatPart = hum and hum.SeatPart
-		local truck = getTruck()
-		local isDriving = seatPart ~= nil and truck ~= nil and seatPart.Name == "DriveSeat" and seatPart:IsDescendantOf(truck)
-		if isDriving and truck then
+		local truck = drivenTruck()
+		if truck then
 			enterDrive(truck)
-			step(dt)
+			step(truck, dt)
 		elseif driving then
 			exitDrive()
 		end
