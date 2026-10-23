@@ -15,7 +15,7 @@ from mubit_tester.scenario import (ScenarioError, compare, get_path, list_scenar
                                    resolve, run_scenario)
 from test_harness import PLAYERS, FakeStudio
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 M = sm._MISSING
 
 
@@ -145,7 +145,7 @@ def test_shipped_scenarios_load():
     assert {"smoke", "hydrant_refill"} <= names
     for n in ("smoke", "hydrant_refill", "smoke.json"):
         load_scenario(n, REPO)
-    for p in (REPO / "scenarios").glob("*.json"):
+    for p in (REPO / "mubit-tester" / "scenarios").glob("*.json"):
         json.loads(p.read_text())
 
 

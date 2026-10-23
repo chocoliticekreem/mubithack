@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import mubit_tester
 from mubit_tester import server as ms
 from test_harness import PLAYERS, FakeStudio
 
@@ -85,7 +86,7 @@ def fake_play(monkeypatch, fake_studio):
     mod = _fake_play_module()
     import forge
     monkeypatch.setitem(sys.modules, "mubit_tester.play", mod)
-    monkeypatch.setattr(forge, "play", mod, raising=False)
+    monkeypatch.setattr(mubit_tester, "play", mod, raising=False)
     monkeypatch.setattr(ms, "_ai", lambda: None)  # single-player fallback (mubit_tester.play)
     return mod
 
@@ -399,7 +400,7 @@ async def test_tool_errors_surface_message(monkeypatch):
     mod.list_reports = list_reports
     import forge
     monkeypatch.setitem(sys.modules, "mubit_tester.play", mod)
-    monkeypatch.setattr(forge, "play", mod, raising=False)
+    monkeypatch.setattr(mubit_tester, "play", mod, raising=False)
     from mcp.server.mcpserver.exceptions import ToolError
     with pytest.raises(ToolError, match="no runs/playtests dir"):
         await ms.mcp.call_tool("reports", {})
