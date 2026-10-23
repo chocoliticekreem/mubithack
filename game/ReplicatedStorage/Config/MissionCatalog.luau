@@ -35,9 +35,9 @@ local Missions = {
 		hazards = {},
 		tools = {},
 		stars = {
-			{ id = "finish", text = "Finish the shift" },
-			{ id = "allOut", text = "Every fire out" },
 			{ id = "allRescued", text = "Everyone delivered" },
+			{ id = "allOut", text = "Every fire out" },
+			{ id = "buildingSaved", text = "Save the house", min = 50 },
 		},
 	},
 	{
