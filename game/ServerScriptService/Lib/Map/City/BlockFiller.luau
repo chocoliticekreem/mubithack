@@ -788,7 +788,8 @@ end
 function Scenery.tower(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
 	local w, d = math.min(maxW - 6, rng:NextInteger(40, 70)), math.min(maxD - 10, rng:NextInteger(36, 56))
-	local h = rng:NextInteger(50, 130)
+	local hubDist = Vector3.new(F.Position.X, 0, F.Position.Z).Magnitude
+	local h = if hubDist < 650 then rng:NextInteger(80, 170) else rng:NextInteger(50, 130)
 	local m = Instance.new("Model")
 	m.Name = "Tower"
 	local color = pick(rng, { Color3.fromHex("#8E9AAF"), Color3.fromHex("#CBC0D3"), Color3.fromHex("#DEE2FF"), Color3.fromHex("#B7B1A8"), C.Walls[4] })
@@ -1000,7 +1001,9 @@ local FACADE_GLASS = { Color3.fromHex("#6FA8C8"), Color3.fromHex("#88B9C4"), C.G
 function Scenery.facade(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
 	local w, d = math.max(20, maxW - rng:NextInteger(4, 12)), math.max(16, maxD - rng:NextInteger(6, 24))
-	local h = rng:NextInteger(36, 110)
+	-- a skyline: taller the closer to the hub (downtown round the station), lower out by the edges
+	local hubDist = Vector3.new(F.Position.X, 0, F.Position.Z).Magnitude
+	local h = if hubDist < 650 then rng:NextInteger(70, 160) else rng:NextInteger(36, 100)
 	local m = Instance.new("Model")
 	m.Name = "Facade"
 	local color = pick(rng, FACADE_COLORS)

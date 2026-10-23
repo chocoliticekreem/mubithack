@@ -405,9 +405,11 @@ local function drawCrossing(ctx: Ctx, parent: Instance, g: any, id: string)
 			local width = if alongX then 2 * n.halfZ else 2 * n.halfX
 			local right = V(-d.Z, 0, d.X)
 			local c = V(n.x, 0, n.z) + d * (half + 4)
-			for k = 0, math.floor(width / 8) - 1 do
-				local p = c + right * (-width / 2 + 4 + k * 8)
-				SK.part(parent, "Zebra", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(3, 0.06, 5), C.LineWhite, {
+			local nStripes = math.max(2, math.floor(width / 9.5)) -- wide bold stripes (fewer parts)
+			local pitch = width / nStripes
+			for k = 0, nStripes - 1 do
+				local p = c + right * (-width / 2 + pitch * (k + 0.5))
+				SK.part(parent, "Zebra", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(5, 0.06, 6), C.LineWhite, {
 					collide = false,
 					cast = false,
 					query = false,
