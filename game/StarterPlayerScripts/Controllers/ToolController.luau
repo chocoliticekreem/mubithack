@@ -423,6 +423,11 @@ end
 local function originOf(player: Player, tool: Tool): Vector3?
 	if player == LocalPlayer and isFirstPerson() then
 		-- the third-person tool is hidden in first person; start where the viewmodel nozzle sits
+		local fp = controllers.FirstPersonController
+		local at = fp and fp.GetNozzlePosition and fp:GetNozzlePosition()
+		if typeof(at) == "Vector3" then
+			return at -- the physics hands' bucking nozzle (v2)
+		end
 		local cam = workspace.CurrentCamera :: Camera
 		return (cam.CFrame * CFrame.new(0.7, -0.75, -2.2)).Position
 	end

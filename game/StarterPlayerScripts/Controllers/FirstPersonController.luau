@@ -4,24 +4,31 @@
 --     single round is Alarm/Active); free third person in the lobby (InstanceId == ""). Unlocked
 --     while the character is Ragdolled or Downed, or when SetEnabled(false). PhysicsConfig.FirstPerson
 --     = false turns the lock off everywhere.
---   * Client-only Viewmodel (ClientLib/Viewmodel): giant gloves + turnout sleeves with reflective
---     bands; poses empty / hose / axe / carry / item from the equipped Tool and the Carrying attr;
---     axe swing on Tool.Activated, hose jitter while Spraying, soot after time near fire.
+--   * Physics hands (ClientLib/PhysicsHands, HandsConfig.Enabled): gloves on springs that collide,
+--     reach, grab, slap and hold the equipped Tool as a floppy physics item (see that file).
+--     Fallback on touch-only devices (unless HandsConfig.MobileEnabled) or when disabled: the simple
+--     camera-attached Viewmodel (ClientLib/Viewmodel): olive/yellow gloves + turnout sleeves with
+--     reflective bands; poses empty / hose / axe / carry / item from the equipped Tool and the
+--     Carrying attr; axe swing on Tool.Activated, hose jitter while Spraying.
+--   * Soot on the gloves after time near fire. Other players' arms follow their replicated hands
+--     (PhysicsHands.startRemote, always on).
 --   * Head bob, tool sway (camera-rotation spring), landing dip, sprint FOV.
 --   * Screen: smoke-darkened edge vignette near Burning parts, heat tint at Heat >= 60 with heavy
 --     breathing, sweat drops at >= 85, pulse near 100 (Player attr Heat, written by HeatService).
 --   * Trauma camera shake for hazards/explosions (Shake).
--- Pure client visuals: reads replicated attributes/tags, sends nothing to the server.
+-- Camera/screen are pure client visuals; the physics hands talk to HandsService (Hands/* remotes).
 -- Public API for other controllers (03 §10 "v1.5 additions"):
 --   FirstPersonController:SetEnabled(on: boolean)             -- e.g. ResultsController unlocks the mouse
 --   FirstPersonController:Shake(magnitude: number, seconds: number)
---   FirstPersonController:GetViewmodel(): Model?
+--   FirstPersonController:GetViewmodel(): Instance?    -- the physics hands folder or the Viewmodel
+--   FirstPersonController:GetNozzlePosition(): Vector3? -- where the first-person nozzle tip is now
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript) :: any
@@ -29,7 +36,10 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local HeatConfig = require(ConfigFolder:WaitForChild("HeatConfig") :: ModuleScript) :: any
 local PhysicsConfig = require(ConfigFolder:WaitForChild("PhysicsConfig") :: ModuleScript) :: any
-local Viewmodel = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Viewmodel") :: ModuleScript)
+local HandsConfig = require(ConfigFolder:WaitForChild("HandsConfig") :: ModuleScript) :: any
+local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
+local Viewmodel = require(ClientLib:WaitForChild("Viewmodel") :: ModuleScript)
+local PhysicsHands = require(ClientLib:WaitForChild("PhysicsHands") :: ModuleScript)
 
 local FirstPersonController = {}
 FirstPersonController.Priority = 50
@@ -173,6 +183,28 @@ local function buildOverlay(): Overlay
 end
 
 local vm: Viewmodel.Viewmodel? = nil
+local hands: PhysicsHands.PhysicsHands? = nil
+
+-- Physics hands unless disabled, or on a touch-only device (no mouse buttons to grab with).
+local function wantPhysicsHands(): boolean
+	if HandsConfig.Enabled == false then
+		return false
+	end
+	local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled and not UserInputService.MouseEnabled
+	return not touchOnly or HandsConfig.MobileEnabled == true
+end
+
+local function pressureFor(pose: string, tool: Tool?): number
+	local water, size = "Water", "TankSize"
+	if tool and string.find(string.lower(tool.Name), "extinguish") then
+		water, size = "Foam", "FoamSize"
+	elseif pose ~= "hose" then
+		return 1
+	end
+	local w = tonumber(attr(water)) or 0
+	local s = tonumber(attr(size)) or 0
+	return if s > 0 then math.clamp(w / s, 0, 1) else 1
+end
 local overlay: Overlay? = nil
 local cc: ColorCorrectionEffect? = nil
 local breath: Sound? = nil
@@ -479,7 +511,32 @@ local function step(dt: number)
 	state.lastLook = look
 	state.sway += (target - state.sway) * math.min(1, dt * CAM.SwaySpring)
 
-	local v = vm
+	local h = hands
+	if h then
+		local pose, tool = poseFor(char)
+		local seated = hum ~= nil and hum.Sit
+		local show = fp and not downed and not seated and not (char and char:GetAttribute(Names.Attr.Ragdolled) == true)
+		h:SetActive(show)
+		if show then
+			hideToolLocally(tool)
+			h:SetSoot(state.nearFireSeconds / CAM.SootAfter)
+			h:Update(dt, cam.CFrame, {
+				pose = pose,
+				tool = tool,
+				bob = Vector2.new(bobX, bobY) * CAM.ViewmodelBobScale,
+				sway = state.sway,
+				dip = dip * 0.5,
+				spraying = attr(Names.Attr.Spraying) == true,
+				pressure = pressureFor(pose, tool),
+			}, function(m: number, s: number)
+				FirstPersonController:Shake(m, s)
+			end)
+		else
+			hideToolLocally(nil)
+		end
+	end
+
+	local v = if hands then nil else vm
 	if v then
 		local pose, tool = poseFor(char)
 		bindSwing(tool, pose)
@@ -521,7 +578,25 @@ end
 function FirstPersonController:Init(_controllers: { [string]: any }) end
 
 function FirstPersonController:Start()
+	-- other players' arms + SLAP!/THUNK pops run on every client, whatever this one uses
+	PhysicsHands.startRemote(function(kind: string, _position: Vector3, extra: number)
+		if (kind == "slap" or kind == "bonk") and extra == player.UserId then
+			FirstPersonController:Shake(0.6, 0.35) -- you got slapped
+		end
+	end)
+	if wantPhysicsHands() then
+		local ok, res = pcall(PhysicsHands.new)
+		if ok then
+			hands = res
+			res:BindInput()
+		else
+			warn(`[FirstPerson] physics hands failed, using the simple viewmodel: {res}`)
+		end
+	end
 	vm = Viewmodel.new()
+	if hands then
+		vm:SetVisible(false)
+	end
 	local function parentVm()
 		if vm then
 			vm:SetParent(workspace.CurrentCamera)
@@ -572,8 +647,13 @@ end
 
 function FirstPersonController:SetEnabled(on: boolean)
 	state.enabled = on == true
-	if vm and not state.enabled then
-		vm:SetVisible(false)
+	if not state.enabled then
+		if vm then
+			vm:SetVisible(false)
+		end
+		if hands then
+			hands:SetActive(false)
+		end
 		hideToolLocally(nil)
 	end
 end
@@ -587,8 +667,20 @@ function FirstPersonController:Shake(magnitude: number, seconds: number)
 	state.traumaDecay = math.clamp(state.trauma / math.max(tonumber(seconds) or 0.5, 0.05), 0.3, 10)
 end
 
-function FirstPersonController:GetViewmodel(): Model?
+function FirstPersonController:GetViewmodel(): Instance?
+	if hands then
+		return hands:GetModel()
+	end
 	return if vm then vm.model else nil
+end
+
+function FirstPersonController:GetNozzlePosition(): Vector3?
+	if hands then
+		local n = hands:GetNozzle()
+		return if n then n.WorldPosition else nil
+	end
+	local tip = if vm then vm:GetNozzle() else nil
+	return if tip then (tip.CFrame * CFrame.new(tip.Size.X / 2, 0, 0)).Position else nil
 end
 
 return FirstPersonController
