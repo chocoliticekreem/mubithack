@@ -21,9 +21,13 @@ async def test_studio_mcp_lists_tools():
         assert {"list_roblox_studios", "get_studio_state", "start_stop_play", "screen_capture"} <= set(s.tools)
         studios = await s.list_studios()
         assert isinstance(studios, list)
-        if not studios:
-            with pytest.raises(st.StudioError, match="Manage MCP Servers"):
-                await s.select()
+        # select() retries, so an empty first list can still pick a window that appears a moment later
+        try:
+            sid = await s.select()
+        except st.StudioError as e:
+            assert "Manage MCP Servers" in str(e)
+        else:
+            assert sid
 
 
 def test_content_text_joins_text_blocks():
