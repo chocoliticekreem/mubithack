@@ -20,5 +20,9 @@ jobs:
         run: python3 game/tools/sync.py check --root game
       - name: Luau unit specs
         run: bash game/tests/run.sh
+      - name: Native plugin Luau checks
+        run: |
+          luau-compile studio-plugin/*.luau >/dev/null
+          for spec in studio-plugin/tests/*.spec.luau; do luau "$spec"; done
       - name: Tests
         run: .venv/bin/python -m pytest -q

@@ -81,6 +81,18 @@ _clip = play._clip
 _dumps = play._dumps
 
 
+def game_context(settings: Settings) -> dict:
+    """A saved game's own design belongs in user context, never in the fixed task prompts."""
+    path = Path(settings.base_game_dir).parent / 'spec.json'
+    if not path.is_file():
+        return {}
+    try:
+        spec = json.loads(path.read_text())
+        return {key: spec.get(key) for key in ('title', 'pitch', 'core_loop', 'acceptance')}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def _pid(p: dict) -> Any:
     return p.get("userId", p.get("user_id", p.get("name")))
 
@@ -560,6 +572,10 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                    max_ticks: int, deadline: float | None, llm, studio, harness, studio_name,
                    step_seconds: float, bug_key: str, mode: str = "free", squads: int = 1,
                    assist: bool = True) -> dict:
+    context = game_context(settings)
+    if context:
+        goal += '\n\nSaved game design:\n' + json.dumps(context, ensure_ascii=False)[:4000]
+        goal += '\nTest this game and the features you observe. Firefighter mechanics may not exist in this game.'
     squads_mode = mode == "squads"
     run_id = play._new_run_id()
     run_dir = play._run_dir(settings, run_id)
@@ -951,6 +967,10 @@ async def suggest_fix(settings: Settings, run_id: str, bug_index: int, *, llm=No
         "acceptance": [f"Fixed: {title}"],
         "modules": [{"path": rel, "purpose": "", "depends": []} for rel in sources],
     }
+    context = game_context(settings)
+    if context:
+        spec.update(context)
+        spec['acceptance'] = [f'Fixed: {title}']
     probe_like = {"errors": [{"message": f"[playtest bug] {title}", "trace": evidence}] + related[:4],
                   "counters": report.get("counters") or {}}
     console = "\n".join(f"{e.get('t')} {e.get('kind')} {_dumps(e.get('data'))}"
