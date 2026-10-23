@@ -6,8 +6,9 @@
 --   FireService:Ignite(part: BasePart, cause: Player?): boolean
 --   FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, litres: number): number
 --   FireService:IsBurning(part: BasePart): boolean
---   FireService:CountBurning(locationId: string?): number
---   FireService:ExtinguishAll(locationId: string?)   -- nil = every location
+--   FireService:CountBurning(locationId: string?): number   -- locationId or v1.5 instanceId; nil = all
+--   FireService:ExtinguishAll(locationId: string?)          -- nil = every location/instance
+-- Indexes MapService.LocationBuilt (key = locationId) and v1.5 MapService.InstanceBuilt (key = instanceId).
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?), Charred(part)
 -- Writes: tag Burning; attrs FireLevel (1..3, nil when out), Charred (true) + Color/Material on burnt-out parts
 -- Budget: every location (mission instance) is stepped on its own and has its own MaxBurningPerLocation
@@ -42,6 +43,7 @@ type Cell = {
 
 type Location = {
 	id: string,
+	model: Instance?,
 	burning: { [Cell]: true },
 	count: number,
 	capWarned: boolean,
@@ -62,7 +64,7 @@ local totalBurning = 0
 local function loc(id: string): Location
 	local l = locations[id]
 	if not l then
-		l = { id = id, burning = {}, count = 0, capWarned = false }
+		l = { id = id, model = nil, burning = {}, count = 0, capWarned = false }
 		locations[id] = l
 	end
 	return l
@@ -185,7 +187,14 @@ end
 -- Index every Flammable BasePart under `model` as one location. Re-indexing replaces the old cells.
 local function index(model: Instance, locationId: string)
 	forget(locationId)
-	loc(locationId)
+	loc(locationId).model = model
+	-- an instance destroyed without a re-index (MapService:DestroyInstance) frees its cells
+	model.Destroying:Once(function()
+		local l = locations[locationId]
+		if l and l.model == model then
+			forget(locationId)
+		end
+	end)
 	local list: { Cell } = {}
 	local positions: { FireSim.Pos } = {}
 	for _, d in model:GetDescendants() do
@@ -229,11 +238,25 @@ function FireService:Start()
 				index(model, locationId)
 			end)
 		end
+		-- v1.5 parallel missions: each instance is its own fire location, keyed by instanceId
+		if MapService.InstanceBuilt then
+			MapService.InstanceBuilt:Connect(function(model: Model, instanceId: string, _locationId: string)
+				index(model, instanceId)
+			end)
+		end
 		local ok, all = pcall(function()
 			return MapService:GetLocations()
 		end)
 		if ok and type(all) == "table" then
 			for id, model in all do
+				index(model, id)
+			end
+		end
+		local ok2, inst = pcall(function()
+			return MapService:GetInstances()
+		end)
+		if ok2 and type(inst) == "table" then
+			for id, model in inst do
 				index(model, id)
 			end
 		end
