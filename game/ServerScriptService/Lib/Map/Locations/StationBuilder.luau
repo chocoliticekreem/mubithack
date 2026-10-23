@@ -29,6 +29,10 @@
 --   Roof: parapet, "67" medallion, rooftop siren horns (AlarmSpeaker, Bay 0), corner beacons.
 --   Outside: apron with bay numbers, plaza for the lobby (LobbyProps puts the board + pads there),
 --       "STATION 67" facade sign + lawn sign, flagpole, bollards, lamps, trees, bushes, hydrant.
+--   Grounds (lot X -164..164, Z -164..68, all real ground): paved plaza with planters + benches,
+--       memorial garden west (fountain, bronze statue, flags), parking lot east (stalls, cars), training
+--       yard behind (drill tower, burn box), hedges on the property edge, rooftop "STATION 67" sign, and
+--       a skyline backdrop (behind always; sides + across the avenue only when there is no CityConfig).
 -- Alarm parts (AlarmController drives them, client-side only):
 --   Models "AlarmLight" (attr Bay, 0 = shared) with Neon "Bulb" (disabled PointLight "AlarmGlow"),
 --   glass "Dome" and a "Reflector" the client spins. Parts "AlarmSpeaker" (tag StationAlarm, attrs Bay
@@ -529,12 +533,12 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local outside = folder(model, "Outside")
 
 	------------------------------------------------------------ ground, apron, street
-	span(ground, "Lawn", -84, 84, LAWN_Y - 1, LAWN_Y, -60, KERB_Z - 4, C.Lawn)
+	span(ground, "Lawn", -164, 164, LAWN_Y - 1, LAWN_Y, -164, KERB_Z - 4, C.Lawn)
 	span(ground, "Apron", -22, 62, APRON_Y - 1, APRON_Y, 30, KERB_Z, C.Concrete)
 	span(ground, "Plaza", -60, -22, APRON_Y - 1, APRON_Y, 30, KERB_Z - 4, C.ConcreteDark)
 	span(ground, "YardBack", 20, 76, APRON_Y - 1, APRON_Y, -56, -40, C.Concrete) -- behind the hall, by the tower
-	span(ground, "WalkW", -84, -22, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
-	span(ground, "WalkE", 62, 84, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
+	span(ground, "WalkW", -164, -22, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
+	span(ground, "WalkE", 62, 164, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
 	-- apron lane lines + bay numbers painted outside each door
 	for i, c in BAY_X do
 		for _, s in { -8.5, 8.5 } do
@@ -547,13 +551,13 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	label(keep, Enum.NormalId.Top, "KEEP CLEAR - FIRE STATION", C.Trim, Enum.Font.LuckiestGuy, nil, 20)
 	if not inCity then
 		-- standalone: our own two-lane road along the kerb (CityBuilder draws the avenue otherwise)
-		local rx0, rx1 = -120, 200
+		local rx0, rx1 = -200, 200
 		span(ground, "Road", rx0, rx1, ROAD_Y - 1, ROAD_Y, KERB_Z, KERB_Z + 24, C.Asphalt)
 		for x = rx0 + 4, rx1 - 4, 10 do
 			box(ground, "Dash", x, ROAD_Y + 0.02, KERB_Z + 12, 5, 0.1, 0.6, C.Trim, { collide = false })
 		end
 		span(ground, "WalkS", rx0, rx1, WALK_Y - 1, WALK_Y, KERB_Z + 24, KERB_Z + 28, C.Sidewalk)
-		span(ground, "LawnSouth", -84, 84, LAWN_Y - 1, LAWN_Y, KERB_Z + 28, KERB_Z + 48, C.Lawn)
+		span(ground, "LawnSouth", -200, 200, LAWN_Y - 1, LAWN_Y, KERB_Z + 28, KERB_Z + 120, C.Lawn)
 	end
 
 	------------------------------------------------------------ floors
@@ -1104,9 +1108,9 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	label(cloth, Enum.NormalId.Back, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	label(cloth, Enum.NormalId.Front, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	-- lawn sign (east of the apron)
-	box(outside, "SignBase", 73, LAWN_Y + 0.8, 52, 12, 1.6, 1.8, C.Brick, { material = Enum.Material.Brick })
-	plate(outside, "LawnSign", 73, LAWN_Y + 3.6, 52, 0, 1, 11, 3.8, C.Cream, "STATION 67", C.TruckRed, Enum.Font.LuckiestGuy)
-	box(outside, "SignCap", 73, LAWN_Y + 5.7, 52, 12, 0.5, 1, C.BrickDark)
+	box(outside, "SignBase", 76, LAWN_Y + 0.8, 54, 22, 1.6, 2.4, C.Brick, { material = Enum.Material.Brick })
+	plate(outside, "LawnSign", 76, LAWN_Y + 4.8, 54, 0, 1, 20, 6.4, C.Cream, "STATION 67", C.TruckRed, Enum.Font.LuckiestGuy)
+	box(outside, "SignCap", 76, LAWN_Y + 8.2, 54, 22, 0.6, 1.4, C.BrickDark)
 	-- bushes along the wing facade, trees around the lot
 	for _, b in { V(-58, 0, 32), V(-47, 0, 32), V(-37, 0, 32), V(-29, 0, 32), V(-63, 0, -30), V(-63, 0, -6), V(-63, 0, 20) } do
 		prop("bush", outside, facing(b.X, LAWN_Y, b.Z, 0, 1), nil, function()
@@ -1129,6 +1133,297 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 	MapKit.hydrant(outside, O * CFrame.new(66, WALK_Y, KERB_Z - 2))
 	prop("mailbox", outside, facing(-64, WALK_Y, KERB_Z - 2.5, 0, 1))
+
+	------------------------------------------------------------ the grounds (a real place, no void)
+	local grounds = folder(model, "Grounds")
+	local PAVE_A, PAVE_B, BRICK_PAVE = hex("D8CDBF"), hex("B9A38E"), hex("A0523F")
+	local function lamp(x: number, y: number, z: number, dz: number)
+		prop("streetLamp", grounds, facing(x, y, z, 0, dz), nil, function()
+			fallbackLamp(grounds, x, y, z, dz)
+		end)
+	end
+	local function bench(x: number, y: number, z: number, dx: number, dz: number, len: number?)
+		prop("bench", grounds, facing(x, y, z, dx, dz), { length = len or 6 }, function()
+			box(grounds, "Bench", x, y + 1.4, z, if dx ~= 0 then 2 else (len or 6), 0.6, if dx ~= 0 then (len or 6) else 2, C.WoodLight)
+		end)
+	end
+	local function planter(x: number, z: number, w: number, d: number, yBase: number)
+		local m = folder(grounds, "Planter")
+		span(m, "Box", x - w / 2, x + w / 2, yBase, yBase + 1.6, z - d / 2, z + d / 2, BRICK_PAVE, { material = Enum.Material.Brick })
+		span(m, "Soil", x - w / 2 + 0.4, x + w / 2 - 0.4, yBase + 1.6, yBase + 1.7, z - d / 2 + 0.4, z + d / 2 - 0.4, hex("5A3A22"))
+		prop("bush", m, facing(x, yBase + 1.7, z, 0, 1), { flowers = true }, function()
+			ball(m, "Bush", CFrame.new(x, yBase + 2.8, z), 3.2, C.Foliage)
+		end)
+	end
+	local function tree(x: number, z: number, opts: { [string]: any }?)
+		local jx = (rng:NextNumber() - 0.5) * 3
+		local jz = (rng:NextNumber() - 0.5) * 3
+		local cf = CFrame.new(x + jx, LAWN_Y, z + jz) * CFrame.Angles(0, rng:NextNumber() * math.pi * 2, 0)
+		prop("tree", grounds, cf, opts, function()
+			fallbackTree(grounds, x + jx, z + jz, rng)
+		end)
+	end
+	local function flagpole(x: number, z: number, h: number, color: Color3, text: string)
+		local f = folder(grounds, "Flagpole")
+		box(f, "Base", x, LAWN_Y + 0.4, z, 2.4, 0.8, 2.4, C.Concrete)
+		cyl(f, "Pole", CFrame.new(x, LAWN_Y + 0.8 + h / 2, z), "y", h, 0.5, C.Chrome)
+		ball(f, "Finial", CFrame.new(x, LAWN_Y + h + 1.2, z), 1, C.Shield)
+		local cloth = box(f, "Flag", x + 3.3, LAWN_Y + h - 2, z, 6, 3.6, 0.3, color, { collide = false })
+		label(cloth, Enum.NormalId.Front, text, C.Trim, Enum.Font.LuckiestGuy, C.Ink)
+		label(cloth, Enum.NormalId.Back, text, C.Trim, Enum.Font.LuckiestGuy, C.Ink)
+	end
+
+	-- plaza paving: checker of warm pavers inside a brick border
+	local PX0, PX1, PZ0, PZ1 = -60, -22, 30, KERB_Z - 4
+	local cw, cd = (PX1 - PX0) / 6, (PZ1 - PZ0) / 5
+	for ix = 0, 5 do
+		for iz = 0, 4 do
+			local x0, z0 = PX0 + ix * cw, PZ0 + iz * cd
+			span(grounds, "Paver", x0 + 0.15, x0 + cw - 0.15, APRON_Y, APRON_Y + 0.04, z0 + 0.15, z0 + cd - 0.15, if (ix + iz) % 2 == 0 then PAVE_A else PAVE_B, { collide = false })
+		end
+	end
+	span(grounds, "BorderW", PX0, PX0 + 1.2, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
+	span(grounds, "BorderE", PX1 - 1.2, PX1, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
+	span(grounds, "BorderS", PX0, PX1, APRON_Y, APRON_Y + 0.06, PZ1 - 1.2, PZ1, BRICK_PAVE, { collide = false })
+	planter(-57, 60, 4, 4, APRON_Y)
+	planter(-25, 60, 4, 4, APRON_Y)
+	planter(-53, 36, 4, 3, APRON_Y)
+	planter(-27, 36, 4, 3, APRON_Y)
+	bench(-57.5, APRON_Y, 46, 1, 0, 6)
+	bench(-24.5, APRON_Y, 44, -1, 0, 6)
+	-- apron: expansion joints so it reads as poured concrete, not a slab
+	for z = 38, KERB_Z - 2, 8 do
+		span(grounds, "Joint", -22, 62, APRON_Y, APRON_Y + 0.03, z - 0.1, z + 0.1, C.ConcreteDark, { collide = false })
+	end
+	for _, x in { 0, 20, 40 } do
+		span(grounds, "Joint", x - 0.1, x + 0.1, APRON_Y, APRON_Y + 0.03, 32, KERB_Z, C.ConcreteDark, { collide = false })
+	end
+
+	-- memorial garden (west): fountain, bronze statue, flags, benches, trees
+	local GX, GZ = -122, 4
+	span(grounds, "GardenPath", -96, -60, APRON_Y - 1, APRON_Y, 46, 52, PAVE_B)
+	span(grounds, "GardenPathLink", GX - 3, -96, APRON_Y - 1, APRON_Y, 46, 52, PAVE_B)
+	span(grounds, "GardenPathX", -152, -92, APRON_Y - 1, APRON_Y, GZ - 3, GZ + 3, PAVE_B)
+	span(grounds, "GardenPathZ", GX - 3, GX + 3, APRON_Y - 1, APRON_Y, -50, 52, PAVE_B)
+	cyl(grounds, "FountainRing", CFrame.new(GX, APRON_Y - 0.45, GZ), "y", 1, 36, BRICK_PAVE)
+	cyl(grounds, "FountainPlaza", CFrame.new(GX, APRON_Y + 0.02, GZ), "y", 0.06, 33, PAVE_A, { collide = false })
+	cyl(grounds, "Basin", CFrame.new(GX, APRON_Y + 0.9, GZ), "y", 1.8, 18, C.Concrete)
+	cyl(grounds, "Water", CFrame.new(GX, APRON_Y + 1.6, GZ), "y", 0.4, 16.4, hex("4FB3D9"), { material = Enum.Material.Glass, transparency = 0.25, collide = false })
+	cyl(grounds, "Column", CFrame.new(GX, APRON_Y + 3, GZ), "y", 4.4, 1.6, C.Concrete)
+	cyl(grounds, "Bowl", CFrame.new(GX, APRON_Y + 5.3, GZ), "y", 0.8, 6, C.Concrete)
+	cyl(grounds, "BowlWater", CFrame.new(GX, APRON_Y + 5.75, GZ), "y", 0.2, 5.4, hex("7CCBEA"), { material = Enum.Material.Glass, transparency = 0.2, collide = false })
+	-- a fire hydrant on top spouting the fountain (it is a fire station)
+	MapKit.hydrant(grounds, O * CFrame.new(GX, APRON_Y + 5.85, GZ))
+	for k = 0, 5 do
+		local a = k * math.pi / 3
+		local sx, sz = GX + math.cos(a) * 2.4, GZ + math.sin(a) * 2.4
+		part(grounds, "Spray", CFrame.new(sx, APRON_Y + 4.2, sz) * CFrame.Angles(0, -a, math.rad(25)), V(0.3, 3.6, 0.3), hex("BFE8F7"), { neon = true, transparency = 0.35, collide = false })
+	end
+	for _, d in { V(0, 0, -13), V(13, 0, 0), V(-13, 0, 0) } do
+		bench(GX + d.X, APRON_Y, GZ + d.Z, -d.X, -d.Z, 6)
+	end
+	-- statue: a bronze firefighter on a plinth with a plaque
+	local SZ = GZ + 30
+	local statue = folder(grounds, "Statue")
+	span(statue, "PlinthBase", GX - 4, GX + 4, APRON_Y, APRON_Y + 1, SZ - 4, SZ + 4, C.Concrete)
+	span(statue, "Plinth", GX - 3, GX + 3, APRON_Y + 1, APRON_Y + 6, SZ - 3, SZ + 3, hex("8C8A86"), { material = Enum.Material.Granite })
+	local plaque = plate(statue, "Plaque", GX, APRON_Y + 3.5, SZ - 3.25, 0, -1, 4.6, 2.6, hex("B08A3C"))
+	label(plaque, Enum.NormalId.Front, "FOR EVERY CAT\nEVER RESCUED\n(SOME TWICE)", C.Ink, Enum.Font.FredokaOne)
+	local statueCf = facing(GX, APRON_Y + 6, SZ, 0, -1)
+	local bronze = hex("8C6A3A")
+	local function bronzeAll(m: Instance)
+		for _, d in m:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.Color = bronze
+				d.Material = Enum.Material.Metal
+			elseif d:IsA("Decal") or d:IsA("SurfaceGui") or d:IsA("BillboardGui") then
+				d:Destroy()
+			end
+		end
+	end
+	local statueBuilt = false
+	if NpcBuilder and type(NpcBuilder.Build) == "function" then
+		local ok, res = pcall(NpcBuilder.Build, "Firefighter", O * statueCf, { pose = "waving" })
+		if ok and typeof(res) == "Instance" then
+			local m = res :: Model
+			m.Name = "StatueFigure"
+			pcall(function()
+				m:ScaleTo(1.6)
+				m:PivotTo(O * statueCf)
+			end)
+			bronzeAll(m)
+			m.Parent = statue
+			statueBuilt = true
+		end
+	end
+	if not statueBuilt then
+		fallbackFirefighter(statue, statueCf, nil)
+		bronzeAll(statue:FindFirstChild("Firefighter") or statue)
+	end
+	local flagCols = { C.TruckRed, hex("2E5E9A"), C.Line }
+	local flagText = { "67", "CITY", "BRAVE" }
+	for k, x in { GX - 12, GX, GX + 12 } do
+		flagpole(x, SZ + 18, 24, flagCols[k], flagText[k])
+	end
+	for _, p in { V(-152, 0, -50), V(-150, 0, -24), V(-152, 0, 30), V(-150, 0, 56), V(-96, 0, -50), V(-94, 0, -24), V(-136, 0, -36), V(-108, 0, -36), V(-140, 0, 24), V(-104, 0, 24) } do
+		tree(p.X, p.Z)
+	end
+	for _, p in { V(-140, 0, GZ - 4), V(-104, 0, GZ - 4), V(GX - 4, 0, -36), V(GX + 4, 0, 52) } do
+		lamp(p.X, APRON_Y, p.Z, 1)
+	end
+	for _, p in { V(-140, 0, GZ + 8), V(-104, 0, GZ + 8), V(-140, 0, GZ - 12), V(-104, 0, GZ - 12) } do
+		planter(p.X, p.Z, 4, 4, LAWN_Y)
+	end
+
+	-- parking lot (east): striped stalls, wheel stops, a few cars, lamps
+	local LX0, LX1, LZ0, LZ1 = 90, 152, -50, 54
+	span(grounds, "ParkingLot", LX0, LX1, APRON_Y - 1, APRON_Y, LZ0, LZ1, C.Asphalt)
+	span(grounds, "ParkingDrive", 102, 116, WALK_Y - 0.95, WALK_Y + 0.05, LZ1, KERB_Z, C.Asphalt)
+	local carColors = { hex("4FB3D9"), hex("E3B23C"), hex("6BCB5A"), hex("C9CCD0"), hex("9A6AC8"), C.TruckRed }
+	for _, r in { { z0 = 30, z1 = 50, face = -1 }, { z0 = -46, z1 = -26, face = 1 } } do
+		for x = LX0 + 4, LX1 - 4, 10 do
+			span(grounds, "StallLine", x - 0.2, x + 0.2, APRON_Y, APRON_Y + 0.04, r.z0, r.z1, C.Trim, { collide = false })
+		end
+		for x = LX0 + 9, LX1 - 9, 10 do
+			local kz = if r.face < 0 then r.z1 - 1.5 else r.z0 + 1.5
+			box(grounds, "WheelStop", x, APRON_Y + 0.3, kz, 5, 0.6, 0.8, C.Line)
+			if rng:NextNumber() < 0.55 then
+				local cz = (r.z0 + r.z1) / 2
+				prop("car", grounds, facing(x, APRON_Y, cz, 0, -r.face), { color = carColors[rng:NextInteger(1, #carColors)], eyes = true })
+			end
+		end
+	end
+	for _, x in { LX0 + 2, LX1 - 2 } do
+		for _, z in { -10, 14 } do
+			lamp(x, APRON_Y, z, 1)
+		end
+	end
+	local lotSign = plate(grounds, "LotSign", 96, LAWN_Y + 3, 58, 0, 1, 8, 2.4, hex("2E5E9A"))
+	label(lotSign, Enum.NormalId.Front, "P - HEROES ONLY", C.Trim, Enum.Font.LuckiestGuy)
+	box(grounds, "LotSignPost", 96, LAWN_Y + 1, 57.6, 0.4, 2, 0.4, C.Steel)
+	for _, p in { V(84, 0, -30), V(84, 0, 0), V(84, 0, 30), V(156, 0, -30), V(156, 0, 20) } do
+		tree(p.X, p.Z)
+	end
+
+	-- training yard (behind the station): drill tower, ladder, cones, burn box
+	span(grounds, "TrainingYard", -64, 20, APRON_Y - 1, APRON_Y, -132, -56, C.Concrete)
+	span(grounds, "YardWalk", 12, 20, APRON_Y - 1, APRON_Y, -56, -40, C.Concrete)
+	local drill = folder(grounds, "DrillTower")
+	local DX, DZ = -36, -104
+	span(drill, "Body", DX - 8, DX + 8, APRON_Y, APRON_Y + 34, DZ - 8, DZ + 8, hex("C9B8A8"), { material = Enum.Material.Concrete })
+	span(drill, "Cap", DX - 9, DX + 9, APRON_Y + 34, APRON_Y + 35, DZ - 9, DZ + 9, C.ConcreteDark)
+	for _, y in { 8, 18, 28 } do
+		for _, dx in { -4, 4 } do
+			span(drill, "Window", DX + dx - 2, DX + dx + 2, APRON_Y + y - 2.5, APRON_Y + y + 2.5, DZ + 8, DZ + 8.2, C.Ink)
+		end
+		span(drill, "Ledge", DX - 8, DX + 8, APRON_Y + y - 3.2, APRON_Y + y - 2.6, DZ + 8, DZ + 9, C.ConcreteDark)
+	end
+	local drillSign = plate(drill, "DrillSign", DX, APRON_Y + 31.5, DZ + 8.3, 0, 1, 12, 2.4, C.TruckRed)
+	label(drillSign, Enum.NormalId.Front, "TRAINING TOWER", C.Trim, Enum.Font.LuckiestGuy)
+	prop("ladder", drill, facing(DX + 4, APRON_Y, DZ + 9.4, 0, 1), { height = 26 })
+	span(drill, "BurnBox", 0, 16, APRON_Y, APRON_Y + 8, -120, -112, C.Wood, { material = Enum.Material.CorrodedMetal })
+	plate(drill, "BurnBoxSign", 8, APRON_Y + 5, -111.7, 0, 1, 10, 1.6, C.Line, "BURN BOX - NOT A HOUSE", C.Ink, Enum.Font.LuckiestGuy)
+	for k = 0, 7 do
+		local cx, cz = -54 + k * 4, -70 + (k % 2) * 3
+		local cone = folder(grounds, "Cone")
+		box(cone, "Base", cx, APRON_Y + 0.2, cz, 1.8, 0.4, 1.8, C.Cone)
+		cyl(cone, "Body", CFrame.new(cx, APRON_Y + 1.3, cz), "y", 1.8, 1.0, C.Cone)
+	end
+	for _, p in { V(-80, 0, -70), V(-84, 0, -110), V(-80, 0, -140), V(40, 0, -80), V(60, 0, -110), V(36, 0, -140), V(80, 0, -90), V(110, 0, -120), V(140, 0, -80), V(-110, 0, -90), V(-140, 0, -120), V(-120, 0, -150), V(0, 0, -148) } do
+		tree(p.X, p.Z, if rng:NextNumber() < 0.4 then { kind = "pine" } else nil)
+	end
+
+	-- property edge: hedges (back + sides) and low hedges along the street
+	local function hedge(x0: number, x1: number, z0: number, z1: number, h: number)
+		local alongX = (x1 - x0) >= (z1 - z0)
+		local len = if alongX then x1 - x0 else z1 - z0
+		local n = math.max(1, math.ceil(len / 40))
+		for k = 0, n - 1 do
+			local a0, a1 = k * len / n, (k + 1) * len / n
+			local col = if k % 2 == 0 then C.Foliage else C.FoliageDark
+			if alongX then
+				span(grounds, "Hedge", x0 + a0, x0 + a1, LAWN_Y, LAWN_Y + h, z0, z1, col, { material = Enum.Material.Grass })
+			else
+				span(grounds, "Hedge", x0, x1, LAWN_Y, LAWN_Y + h, z0 + a0, z0 + a1, col, { material = Enum.Material.Grass })
+			end
+		end
+	end
+	hedge(-162, 162, -162, -159, 5)
+	hedge(-162, -159, -159, 62, 5)
+	hedge(159, 162, -159, 62, 5)
+	hedge(-159, -100, 60, 62.5, 2.4)
+	hedge(122, 159, 60, 62.5, 2.4)
+	for x = -150, 150, 50 do
+		if x < -70 or x > 70 then
+			lamp(x, WALK_Y, KERB_Z - 2, 1)
+		end
+	end
+
+	-- big rooftop "STATION 67" sign over the bays, readable from down the avenue
+	local rs = folder(roof, "RoofSign")
+	for _, x in { 2, 38 } do
+		span(rs, "Leg", x - 0.5, x + 0.5, PT, PT + 8.5, 21.5, 22.5, C.Steel)
+	end
+	local rsPanel = part(rs, "Panel", facing(20, PT + 12, 22.6, 0, 1), V(44, 7, 0.6), C.TruckRed)
+	label(rsPanel, Enum.NormalId.Front, "STATION 67", C.Trim, Enum.Font.LuckiestGuy, C.Ink, 20)
+	for _, y in { PT + 8.4, PT + 15.6 } do
+		span(rs, "NeonEdge", -2, 42, y - 0.2, y + 0.2, 22.9, 23.3, C.Line, { neon = true, collide = false })
+	end
+
+	-- skyline backdrop: city blocks around the lot so there is never empty void
+	local skyline = folder(model, "Skyline")
+	local towerCols = { hex("8FA3B8"), hex("B8A48F"), hex("A3B88F"), hex("C9B49A"), hex("9A8FB8"), hex("B88F8F"), hex("D2C6B4") }
+	local glass = hex("2A3A52")
+	local function building(cx: number, cz: number, w: number, d: number, h: number)
+		local m = folder(skyline, "Building")
+		local col = towerCols[rng:NextInteger(1, #towerCols)]
+		span(m, "Body", cx - w / 2, cx + w / 2, LAWN_Y - 1, LAWN_Y + h, cz - d / 2, cz + d / 2, col, { material = Enum.Material.Concrete })
+		for y = 8, h - 4, 8 do
+			span(m, "WindowBand", cx - w / 2 - 0.2, cx + w / 2 + 0.2, LAWN_Y + y, LAWN_Y + y + 3, cz - d / 2 - 0.2, cz + d / 2 + 0.2, glass, { material = Enum.Material.Glass, collide = false })
+		end
+		span(m, "Roof", cx - w / 2 - 0.6, cx + w / 2 + 0.6, LAWN_Y + h, LAWN_Y + h + 1, cz - d / 2 - 0.6, cz + d / 2 + 0.6, C.ConcreteDark)
+		local r = rng:NextNumber()
+		if r < 0.3 then
+			cyl(m, "WaterTank", CFrame.new(cx, LAWN_Y + h + 4, cz), "y", 6, 5, C.Wood)
+		elseif r < 0.55 then
+			cyl(m, "Antenna", CFrame.new(cx, LAWN_Y + h + 8, cz), "y", 16, 0.5, C.Steel)
+			ball(m, "AntennaLight", CFrame.new(cx, LAWN_Y + h + 16.2, cz), 1, C.Alarm, { neon = true, collide = false })
+		end
+	end
+	local function skyRow(x0: number, x1: number, z0: number, z1: number, hMin: number, hMax: number)
+		local alongX = (x1 - x0) >= (z1 - z0)
+		local depth = if alongX then z1 - z0 else x1 - x0
+		local a = if alongX then x0 else z0
+		local stop = if alongX then x1 else z1
+		while a < stop - 8 do
+			local w = math.min(16 + rng:NextNumber() * 18, stop - a)
+			local h = hMin + rng:NextNumber() * (hMax - hMin)
+			local dd = depth * (0.6 + rng:NextNumber() * 0.4)
+			if alongX then
+				building(a + w / 2, (z0 + z1) / 2, w - 2, dd, h)
+			else
+				building((x0 + x1) / 2, a + w / 2, dd, w - 2, h)
+			end
+			a += w
+		end
+	end
+	skyRow(-230, 230, -230, -176, 50, 150) -- behind the station (it sits on the city's north edge)
+	if not inCity then
+		span(ground, "BackdropGround", -240, 240, LAWN_Y - 1.2, LAWN_Y - 0.2, -240, 200, C.Lawn)
+		skyRow(-230, -176, -170, 60, 30, 90)
+		skyRow(176, 230, -170, 60, 30, 90)
+		skyRow(-230, 230, KERB_Z + 70, KERB_Z + 110, 24, 70) -- across the avenue
+		local shopCols = { C.TruckRed, hex("2E5E9A"), C.Line, hex("6BCB5A") }
+		local shopNames = { "DONUTS", "HARDWARE", "PET RESCUE", "SMOKE SHOP (ironic)" }
+		for k, x in { -100, -40, 30, 100 } do
+			local shop = folder(skyline, "Shop")
+			span(shop, "Body", x - 14, x + 14, LAWN_Y, LAWN_Y + 12, KERB_Z + 38, KERB_Z + 54, towerCols[(k % #towerCols) + 1])
+			span(shop, "Awning", x - 14, x + 14, LAWN_Y + 8, LAWN_Y + 8.6, KERB_Z + 35, KERB_Z + 38, shopCols[k])
+			local sg = plate(shop, "ShopSign", x, LAWN_Y + 10.2, KERB_Z + 37.7, 0, -1, 16, 2.2, C.Cream)
+			label(sg, Enum.NormalId.Front, shopNames[k], C.Ink, Enum.Font.LuckiestGuy)
+			span(shop, "Window", x - 10, x + 10, LAWN_Y + 2, LAWN_Y + 7, KERB_Z + 37.7, KERB_Z + 38, glass, { material = Enum.Material.Glass })
+		end
+	end
 end
 
 return StationBuilder
