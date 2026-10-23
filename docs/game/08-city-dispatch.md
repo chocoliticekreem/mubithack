@@ -31,7 +31,20 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   centre (400 x 400 core; procedural core if the builder is missing), a 2-lane loop street round it, a
   themed band of lots (some are extra incident sites), gate streets out to the road between cells,
   a welcome arch + name boards, a landmark, its own road style. Mill Creek runs from the dam's river
-  down the east greenbelt (bridges). Signposts at junctions point to every neighbourhood.
+  down the east greenbelt (bridges) and widens into **Mill Pond** (`CityConfig.MillPond`, refill water).
+  Signposts at junctions point to every neighbourhood.
+- **Avenue corridors** (`Districts.corridors`): every neighbourhood's strip between its edge and the
+  avenue ring has a row of frontage lots facing the avenue, themed like its band (low-detail 2-4
+  part facades; downtown rises into a skyline near the hub) plus a few incident sites (houses, shops,
+  apartments, storage, and a whole-run school campus or apartment block via `CorridorBigSites`).
+  A corridor site's `RoadNode` is a kerb node `A<x>_<z>` split into the avenue in front of it.
+- **Greenbelt** (`Lib/Map/City/Greenbelt.luau`): pocket parks where corridors meet, Highway 67
+  hedgerows + pine clumps, crop fields beyond the highway. **Highway** (`Lib/Map/City/Highway.luau`):
+  Ridge Tunnel on the west highway (`CityConfig.Tunnel`, 22 studs clearance) and exit gantries.
+- **Street furniture**: a refill hydrant (`MapKit.hydrant`: tag `Hydrant` + Refill prompt) on every
+  corridor run and band side, bus shelters downtown/suburb, `Knockable`-tagged `TrashCan` / `Bench`
+  models at the lot fronts. Only every `LampLightEvery`-th street lamp carries a PointLight.
+  Landmarks carry a neon beacon + a floating district-name BillboardGui.
 - `MapService:GetLocation("Town")` etc. return the district Model inside the city.
 - **Incident sites**: every building that can host a mission is a Model tagged `IncidentSite` with:
   - attributes `SiteId` (string), `MissionTypes` (comma-separated MissionCatalog ids, e.g.
