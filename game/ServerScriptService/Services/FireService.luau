@@ -8,6 +8,7 @@
 --   FireService:IsBurning(part: BasePart): boolean
 --   FireService:CountBurning(locationId: string?): number   -- locationId or v1.5 instanceId; nil = all
 --   FireService:ExtinguishAll(locationId: string?)          -- nil = every location/instance
+--   FireService:ClearInstance(instanceId: string)            -- v1.5, called by MissionService at mission end
 -- Indexes MapService.LocationBuilt (key = locationId) and v1.5 MapService.InstanceBuilt (key = instanceId).
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?), Charred(part)
 -- Writes: tag Burning; attrs FireLevel (1..3, nil when out), Charred (true) + Color/Material on burnt-out parts
@@ -342,14 +343,23 @@ function FireService:ExtinguishAll(locationId: string?)
 	end
 end
 
+-- v1.5: a mission instance ended. Put its fires out silently (no Extinguished signal, so nobody gets
+-- Blame credit), then drop its cells and budget. Safe to call twice or for an unknown id.
+function FireService:ClearInstance(instanceId: string)
+	if type(instanceId) ~= "string" then
+		return
+	end
+	self:ExtinguishAll(instanceId)
+	forget(instanceId)
+end
+
 -- test hooks -------------------------------------------------------------------------------
 function FireService:_index(model: Instance, locationId: string)
 	index(model, locationId)
 end
 
 function FireService:_forget(locationId: string)
-	self:ExtinguishAll(locationId)
-	forget(locationId)
+	self:ClearInstance(locationId)
 end
 
 function FireService:_ignite(pos: Vector3): BasePart?
