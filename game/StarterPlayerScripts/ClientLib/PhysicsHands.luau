@@ -591,6 +591,11 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 		if d:IsA("BasePart") then
 			local c = d:Clone()
 			strip(c)
+			for _, fx in c:GetDescendants() do
+				if fx:IsA("Trail") then -- the real tool's trail is switched off locally; ours swooshes
+					fx.Enabled = true
+				end
+			end
 			for _, child in c:GetChildren() do
 				if child:IsA("BasePart") then
 					child:Destroy() -- nested parts get their own clone
