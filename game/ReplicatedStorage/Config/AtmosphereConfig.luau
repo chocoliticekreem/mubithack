@@ -12,6 +12,9 @@
 -- Per-location looks: GraphicsController picks LocationPresets[<the location the player is in>]
 -- (instance Model attr LocationId via Player.InstanceId, else the Workspace.Map location around the
 -- camera) and blends to it locally, so parallel squads each see their own mission's look.
+-- Graphics tiers (ShaderController / ShaderConfig.TierMods) modify these on each client: High = the
+-- preset as written here, Low strips shadows/bloom/sunrays/DoF, Ultra boosts bloom/haze/glare and adds
+-- the layered cinematic grade (ShaderConfig.Grades[<preset name>]). Keep preset names in sync with Grades.
 -- Tune live (client copy): require(game.ReplicatedStorage.Config.AtmosphereConfig).Set("TweenSeconds", 1)
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
@@ -33,9 +36,10 @@ export type Preset = {
 local NO_FOG = 100000
 
 -- Subtle far-only blur: softens the horizon, never blurs what you play near (research: DoF off in
--- gameplay; this keeps it barely-there). FocusDistance/InFocusRadius cover the whole play area.
+-- gameplay; this keeps it barely-there). InFocusRadius maxes out at 50 in the engine (150 was silently
+-- clamped), so the focus sits further out: sharp to ~160 studs. ShaderController pulses it with speed.
 local function dof(far: number): Props
-	return { Enabled = true, FarIntensity = far, FocusDistance = 90, InFocusRadius = 150, NearIntensity = 0 }
+	return { Enabled = true, FarIntensity = far, FocusDistance = 110, InFocusRadius = 50, NearIntensity = 0 }
 end
 
 local Presets: { [string]: Preset } = {
@@ -78,8 +82,8 @@ local Presets: { [string]: Preset } = {
 			ColorShift_Top = hex("FFB07A"), -- (doc)
 			ColorShift_Bottom = hex("3A5A7A"), -- (doc)
 			EnvironmentDiffuseScale = 0.6, -- (doc)
-			EnvironmentSpecularScale = 0.25, -- (doc)
-			ShadowSoftness = 0.35, -- (doc)
+			EnvironmentSpecularScale = 0.4, -- (doc 0.25) more sheen on windows/cars under the low sun
+			ShadowSoftness = 0.3, -- (doc 0.35) slightly crisper sunset shadows
 			GlobalShadows = true, -- (doc)
 			FogEnd = NO_FOG,
 			FogStart = 0,
@@ -105,7 +109,7 @@ local Presets: { [string]: Preset } = {
 			ColorShift_Top = hex("6A80C0"), -- (doc)
 			ColorShift_Bottom = hex("000000"), -- (doc)
 			EnvironmentDiffuseScale = 0.4,
-			EnvironmentSpecularScale = 0.3,
+			EnvironmentSpecularScale = 0.6, -- wet-road reflections (ShaderController) need specular
 			ShadowSoftness = 0.25,
 			GlobalShadows = true,
 			FogEnd = NO_FOG,
@@ -115,7 +119,7 @@ local Presets: { [string]: Preset } = {
 		Sky = { SunAngularSize = 16, MoonAngularSize = 11, StarCount = 3000, CelestialBodiesShown = true }, -- big cartoon moon
 		Clouds = { Enabled = true, Cover = 0.35, Density = 0.4, Color = hex("3A4366") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.15, Saturation = 0.10, TintColor = hex("DCE4FF") }, -- (doc)
-		Bloom = { Enabled = true, Intensity = 0.9, Size = 32, Threshold = 1.2 }, -- (doc)
+		Bloom = { Enabled = true, Intensity = 0.95, Size = 34, Threshold = 1.15 }, -- (doc 0.9/32/1.2) fire is the key light
 		SunRays = { Enabled = true, Intensity = 0, Spread = 0.6 }, -- (doc)
 		DepthOfField = dof(0.05),
 	},
@@ -198,7 +202,7 @@ local Presets: { [string]: Preset } = {
 		Clouds = { Enabled = true, Cover = 0.8, Density = 0.75, Color = hex("8A5A48") },
 		ColorCorrection = { Enabled = true, Brightness = 0, Contrast = 0.08, Saturation = 0.05, TintColor = hex("FFD2A8") }, -- (doc)
 		Bloom = { Enabled = true, Intensity = 1.0, Size = 36, Threshold = 1.1 }, -- (doc)
-		SunRays = { Enabled = true, Intensity = 0.1, Spread = 0.5 },
+		SunRays = { Enabled = true, Intensity = 0.14, Spread = 0.55 }, -- god rays through the smoke
 		DepthOfField = dof(0.1),
 	},
 
@@ -241,7 +245,7 @@ local Presets: { [string]: Preset } = {
 			ColorShift_Top = hex("6A90B0"),
 			ColorShift_Bottom = hex("000000"),
 			EnvironmentDiffuseScale = 0.4,
-			EnvironmentSpecularScale = 0.35,
+			EnvironmentSpecularScale = 0.55, -- wet concrete / water sheen
 			ShadowSoftness = 0.25,
 			GlobalShadows = true,
 			FogEnd = NO_FOG,
