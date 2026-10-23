@@ -1,14 +1,17 @@
 --!strict
 -- LobbyProps [owner: G3]. Builds the station lobby furniture LobbyService needs when StationBuilder
 -- doesn't provide it: the big Mission Board (tag MissionBoard, SurfaceGui + ProximityPrompt +
--- ClickDetector) in bay 1, N glowing queue pads (tag SquadPad, attr PadId) on the apron with a
--- BillboardGui each, and the "please do not ring" bell on the front lawn. Also renders the board
+-- ClickDetector) on the front plaza, N glowing queue pads (tag SquadPad, attr PadId) in front of it with
+-- a BillboardGui each, and the "please do not ring" bell on the west lawn. Also renders the board
 -- rows and pad billboards. Called only from LobbyService:Start (never at require time).
 --
 --   local built = LobbyProps.build(parent, stationOrigin, padCount)
 --   LobbyProps.renderBoard(built.boardGui, rows)   -- rows: { BoardRow }
 --   LobbyProps.renderPad(built.pads[i], view)      -- view: PadView
--- Coordinates are StationBuilder's local studs (slot 0 origin): bay 1 X 3..17, apron Z 30..48.
+-- Coordinates are StationBuilder's local studs (station v2): the plaza in front of the west wing is
+-- X -60..-22, Z 30..64 (the bays' apron X -22..62 stays clear for the trucks). The station origin is
+-- the station model's "StationOrigin" attribute when present (StationBuilder places the station at
+-- CityConfig.StationOrigin), else the origin LobbyService passes.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -17,7 +20,6 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 
 local LobbyProps = {}
 
-local FLOOR = 0.6
 local APRON_Y = 0.5
 local LAWN_Y = 0.3
 
@@ -143,14 +145,14 @@ end
 
 local function buildBoard(model: Model, O: CFrame, pps: number): (BasePart, SurfaceGui, ProximityPrompt)
 	local W, Hh = 12, 8.5
-	local cx, cz = 10, 23
-	local cy = FLOOR + 1.5 + Hh / 2
+	local cx, cz = -40, 38
+	local cy = APRON_Y + 1.5 + Hh / 2
 	local face = O * CFrame.lookAt(Vector3.new(cx, cy, cz), Vector3.new(cx, cy, cz + 1))
 	local frame = part(model, "BoardFrame", face * CFrame.new(0, 0, 0.35), Vector3.new(W + 0.8, Hh + 0.8, 0.4), C.Wood)
 	frame.Material = Enum.Material.Wood
 	for _, dx in { -W / 2 + 0.6, W / 2 - 0.6 } do
-		local postH = cy + Hh / 2 - FLOOR
-		part(model, "BoardPost", O * CFrame.new(cx + dx, FLOOR + postH / 2, cz - 0.7), Vector3.new(0.6, postH, 0.6), C.Steel)
+		local postH = cy + Hh / 2 - APRON_Y
+		part(model, "BoardPost", O * CFrame.new(cx + dx, APRON_Y + postH / 2, cz - 0.7), Vector3.new(0.6, postH, 0.6), C.Steel)
 	end
 	part(model, "BoardHeader", face * CFrame.new(0, Hh / 2 + 0.9, 0.2), Vector3.new(W * 0.7, 1.4, 0.4), C.Red, { material = Enum.Material.Neon })
 	local board = part(model, "MissionBoard", face, Vector3.new(W, Hh, 0.3), C.Board)
@@ -309,7 +311,7 @@ end
 ------------------------------------------------------------------ bell
 
 local function buildBell(model: Model, O: CFrame): (BasePart, ProximityPrompt)
-	local x, z = -13, 37
+	local x, z = -68, 40
 	local top = LAWN_Y + 9
 	part(model, "BellPostL", O * CFrame.new(x - 2, LAWN_Y + 4.5, z), Vector3.new(0.6, 9, 0.6), C.Wood)
 	part(model, "BellPostR", O * CFrame.new(x + 2, LAWN_Y + 4.5, z), Vector3.new(0.6, 9, 0.6), C.Wood)
@@ -339,15 +341,19 @@ end
 
 function LobbyProps.padCenters(padCount: number): { Vector3 }
 	local out = {}
-	local spacing = 13
+	local spacing = 12
 	for i = 1, padCount do
-		local x = 19 + (i - (padCount + 1) / 2) * spacing
-		table.insert(out, Vector3.new(x, APRON_Y, 40))
+		local x = -40 + (i - (padCount + 1) / 2) * spacing
+		table.insert(out, Vector3.new(x, APRON_Y, 51))
 	end
 	return out
 end
 
 function LobbyProps.build(parent: Instance, origin: CFrame, padCount: number, pps: number?): Built
+	local stationOrigin = parent:GetAttribute("StationOrigin")
+	if typeof(stationOrigin) == "CFrame" then
+		origin = stationOrigin
+	end
 	local model = Instance.new("Model")
 	model.Name = "Lobby"
 	local board, gui, prompt = buildBoard(model, origin, pps or 50)
