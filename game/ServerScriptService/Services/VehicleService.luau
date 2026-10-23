@@ -18,7 +18,7 @@
 --          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
 -- Remotes: Vehicle/Horn (C->S, no args), Vehicle/Siren (C->S, no args: toggle),
 --          Vehicle/Honked (S->C all: truck: Model)
--- Writes: workspace.FireTruck67 (lobby) and Instances.<id>.FireTruck67 (tag Truck; "Reel" tag TruckRefill,
+-- Writes: Map.Station...FireTruck67 (lobby, left where StationBuilder put it) and Instances.<id>.FireTruck67 (tag Truck; "Reel" tag TruckRefill,
 --   "RescueDropoff" tag RescueDropoff, "DriveSeat" VehicleSeat, "CrewSeat_1..4" Seats);
 --   truck attrs SirenOn: boolean, Driver: number (UserId, 0 = none), InstanceId: string ("" = lobby truck)
 -- Telemetry: truck_drives, truck_distance, truck_honks, truck_run_over, trucks_built
@@ -421,6 +421,27 @@ local function runOverTick()
 	end
 end
 
+-- The lobby truck stays inside Workspace.Map.Station (LobbyService adds its Honk prompt there):
+-- adopt StationBuilder's bay-2 truck, else build one on the Station TruckSpot. Returns the TruckSpot.
+local function adoptLobby(): BasePart?
+	local home = VehicleConfig.HomeLocation
+	local homeModel = locationModel(home)
+	local spot = homeModel and findSpot(homeModel)
+	local m = homeModel and findTruckModel(homeModel)
+	if m then
+		homeGround = m:GetPivot() * GROUND_TO_PIVOT:Inverse()
+	else
+		local cf = if spot then spot.CFrame else CFrame.new(0, 0.2, 0)
+		m = TruckBuilder.Build(homeModel or workspace, cf)
+		homeGround = cf
+	end
+	lobby = register(m :: Model, "")
+	if spot and lobby then
+		VehicleService:ParkAt(home)
+	end
+	return spot
+end
+
 function VehicleService:Init(all: { [string]: any })
 	services = all
 end
@@ -437,34 +458,22 @@ function VehicleService:Start()
 		task.wait(0.1)
 	end
 	local home = VehicleConfig.HomeLocation
-	local homeModel = locationModel(home)
-	local spot = homeModel and findSpot(homeModel)
-	-- StationBuilder may already have placed truck 67 in bay 2: adopt it instead of building a twin.
-	local m = homeModel and findTruckModel(homeModel)
-	if m then
-		homeGround = m:GetPivot() * GROUND_TO_PIVOT:Inverse()
-		m.Parent = workspace
-	else
-		local cf = if spot then spot.CFrame else CFrame.new(0, 0.2, 0)
-		m = TruckBuilder.Build(workspace, cf)
-		homeGround = cf
-	end
-	lobby = register(m :: Model, "")
-	if spot and lobby then
-		VehicleService:ParkAt(home)
-	end
-
+	local spot = adoptLobby()
 	local Map = services.MapService
 	if Map and Map.LocationBuilt then
 		Map.LocationBuilt:Connect(function(model: Model, id: string)
-			-- a rebuilt station brings its own truck: keep only ours
+			if id ~= home then
+				return
+			end
+			-- a rebuilt station replaced our truck: adopt its new one
+			if not lobby or not lobby.model:IsDescendantOf(workspace) then
+				lobby = nil
+				adoptLobby()
+			end
 			for _, d in model:GetDescendants() do
 				if d:IsA("Model") and d:HasTag(Names.Tag.Truck) and not byModel[d] then
-					d:Destroy()
+					d:Destroy() -- keep exactly one lobby truck
 				end
-			end
-			if id == home and lobby and not lobby.driver then
-				VehicleService:ParkAt(home)
 			end
 		end)
 	end

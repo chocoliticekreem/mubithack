@@ -305,11 +305,25 @@ local function livePuddles(root: Instance, boxes: { BasePart }): { BasePart }
 	return out
 end
 
+-- Puddles from ToolService are flat cylinders (axis = local X pointing up); builder wet floors are boxes.
+local function onPuddle(hrp: BasePart, w: BasePart): boolean
+	local rel = hrp.Position - w.Position
+	local dy = rel.Y
+	if dy < -1.5 or dy > HazardConfig.ZapStandHeight then
+		return false
+	end
+	if w:IsA("Part") and w.Shape == Enum.PartType.Cylinder then
+		local r = math.max(w.Size.Y, w.Size.Z) / 2 + 0.5
+		return Vector3.new(rel.X, 0, rel.Z).Magnitude <= r
+	end
+	local p = w.CFrame:PointToObjectSpace(hrp.Position)
+	local half = w.Size / 2
+	return math.abs(p.X) <= half.X + 0.5 and math.abs(p.Z) <= half.Z + 0.5
+end
+
 local function standingOn(hrp: BasePart, puddles: { BasePart }): boolean
 	for _, w in puddles do
-		local p = w.CFrame:PointToObjectSpace(hrp.Position)
-		local half = w.Size / 2
-		if math.abs(p.X) <= half.X + 0.5 and math.abs(p.Z) <= half.Z + 0.5 and p.Y >= -1 and p.Y <= half.Y + HazardConfig.ZapStandHeight then
+		if onPuddle(hrp, w) then
 			return true
 		end
 	end
