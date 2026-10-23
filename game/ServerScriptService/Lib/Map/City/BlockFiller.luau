@@ -1172,6 +1172,22 @@ function Scenery.cityhall(ctx: any, parent: Instance, F: CFrame, maxW: number, m
 	end
 end
 
+-- Zoo-side topiary: hedge animals (an elephant and a giraffe) on a lawn with a bench (~10 parts).
+function Scenery.topiary(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local hedge = Color3.fromHex("#4F8A3A")
+	local c = F * CF(-maxW * 0.2, GY, maxD * 0.5) * ANG(0, rng:NextNumber(-0.5, 0.5), 0)
+	SK.ball(parent, "TopiaryElephant", c * CF(0, 6, 0), 10, hedge, { material = Enum.Material.Grass })
+	SK.ball(parent, "TopiaryElephantHead", c * CF(0, 8, -6), 6, hedge, { material = Enum.Material.Grass })
+	SK.part(parent, "TopiaryTrunk", c * CF(0, 4, -9), V(1.6, 7, 1.6), hedge, { material = Enum.Material.Grass })
+	local gc = F * CF(maxW * 0.22, GY, maxD * 0.45)
+	SK.ball(parent, "TopiaryGiraffe", gc * CF(0, 6, 0), 6, hedge, { material = Enum.Material.Grass })
+	SK.part(parent, "TopiaryNeck", gc * CF(0, 11, -2) * ANG(math.rad(-15), 0, 0), V(1.8, 10, 1.8), hedge, { material = Enum.Material.Grass })
+	SK.ball(parent, "TopiaryGiraffeHead", gc * CF(0, 16.5, -3.6), 3, hedge, { material = Enum.Material.Grass })
+	MapKit.googlyEyes(parent, gc * CF(0, 17, -5), 0.9)
+	BlockFiller.parkBench(parent, F * CF(0, GY, 6) * FLIP)
+end
+
 -- A loose clump of pines (woods filler, ~9 parts).
 function Scenery.copse(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng

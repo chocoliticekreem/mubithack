@@ -357,7 +357,7 @@ Districts.CorridorStyle = {
 	industrial = { lotW = 92, kinds = { "warehouse", "shed", "tanks", "warehouse", "carpark" }, sites = { "storage" } },
 	farmland = { lotW = 130, kinds = { "cropfield", "cropfield", "barn" }, sites = { "house" } },
 	woods = { lotW = 130, kinds = { "copse" }, sites = { "house" } }, -- a cabin in the woods
-	park = { lotW = 130, kinds = { "grove", "copse" }, sites = {} },
+	park = { lotW = 130, kinds = { "grove", "topiary", "copse" }, sites = {} },
 }
 -- incident sites per corridor run side (a district's frontage on one avenue); the hub's own frontage
 -- has none (dispatch wants a real drive from the station)
