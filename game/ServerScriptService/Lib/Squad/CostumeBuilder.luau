@@ -16,6 +16,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Palette") :: ModuleScript)
 local SquadConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("SquadConfig") :: ModuleScript)
 local SquadRules = require(script.Parent:WaitForChild("SquadRules") :: ModuleScript)
+local PenguinConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("PenguinConfig") :: ModuleScript) :: any
+local PenguinBuilder = require(script.Parent:WaitForChild("PenguinBuilder") :: ModuleScript)
 
 local CostumeBuilder = {}
 
@@ -304,6 +306,14 @@ function CostumeBuilder.dress(character: Model, helmet: number, player: Player?)
 		local limb = character:FindFirstChild(n)
 		if limb and limb:IsA("BasePart") then
 			band(folder, limb, n .. "Band", 0)
+		end
+	end
+
+	-- Penguin firefighters (Lib/Squad/PenguinBuilder): recolour + extra welded cosmetic parts only.
+	if PenguinConfig.Enabled then
+		local ok, err = pcall(PenguinBuilder.apply, character, folder)
+		if not ok then
+			warn(`[CostumeBuilder] penguin failed: {err}`)
 		end
 	end
 
