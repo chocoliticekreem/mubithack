@@ -65,6 +65,7 @@ The `forge` plugin's tools:
 | Setup | `setup`, `doctor` |
 | Build | `new_game`, `iterate`, `correct` |
 | Improve | `fix`, `improve`, `tester_report`, `tester_reports` |
+| Versions | `versions`, `rollback` |
 | Jobs | `job`, `jobs`, `cancel_job` |
 | Read | `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls` |
 | Ship | `seed`, `promote`, `sync` |
@@ -118,6 +119,38 @@ turns their words into anomalies backed by the round telemetry (`--run <playtest
 rounds). Anything the auditor had not flagged is re-sent to the auditor as a correction, so real
 players teach the auditor.
 
+### Versions and rollback
+
+Every game folder (`runs/<slug>/game`) is its own git repo with versions `v1`, `v2`, .... A new
+version is saved:
+- when a game is seeded;
+- for each iteration's tested code (with its critic score);
+- before each fix cycle;
+- for every kept fix (with the anomaly and the verifier's request id).
+
+The agent rolls back by itself in two places:
+- **Build loop:** an iteration that scores at least 1 point below the best version is restored to
+  that version. Its fixes are skipped and the reflector is told why.
+- **Fix loop:** a fix the verifier rejects is retried once with the verifier's evidence (a
+  correction in the fixer's Mubit task). If that fails too, the file is restored and Studio
+  resynced.
+
+You can roll back by hand: `forge versions <slug>` and `forge rollback <slug> v3` (tools:
+`versions`, `rollback`). A rollback is saved as a new version, so it can be undone too.
+
+### Make an existing game playable (with a fallback)
+
+```bash
+forge seed flame-and-blame                       # copy game/ into runs/flame-and-blame/game (version v1)
+forge fix flame-and-blame --edit-human-files --cycles 5 --studio Forge.rbxlx
+forge versions flame-and-blame                   # what changed, version by version
+forge rollback flame-and-blame v1                # back to the seeded game, resynced into Studio
+forge promote flame-and-blame <path>             # copy a fixed file back into game/ for a PR
+```
+
+`--edit-human-files` lets the fixer change the team's files, but only in the run copy. `game/`
+changes only when you promote a file and merge the PR.
+
 `forge scores <slug>` shows, per cycle: faults planted, detected and missed, fixes verified, open
 anomalies, and code fixes kept out of tried.
 
@@ -134,6 +167,7 @@ forge fix lava-escape --cycles 5 --reports   # find anomalies, fix, verify, unti
 forge report lava-escape "the hose feels useless" --by sam
 forge improve flame-and-blame --cycles 3     # planted-fault benchmark; --only <fault id>, --fix
 forge scores lava-escape                     # per-cycle numbers; forge reports <slug>
+forge versions lava-escape                   # saved versions; forge rollback lava-escape v3
 forge status                                 # every game: iterations, scores, calls per role
 forge new "..." --no-studio                  # compile-only, no Studio needed
 forge place --open                           # build place/Forge.rbxlx and open it in Studio
