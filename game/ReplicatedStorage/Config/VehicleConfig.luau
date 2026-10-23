@@ -75,7 +75,7 @@ return Config.define({
 	CamStiffness = 7, -- 1/s follow lerp
 	FovBase = 72,
 	FovAdd = 22, -- extra FOV at top speed
-	CabEye = Vector3.new(0, 3.7, -0.8), -- cab view eye, relative to the DriveSeat (driver's eyes, over the wheel)
+	CabEye = Vector3.new(0, 3.05, -0.8), -- cab view eye, relative to the DriveSeat: mid-windshield, wheel lower-centre
 	CabPitch = -0.08, -- rad; a touch down so the road ahead shows over the dash
 	CabFov = 80,
 

@@ -302,9 +302,10 @@ end
 
 -- Cab see-through (local only, LocalTransparencyModifier): when you look out from a cab seat in first
 -- person (driver in cab view, or the shotgun passenger), hide what sits between your eyes and the
--- road: the generated cab/door mesh skins (opaque shells), the roof, visors, mirror, light bar and the
--- windshield pillars; thin the glass. Your own body is hidden too (no arms or hats in the way).
-local CAB_HIDE_NAMES = { "^CabSkin$", "^DoorSkin", "^WindshieldPillar$", "^APillar" }
+-- road: the generated cab/door/hero mesh skins (opaque shells) and the centre windshield pillar; thin
+-- the glass. The cab interior (headliner, sun visors, rear-view mirror, A-pillars) stays so it reads as
+-- a real cab; only what sits on top of the roof is dropped. Your own body is hidden too.
+local CAB_HIDE_NAMES = { "^CabSkin$", "^DoorSkin", "^HeroSkin$", "^WindshieldPillar$" }
 local CAB_THIN: { [string]: number } = { Windshield = 0.75, SideWindow_L = 0.6, SideWindow_R = 0.6 }
 local cabSeeFor: Model? = nil
 local cabSeeSet: { [BasePart]: number } = {}
@@ -331,10 +332,10 @@ local function cabSeeParts(truck: Model): { [BasePart]: number }
 					end
 				end
 				if not hide then
-					-- anything over the cab above the windshield's top edge (roof, headliner, visors,
-					-- rear-view mirror, light bar, roof badge); chassis space, front is -Z
+					-- the roof and anything on it (light bar, badge, horns), above the headliner;
+					-- chassis space (chassis centre is 2 above the ground point), front is -Z
 					local r = inv * d.Position
-					hide = r.Z > -13.8 and r.Z < -4.6 and math.abs(r.X) < 5.8 and r.Y > 5.75
+					hide = r.Z > -13.8 and r.Z < -4.6 and math.abs(r.X) < 5.8 and r.Y > 6.3
 				end
 				if hide then
 					out[d] = 1
