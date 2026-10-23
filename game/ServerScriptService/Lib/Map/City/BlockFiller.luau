@@ -52,7 +52,7 @@ function BlockFiller.tree(parent: Instance, cf: CFrame, rng: Random, scale: numb
 	SK.cyl(m, "Trunk", cf * CF(0, 2.6 * s, 0), 5.2 * s, 1.3 * s, C.Trunk)
 	local leaf = pick(rng, C.Leaf)
 	SK.ball(m, "Canopy", cf * CF(0, 7 * s, 0), 7.5 * s, leaf, { cast = true })
-	if rng:NextNumber() < 0.5 then
+	if rng:NextNumber() < 0.3 then
 		SK.ball(m, "Canopy", cf * CF(1.6 * s, 9.2 * s, 0.8 * s), 5 * s, leaf)
 	end
 	m.Parent = parent

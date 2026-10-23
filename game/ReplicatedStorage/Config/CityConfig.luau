@@ -91,7 +91,7 @@ return Config.define({
 	SitesPerSuburbBlock = 2, -- per core sub-block; the rest of the houses are cheap LOD shells
 
 	-- Street furniture
-	LampSpacing = 120, -- per road edge, alternating sides (highway: x 2)
+	LampSpacing = 130, -- per road edge, alternating sides (highway: x 2)
 	LampLightEvery = 3, -- only every 3rd street lamp carries a PointLight (range 50); the rest glow (neon)
 	TreeSpacing = 70, -- along roads (highway: x 2.5)
 	Crosswalks = true,
