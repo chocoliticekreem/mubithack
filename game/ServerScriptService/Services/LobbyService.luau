@@ -1122,15 +1122,19 @@ function LobbyService:Start()
 						if not cur or cur.instanceId ~= instanceId then
 							return
 						end
+						-- Safety net: MissionService normally hands the squad back itself (ReturnToLobby after
+						-- its results screen). Only bring home members still stuck in this instance.
 						local list: { Player } = {}
 						for _, uid in cur.members do
 							local p = playerById(uid)
-							if p then
+							if p and p:GetAttribute(Names.Attr.InstanceId) == instanceId then
 								table.insert(list, p)
 							end
 						end
 						active[sid] = nil
-						LobbyService:ReturnToLobby(list)
+						if #list > 0 then
+							LobbyService:ReturnToLobby(list)
+						end
 					end)
 				end
 			end

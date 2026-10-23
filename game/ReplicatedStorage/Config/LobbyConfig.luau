@@ -14,7 +14,7 @@ return Config.define({
 	LaunchCountdown = 5, -- leader's "GO NOW" (Lobby/Launch) cuts the countdown to this
 	AlarmFromSeconds = 3, -- station alarm lamps flash + siren at 3..2..1
 	BigCountdownFrom = 5, -- the client shows the big centre number from here down
-	ReturnSeconds = 10, -- after MissionEnded (results shown), teleport the squad back to the station
+	ReturnSeconds = 20, -- safety net: after MissionEnded, bring home anyone MissionService didn't (its results take 15 s)
 	PadRadius = 4, -- studs (horizontal) from the pad centre that count as "on the pad"
 	PadHeight = 7, -- studs above the pad top that still count (jumping)
 	PollHz = 10,

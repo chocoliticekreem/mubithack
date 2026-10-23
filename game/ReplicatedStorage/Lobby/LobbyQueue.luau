@@ -38,7 +38,7 @@ export type State = {
 }
 
 export type Event = {
-	kind: "count" | "launch" | "short",
+	kind: string, -- "count" | "launch" | "short"
 	padId: number,
 	squadId: string?,
 	seconds: number?,
