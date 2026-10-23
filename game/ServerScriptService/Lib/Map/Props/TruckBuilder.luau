@@ -16,17 +16,24 @@
 --   and the dash bobblehead (Motor6D "BobbleMotor").
 -- Cab interior: dash with gauges, glowing buttons, radio, siren switch panel, steering wheel, two
 --   cushioned seats, door trims, rear-view mirror, sun visors, dome light ("CabLight"), bobblehead.
--- Optional mesh skins: AssetIds.TruckDoor / AssetIds.TruckCab (+ _Texture) when non-empty.
+-- Hero mesh skins (MeshSkin + Config/VisualConfig, ids from Config/AssetIds; each one falls back to the
+--   part-built look when its id is "" / it fails to load / VisualConfig.UseHeroMeshes = false):
+--   "HeroSkin" (FireTruckHero) over the cab + equipment box: the parts it replaces go Transparency 1
+--     but keep colliding (VisualConfig.Truck.Hide); the visual wheels move onto its two axles; red
+--     plates + our own "67" cover its mirrored "67" (right side + back).
+--   "WheelSkin_<axle>_<s>" (TruckWheel) per wheel, "LightBarSkin" (TruckLightBar) under the flashing
+--   neon lights, "DoorSkin_<s>" (TruckDoor) welded to each hinged door panel.
+--   Skins are MeshParts: CanCollide/CanQuery/CanTouch false, Massless, attr MeshSkin = asset key.
 -- TruckBuilder.Preview (Studio command bar or execute_luau, Edit mode):
 --   local T = require(game.ServerScriptService.Lib.Map.Props.TruckBuilder)
 --   local old = workspace:FindFirstChild("FireTruck67"); if old then old:Destroy() end
 --   T.Build(workspace, CFrame.new(0, 0, 0))   -- then frame it with F in the Explorer
 local CollectionService = game:GetService("CollectionService")
-local InsertService = game:GetService("InsertService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
 local MapKit = require(script.Parent.Parent:WaitForChild("MapKit") :: ModuleScript)
+local MeshSkin = require(script.Parent:WaitForChild("MeshSkin") :: ModuleScript)
 
 local TruckBuilder = {}
 
@@ -80,56 +87,6 @@ local function label(part: BasePart, face: Enum.NormalId, text: string, color: C
 	gui.Parent = part
 end
 
--- Optional generated-mesh skin (AssetIds.<key>, e.g. TruckDoor / TruckCab, filled by the assets lane).
--- "" or a failed load = keep the part-built look. With a skin, the parts in `hide` go invisible but
--- keep colliding. weldTo = the door panel (the skin swings with the door).
-local function meshSkin(parent: Instance, name: string, key: string, weldTo: BasePart?, at: CFrame, size: Vector3, hide: { Instance })
-	local okA, A = pcall(function()
-		return require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AssetIds") :: ModuleScript) :: any
-	end)
-	local id = if okA and type(A) == "table" then A[key] else nil
-	if type(id) ~= "string" or id == "" then
-		return
-	end
-	local ok, mp = pcall(function()
-		return InsertService:CreateMeshPartAsync(id, Enum.CollisionFidelity.Box, Enum.RenderFidelity.Automatic)
-	end)
-	if not ok or not mp then
-		warn(`[TruckBuilder] {key} mesh failed: {mp}`)
-		return
-	end
-	local skin = mp :: MeshPart
-	skin.Name = name
-	skin.Size = size
-	skin.CFrame = at
-	skin.Anchored = true
-	skin.CanCollide = false
-	skin.CanQuery = false
-	skin.CanTouch = false
-	local tex = A[`{key}_Texture`]
-	if type(tex) == "string" and tex ~= "" then
-		skin.TextureID = tex
-	end
-	if weldTo then
-		skin:SetAttribute("Jointed", true)
-		local w = Instance.new("WeldConstraint")
-		w.Part0 = weldTo
-		w.Part1 = skin
-		w.Parent = skin
-	end
-	skin.Parent = parent
-	for _, p in hide do
-		if p:IsA("BasePart") and p ~= skin then
-			p.Transparency = 1
-			for _, g in p:GetChildren() do
-				if g:IsA("SurfaceGui") then
-					g.Enabled = false
-				end
-			end
-		end
-	end
-end
-
 function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	local m = Instance.new("Model")
 	m.Name = "FireTruck67"
@@ -146,6 +103,12 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	end
 	local deco: MapKit.PartOpts = { collide = false }
 
+	-- Hero mesh first (it decides where the visual wheels go); parented at the end.
+	local visual = MeshSkin.config() or {}
+	local truckCfg = (visual :: any).Truck or {}
+	local heroSpec = MeshSkin.spec("FireTruckHero")
+	local hero = if heroSpec then MeshSkin.make(heroSpec, "HeroSkin", cf) else nil
+
 	-- Coordinates: x = right, y = up, z = back (front bumper near z = -13.5, tail near z = +13.5).
 	---------------------------------------------------------------- chassis + wheels
 	local chassis = P("Chassis", Vector3.new(0, 2.0, 0), Vector3.new(8.4, 1.2, 25), Tyre)
@@ -153,12 +116,32 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	P("SideSkirt_R", Vector3.new(4.85, 2.5, 1.5), Vector3.new(0.3, 0.8, 3.6), Steel)
 
 	local axles = { Front = -10.2, Mid = 5.4, Rear = 9.4 }
+	if hero and type(truckCfg.HeroAxleZ) == "table" then
+		for k, z in truckCfg.HeroAxleZ do
+			if axles[k] and type(z) == "number" then
+				axles[k] = z
+			end
+		end
+	end
 	for axleName, z in axles do
 		for _, side in { -1, 1 } do
 			local s = if side < 0 then "L" else "R"
 			P(`Wheel_{axleName}_{s}`, Vector3.new(side * 4.2, 1.8, z), Vector3.new(1.6, 3.6, 3.6), Tyre, { shape = Enum.PartType.Cylinder })
 			P(`Hub_{axleName}_{s}`, Vector3.new(side * 4.45, 1.8, z), Vector3.new(1.4, 1.9, 1.9), Steel, { shape = Enum.PartType.Cylinder, collide = false })
 			P(`HubCap_{axleName}_{s}`, Vector3.new(side * 5.1, 1.8, z), Vector3.new(0.2, 0.8, 0.8), Chrome, { shape = Enum.PartType.Cylinder, collide = false })
+		end
+	end
+	local wheelSpec = MeshSkin.spec("TruckWheel")
+	if wheelSpec then
+		for axleName, z in axles do
+			for _, side in { -1, 1 } do
+				local s = if side < 0 then "L" else "R"
+				local skin = MeshSkin.make(wheelSpec, `WheelSkin_{axleName}_{s}`, cf * CFrame.new(side * 4.2, 1.8, z), s)
+				if skin then
+					skin.Parent = m
+					MeshSkin.hide({ m:FindFirstChild(`Wheel_{axleName}_{s}`) :: any, m:FindFirstChild(`Hub_{axleName}_{s}`) :: any, m:FindFirstChild(`HubCap_{axleName}_{s}`) :: any })
+				end
+			end
 		end
 	end
 	-- Wheel arches (chunky red fenders over each axle).
@@ -261,7 +244,17 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		hinge.UpperAngle = 95
 		hinge.Parent = panel
 		-- skin with a generated mesh when the assets lane has one
-		meshSkin(door, `DoorSkin_{s}`, "TruckDoor", panel, cf * CFrame.new(x, 5.4, -6.65), Vector3.new(0.4, 5.4, 3.1), door:GetChildren())
+		local doorSpec = MeshSkin.spec("TruckDoor")
+		local doorSkin = if doorSpec then MeshSkin.make(doorSpec, `DoorSkin_{s}`, cf, s) else nil
+		if doorSkin then
+			MeshSkin.hide(door:GetChildren())
+			doorSkin.Parent = door
+			doorSkin:SetAttribute("Jointed", true) -- swings with the door (VehicleService skips Jointed parts)
+			local dw = Instance.new("WeldConstraint")
+			dw.Part0 = panel
+			dw.Part1 = doorSkin
+			dw.Parent = doorSkin
+		end
 	end
 
 	---------------------------------------------------------------- cab interior
@@ -384,8 +377,13 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	bob.C0 = bobBase.CFrame:ToObjectSpace(headCF * CFrame.new(0, -0.35, 0))
 	bob.C1 = CFrame.new(0, -0.35, 0)
 	bob.Parent = bobBase
-	-- skin the cab shell with a generated mesh when the assets lane has one
-	meshSkin(m, "CabSkin", "TruckCab", nil, cf * CFrame.new(0, 5.55, -8.9), Vector3.new(10.2, 6.4, 8.2), shell)
+	-- kit alternative (VisualConfig.Meshes.TruckCab, off by default): skin just the cab shell
+	local cabSpec = if hero then nil else MeshSkin.spec("TruckCab")
+	local cabSkin = if cabSpec then MeshSkin.make(cabSpec, "CabSkin", cf) else nil
+	if cabSkin then
+		MeshSkin.hide(shell)
+		cabSkin.Parent = m
+	end
 
 	-- "67" on the roof for the overhead camera.
 	local roofBadge = P("RoofBadge", Vector3.new(0, 8.72, -7.8), Vector3.new(4.2, 0.06, 3.0), White, deco)
@@ -413,10 +411,23 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	sirenSound.Parent = siren
 
 	-- Roof light bar: red | white | blue neon on a dark base.
-	P("LightBarBase", Vector3.new(0, 8.9, -11.4), Vector3.new(8.0, 0.45, 1.4), Ink)
-	P("LightRed", Vector3.new(-2.6, 9.4, -11.4), Vector3.new(2.6, 0.6, 1.1), Color3.fromRGB(255, 45, 45), { neon = true, collide = false })
-	P("LightWhite", Vector3.new(0, 9.4, -11.4), Vector3.new(1.8, 0.5, 1.0), Color3.fromRGB(255, 250, 235), { neon = true, collide = false })
-	P("LightBlue", Vector3.new(2.6, 9.4, -11.4), Vector3.new(2.6, 0.6, 1.1), Color3.fromRGB(45, 120, 255), { neon = true, collide = false })
+	local barBase = P("LightBarBase", Vector3.new(0, 8.9, -11.4), Vector3.new(8.0, 0.45, 1.4), Ink)
+	local lightRed = P("LightRed", Vector3.new(-2.6, 9.4, -11.4), Vector3.new(2.6, 0.6, 1.1), Color3.fromRGB(255, 45, 45), { neon = true, collide = false })
+	local lightWhite = P("LightWhite", Vector3.new(0, 9.4, -11.4), Vector3.new(1.8, 0.5, 1.0), Color3.fromRGB(255, 250, 235), { neon = true, collide = false })
+	local lightBlue = P("LightBlue", Vector3.new(2.6, 9.4, -11.4), Vector3.new(2.6, 0.6, 1.1), Color3.fromRGB(45, 120, 255), { neon = true, collide = false })
+	-- light bar mesh: the housing; the neon parts become thin caps on its lenses (VehicleController
+	-- still flashes them by name). The mesh has red at +X, so the caps follow it.
+	local barSpec = MeshSkin.spec("TruckLightBar")
+	local barSkin = if barSpec then MeshSkin.make(barSpec, "LightBarSkin", cf) else nil
+	if barSkin then
+		barSkin.Parent = m
+		MeshSkin.hide({ barBase })
+		local w = barSkin.Size.X / 3
+		for i, lp in { lightBlue, lightWhite, lightRed } do
+			lp.Size = Vector3.new(w * 0.8, 0.12, barSkin.Size.Z * 0.6)
+			lp.CFrame = barSkin.CFrame * CFrame.new((i - 2) * w, barSkin.Size.Y / 2 + 0.06, 0)
+		end
+	end
 
 	---------------------------------------------------------------- body / side compartments (z -5 .. 6.6)
 	P("Body", Vector3.new(0, 4.8, 0.8), Vector3.new(10, 4.8, 11.6), TruckRed)
@@ -555,6 +566,40 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	shotgun.Anchored = true
 	shotgun.CFrame = cf * CFrame.new(2.4, 4.1, -7.0)
 	shotgun.Parent = m
+
+	---------------------------------------------------------------- hero mesh (FireTruckHero)
+	if hero then
+		hero.Parent = m
+		local hidden: { Instance } = {}
+		for _, d in m:GetChildren() do
+			if d:IsA("BasePart") and d ~= hero and MeshSkin.matches(d.Name, truckCfg.Hide) then
+				table.insert(hidden, d)
+			end
+		end
+		MeshSkin.hide(hidden)
+		-- Red plates over the box sides + back hide the hero's mirrored "67"; ours goes above the lockers.
+		local px = tonumber(truckCfg.PanelX) or 4.6
+		local pz = if type(truckCfg.PanelZ) == "table" then truckCfg.PanelZ else { -5.0, 6.4 }
+		local py = if type(truckCfg.PanelY) == "table" then truckCfg.PanelY else { 2.9, 7.9 }
+		local zc, zl = (pz[1] + pz[2]) / 2, pz[2] - pz[1]
+		local yc, yh = (py[1] + py[2]) / 2, py[2] - py[1]
+		local numberOpts: MapKit.PartOpts = { collide = false, transparency = 1 }
+		local plate = if type(truckCfg.PanelColor) == "string" then Color3.fromHex(truckCfg.PanelColor) else TruckRed
+		for _, side in { -1, 1 } do
+			local s = if side < 0 then "L" else "R"
+			P(`HeroPanel_{s}`, Vector3.new(side * px, yc, zc), Vector3.new(0.12, yh, zl), plate, deco)
+			local num = P(`HeroNumber_{s}`, Vector3.new(side * (px + 0.08), py[2] - 1.1, zc), Vector3.new(0.04, 1.7, 3.4), TruckRed, numberOpts)
+			label(num, if side < 0 then Enum.NormalId.Left else Enum.NormalId.Right, "67", White, Ink)
+		end
+		local bz = tonumber(truckCfg.BackPanelZ) or 6.62
+		P("HeroBackPanel", Vector3.new(0, yc, bz), Vector3.new(2 * px - 0.2, yh, 0.12), plate, deco)
+		local backNum = P("HeroBackNumber", Vector3.new(0, py[2] - 0.9, bz + 0.08), Vector3.new(3.2, 1.4, 0.04), TruckRed, numberOpts)
+		label(backNum, Enum.NormalId.Back, "67", White, Ink)
+		local roofY = tonumber(truckCfg.RoofBadgeY)
+		if roofY then
+			roofBadge.CFrame = cf * CFrame.new(0, roofY, -7.8)
+		end
+	end
 
 	m.PrimaryPart = chassis
 	CollectionService:AddTag(m, Names.Tag.Truck)
