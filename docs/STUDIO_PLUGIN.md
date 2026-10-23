@@ -18,6 +18,8 @@ Open the panel with **Plugins → MuMake**. Files installed while Studio is runn
 
 ## A workspace that fits the creator
 
+The panel adapts to its actual dock width. Narrow docks use compact margins and keep every tool available; wrapped text and buttons grow vertically. Wide panels keep a centered content column capped at 560 pixels. Actions stay above the bottom edge while the page scrolls. The floating width hint is 440 pixels and the minimum width is 320; Studio owns dock sizing and may restore a previous size. No fixed-width canvas or text scaling is used.
+
 On first use, MuMake shows an optional two-step welcome flow. A coarse age range (13–15, 16–17, 18+) changes the visual treatment. Experience changes the density and help: starting out, made a few things, or confident. There is no name, date of birth, account survey or remote profile.
 
 Age never locks capabilities. A younger experienced creator can expose all the controls, and an adult beginner can choose step-by-step help. Every layout retains game creation, draft review, adding scripts to Studio, character checks, AI goals, evidence and feedback. **More controls** is available within the workspace without changing the saved preference.

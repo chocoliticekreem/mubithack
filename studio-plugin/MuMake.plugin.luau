@@ -35,7 +35,7 @@ local submittedActions=0
 local toolbar = plugin:CreateToolbar("MuMake")
 local toggle = toolbar:CreateButton("MuMake","Open MuMake","","MuMake")
 local widget = plugin:CreateDockWidgetPluginGuiAsync("MubitTesterNativeV1",
-    DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right,true,false,420,760,320,400))
+    DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right,true,false,Layout.defaultWidth,760,Layout.minWidth,400))
 widget.Title = "MuMake"
 widget.Enabled = true
 local function theme(name,fallback)
@@ -94,6 +94,7 @@ local function button(parent,label,fn,options)
     options=options or {}
     local el=Instance.new("TextButton")
     el.Name=options.name or label el.Size=UDim2.new(1,-4,0,options.primary and 44 or 36)
+    el.AutomaticSize=Enum.AutomaticSize.Y
     el.BackgroundColor3=options.primary and palette.blue or palette.surface
     el.BorderSizePixel=0 el.Font=fonts.medium el.TextSize=15
     el.TextColor3=options.primary and palette.onAccent or palette.text
@@ -172,7 +173,7 @@ local guideLink=button(header,"Guide",function() show("Guide") end)
 guideLink.Position=UDim2.new(1,-116,0,0) guideLink.Size=UDim2.fromOffset(50,32) guideLink.TextSize=13
 local settingsLink=button(header,"Settings",function() show("Settings") end)
 settingsLink.Position=UDim2.new(1,-60,0,0) settingsLink.Size=UDim2.fromOffset(60,32) settingsLink.TextSize=13
-local wayfinding=Instance.new("Frame") wayfinding.BackgroundTransparency=1 wayfinding.Position=UDim2.fromOffset(20,84)
+local wayfinding=Instance.new("Frame") wayfinding.Name="Wayfinding" wayfinding.BackgroundTransparency=1 wayfinding.Position=UDim2.fromOffset(20,84)
 wayfinding.Size=UDim2.new(1,-40,0,28) wayfinding.Parent=root
 local backButton=button(wayfinding,"Back",function() goBack() end)
 backButton.Size=UDim2.fromOffset(54,28) backButton.TextSize=13
@@ -184,7 +185,7 @@ local controlsToggle=button(wayfinding,"More controls",function()
     applyExperience()
 end)
 controlsToggle.Size=UDim2.fromOffset(120,28) controlsToggle.Position=UDim2.new(1,-120,0,0) controlsToggle.TextSize=13
-local nav=Instance.new("Frame") nav.BackgroundTransparency=1 nav.Position=UDim2.fromOffset(20,124)
+local nav=Instance.new("Frame") nav.Name="Navigation" nav.BackgroundTransparency=1 nav.Position=UDim2.fromOffset(20,124)
 nav.Size=UDim2.new(1,-40,0,36) nav.Parent=root
 local body=Instance.new("ScrollingFrame") body.Name="Content" body.BackgroundTransparency=1 body.BorderSizePixel=0
 body.Position=UDim2.fromOffset(16,176) body.Size=UDim2.new(1,-28,1,-236)
@@ -197,7 +198,7 @@ contentPadding.PaddingTop=UDim.new(0,4) contentPadding.PaddingBottom=UDim.new(0,
 body.CanvasSize=UDim2.new() body.Parent=root stack(body,20)
 local footer=section(root,"Footer") footer.Position=UDim2.new(0,20,1,-48) footer.Size=UDim2.new(1,-40,0,0)
 feedback=text(footer,"Start with an idea for your game.","small")
-feedback.AutomaticSize=Enum.AutomaticSize.None feedback.Size=UDim2.new(1,-4,0,32)
+feedback.Size=UDim2.new(1,-4,0,0)
 local stopButton=button(footer,"Stop MuMake",function()
     request("POST","/cancel",{}) say("Stopping MuMake…")
 end)
@@ -214,16 +215,12 @@ local function layoutSurface()
     controlsToggle.Visible=not special
     if welcomeActions then
         welcomeActions.Visible=tab=="Welcome"
-        welcomeActions.Position=UDim2.new(0,20,1,active and -220 or -112)
     end
     if makeActionBar then makeActionBar.Visible=tab=="Make game" and not active end
     footer.Visible=(not special and tab~="Make game") or active stopButton.Visible=active
-    footer.Position=UDim2.new(0,20,1,active and -100 or -48)
-    local top=tab=="Welcome" and (wayfinding.Visible and 124 or 88) or (tab=="Guide" and 124 or 176)
-    local bottom=tab=="Welcome" and (active and 236 or 128)
-        or (makeActionBar and makeActionBar.Visible and math.max(120,makeActionBar.AbsoluteSize.Y+32))
-        or (footer.Visible and (active and 116 or 64) or 16)
-    body.Position=UDim2.fromOffset(16,top) body.Size=UDim2.new(1,-28,1,-top-bottom)
+    Layout.apply(root,{header=header,status=status,wayfinding=wayfinding,nav=nav,body=body,
+        layoutLabel=layoutLabel,back=backButton,controls=controlsToggle,footer=footer,
+        welcomeActions=welcomeActions,makeAction=makeActionBar})
 end
 show=function(name,replace)
     if not pages[name] then return end
@@ -718,6 +715,9 @@ modeButtons.quick.BackgroundColor3=palette.tint
 modeButtons.quick.TextColor3=palette.blue
 refreshWelcome() refreshGuide() applyExperience()
 show(experience.route,true)
+for _,el in {root,status,footer,welcomeActions} do
+    table.insert(connections,el:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSurface))
+end
 table.insert(connections,toggle.Click:Connect(function() widget.Enabled=not widget.Enabled end))
 table.insert(connections,widget:GetPropertyChangedSignal("Enabled"):Connect(function() toggle:SetActive(widget.Enabled) end))
 local function dispose()
