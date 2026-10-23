@@ -174,3 +174,59 @@ async def test_faults_cleared_even_when_a_round_fails(settings):
         await run_cycle(settings, "fab", llm=FakeLLM({}), harness=h, playtest=broken,
                         faults=FAULTS, goal="play", rounds=1, log=lambda _: None)
     assert h.config == FakeHarness().config
+
+
+# ---------------------------------------------------------------- tester reports (triage)
+
+from forge import improve as imp  # noqa: E402
+
+TRIAGED = [{"kind": "broken_link", "system": "water", "title": "Hose does nothing", "expected": "fire goes out",
+            "observed": "water_used 100, fires_extinguished 0", "severity": "high"},
+           {"kind": "feel", "system": "doors", "title": "Axe can't break doors", "expected": "doors break",
+            "observed": "no telemetry", "severity": "medium"}]
+
+
+def triage_reply(anomalies):
+    return json.dumps({"summary": "hose and axe broken", "anomalies": anomalies})
+
+
+def test_report_on_named_runs_audits_then_corrects_what_the_auditor_missed(settings, monkeypatch):
+    monkeypatch.setattr(imp, "_playtest_digests", lambda s, ids: [round_digest({"goal": "g"}, 1)])
+    llm = FakeLLM({"triage": [triage_reply(TRIAGED)],
+                   "auditor": [audit_reply([{"system": "water", "title": "water leak"}]), audit_reply([])]})
+    rec = imp.file_report(settings, "fab", "hose useless and axe does nothing!!", llm=llm,
+                          run_ids=["pt-1"], reporter="sam", log=lambda _: None)
+    assert [c.role for c in llm.calls] == ["triage", "auditor", "auditor"]
+    assert "hose useless" in llm.calls[0].user
+    assert "A human tester found: Axe can't break doors" in llm.calls[2].user
+    assert "Hose does nothing" not in llm.calls[2].user
+    assert rec["auditor_missed"] == ["Axe can't break doors"] and rec["correction"]["request_id"]
+    assert imp.list_reports(settings, "fab")[0]["reporter"] == "sam"
+    assert "Axe can't break doors" in ImproveStore(settings, "fab").playbook()
+
+
+def test_report_reuses_the_latest_cycle_audit(settings):
+    store = ImproveStore(settings, "fab")
+    store.save_cycle({"cycle": 1, "ts": "t", "planted": 0, "detected": 0, "missed": 0, "unmatched": 0,
+                      "fixed_verified": 0, "before": [round_digest({}, 1)],
+                      "audit": {"anomalies": [{"system": "water"}, {"system": "doors"}]}})
+    llm = FakeLLM({"triage": [triage_reply(TRIAGED)]})
+    rec = imp.file_report(settings, "fab", "hose and axe broken", llm=llm, log=lambda _: None)
+    assert [c.role for c in llm.calls] == ["triage"]
+    assert rec["rounds"] == 1 and rec["auditor_missed"] == [] and rec["correction"] is None
+
+
+def test_report_without_rounds_triages_only(settings):
+    llm = FakeLLM({"triage": [triage_reply(TRIAGED[:1])]})
+    rec = imp.file_report(settings, "fab", "hose useless", llm=llm, log=lambda _: None)
+    assert [c.role for c in llm.calls] == ["triage"] and rec["correction"] is None
+    assert len(rec["triage"]["anomalies"]) == 1
+
+
+def test_empty_report_is_rejected(settings):
+    with pytest.raises(ValueError):
+        imp.file_report(settings, "fab", "  ", llm=FakeLLM({}), log=lambda _: None)
+
+
+def test_triage_prompt_exists():
+    assert "tester" in load_prompt("triage").lower()

@@ -64,7 +64,8 @@ forge/                 Python package (uv), entry point `forge`
                        playtest, faults, goal, rounds, players, steps) -> cycle dict; round_digest, audit,
                        verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
-  prompts/auditor.md, prompts/verifier.md   Mubit tasks: anomaly detection, fix verification
+  prompts/auditor.md, prompts/verifier.md, prompts/triage.md   Mubit tasks: anomaly detection,
+                       fix verification, tester-report triage (improve.file_report)
   play.py              AI playtester (observe → act → report)           [owner: play]
   mcp_server.py        stdio MCP server "forge" (`forge server`): build/iterate/correct/improve as jobs [owner: GF]
 game/                  the Roblox place, file-mapped like Script Sync
@@ -222,6 +223,8 @@ forge seed <slug> [--spec FILE]                      # runs/<slug>/game <- game/
 forge promote <slug> <path>                          # runs/<slug>/game/<path> -> game/<path>
 forge improve <slug> [--cycles N --rounds R --only ids]  # faults -> playtests -> auditor -> fix -> verifier
 forge scores <slug>                                  # detected / missed / fixed per improve cycle
+forge report <slug> "<text>" [--run ID] [--by NAME]  # tester report -> triage -> auditor correction
+forge reports <slug>
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
@@ -245,6 +248,8 @@ new_game(idea, iterations=3, use_studio=True, studio=None) -> str       # starts
 iterate(slug, iterations=1, use_studio=True, studio=None) -> str        # forge run
 correct(slug, path, note, use_studio=True, studio=None) -> str          # forge correct
 improve(slug, cycles=1, rounds=3, steps=15, only=None, studio=None) -> str
+tester_report(slug, text, run_ids=None, reporter=None) -> str           # forge report (job)
+tester_reports(slug) -> str
 job(job_id, tail=60) / jobs() / cancel_job(job_id)                      # runs/jobs/<id>.{json,log}
 games() / game(slug) / read_file(slug, path) / scores(slug) / playbook(slug) / lessons() / calls(slug)
 seed(slug) / promote(slug, path) / sync(slug=None, studio=None)
