@@ -86,7 +86,7 @@ function MapKit.wall(parent: Instance, name: string, origin: CFrame, a: Vector3,
 	local n = math.max(1, math.ceil(len / 8))
 	local out = {}
 	local dir = d.Unit
-	local rot = CFrame.lookAt(Vector3.zero, Vector3.new(dir.Z, 0, -dir.X))
+	local rot = CFrame.lookAt(Vector3.zero, dir) -- part length (Z) runs along the wall
 	for i = 1, n do
 		local mid = a + dir * ((i - 0.5) * len / n)
 		local cf = origin * CFrame.new(mid.X, mid.Y + h / 2, mid.Z) * rot

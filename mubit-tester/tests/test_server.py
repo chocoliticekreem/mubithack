@@ -118,12 +118,16 @@ async def test_tools_registered():
     assert ms.mcp.name == "mubit-tester"
 
 
-def test_mcp_config_and_permissions():
-    cfg = json.loads((REPO / ".mcp.json").read_text())["mcpServers"]
-    assert "forge" not in cfg and cfg["mubit-tester"]["command"] == "mubit-tester/bin/mubit-tester-mcp.sh"
-    allow = json.loads((REPO / ".claude" / "settings.json").read_text())["permissions"]["allow"]
-    assert not [a for a in allow if a.startswith("mcp__forge__")]
-    assert {f"mcp__mubit-tester__{n}" for n in CONTRACT_TOOLS} <= set(allow)
+def test_plugin_config_and_permissions():
+    plugin = REPO / "mubit-tester"
+    cfg = json.loads((plugin / ".mcp.json").read_text())["mcpServers"]
+    assert cfg["mubit-tester"]["command"] == "${CLAUDE_PLUGIN_ROOT}/bin/mubit-tester-mcp.sh"
+    assert json.loads((plugin / ".claude-plugin" / "plugin.json").read_text())["name"] == "mubit-tester"
+    market = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text())
+    assert market["plugins"][0]["source"] == "./mubit-tester"
+    settings = json.loads((REPO / ".claude" / "settings.json").read_text())
+    assert settings["enabledPlugins"]["mubit-tester@mubithack"] is True
+    assert "mcp__plugin_mubit-tester_mubit-tester" in settings["permissions"]["allow"]
 
 
 def test_format_report():

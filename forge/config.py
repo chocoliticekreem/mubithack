@@ -8,7 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# FORGE_PROJECT_DIR lets an installed copy (e.g. the mubit-tester plugin via uvx) work on a checkout.
+REPO_ROOT = Path(os.environ.get("FORGE_PROJECT_DIR") or Path(__file__).resolve().parent.parent).resolve()
 
 DEFAULT_BASE_URLS = {
     "anthropic": "https://api.mubit.ai/anthropic",

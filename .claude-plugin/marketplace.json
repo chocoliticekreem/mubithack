@@ -1,0 +1,12 @@
+{
+  "name": "mubithack",
+  "description": "Night Shift x Mubit hackathon tools",
+  "owner": { "name": "mubithack team" },
+  "plugins": [
+    {
+      "name": "mubit-tester",
+      "source": "./mubit-tester",
+      "description": "Mubit-powered Roblox game tester for Claude Code: multiplayer harness, scenarios, AI playtesters"
+    }
+  ]
+}

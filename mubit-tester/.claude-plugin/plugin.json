@@ -1,0 +1,24 @@
+{
+  "name": "mubit-tester",
+  "displayName": "Mubit Tester",
+  "version": "0.1.0",
+  "description": "Mubit-powered Roblox game tester: drives every player in a Studio playtest, scripted scenarios, and multiplayer AI playtesters whose LLM calls route through Mubit so corrections become model updates.",
+  "author": { "name": "mubithack team" },
+  "repository": "https://github.com/chocoliticekreem/mubithack",
+  "license": "MIT",
+  "keywords": ["roblox", "testing", "mubit", "mcp", "playtest", "multiplayer"],
+  "userConfig": {
+    "mubit_api_key": {
+      "type": "string",
+      "title": "Mubit API key",
+      "description": "Your mbt_ key from https://app.mubit.ai/console/. Every LLM call the tester makes goes through Mubit.",
+      "sensitive": true
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "Model id sent through Mubit (keep it the same for the whole team so tasks pool)",
+      "default": "claude-sonnet-5"
+    }
+  }
+}

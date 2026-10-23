@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mubit-tester": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mubit-tester-mcp.sh",
+      "args": [],
+      "env": {
+        "MUBIT_API_KEY": "${user_config.mubit_api_key}",
+        "FORGE_MODEL": "${user_config.model}"
+      }
+    },
+    "roblox-studio": {
+      "type": "stdio",
+      "command": "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP",
+      "args": []
+    }
+  }
+}
