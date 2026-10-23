@@ -363,12 +363,17 @@ class Studio:
     async def console(self) -> str:
         return await self.call("get_console_output")
 
-    async def screenshot(self, out: Path) -> Path | None:
-        """screen_capture; writes the image to `out` and returns it, or None if no image came back."""
+    async def screenshot(self, out: Path, camera: tuple | list | None = None,
+                         look_at: tuple | list | None = None) -> Path | None:
+        """screen_capture; writes the image to `out` and returns it, or None if no image came back.
+        camera/look_at (x, y, z) place the capture camera."""
         out = Path(out)
         self._capture_n += 1
+        args: dict = {"capture_id": f"ScreenCapture_{self._capture_n}"}
+        if camera is not None and look_at is not None:
+            args.update(camera_position=list(camera), look_at_position=list(look_at))
         try:
-            result = await self.call_result("screen_capture", capture_id=f"ScreenCapture_{self._capture_n}")
+            result = await self.call_result("screen_capture", **args)
         except StudioError as e:
             print(f"[studio] screenshot failed: {e}", file=self._errlog)
             return None

@@ -1,4 +1,4 @@
-"""`forge doctor | new | run | correct | status | watch | sync | place`."""
+"""`forge doctor | new | run | correct | status | watch | sync | place | play | play-correct | play-list | mcp`."""
 
 from __future__ import annotations
 
@@ -171,6 +171,32 @@ def cmd_place(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- AI playtester
+
+def cmd_play(args) -> int:
+    from forge.mcp_server import run_playtest
+    print(asyncio.run(run_playtest(args.goal, args.steps, args.studio)))
+    return 0
+
+
+def cmd_play_correct(args) -> int:
+    from forge.mcp_server import run_correct
+    print(asyncio.run(run_correct(args.run_id, args.step, args.note)))
+    return 0
+
+
+def cmd_play_list(args) -> int:
+    from forge.mcp_server import get_list
+    print(get_list())
+    return 0
+
+
+def cmd_mcp(args) -> int:
+    from forge.mcp_server import main as mcp_main
+    mcp_main()
+    return 0
+
+
 # ---------------------------------------------------------------- main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -214,6 +240,19 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--root", help="game folder (default game/)")
     pl.add_argument("--out", default="place/Forge.rbxlx")
     pl.add_argument("--open", action="store_true", help="open it in Roblox Studio")
+
+    py = sub.add_parser("play", help="AI playtest the open Studio game toward a goal (markdown report)")
+    py.add_argument("goal")
+    py.add_argument("--steps", type=int, default=20)
+    py.add_argument("--studio", help="pick the Studio whose name contains this")
+
+    pc = sub.add_parser("play-correct", help="correct the playtester's choice at one step (Mubit signal)")
+    pc.add_argument("run_id")
+    pc.add_argument("step", type=int)
+    pc.add_argument("note", help="what it should have done")
+
+    sub.add_parser("play-list", help="list past playtest runs")
+    sub.add_parser("mcp", help="run the forge MCP server over stdio (for Claude Code)")
     return p
 
 
@@ -221,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
-               "place": cmd_place}[args.cmd]
+               "place": cmd_place, "play": cmd_play, "play-correct": cmd_play_correct,
+               "play-list": cmd_play_list, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

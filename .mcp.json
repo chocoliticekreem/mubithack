@@ -4,6 +4,11 @@
       "type": "stdio",
       "command": "/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP",
       "args": []
+    },
+    "forge": {
+      "type": "stdio",
+      "command": "scripts/forge-mcp.sh",
+      "args": []
     }
   }
 }

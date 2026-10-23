@@ -56,7 +56,9 @@ forge/                 Python package (uv), entry point `forge`
   sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
-  cli.py               `forge new|run|correct|status|doctor`            [owner: loop]
+  cli.py               `forge new|run|correct|status|doctor|play|mcp`   [owner: loop]
+  play.py              AI playtester (observe → act → report)           [owner: play]
+  mcp_server.py        stdio MCP server "forge" exposing the playtester [owner: play]
 game/                  the Roblox place, file-mapped like Script Sync
   ServerScriptService/ X.server.luau → Script, X.luau → ModuleScript, dirs → Folders
   ReplicatedStorage/
@@ -111,7 +113,7 @@ class MubitLLM(LLM):  # __init__(settings, log_path: Path | None)
 class FakeLLM(LLM):   # __init__(responses: dict[str, list[str]]) — pops scripted replies per role
 def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else MubitLLM; raises if no key
 ```
-Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`.
+Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`.
 
 ### roles.py (all go through LLM; user-message builders live here)
 ```python
@@ -187,3 +189,34 @@ forge status [<slug>]                                # iterations, scores, call 
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
 created, updated}`.
+
+### Playtester: play.py + mcp_server.py
+```python
+# forge/play.py
+async def playtest(settings, goal: str, steps: int = 20, studio_name: str | None = None, *,
+                   llm=None, studio=None, step_seconds: float = 2.0) -> dict
+    # report: {run_id, goal, goal_met, summary, bugs: [{title, evidence, severity}],
+    #          steps: [{n, observation, action, result, request_id, latency_ms}], probe, request_ids}
+def load_report(settings, run_id: str) -> dict
+def list_reports(settings) -> list[dict]
+async def correct_step(settings, run_id: str, step: int, note: str, *, llm=None) -> dict
+    # {run_id, step, before, after, request_id}; a new call in the playtester's Mubit task
+
+# forge/mcp_server.py  (MCPServer "forge", stdio; mcp SDK 2.x)
+playtest(goal: str, steps: int = 20, studio: str | None = None) -> str   # markdown report
+playtest_correct(run_id: str, step: int, note: str) -> str
+playtest_report(run_id: str) -> str
+playtest_list() -> str
+forge_doctor() -> str                                                     # captured `forge doctor`
+# shared with the CLI: run_playtest, run_correct, get_report, get_list, format_report, doctor_text
+```
+stdout is the MCP wire: tool bodies run under `redirect_stdout(sys.stderr)`, so progress prints in
+play.py are fine. Errors are re-raised as `ToolError(<type>: <message>)` so the client sees them.
+Registered in `.mcp.json` as `forge` → `scripts/forge-mcp.sh` (cds to the repo, execs
+`.venv/bin/forge mcp`); tools are allowed in `.claude/settings.json`.
+```
+forge play "<goal>" [--steps N] [--studio NAME]   # same markdown as the MCP tool
+forge play-correct <run_id> <step> "<note>"
+forge play-list
+forge mcp                                         # or: python -m forge.mcp_server
+```

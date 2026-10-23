@@ -44,6 +44,19 @@ files, rebuilds the manifest, serves them and pulls them in, and it never delete
    act like a player.
 6. **Always** `start_stop_play {is_start: false}` before you finish, even after a failure.
 
+## AI playtest (forge MCP)
+After changing gameplay code, let the Mubit-backed playtester play it instead of scripting inputs:
+1. `mcp__forge__playtest {goal: "<concrete player goal>", steps: 20, studio: "<name hint>"}`. Make the
+   goal checkable ("spawn, walk to the fire truck, pick up the hose, spray the burning house"), not
+   "test the game". It starts play, acts step by step, stops, and returns goal met, bugs and a step
+   table with a `run_id`.
+2. Fix the bugs it reports (evidence names what it saw), let the files sync, run the same goal again.
+3. When a bug is the **playtester's** mistake (wrong choice at step n, not a game bug), call
+   `mcp__forge__playtest_correct {run_id, step, note: "it should have ..."}`. That call is a training
+   example in the playtester's Mubit task, so use it whenever its choice was wrong.
+4. `mcp__forge__playtest_list` / `playtest_report {run_id}` show past runs; `forge_doctor` checks setup.
+   CLI equivalents: `forge play "<goal>"`, `forge play-correct <run_id> <n> "<note>"`, `forge play-list`.
+
 ## Gotchas
 | Symptom | Cause, and the fix |
 |---|---|
@@ -65,6 +78,6 @@ intent through RemoteEvents that the server creates and validates. Handle `Playe
 
 ## Finish
 1. `python3 game/tools/sync.py check --root game` passes.
-2. The playtest has no errors in the ForgeProbe report.
+2. The playtest has no errors in the ForgeProbe report (and `mcp__forge__playtest` meets its goal).
 3. Studio is back in Edit, and the Workspace has no leftover test objects.
 4. Commit on your branch, then open a PR (`docs/TEAM.md`).
