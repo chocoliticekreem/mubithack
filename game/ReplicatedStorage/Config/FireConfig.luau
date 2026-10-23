@@ -9,7 +9,7 @@ return Config.define({
 	MaxBurningPerLocation = 120, -- per mission instance; spread pauses at the cap for that instance only
 	MaxBurning = 480, -- server-wide safety net (parallel instances each get their own 120 first)
 	SpreadRadius = 8, -- studs; also the spatial-hash cell size
-	SpreadHeatPerSecond = 14, -- heat a burning part adds to each idle neighbour
+	SpreadHeatPerSecond = 5, -- heat a burning part adds to each idle neighbour
 	GrowPerSecond = 6,
 	IgniteAt = 40,
 	ExtinguishAt = 10,
