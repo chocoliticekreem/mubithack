@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "doc": "Custom asset manifest. Edit by hand or with `forge assets ...`; `forge assets sync` writes game/ReplicatedStorage/Config/AssetIds.luau from it. See docs/game/07-assets.md.",
+  "assets": [
+    {
+      "id": "FirefighterHelmet",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "cartoon red fire helmet with gold badge, low poly",
+      "params": {
+        "size": [
+          3,
+          2,
+          3.4
+        ],
+        "maxTriangles": 4000,
+        "segmentation": "none"
+      },
+      "assetId": "113550565774556",
+      "contentId": "rbxassetid://120869843818437",
+      "extra": {
+        "Texture": "rbxassetid://125367091703714",
+        "Model": "rbxassetid://113550565774556"
+      },
+      "generation": {
+        "id": "483bdffa-62c8-4182-9a45-742e8381705a",
+        "date": "2026-10-23",
+        "meshParts": [
+          {
+            "name": "body_geom",
+            "meshId": "rbxassetid://120869843818437",
+            "textureId": "rbxassetid://125367091703714",
+            "size": [
+              2.71,
+              2.0,
+              3.04
+            ]
+          }
+        ]
+      },
+      "status": "done",
+      "notes": "02 §5 helmet (HelmetRed #C0301E, gold shield). Trial generation 2026-10-23 in the Firefighter Mubit place; the Studio copy was deleted, ids kept. Number decal (01-04) still goes on top as a SurfaceGui."
+    },
+    {
+      "id": "GooglyEyes",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "pair of big round cartoon googly eyes, white with small black pupils, low poly",
+      "params": {
+        "size": [
+          2,
+          1,
+          1
+        ],
+        "maxTriangles": 1500,
+        "segmentation": "none"
+      },
+      "notes": "02 §5. v1 is part-built (pupils must jiggle); use the mesh only for the eye-white shells.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "FirefighterGlove",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "thick olive firefighter glove with chunky fingers, cartoon, low poly",
+      "params": {
+        "size": [
+          1.4,
+          0.9,
+          1.6
+        ],
+        "maxTriangles": 3000,
+        "segmentation": "none"
+      },
+      "notes": "02 §9 viewmodel glove (GloveOlive #8C7A3A). Always on screen, so worth the quota.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "HoseNozzle",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "brass fire hose nozzle with red pistol grip, cartoon, low poly",
+      "params": {
+        "size": [
+          0.8,
+          0.8,
+          2.2
+        ],
+        "maxTriangles": 3000,
+        "segmentation": "none"
+      },
+      "notes": "02 §9 viewmodel tool (BrassCoupling #C89A3C). Weld at GripR.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "FireAxe",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "cartoon firefighter axe with red head and wooden handle, low poly",
+      "params": {
+        "size": [
+          0.6,
+          3.2,
+          1.4
+        ],
+        "maxTriangles": 2500,
+        "segmentation": "none"
+      },
+      "notes": "02 §8 axe door break + viewmodel.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "FirefighterBody",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "chubby cartoon firefighter potato body in tan coat with lime reflective bands, no head",
+      "params": {
+        "size": [
+          3,
+          4,
+          2.4
+        ],
+        "maxTriangles": 8000,
+        "segmentation": "none"
+      },
+      "notes": "02 §13 v2 shell welded to the R15 rig; keep part-built eyes on top.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "PetPanda",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "chunky cartoon panda with big googly eyes and pink tongue, low poly",
+      "params": {
+        "size": [
+          2.5,
+          2.5,
+          3
+        ],
+        "maxTriangles": 6000,
+        "segmentation": "none"
+      },
+      "notes": "02 §13: most important pet for the store pitch.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "PetDog",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "chunky cartoon brown dog with big googly eyes and tongue out, low poly",
+      "params": {
+        "size": [
+          2,
+          2,
+          3
+        ],
+        "maxTriangles": 6000,
+        "segmentation": "none"
+      },
+      "notes": "02 §5 pet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "PetCat",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "chunky cartoon orange cat with big googly eyes, low poly",
+      "params": {
+        "size": [
+          1.8,
+          2,
+          2.6
+        ],
+        "maxTriangles": 6000,
+        "segmentation": "none"
+      },
+      "notes": "02 §5 pet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "TruckLightBar",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "fire truck roof light bar with two red and one white light, cartoon, low poly",
+      "params": {
+        "size": [
+          6,
+          0.8,
+          1.2
+        ],
+        "maxTriangles": 2000,
+        "segmentation": "none"
+      },
+      "notes": "02 §6 truck detail. The lamps stay Neon parts so they can flash.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "TruckLadder",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "silver fire truck roof ladder, cartoon, low poly",
+      "params": {
+        "size": [
+          3,
+          1,
+          18
+        ],
+        "maxTriangles": 3000,
+        "segmentation": "none"
+      },
+      "notes": "02 §6 truck detail (TruckChrome #D6D8DC).",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "TruckHoseReel",
+      "kind": "mesh",
+      "source": "generate",
+      "prompt": "yellow fire hose coiled on a red reel, cartoon, low poly",
+      "params": {
+        "size": [
+          3,
+          3,
+          2
+        ],
+        "maxTriangles": 3000,
+        "segmentation": "none"
+      },
+      "notes": "02 §6 truck side hose reel = refill point (tag Refill stays on the code-built part).",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "FireTruck",
+      "kind": "model",
+      "source": "generate",
+      "prompt": "cartoon red fire truck with white side stripe, ladder on top and six wheels",
+      "params": {
+        "tool": "procedural"
+      },
+      "notes": "02 §13 v2 hero truck via generate_procedural_model (50/day quota). Needs the 67 SurfaceGui on top. If no publishedAssetId comes back, save it as a package by hand.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "CharredWood",
+      "kind": "texture",
+      "source": "generate",
+      "prompt": "burnt charred black wood with glowing ember cracks, cartoon",
+      "params": {
+        "tool": "material",
+        "baseMaterial": "Wood",
+        "materialPattern": "Organic"
+      },
+      "notes": "02 §7 charred swap after a part burns out. MaterialVariant in MaterialService.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "StationBrick",
+      "kind": "texture",
+      "source": "generate",
+      "prompt": "warm red cartoon brick wall with cream mortar",
+      "params": {
+        "tool": "material",
+        "baseMaterial": "Brick",
+        "materialPattern": "Regular"
+      },
+      "notes": "02 §6 FireStation walls (StationBrick).",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "FireFlipbook",
+      "kind": "texture",
+      "source": "marketplace",
+      "query": "cartoon fire flipbook",
+      "notes": "02 §7 flame sprite sheet, FlipbookLayout Grid4x4. Fallback: rbxasset://textures/particles/fire_main.dds. Or draw one and switch source to upload with file images/fire_flipbook.png.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SmokeFlipbook",
+      "kind": "texture",
+      "source": "marketplace",
+      "query": "cartoon smoke puff flipbook",
+      "notes": "02 §7 smoke sheet. Fallback: rbxasset://textures/particles/smoke_main.dds.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "IconFire",
+      "kind": "decal",
+      "source": "upload",
+      "file": "images/fire_icon.png",
+      "notes": "02 §10 HUD icon: fire objective / marker. 256x256 PNG, thick UiInk outline. File not drawn yet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "IconRescue",
+      "kind": "decal",
+      "source": "upload",
+      "file": "images/rescue_icon.png",
+      "notes": "02 §10 HUD icon: rescue objective / marker. 256x256 PNG, thick UiInk outline. File not drawn yet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "IconTruck",
+      "kind": "decal",
+      "source": "upload",
+      "file": "images/truck_icon.png",
+      "notes": "02 §10 HUD icon: truck / drop-zone arrow. 256x256 PNG, thick UiInk outline. File not drawn yet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "IconTank",
+      "kind": "decal",
+      "source": "upload",
+      "file": "images/tank_icon.png",
+      "notes": "02 §10 HUD icon: water tank / refill. 256x256 PNG, thick UiInk outline. File not drawn yet.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SfxSiren",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "fire truck siren",
+      "notes": "02 §11 truck siren, 3D on truck.",
+      "assetId": null,
+      "status": "candidates",
+      "candidates": [
+        {
+          "assetId": "317455930",
+          "name": "Fire Truck Siren",
+          "creator": "BeFUZZled",
+          "creatorId": null,
+          "assetType": "Audio",
+          "isFree": true,
+          "priceCents": 0,
+          "url": "https://create.roblox.com/store/asset/317455930",
+          "license": "Creator Store free, by BeFUZZled; usable under the Roblox Terms of Use (no separate licence); third-party audio may be blocked by audio privacy outside its owner's experiences - test-play it"
+        },
+        {
+          "assetId": "200252683",
+          "name": "Fire Truck Siren",
+          "creator": "TwentyTwoPilots",
+          "creatorId": null,
+          "assetType": "Audio",
+          "isFree": true,
+          "priceCents": 0,
+          "url": "https://create.roblox.com/store/asset/200252683",
+          "license": "Creator Store free, by TwentyTwoPilots; usable under the Roblox Terms of Use (no separate licence); third-party audio may be blocked by audio privacy outside its owner's experiences - test-play it"
+        },
+        {
+          "assetId": "530137633",
+          "name": "Brandweer Sirene LOOP / Fire Truck Siren LOOP ",
+          "creator": "HeadlessDeathSpeaker",
+          "creatorId": null,
+          "assetType": "Audio",
+          "isFree": true,
+          "priceCents": 0,
+          "url": "https://create.roblox.com/store/asset/530137633",
+          "license": "Creator Store free, by HeadlessDeathSpeaker; usable under the Roblox Terms of Use (no separate licence); third-party audio may be blocked by audio privacy outside its owner's experiences - test-play it"
+        }
+      ]
+    },
+    {
+      "id": "SfxAlarmBell",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "fire station alarm bell",
+      "notes": "02 §11 station alarm, loops 3 s at round start.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SfxHoseSprayLoop",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "water hose spray loop",
+      "notes": "02 §11 hose spray loop, volume follows the trigger.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SfxFireCrackle",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "fire crackling loop",
+      "notes": "02 §11 crackle loop per fire cluster (max 6).",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SfxAxeChop",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "axe wood chop",
+      "notes": "02 §11 axe chop (wood thunk).",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "SfxRescueDing",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "cartoon ding",
+      "notes": "02 §11 rescue ding, +5% pitch per consecutive rescue.",
+      "assetId": null,
+      "status": "todo"
+    },
+    {
+      "id": "MusicStation",
+      "kind": "audio",
+      "source": "marketplace",
+      "query": "funk brass",
+      "notes": "02 §11 upbeat funk-brass station loop; prefer Roblox's licensed library.",
+      "assetId": null,
+      "status": "todo"
+    }
+  ]
+}

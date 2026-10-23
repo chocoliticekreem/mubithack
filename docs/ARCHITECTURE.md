@@ -56,9 +56,10 @@ forge/                 Python package (uv), entry point `forge`
   sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
-  cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote`   [owner: loop]
+  cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote|assets`   [owner: loop]
   seed.py              seed(settings, slug, spec_path=None) -> RunStore; promote(settings, slug, rel) -> Path
   seeds/<slug>.json    Forge spec for a seeded run (flame-and-blame: FlareUpService)
+  assets.py            assets/manifest.json -> generate/search/upload -> Config/AssetIds.luau (no LLM)
   play.py              AI playtester (observe → act → report)           [owner: play]
   mcp_server.py        stdio MCP server "forge" exposing the playtester [owner: play]
 game/                  the Roblox place, file-mapped like Script Sync
@@ -183,6 +184,26 @@ class Studio:  # async context manager; spawns settings.studio_mcp_path over std
     async def screenshot(self, out: Path) -> Path | None  # screen_capture; saves image if returned
     async def probe_report(self) -> dict                  # execute_luau in Server DM: ForgeProbe:Invoke("report")
     async def sync(self, root: Path, port: int) -> str    # manifest + serve_in_thread + execute pull_luau
+```
+
+### assets.py (docs/game/07-assets.md)
+```python
+def load_manifest(path=MANIFEST) -> dict; def save_manifest(data, path=MANIFEST) -> None
+def render_asset_ids(data) -> str            # AssetIds.luau text: X / X_<extra> -> "rbxassetid://..." or ""
+def sync_ids(data, out=ASSET_IDS_LUAU, check=False) -> bool   # True if changed / stale
+async def generate_entry(studio, e, keep=False, log=print) -> dict  # generate_mesh | generate_material |
+                                                    # generate_procedural_model (async + wait_job_finished)
+async def search_entry(studio, e, query=None, max_results=5) -> list[dict]  # search_asset -> e["candidates"]
+def pick(e, n=None, asset_id=None) -> dict
+def upload_entry(e, root, *, env=None, http=..., poll_interval=1.0, max_polls=60, sleep=time.sleep) -> dict
+                                                    # Open Cloud POST assets/v1/assets + poll operations/{id}
+```
+```
+forge assets list [--status S] [--kind K]
+forge assets generate <id...>|--all [--keep] [--dry-run] [--studio NAME]
+forge assets search <id> [--query Q] [--max N] [--pick N | --pick-id ID] [--studio NAME]
+forge assets upload <id...>|--all [--dry-run]
+forge assets sync [--check]
 ```
 
 ### loop.py / memory.py / cli.py
