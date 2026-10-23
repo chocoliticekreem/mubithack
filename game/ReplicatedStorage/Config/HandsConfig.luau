@@ -27,8 +27,6 @@ return Config.define({
 	-- pulled to it by AlignPosition/AlignOrientation, so walls and props push back
 	TargetHz = 4.5, -- natural frequency of the pose spring
 	TargetDamping = 0.42, -- < 1 = overshoot and wobble
-	StrikeHz = 10, -- stiffer spring while the axe strike runs
-	StrikeDamping = 0.5,
 	HandResponsiveness = 60, -- AlignPosition
 	HandMaxForce = 2500, -- base pull (the palm itself is light); lift for held props is added on top
 	HandMaxVelocity = 140,
@@ -77,9 +75,9 @@ return Config.define({
 	-- pose in aim space (head origin, root yaw, camera pitch; x right, y up, -z forward; degrees).
 	-- Hold the tool button to wind up, release to chop. Same pose on every client = same arm in 1P/3P.
 	AxePoses = {
-		Ready = { x = 0.95, y = -1.25, z = -1.55, rx = -38, ry = 8, rz = 22 },
-		Windup = { x = 1.25, y = 0.05, z = -0.55, rx = 70, ry = 10, rz = 8 },
-		Strike = { x = 0.35, y = -1.15, z = -2.05, rx = -95, ry = -4, rz = 2 },
+		Ready = { x = 1.3, y = -1.6, z = -2.0, rx = -65, ry = 30, rz = 4 }, -- low right, head right of the crosshair
+		Windup = { x = 1.05, y = -0.8, z = -1.4, rx = -5, ry = 30, rz = -10 }, -- raised up top-right
+		Strike = { x = 0.5, y = -1.5, z = -2.3, rx = -100, ry = 10, rz = 0 }, -- forward-down chop
 	},
 	AxeWindupSeconds = 0.5, -- hold this long for a full wind-up
 	AxeStrikeSeconds = 0.3, -- the chop (wind-up -> strike)
@@ -87,7 +85,7 @@ return Config.define({
 	AxeMinCharge = 0.35, -- a tap still chops a bit
 	AxeArmHz = 7, -- grip pose spring (lag + a little overshoot)
 	AxeArmDamping = 0.55,
-	AxeArmStrikeHz = 14, -- stiffer while chopping
+	AxeArmStrikeHz = 18, -- stiffer while chopping
 	AxeArmStrikeDamping = 0.6,
 	AxeRunBob = 0.12, -- studs of grip bounce at full run (shakes the head)
 	AxePitchScale = 0.85, -- how much the camera pitch tilts the arm
@@ -95,23 +93,21 @@ return Config.define({
 	AxeArmSendHz = 20, -- arm packet rate (client -> server -> others)
 	AxeArmBlendSeconds = 0.15, -- fade the IK arm in/out on equip
 	AxeHeadSlack = 4, -- server: studs between the replicated head and the door box
-	-- head joint (applied by ToolService on the Tool; read at build time)
+	-- head joint (Lib/Tools/AxeBuilder, read when a Tool is built)
 	AxeHeadDeg = 40, -- ball socket cone
 	AxeHeadTwistDeg = 12,
 	AxeHeadRestitution = 0.25,
 	AxeHeadSpring = 12, -- AlignOrientation responsiveness back to rest (weak: it still flops)
 	AxeHeadSpringTorque = 40,
-	AxeHeadDensityV2 = 2.0,
-	AxeMinSpeed = 22, -- head speed (studs/s) for 1 door hit
-	AxeStrongSpeed = 38, -- 2 hits
-	AxeCritSpeed = 55, -- 3 hits (a perfect swing breaks a door outright)
+	AxeHeadDensity = 2.0, -- sane metal-ish weight: it lags and flops but never yanks the arm
+	-- door hits from the head's speed relative to the body when it meets the door (measured live:
+	-- a tapped chop ~40 studs/s, a full wind-up ~60, a running full chop more)
+	AxeMinSpeed = 22, -- 1 door hit
+	AxeStrongSpeed = 50, -- 2 hits
+	AxeCritSpeed = 70, -- 3 hits (breaks a door outright)
 	AxeMaxSpeed = 160, -- server clamp on reported speed
 	AxeReach = 12, -- server: max studs root -> door centre
 	AxeHitCooldown = 0.35,
-	AxeHeadFlopDeg = 55, -- ball socket cone
-	AxeHeadDensity = 0.9, -- light enough that the palm springs stay in charge (no flailing)
-	AxeHeadFriction = 4, -- ball socket friction torque: damps the flop
-	AxeResetDistance = 2, -- studs: a head that ever separates from its socket snaps back
 	AxeBonkPush = 32,
 	AxeBonkLift = 18,
 

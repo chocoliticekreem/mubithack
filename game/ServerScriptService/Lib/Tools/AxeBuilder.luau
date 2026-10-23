@@ -104,7 +104,7 @@ function AxeBuilder.make(): Tool
 	head.CanQuery = false
 	head.CanTouch = true
 	head.CollisionGroup = AxeBuilder.HEAD_GROUP
-	head.CustomPhysicalProperties = PhysicalProperties.new(tonumber(HandsConfig.AxeHeadDensityV2) or 2, 0.4, 0.3, 1, 1)
+	head.CustomPhysicalProperties = PhysicalProperties.new(tonumber(HandsConfig.AxeHeadDensity) or 2, 0.4, 0.3, 1, 1)
 	head.Parent = tool
 	local edge = part("Edge", Vector3.new(0.16, 0.86, 0.26), steel, Enum.Material.Metal, headCF * CFrame.new(0, 0, -0.43))
 	edge.Parent = tool
