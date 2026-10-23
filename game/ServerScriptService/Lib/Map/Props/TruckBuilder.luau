@@ -7,6 +7,10 @@
 --   "RescueDropoff" (invisible, non-collide, CanTouch box at the open back) -> RescueDropoff.
 --   Named parts for VehicleService/VehicleController: Chassis, Wheel_<axle>_<L|R>, LightRed, LightBlue,
 --   LightWhite, Siren, Headlight_L/R, TailLight_L/R, Bench_L/R (crew seats), Deck.
+-- v2 mount points (docs/game/08 "Vehicles" / "Inventory"):
+--   "Locker_<L|R><1..3>" tagged TruckCompartment, attr Item (TruckBuilder.CompartmentItems) -> InventoryService
+--   "DriveSeat" (VehicleSeat, hidden in the cab) and "CrewSeat_1..4" (Seats on the back benches)
+--   -> VehicleService welds everything to the Chassis when it makes the truck drivable.
 -- TruckBuilder.Preview (Studio command bar or execute_luau, Edit mode):
 --   local T = require(game.ServerScriptService.Lib.Map.Props.TruckBuilder)
 --   local old = workspace:FindFirstChild("FireTruck67"); if old then old:Destroy() end
@@ -18,6 +22,11 @@ local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Nam
 local MapKit = require(script.Parent.Parent:WaitForChild("MapKit") :: ModuleScript)
 
 local TruckBuilder = {}
+
+-- Tag string (not in the frozen Names yet, so fall back to the literal).
+TruckBuilder.CompartmentTag = (Names.Tag :: any).TruckCompartment or "TruckCompartment"
+-- Item in each side locker, front to back (Inventory item ids).
+TruckBuilder.CompartmentItems = { "Axe", "Extinguisher", "OxygenTank" }
 
 -- Palette (docs/game/02 §1).
 local TruckRed = Color3.fromRGB(200, 35, 43) -- #C8232B
@@ -165,7 +174,12 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
 		for i, z in doorZ do
-			P(`Locker_{s}{i}`, Vector3.new(side * 5.05, 4.3, z), Vector3.new(0.12, 3.1, 3.2), Chrome, { material = Enum.Material.Metal, collide = false })
+			local locker = P(`Locker_{s}{i}`, Vector3.new(side * 5.05, 4.3, z), Vector3.new(0.12, 3.1, 3.2), Chrome, {
+				material = Enum.Material.Metal,
+				collide = false,
+				tags = { TruckBuilder.CompartmentTag },
+			})
+			locker:SetAttribute("Item", TruckBuilder.CompartmentItems[i] or "Axe")
 			for r = 1, 3 do
 				P(`LockerRib_{s}{i}_{r}`, Vector3.new(side * 5.13, 3.3 + r * 0.75, z), Vector3.new(0.06, 0.08, 3.2), Steel, deco)
 			end
@@ -250,6 +264,33 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		collide = false,
 		tags = { Names.Tag.RescueDropoff },
 	}).CanTouch = true
+
+	---------------------------------------------------------------- seats (mount points; VehicleService welds them)
+	local driveSeat = Instance.new("VehicleSeat")
+	driveSeat.Name = "DriveSeat"
+	driveSeat.Size = Vector3.new(2, 0.4, 2)
+	driveSeat.Transparency = 1
+	driveSeat.CanCollide = false
+	driveSeat.CanTouch = false -- you get in through the door prompt, never by bumping it
+	driveSeat.HeadsUpDisplay = false
+	driveSeat.Anchored = true
+	driveSeat.CFrame = cf * CFrame.new(-2.4, 4.2, -8.6)
+	driveSeat.Parent = m
+	local n = 0
+	for _, side in { -1, 1 } do
+		for _, dz in { -1.4, 1.4 } do
+			n += 1
+			local s = Instance.new("Seat")
+			s.Name = `CrewSeat_{n}`
+			s.Size = Vector3.new(1.6, 0.3, 2)
+			s.Transparency = 1
+			s.CanCollide = false
+			s.Anchored = true
+			-- face the middle of the deck
+			s.CFrame = cf * CFrame.new(side * 3.7, 4.8, 10.0 + dz) * CFrame.Angles(0, side * math.pi / 2, 0)
+			s.Parent = m
+		end
+	end
 
 	m.PrimaryPart = chassis
 	CollectionService:AddTag(m, Names.Tag.Truck)
