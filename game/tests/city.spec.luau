@@ -25,6 +25,8 @@ local cfg = {
 	RiverWidth = 24,
 	RiverInset = 80,
 	DamRiverZ = 168,
+	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
+	Tunnel = { x = -1350, z0 = -840, z1 = -570 },
 	StationDriveway = { x = 20, z = 175 },
 	SitesPerSuburbBlock = 2,
 	KindMissions = {
@@ -207,8 +209,90 @@ Spec.test("band lots stay off the loop street and inside the district", function
 	end
 end)
 
+Spec.test("avenue corridors: frontage lots off the roads, out of the districts and the creek", function()
+	Spec.truthy(#plan.corridors >= 30, `corridor runs {#plan.corridors}`)
+	local nLots, nSites = 0, 0
+	for _, run in plan.corridors do
+		for _, l in run.lots do
+			nLots += 1
+			local hx, hz = if run.axis == "x" then l.d / 2 else l.w / 2, if run.axis == "x" then l.w / 2 else l.d / 2
+			Spec.truthy(roadGap(g, l.x, l.z) >= math.min(hx, hz) - 1, `{run.district} corridor lot on a road`)
+			for _, d in plan.districts do
+				local ox = math.min(d.x + cfg.DistrictHalf, l.x + hx) - math.max(d.x - cfg.DistrictHalf, l.x - hx)
+				local oz = math.min(d.z + cfg.DistrictHalf, l.z + hz) - math.max(d.z - cfg.DistrictHalf, l.z - hz)
+				Spec.truthy(not (ox > 0.01 and oz > 0.01), `corridor lot inside {d.id}`)
+			end
+			for _, rv in plan.river do
+				local ox = math.min(rv.x1, l.x + hx) - math.max(rv.x0, l.x - hx)
+				local oz = math.min(rv.z1, l.z + hz) - math.max(rv.z0, l.z - hz)
+				Spec.truthy(not (ox > 0 and oz > 0), "corridor lot in the creek")
+			end
+			if l.site then
+				nSites += 1
+			end
+		end
+	end
+	Spec.truthy(nLots >= 80, `corridor lots {nLots}`)
+	Spec.truthy(nSites >= 8, `corridor sites {nSites}`)
+	-- corridor runs never overlap each other
+	for i, a in plan.corridors do
+		for j, b in plan.corridors do
+			if i < j and a.axis ~= b.axis then
+				for _, la in a.lots do
+					for _, lb in b.lots do
+						local ax, az = if a.axis == "x" then la.d / 2 else la.w / 2, if a.axis == "x" then la.w / 2 else la.d / 2
+						local bx, bz = if b.axis == "x" then lb.d / 2 else lb.w / 2, if b.axis == "x" then lb.w / 2 else lb.d / 2
+						local ox = math.min(la.x + ax, lb.x + bx) - math.max(la.x - ax, lb.x - bx)
+						local oz = math.min(la.z + az, lb.z + bz) - math.max(la.z - az, lb.z - bz)
+						Spec.truthy(not (ox > 0 and oz > 0), "corridor lots overlap")
+					end
+				end
+			end
+		end
+	end
+end)
+
+Spec.test("incident sites are spread out: most are a real drive from the station", function()
+	local st = g.nodes["Station"]
+	local far = 0
+	for _, s in plan.sites do
+		if math.abs(s.x - st.x) + math.abs(s.z - st.z) >= 700 then
+			far += 1
+		end
+	end
+	Spec.truthy(#plan.sites >= 30, `sites {#plan.sites}`)
+	Spec.truthy(far >= 25, `far sites {far}`)
+end)
+
+Spec.test("Ridge Tunnel: on the highway, no junction or side road inside it or its hill", function()
+	local t = cfg.Tunnel
+	local reach = cfg.HighwayWidth / 2 + 3 + 4 + 44 -- walls + hill flanks (Highway.luau)
+	local onHighway = false
+	for id, n in g.nodes do
+		Spec.truthy(not (math.abs(n.x - t.x) < reach + 20 and n.z > t.z0 - 40 and n.z < t.z1 + 40), `node {id} under the tunnel hill`)
+	end
+	for _, e in g.edges do
+		local a, b = g.nodes[e.a], g.nodes[e.b]
+		if e.info.kind == "highway" and a.x == t.x and b.x == t.x and math.min(a.z, b.z) <= t.z0 and math.max(a.z, b.z) >= t.z1 then
+			onHighway = true
+		end
+	end
+	Spec.truthy(onHighway, "tunnel sits on one highway edge")
+end)
+
 Spec.test("creek: carved out of the ground; every road crossing it is a bridge", function()
 	Spec.truthy(#plan.river >= 2, "creek segments")
+	Spec.truthy(plan.lake ~= nil, "Mill Pond")
+	for _, e in g.edges do
+		if e.info.drawn then
+			local a, b = g.nodes[e.a], g.nodes[e.b]
+			local lk = plan.lake
+			local hw = e.info.width / 2
+			local ox = math.min(lk.x1, math.max(a.x, b.x) + hw) - math.max(lk.x0, math.min(a.x, b.x) - hw)
+			local oz = math.min(lk.z1, math.max(a.z, b.z) + hw) - math.max(lk.z0, math.min(a.z, b.z) - hw)
+			Spec.truthy(not (ox > 0 and oz > 0), `road {e.a}-{e.b} through the pond`)
+		end
+	end
 	Spec.truthy(#plan.bridges >= 5, `bridges {#plan.bridges}`)
 	local ground = Districts.subtractRects({ x0 = -1500, z0 = -1500, x1 = 1500, z1 = 1500 }, plan.river)
 	local area = 0
@@ -253,6 +337,27 @@ Spec.test("no builders: procedural cores everywhere, still connected", function(
 		seen[s.kind] = true
 	end
 	Spec.truthy(seen.school and seen.storage and seen.apartment and seen.zoo and seen.dam, "procedural sites")
+end)
+
+Spec.test("other seeds: truck spots beside a road, corridor lots off the roads, every site routable", function()
+	for _, seed in { 1, 99, 1234, 777777, 31337 } do
+		local p = Districts.planCity(cfg, ON_MAIN, Catalog, seed)
+		local gg = p.graph
+		Spec.truthy(RoadGraph.connected(gg), `connected ({seed})`)
+		for _, s in p.sites do
+			Spec.truthy(RoadGraph.shortestPath(gg, "Station", s.roadNode), `route to {s.siteId} ({seed})`)
+			if s.lot then
+				local gap = roadGap(gg, s.truck.x, s.truck.z)
+				Spec.truthy(gap > 2 and gap < cfg.SidewalkWidth + cfg.ApronDepth, `{s.siteId} truck gap {gap} ({seed})`)
+			end
+		end
+		for _, run in p.corridors do
+			for _, l in run.lots do
+				local hx, hz = if run.axis == "x" then l.d / 2 else l.w / 2, if run.axis == "x" then l.w / 2 else l.d / 2
+				Spec.truthy(roadGap(gg, l.x, l.z) >= math.min(hx, hz) - 1, `corridor lot on a road ({seed})`)
+			end
+		end
+	end
 end)
 
 Spec.test("deterministic for a seed", function()

@@ -1,0 +1,257 @@
+--!strict
+-- Highway [owner: CityBuilder]. Highway 67 set dressing (the road itself is drawn by CityBuilder from
+-- the road graph): the Ridge Tunnel (a grassy hill the west highway runs through; walls, roof, lit
+-- ceiling strips, portals with name boards) and overhead exit gantries before every junction where an
+-- avenue leaves the highway. All of it clears a fire truck (9.6 tall + light bar): tunnel roof and
+-- gantry boards start TruckClearance above the road.
+--
+--   Highway.blocked(cfg): { Rect }   -- ground the tunnel hill covers (no lamps/trees/fields there)
+--   Highway.build(ctx, parent)       ctx: { cfg, plan, rng: Random }
+local SK = require(script.Parent:WaitForChild("SiteKit") :: ModuleScript) :: any
+
+local Highway = {}
+
+local C = SK.C
+local V = Vector3.new
+local CF = CFrame.new
+local ANG = CFrame.Angles
+
+local CLEAR = 22 -- tunnel roof underside / gantry board bottom above the road
+local WALL = 4
+local HILL = 44 -- hill flank width either side of the tunnel walls
+
+local function tunnelRect(cfg: any): any?
+	local t = cfg.Tunnel
+	if not t then
+		return nil
+	end
+	local hw = cfg.HighwayWidth / 2
+	local reach = hw + 3 + WALL + HILL
+	return { x0 = t.x - reach, z0 = t.z0, x1 = t.x + reach, z1 = t.z1 }
+end
+
+function Highway.blocked(cfg: any): { any }
+	local r = tunnelRect(cfg)
+	return if r then { r } else {}
+end
+
+local function tunnel(ctx: any, parent: Instance)
+	local cfg = ctx.cfg
+	local t = cfg.Tunnel
+	if not t then
+		return
+	end
+	local m = Instance.new("Model")
+	m.Name = "RidgeTunnel"
+	m:SetAttribute("DisplayName", t.name or "Ridge Tunnel")
+	local hw = cfg.HighwayWidth / 2 + 3 -- inner face of the walls
+	local len = t.z1 - t.z0
+	local cz = (t.z0 + t.z1) / 2
+	local y0 = cfg.RoadY
+	local rock = Color3.fromHex("#9A958C")
+	local grass = Color3.fromHex("#6E9E45")
+	for _, s in { -1, 1 } do
+		-- side wall
+		SK.part(m, "TunnelWall", CF(t.x + s * (hw + WALL / 2), (cfg.GroundY + y0 + CLEAR) / 2, cz), V(WALL, y0 + CLEAR - cfg.GroundY, len), rock, { material = Enum.Material.Concrete })
+		-- hill flank sloping down to the ground (wedge: tall side toward the tunnel)
+		SK.wedge(m, "HillFlank", CF(t.x + s * (hw + WALL + HILL / 2), cfg.GroundY + (CLEAR + 4) / 2, cz) * ANG(0, math.rad(if s > 0 then -90 else 90), 0), V(len, CLEAR + 4, HILL), grass, {
+			material = Enum.Material.Grass,
+		})
+	end
+	-- roof slab + grassy hill top
+	SK.part(m, "TunnelRoof", CF(t.x, y0 + CLEAR + 1, cz), V(2 * (hw + WALL), 2, len), rock, { material = Enum.Material.Concrete })
+	SK.part(m, "HillTop", CF(t.x, y0 + CLEAR + 3, cz), V(2 * (hw + WALL), 2, len - 8), grass, { material = Enum.Material.Grass })
+	-- ceiling light strips (neon) + a couple of real lights
+	for _, s in { -1, 1 } do
+		SK.part(m, "CeilingStrip", CF(t.x + s * 8, y0 + CLEAR - 0.2, cz), V(1, 0.3, len - 6), Color3.fromHex("#FFE2A8"), {
+			neon = true,
+			collide = false,
+			cast = false,
+			query = false,
+		})
+	end
+	for _, f in { 0.25, 0.75 } do
+		local holder = SK.part(m, "TunnelLight", CF(t.x, y0 + CLEAR - 0.6, t.z0 + f * len), V(2, 0.4, 2), C.MetalDark, { collide = false, query = false })
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromHex("#FFD9A0")
+		light.Range = 60
+		light.Brightness = 1.2
+		light.Shadows = false
+		light.Parent = holder
+	end
+	-- portals: a concrete frame band + name board over each mouth (above the clearance)
+	for _, e in { { t.z0, -1 }, { t.z1, 1 } } do
+		local z = e[1]
+		SK.part(m, "Portal", CF(t.x, y0 + CLEAR + 2.5, z + e[2] * 0.6), V(2 * (hw + WALL) + 4, 5, 1.2), Color3.fromHex("#B7B1A8"), {
+			material = Enum.Material.Concrete,
+		})
+		local board = SK.part(m, "PortalSign", CF(t.x, y0 + CLEAR + 2.5, z + e[2] * 1.3), V(30, 3.6, 0.3), Color3.fromHex("#2E7D4F"))
+		local face = if e[2] < 0 then Enum.NormalId.Front else Enum.NormalId.Back
+		SK.sign(board, string.upper(t.name or "Ridge Tunnel"), face, C.Trim)
+		-- knockable traffic cones on the shoulders by the mouth (PhysicsFxService: name "Cone")
+		for _, s in { -1, 1 } do
+			for k = 1, 3 do
+				local cone = Instance.new("Model")
+				cone.Name = "Cone"
+				local p = CF(t.x + s * (hw - 2.2), y0, z + e[2] * (4 + k * 6))
+				SK.part(cone, "Base", p * CF(0, 0.15, 0), V(1.8, 0.3, 1.8), Color3.fromHex("#E76F51"))
+				SK.cyl(cone, "Body", p * CF(0, 1.4, 0), 2.2, 1.1, Color3.fromHex("#E76F51"))
+				SK.cyl(cone, "Band", p * CF(0, 1.6, 0), 0.4, 1.2, C.Trim)
+				cone:AddTag("Knockable")
+				cone.Parent = m
+			end
+		end
+		-- hazard stripes on the wall ends
+		for _, s in { -1, 1 } do
+			SK.part(m, "WallStripe", CF(t.x + s * (hw - 0.2), y0 + 4, z - e[2] * 1.5), V(0.4, 8, 3), Color3.fromHex("#E9C46A"), { collide = false })
+		end
+	end
+	m.Parent = parent
+end
+
+-- Where the exit gantries stand (road centreline points), so CityBuilder keeps lamps/trees off
+-- their posts: { { x, z } }.
+function Highway.gantrySpots(cfg: any, lines: { number }): { { number } }
+	local out = {}
+	local blocked = Highway.blocked(cfg)
+	for _, hi in { 1, #lines } do
+		for ai = 2, #lines - 1 do
+			for _, axis in { "x", "z" } do
+				for _, dirSign in { -1, 1 } do
+					local along = lines[ai] + dirSign * 70
+					local x, z = if axis == "x" then lines[hi] else along, if axis == "x" then along else lines[hi]
+					local inside = false
+					for _, r in blocked do
+						if x > r.x0 and x < r.x1 and z > r.z0 - 40 and z < r.z1 + 40 then
+							inside = true
+						end
+					end
+					if not inside then
+						table.insert(out, { x, z })
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+-- Overhead exit gantries on Highway 67 before every junction with an avenue.
+local function gantries(ctx: any, parent: Instance)
+	local cfg = ctx.cfg
+	local lines = ctx.plan.lines
+	local names = ctx.streetNames
+	local hw = cfg.HighwayWidth / 2
+	local y0 = cfg.RoadY
+	local m = Instance.new("Model")
+	m.Name = "ExitGantries"
+	local blocked = Highway.blocked(cfg)
+	local function inBlocked(x: number, z: number): boolean
+		for _, r in blocked do
+			if x > r.x0 and x < r.x1 and z > r.z0 - 40 and z < r.z1 + 40 then
+				return true
+			end
+		end
+		return false
+	end
+	local n = 0
+	for _, hi in { 1, #lines } do
+		for ai = 2, #lines - 1 do
+			for _, axis in { "x", "z" } do
+				-- highway along `axis`-line hi; the avenue crossing it is the other axis' line ai
+				local hl, al = lines[hi], lines[ai]
+				local avenueName = if axis == "x" then names.lineZ[ai] else names.lineX[ai]
+				for _, dirSign in { -1, 1 } do
+					-- traffic approaching the junction from dirSign side; the gantry stands 70 studs out
+					local along = al + dirSign * 70
+					local x, z = if axis == "x" then hl else along, if axis == "x" then along else hl
+					if not inBlocked(x, z) then
+						n += 1
+						local acrossDir = if axis == "x" then V(1, 0, 0) else V(0, 0, 1)
+						local p = V(x, 0, z)
+						for _, s in { -1, 1 } do
+							local q = p + acrossDir * s * (hw + 5)
+							SK.part(m, "GantryPost", CF(q.X, y0 + (CLEAR + 7) / 2, q.Z), V(1.2, CLEAR + 7, 1.2), C.MetalDark)
+						end
+						local faceDir = if axis == "x" then V(0, 0, dirSign) else V(dirSign, 0, 0)
+						local beamCf = CFrame.lookAt(V(x, y0 + CLEAR + 6, z), V(x, y0 + CLEAR + 6, z) + faceDir)
+						SK.part(m, "GantryBeam", beamCf, V(2 * hw + 12, 1, 1), C.MetalDark)
+						local board = SK.part(m, "ExitSign", beamCf * CF(0, -2.6, -0.8), V(26, 5, 0.4), Color3.fromHex("#2E7D4F"))
+						-- the board's Front faces the traffic coming toward the junction
+						SK.sign(board, `EXIT  {string.upper(avenueName)}`, Enum.NormalId.Front, C.Trim)
+					end
+				end
+			end
+		end
+	end
+	m:SetAttribute("Count", n)
+	m.Parent = parent
+end
+
+-- Roadside billboards in the four outer corners beyond the highway, angled at the bend.
+local BILLBOARDS = {
+	{ "WELCOME TO BLAZEVILLE", "POP. 67 (AND FALLING)", "#C8232B" },
+	{ "MEGA DONUT", "NEXT EXIT. PROBABLY.", "#E76F51" },
+	{ "FIRE STATION 67", "WE'LL BE RIGHT THERE*  *eventually", "#3D5A80" },
+	{ "DRIVE SAFE", "OR DON'T. WE HAVE TRUCKS.", "#2A9D8F" },
+}
+
+local function billboards(ctx: any, parent: Instance)
+	local cfg = ctx.cfg
+	local lines = ctx.plan.lines
+	local hw = cfg.HighwayWidth / 2
+	local y0 = cfg.GroundY
+	local m = Instance.new("Model")
+	m.Name = "Billboards"
+	local k = 0
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			k += 1
+			local info = BILLBOARDS[k]
+			local gx, gz = (if sx < 0 then lines[1] else lines[#lines]), (if sz < 0 then lines[1] else lines[#lines])
+			local off = hw + 50
+			local p = V(gx + sx * off, 0, gz + sz * off)
+			-- face the corner of the highway (diagonally inward)
+			local cf = CFrame.lookAt(V(p.X, y0, p.Z), V(gx, y0, gz))
+			for _, s in { -1, 1 } do
+				SK.part(m, "BillboardLeg", cf * CF(s * 14, 13, 1), V(1.4, 26, 1.4), C.MetalDark)
+			end
+			local board = SK.part(m, "Billboard", cf * CF(0, 26, 0), V(40, 14, 1), Color3.fromHex(info[3]))
+			local gui = Instance.new("SurfaceGui")
+			gui.Face = Enum.NormalId.Front
+			gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+			gui.PixelsPerStud = 12
+			gui.MaxDistance = 900
+			gui.LightInfluence = 0.3
+			for i, text in { info[1], info[2] } do
+				local t = Instance.new("TextLabel")
+				t.Size = UDim2.fromScale(0.92, if i == 1 then 0.5 else 0.3)
+				t.Position = UDim2.fromScale(0.04, if i == 1 then 0.08 else 0.62)
+				t.BackgroundTransparency = 1
+				t.TextScaled = true
+				t.Font = Enum.Font.FredokaOne
+				t.TextColor3 = C.Trim
+				t.Text = text
+				t.Parent = gui
+			end
+			gui.Parent = board
+			SK.part(m, "BillboardTrim", cf * CF(0, 33.4, 0), V(41, 0.8, 1.4), C.Trim, { neon = true, collide = false, cast = false })
+		end
+	end
+	m.Parent = parent
+end
+
+function Highway.build(ctx: any, parent: Instance): Model
+	local m = Instance.new("Model")
+	m.Name = "Highway67"
+	for _, step in { tunnel, gantries, billboards } do
+		local ok, err = pcall(step, ctx, m)
+		if not ok then
+			warn(`[Highway] {err}`)
+		end
+	end
+	m.Parent = parent
+	return m
+end
+
+return Highway

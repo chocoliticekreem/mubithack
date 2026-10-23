@@ -43,6 +43,8 @@ local RoadGraph = require(CityDir:WaitForChild("RoadGraph") :: ModuleScript) :: 
 local Districts = require(CityDir:WaitForChild("Districts") :: ModuleScript) :: any
 local SK = require(CityDir:WaitForChild("SiteKit") :: ModuleScript) :: any
 local BlockFiller = require(CityDir:WaitForChild("BlockFiller") :: ModuleScript) :: any
+local Greenbelt = require(CityDir:WaitForChild("Greenbelt") :: ModuleScript) :: any
+local Highway = require(CityDir:WaitForChild("Highway") :: ModuleScript) :: any
 
 local CityBuilder = {}
 CityBuilder.Id = "City"
@@ -119,6 +121,7 @@ type Ctx = {
 	plan: any,
 	rng: Random,
 	keepClear: { Vector3 },
+	blocked: { any }, -- ground rects covered by set pieces (the tunnel hill): no lamps / trees
 	lamps: { X: LampSet, Z: LampSet },
 }
 
@@ -151,6 +154,11 @@ end
 local function clear(ctx: Ctx, p: Vector3, r: number): boolean
 	for _, k in ctx.keepClear do
 		if (k - p).Magnitude < r then
+			return false
+		end
+	end
+	for _, b in ctx.blocked do
+		if p.X > b.x0 and p.X < b.x1 and p.Z > b.z0 - 4 and p.Z < b.z1 + 4 then
 			return false
 		end
 	end
@@ -228,6 +236,13 @@ local function buildBridges(ctx: Ctx, parent: Instance)
 				SK.part(m, "Railing", CF(cx + s * (sx / 2 + 0.5), ry + 1.6, cz), V(0.6, 0.6, sz + 8), C.Red)
 				SK.part(m, "Kerb", CF(cx + s * (sx / 2 + 0.5), ry + 0.6, cz), V(1, 1.2, sz + 8), C.Concrete)
 			end
+			-- glowing newel posts on the four railing ends (neon, no PointLight)
+			for _, e in { -1, 1 } do
+				local px = if b.alongX then cx + e * (sx / 2 + 4) else cx + s * (sx / 2 + 0.5)
+				local pz = if b.alongX then cz + s * (sz / 2 + 0.5) else cz + e * (sz / 2 + 4)
+				SK.part(m, "NewelPost", CF(px, ry + 1.5, pz), V(1.2, 3, 1.2), C.Concrete)
+				SK.ball(m, "NewelLamp", CF(px, ry + 3.5, pz), 1.4, Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
+			end
 		end
 		m.Parent = parent
 	end
@@ -236,6 +251,10 @@ end
 ---------------------------------------------------------------------------------------------------
 -- roads
 ---------------------------------------------------------------------------------------------------
+-- Lamp light budget: only every CityConfig.LampLightEvery-th lamp carries a (wider) PointLight; the
+-- rest just glow (neon head). Keeps the city to ~100 street PointLights instead of ~300.
+local lampCounter = 0
+
 local function streetLamp(parent: Instance, cf: CFrame)
 	-- cf: base on the ground, -Z = toward the road
 	local m = Instance.new("Model")
@@ -243,12 +262,16 @@ local function streetLamp(parent: Instance, cf: CFrame)
 	SK.cyl(m, "Pole", cf * CF(0, 9, 0), 18, 0.7, C.MetalDark)
 	SK.part(m, "Arm", cf * CF(0, 17.8, -2), V(0.4, 0.4, 4.4), C.MetalDark)
 	local head = SK.part(m, "Head", cf * CF(0, 17.4, -4), V(1.6, 0.6, 2.4), Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
-	local light = Instance.new("PointLight")
-	light.Color = Color3.fromHex("#FFC97A")
-	light.Range = 34
-	light.Brightness = 1.3
-	light.Shadows = false
-	light.Parent = head
+	lampCounter += 1
+	local every = CityConfig.LampLightEvery or 1
+	if lampCounter % every == 0 then
+		local light = Instance.new("PointLight")
+		light.Color = Color3.fromHex("#FFC97A")
+		light.Range = math.min(60, 34 + 8 * (every - 1))
+		light.Brightness = 1.4
+		light.Shadows = false
+		light.Parent = head
+	end
 	m.Parent = parent
 end
 
@@ -389,9 +412,11 @@ local function drawCrossing(ctx: Ctx, parent: Instance, g: any, id: string)
 			local width = if alongX then 2 * n.halfZ else 2 * n.halfX
 			local right = V(-d.Z, 0, d.X)
 			local c = V(n.x, 0, n.z) + d * (half + 4)
-			for k = 0, math.floor(width / 8) - 1 do
-				local p = c + right * (-width / 2 + 4 + k * 8)
-				SK.part(parent, "Zebra", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(3, 0.06, 5), C.LineWhite, {
+			local nStripes = math.max(2, math.floor(width / 9.5)) -- wide bold stripes (fewer parts)
+			local pitch = width / nStripes
+			for k = 0, nStripes - 1 do
+				local p = c + right * (-width / 2 + pitch * (k + 0.5))
+				SK.part(parent, "Zebra", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(5, 0.06, 6), C.LineWhite, {
 					collide = false,
 					cast = false,
 					query = false,
@@ -404,6 +429,20 @@ local function drawCrossing(ctx: Ctx, parent: Instance, g: any, id: string)
 	-- 4-way crossings only (between and in the middle of the districts)
 	local major = #dirs >= 4 and (c1 == "G" or c1 == "J" or string.match(id, "_C$") ~= nil)
 	if CityConfig.TrafficLights and major and style[3] then
+		-- stop lines across the incoming lanes of every arm, just behind the crosswalk (right-hand
+		-- traffic: the incoming half is on the left of the outward arm direction)
+		for _, d in dirs do
+			local alongX = math.abs(d.X) > 0.5
+			local half = if alongX then n.halfX else n.halfZ
+			local width = if alongX then 2 * n.halfZ else 2 * n.halfX
+			local right = V(-d.Z, 0, d.X)
+			local p = V(n.x, 0, n.z) + d * (half + 9) - right * (width / 4)
+			SK.part(parent, "StopLine", CFrame.lookAt(V(p.X, ry + 0.03, p.Z), V(p.X, ry + 0.03, p.Z) + d), V(width / 2 - 1.5, 0.06, 1.2), C.LineWhite, {
+				collide = false,
+				cast = false,
+				query = false,
+			})
+		end
 		local inset = 5
 		for _, s in { { 1, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 } } do
 			local corner = V(n.x + s[1] * (n.halfX + inset), 0, n.z + s[2] * (n.halfZ + inset))
@@ -519,6 +558,17 @@ local function arch(parent: Instance, at: Vector3, along: Vector3, span: number,
 	local beam = SK.part(parent, "ArchSign", CFrame.lookAt(V(at.X, y0 + 19, at.Z), V(at.X, y0 + 19, at.Z) + along), V(span + 8, 5, 1.2), color)
 	SK.sign(beam, text, Enum.NormalId.Front, C.Trim)
 	SK.sign(beam, text, Enum.NormalId.Back, C.Trim)
+	-- polish (all above the beam, so the clearance under it is unchanged): a neon trim line on top,
+	-- a crown with the town crest, glowing lanterns on the pillar caps, coloured pillar feet
+	local face = CFrame.lookAt(V(at.X, 0, at.Z), V(at.X, 0, at.Z) + along)
+	SK.part(parent, "ArchTrim", face * CF(0, y0 + 21.75, 0), V(span + 8, 0.5, 1.4), C.Trim, { neon = true, collide = false, cast = false })
+	SK.part(parent, "ArchCrown", face * CF(0, y0 + 23.5, 0), V(10, 3, 1), color)
+	SK.ball(parent, "ArchCrest", face * CF(0, y0 + 25, 0), 4.4, C.Trim, { collide = false })
+	for _, s in { -1, 1 } do
+		local p = at + across * s * (span / 2 + 2)
+		SK.ball(parent, "ArchLantern", CF(p.X, y0 + 24.4, p.Z), 2.2, Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
+		SK.part(parent, "ArchFoot", CF(p.X, y0 + 1.5, p.Z), V(5, 3, 5), color)
+	end
 end
 
 local function gateSign(parent: Instance, at: Vector3, along: Vector3, text: string, color: Color3)
@@ -539,6 +589,19 @@ local LANDMARK_COLOR = {
 	School = Color3.fromHex("#E9C46A"),
 	Apartment = Color3.fromHex("#6A4C93"),
 	Zoo = Color3.fromHex("#E76F51"),
+}
+
+-- top of each landmark silhouette (studs above the ground) for its beacon + floating name
+local LANDMARK_TOP = {
+	watertower = 65,
+	smokestacks = 91,
+	silo = 69,
+	hosetower = 71.5, -- its own red beacon sits at 74; ours overlaps it (adds the floating name)
+	lookout = 72,
+	belltower = 68,
+	skyscraper = 222,
+	ferriswheel = 64,
+	dam = 60,
 }
 
 -- A tall silhouette in the band corner nearest the hub.
@@ -609,6 +672,14 @@ local function landmark(ctx: Ctx, parent: Instance, d: any)
 		SK.part(m, "Glass", cf * CF(0, 92, -20.3), V(36, 170, 0.5), Color3.fromHex("#6FA8C8"), { material = Enum.Material.Glass })
 		SK.part(m, "Crown", cf * CF(0, 184, 0), V(30, 8, 30), col)
 		SK.cyl(m, "Spire", cf * CF(0, 205, 0), 34, 1.2, C.Trim)
+	elseif kind == "dam" then
+		-- the water-level gauge tower: a tall striped mast with a "HOW FULL IS IT?" board
+		SK.part(m, "GaugeTower", cf * CF(0, 30, 0), V(8, 60, 8), Color3.fromHex("#A8A39A"), { material = Enum.Material.Concrete })
+		for k = 1, 5 do
+			SK.part(m, "GaugeBand", cf * CF(0, k * 10, -4.1), V(6, 1.2, 0.3), if k >= 4 then C.Red else C.Trim, { collide = false })
+		end
+		local board = SK.part(m, "GaugeBoard", cf * CF(0, 54, -4.3), V(12, 5, 0.4), col)
+		SK.sign(board, "HOW FULL IS IT?", Enum.NormalId.Front, C.Trim)
 	elseif kind == "ferriswheel" then
 		local hub = cf * CF(0, 34, 0)
 		SK.part(m, "Stand", hub * CF(-5, -17, 0) * ANG(0, 0, math.rad(-12)), V(2, 36, 2), C.Trim)
@@ -620,6 +691,29 @@ local function landmark(ctx: Ctx, parent: Instance, d: any)
 			SK.part(m, "Gondola", CF(gp.Position) * CF(0, -2, 0), V(4, 4, 4), C.Awnings[(k % #C.Awnings) + 1])
 		end
 		SK.cyl(m, "Hub", hub * ANG(0, 0, math.rad(90)), 3, 4, col)
+	end
+	-- beacon + floating district name on top: find the neighbourhoods from anywhere in the city
+	local top = LANDMARK_TOP[kind]
+	if top then
+		local beacon = SK.ball(m, "TopBeacon", cf * CF(0, top + 2.5, 0), 4, col, { neon = true, collide = false, cast = false })
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "DistrictName"
+		bb.Size = UDim2.new(48, 0, 9, 0) -- studs: shrinks with distance like the landmark itself
+		bb.StudsOffset = V(0, 9, 0)
+		bb.MaxDistance = 2600
+		bb.LightInfluence = 0
+		bb.AlwaysOnTop = false
+		local t = Instance.new("TextLabel")
+		t.Size = UDim2.fromScale(1, 1)
+		t.BackgroundTransparency = 1
+		t.TextScaled = true
+		t.Font = Enum.Font.FredokaOne
+		t.TextColor3 = C.Trim
+		t.TextStrokeColor3 = col
+		t.TextStrokeTransparency = 0
+		t.Text = string.upper(SHORT[d.id] or d.id)
+		t.Parent = bb
+		bb.Parent = beacon
 	end
 	m.Parent = parent
 end
@@ -724,6 +818,18 @@ local function buildStationCore(ctx: Ctx, parent: Instance, d: any)
 		for k = -3, 3 do
 			BlockFiller.tree(m, CF(d.x + k * 50, 0.05, (d.z - h + back) / 2), ctx.rng, 1.2)
 		end
+		-- the station's drill tower out back: a 5-storey training tower with open window holes
+		local tz = d.z - h + 30
+		if tz < back - 10 then
+			local t = CF(d.x - 120, 0, tz)
+			SK.part(m, "DrillTower", t * CF(0, 24, 0), V(12, 48, 12), Color3.fromHex("#A8322A"))
+			for k = 1, 4 do
+				SK.part(m, "DrillWindow", t * CF(0, k * 10, -6.1), V(4, 5, 0.3), Color3.fromHex("#2B2B30"), { collide = false })
+			end
+			SK.part(m, "DrillRoof", t * CF(0, 48.6, 0), V(13.5, 1.2, 13.5), C.Trim)
+			local sign = SK.part(m, "DrillSign", t * CF(0, 44, -6.2), V(10, 2.4, 0.3), C.Trim)
+			SK.sign(sign, "DRILL TOWER", Enum.NormalId.Front, C.Red)
+		end
 	end
 	for _, s in { -1, 1 } do
 		local x0 = so.X + s * 164
@@ -790,6 +896,7 @@ end
 function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local t0 = os.clock()
 	table.clear(CityBuilder.Sites)
+	lampCounter = 0
 	model:SetAttribute("DisplayName", "Blazeville")
 	local cfg = CityConfig
 	if origin.Position.Magnitude > 0.01 then
@@ -813,6 +920,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		plan = plan,
 		rng = rng,
 		keepClear = {},
+		blocked = Highway.blocked(cfg),
 		lamps = { X = { red = {}, amber = {}, green = {} }, Z = { red = {}, amber = {}, green = {} } },
 	}
 	-- keep lamps / trees out of curb cuts, gates and spur mouths
@@ -825,6 +933,10 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		if not string.match(id, "^G%d") then
 			table.insert(ctx.keepClear, V(p.x, 0, p.z))
 		end
+	end
+	-- and off the exit gantry posts
+	for _, sp in Highway.gantrySpots(cfg, plan.lines) do
+		table.insert(ctx.keepClear, V(sp[1], 0, sp[2]))
 	end
 	local sections: { [string]: Instance } = {}
 
@@ -844,6 +956,28 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	signposts(ctx, roads, g)
 	roads.Parent = model
 	sections.Roads = roads
+
+	-- the open ground between the neighbourhoods: Mill Pond, pocket parks, verges, outskirts fields
+	local hok, hres = pcall(Highway.build, { cfg = cfg, plan = plan, rng = rng, streetNames = Districts.StreetNames }, model)
+	if hok then
+		sections.Highway = hres
+	else
+		warn(`[CityBuilder] highway failed: {hres}`)
+	end
+	local gok, gres = pcall(Greenbelt.build, {
+		cfg = cfg,
+		plan = plan,
+		rng = Random.new(seed + 4242), -- its own stream: greenbelt tweaks never reshuffle the districts
+		blocked = ctx.blocked,
+		clear = function(p: Vector3, r: number): boolean
+			return clear(ctx, p, r)
+		end,
+	}, model)
+	if gok then
+		sections.Greenbelt = gres
+	else
+		warn(`[CityBuilder] greenbelt failed: {gres}`)
+	end
 
 	-- sites lookup by lot
 	local siteByLot: { [any]: any } = {}
@@ -883,6 +1017,15 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		end)
 		if not ok then
 			warn(`[CityBuilder] {d.id} band failed: {err}`)
+		end
+		-- avenue frontage between this neighbourhood and its avenues
+		for _, run in plan.corridors or {} do
+			if run.district == d.id then
+				local cok, cerr = pcall(BlockFiller.fillCorridor, fillCtx, folder, run)
+				if not cok then
+					warn(`[CityBuilder] {d.id} corridor failed: {cerr}`)
+				end
+			end
 		end
 		-- core
 		ok, err = pcall(function()
@@ -926,8 +1069,8 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			if facesHub then
 				arch(scenery, at, along, 2 * gateHalf, d.sign, col)
 			else
-				local across = V(-along.Z, 0, along.X)
-				gateSign(scenery, at + across * (gateHalf + 6), along, SHORT[d.id] or d.id, col)
+				-- every other way in gets an arch too, with the neighbourhood's short name
+				arch(scenery, at, along, 2 * gateHalf, string.upper(SHORT[d.id] or d.id), col)
 			end
 		end
 		landmark(ctx, scenery, d)

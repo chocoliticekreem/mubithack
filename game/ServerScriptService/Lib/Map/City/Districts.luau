@@ -73,6 +73,7 @@ export type CityPlan = {
 	sites: { Site },
 	graph: RoadGraph.Graph,
 	river: { Rect },
+	lake: Rect?, -- Mill Pond (part of river), nil when cfg.MillPond is unset
 	bridges: { { x0: number, z0: number, x1: number, z1: number, alongX: boolean } },
 	signposts: { Signpost },
 	bounds: { minX: number, maxX: number, minZ: number, maxZ: number },
@@ -343,6 +344,208 @@ local FACE_DIR = { N = { 0, -1 }, S = { 0, 1 }, E = { 1, 0 }, W = { -1, 0 } }
 Districts.FaceDir = FACE_DIR
 
 ---------------------------------------------------------------------------------------------------
+-- avenue corridors
+---------------------------------------------------------------------------------------------------
+-- The greenbelt strip between an avenue and the neighbourhood next to it gets a row of frontage
+-- lots facing the avenue, themed by that neighbourhood. Filler lots are cheap low-detail facades
+-- (BlockFiller "facade", "duplex", "shed", "cropfield", "copse", "grove"); a few are incident sites.
+-- Lots run from the district's gate street out to its edge (|along| <= DistrictHalf), so the corners
+-- where two strips meet stay open. The creek side of the east avenue stays a greenbelt.
+Districts.CorridorStyle = {
+	downtown = { lotW = 68, kinds = { "facade", "facade", "midrise", "facade", "midrise", "carpark" }, sites = { "apartment", "shop", "apartment", "diner", "gas" } },
+	suburb = { lotW = 62, kinds = { "duplex", "duplex", "duplex", "grove" }, sites = { "house" } },
+	industrial = { lotW = 92, kinds = { "warehouse", "shed", "tanks", "warehouse", "carpark" }, sites = { "storage" } },
+	farmland = { lotW = 130, kinds = { "cropfield", "cropfield", "barn" }, sites = { "house" } },
+	woods = { lotW = 130, kinds = { "copse" }, sites = { "house" } }, -- a cabin in the woods
+	park = { lotW = 130, kinds = { "grove", "topiary", "copse" }, sites = {} },
+}
+-- incident sites per corridor run side (a district's frontage on one avenue); the hub's own frontage
+-- has none (dispatch wants a real drive from the station)
+Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School = 1, Apartment = 1, Forest = 1 }
+-- a whole corridor run becomes one big site (a second school campus etc.), far from the station
+Districts.CorridorBigSites = { Town = "school", School = "school", Storage = "apartment" }
+-- a whole corridor run becomes one big scenery landmark (not a site)
+Districts.CorridorFeature = { Station = "cityhall" }
+
+export type Corridor = {
+	district: string,
+	theme: string,
+	axis: string, -- "x": the avenue is an x-line (runs north-south); "z": a z-line (runs east-west)
+	line: number, -- the avenue centreline coordinate
+	side: number, -- -1 / 1: which side of the line the lots are on
+	street: string,
+	a0: number, -- along range (world)
+	a1: number,
+	near: number, -- across: the avenue kerb (road edge)
+	far: number, -- across: the back of the lots
+	lots: { Lot },
+}
+
+function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, lines: { number }, river: { Rect }): { Corridor }
+	local out: { Corridor } = {}
+	local cell = cfg.CellSize
+	local H = cfg.DistrictHalf
+	local roadHalf = (cfg.AvenueWidth or 48) / 2
+	local sw = cfg.SidewalkWidth
+	local depth = cell / 2 - roadHalf - sw - H - 6
+	if depth < 40 then
+		return out
+	end
+	local function wet(x0: number, z0: number, x1: number, z1: number): boolean
+		for _, rv in river do
+			if x1 > rv.x0 - 6 and x0 < rv.x1 + 6 and z1 > rv.z0 - 6 and z0 < rv.z1 + 6 then
+				return true
+			end
+		end
+		return false
+	end
+	for _, d in districts do
+		local style = Districts.CorridorStyle[d.band]
+		if style then
+			local gateHalf = (if d.id == "Station" then cfg.AvenueWidth else cfg.StreetWidth) / 2
+			local sides: { Corridor } = {}
+			for _, side in { "W", "E", "N", "S" } do
+				local dir = FACE_DIR[side]
+				local axis = if side == "W" or side == "E" then "x" else "z"
+				local centre = if axis == "x" then d.x else d.z
+				local along = if axis == "x" then d.z else d.x
+				local line = centre + (dir[1] + dir[2]) * cell / 2
+				-- only the inner avenues (not Highway 67)
+				local idx = table.find(lines, line)
+				if idx and idx ~= 1 and idx ~= #lines then
+					local s = -(dir[1] + dir[2]) -- lots sit on the district's side of the line
+					local near = line + s * (roadHalf)
+					local front = near + s * sw
+					local back = front + s * depth
+					local names = if axis == "x" then Districts.StreetNames.lineX else Districts.StreetNames.lineZ
+					for _, sgn in { -1, 1 } do
+						local a0 = along + sgn * (gateHalf + 20)
+						local a1 = along + sgn * (H - 4)
+						if a0 > a1 then
+							a0, a1 = a1, a0
+						end
+						local x0, x1, z0, z1
+						if axis == "x" then
+							x0, x1, z0, z1 = math.min(near, back), math.max(near, back), a0, a1
+						else
+							x0, x1, z0, z1 = a0, a1, math.min(near, back), math.max(near, back)
+						end
+						if not wet(x0, z0, x1, z1) then
+							local run: Corridor = {
+								district = d.id,
+								theme = d.band,
+								axis = axis,
+								line = line,
+								side = s,
+								street = names[idx],
+								a0 = a0,
+								a1 = a1,
+								near = near,
+								far = back,
+								lots = {},
+							}
+							local len = a1 - a0
+							local per = math.max(1, math.floor(len / style.lotW))
+							local w = len / per
+							local face = if axis == "x" then (if s < 0 then "E" else "W") else (if s < 0 then "S" else "N")
+							local ac = front + s * depth / 2
+							for k = 1, per do
+								local t = a0 + (k - 0.5) * w
+								local kind = r.pick(style.kinds)
+								local lx, lz = if axis == "x" then ac else t, if axis == "x" then t else ac
+								table.insert(run.lots, { kind = kind, x = lx, z = lz, w = w, d = depth, face = face, site = false })
+							end
+							table.insert(sides, run)
+							table.insert(out, run)
+						end
+					end
+				end
+			end
+			-- one run becomes a single big site: the longest run furthest from the hub
+			local big = Districts.CorridorBigSites[d.id] or Districts.CorridorFeature[d.id]
+			local bigRun: Corridor? = nil
+			if big then
+				local best = -math.huge
+				for _, run in sides do
+					local mid = (run.a0 + run.a1) / 2
+					local cx = if run.axis == "x" then (run.near + run.far) / 2 else mid
+					local cz = if run.axis == "x" then mid else (run.near + run.far) / 2
+					local score = (run.a1 - run.a0) * 4 + math.abs(cx) + math.abs(cz)
+					if run.a1 - run.a0 >= 200 and score > best then
+						best, bigRun = score, run
+					end
+				end
+				if bigRun then
+					local l = bigRun.lots[1]
+					local len = bigRun.a1 - bigRun.a0
+					local t = (bigRun.a0 + bigRun.a1) / 2
+					local ac = if bigRun.axis == "x" then l.x else l.z
+					bigRun.lots = {
+						{
+							kind = big,
+							x = if bigRun.axis == "x" then ac else t,
+							z = if bigRun.axis == "x" then t else ac,
+							w = len,
+							d = l.d,
+							face = l.face,
+							site = Districts.CorridorBigSites[d.id] ~= nil,
+						},
+					}
+				end
+			end
+			-- incident sites: pick lots across this district's runs
+			local want = Districts.CorridorSites[d.id] or 0
+			if want > 0 and #style.sites > 0 then
+				local pool = {}
+				for _, run in sides do
+					for _, l in (if run == bigRun then {} else run.lots) do
+						if l.w >= 40 then
+							table.insert(pool, l)
+						end
+					end
+				end
+				-- `want` per avenue the district fronts, never more than half its lots
+				local nSides = 0
+				local seenLine: { [string]: boolean } = {}
+				for _, run in sides do
+					local key = `{run.axis}{run.line}`
+					if not seenLine[key] then
+						seenLine[key] = true
+						nSides += 1
+					end
+				end
+				local n = math.min(want * nSides, #pool // 2)
+				for i = #pool, 2, -1 do
+					local j = r.int(1, i)
+					pool[i], pool[j] = pool[j], pool[i]
+				end
+				-- one site per run at most
+				local used: { [any]: boolean } = {}
+				local placed = 0
+				for _, l in pool do
+					if placed >= n then
+						break
+					end
+					local owner
+					for _, run in sides do
+						if table.find(run.lots, l) then
+							owner = run
+						end
+					end
+					if owner and not used[owner] then
+						used[owner] = true
+						l.kind = style.sites[(placed % #style.sites) + 1]
+						l.site = true
+						placed += 1
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+---------------------------------------------------------------------------------------------------
 -- city plan
 ---------------------------------------------------------------------------------------------------
 function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog: { any }, seed: number): CityPlan
@@ -573,14 +776,14 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 	for _, d in districts do
 		byId[d.id] = d
 	end
-	local function addLotSite(dist: DistrictInfo, l: Lot, wx: number, wz: number, world: boolean, block: any?)
+	local function addLotSite(dist: DistrictInfo, l: Lot, wx: number, wz: number, world: boolean, block: any?, streetName: string?, node: string?)
 		local dir = FACE_DIR[l.face]
 		-- the apron sits at the lot front (toward its street)
 		local frontX, frontZ = wx + dir[1] * l.d / 2, wz + dir[2] * l.d / 2
 		local tx, tz = frontX - dir[1] * cfg.ApronDepth / 2, frontZ - dir[2] * cfg.ApronDepth / 2
 		counter[dist.id] = (counter[dist.id] or 0) + 1
 		local n = counter[dist.id]
-		local node = RoadGraph.nearest(g, frontX + dir[1] * 22, frontZ + dir[2] * 22)
+		node = node or RoadGraph.nearest(g, frontX + dir[1] * 22, frontZ + dir[2] * 22)
 		local num = 2 * (10 + n * 7) + (if l.face == "N" or l.face == "E" then 1 else 0)
 		table.insert(sites, {
 			siteId = `{l.kind}-{dist.id}-{n}`,
@@ -592,7 +795,7 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 			face = l.face,
 			truck = { x = tx, z = tz, yaw = if l.face == "N" or l.face == "S" then 90 else 0 },
 			roadNode = node :: string,
-			displayName = `{num} {dist.street}`,
+			displayName = `{num} {streetName or dist.street}`,
 			lot = l,
 			world = world,
 			block = block,
@@ -619,8 +822,18 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 	local rz = dam.z + cfg.DamRiverZ
 	local river: { Rect } = {
 		{ x0 = rx - rw, z0 = rz - rw, x1 = dam.x - cfg.CoreHalf + 2, z1 = rz + rw }, -- west out of the dam
-		{ x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }, -- south to the edge
 	}
+	-- Mill Pond: the creek widens into a lake in the east greenbelt (cfg.MillPond, world rect)
+	local lake: Rect? = nil
+	local mp = cfg.MillPond
+	if mp and mp.x0 < rx - rw and mp.x1 > rx + rw and mp.z0 > rz + rw and mp.z1 < cfg.Bounds.maxZ then
+		lake = { x0 = mp.x0, z0 = mp.z0, x1 = mp.x1, z1 = mp.z1 }
+		table.insert(river, { x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = mp.z0 }) -- down to the pond
+		table.insert(river, lake :: Rect)
+		table.insert(river, { x0 = rx - rw, z0 = mp.z1, x1 = rx + rw, z1 = cfg.Bounds.maxZ }) -- on south
+	else
+		table.insert(river, { x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }) -- south to the edge
+	end
 	-- no band lots in the water
 	for i = #bandLots, 1, -1 do
 		local l = bandLots[i].lot
@@ -628,6 +841,23 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 			if l.x + l.w / 2 > rv.x0 and l.x - l.w / 2 < rv.x1 and l.z + l.d / 2 > rv.z0 and l.z - l.d / 2 < rv.z1 then
 				table.remove(bandLots, i)
 				break
+			end
+		end
+	end
+
+	-- 4b. avenue corridors: frontage lots along both sides of the avenue ring (cheap facades + a few
+	-- incident sites), so the city runs on between the neighbourhoods
+	local corridors = Districts.corridors(cfg, r, districts, lines, river)
+	for _, run in corridors do
+		for _, l in run.lots do
+			if l.site then
+				-- a kerb node on the avenue right in front of the apron: GPS ends at the site
+				local dir = FACE_DIR[l.face]
+				local fx, fz = l.x + dir[1] * l.d / 2, l.z + dir[2] * l.d / 2
+				local nx = if run.axis == "x" then run.line else fx
+				local nz = if run.axis == "x" then fz else run.line
+				local node = RoadGraph.splitAtPoint(g, nx, nz, `A{math.floor(nx)}_{math.floor(nz)}`)
+				addLotSite(byId[run.district], l, l.x, l.z, true, nil, run.street, node)
 			end
 		end
 	end
@@ -692,9 +922,11 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 		districts = districts,
 		blocks = blocks,
 		bandLots = bandLots,
+		corridors = corridors,
 		sites = sites,
 		graph = g,
 		river = river,
+		lake = lake,
 		bridges = bridges,
 		signposts = signposts,
 		bounds = cfg.Bounds,

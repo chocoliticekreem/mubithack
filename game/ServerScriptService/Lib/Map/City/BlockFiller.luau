@@ -52,7 +52,7 @@ function BlockFiller.tree(parent: Instance, cf: CFrame, rng: Random, scale: numb
 	SK.cyl(m, "Trunk", cf * CF(0, 2.6 * s, 0), 5.2 * s, 1.3 * s, C.Trunk)
 	local leaf = pick(rng, C.Leaf)
 	SK.ball(m, "Canopy", cf * CF(0, 7 * s, 0), 7.5 * s, leaf, { cast = true })
-	if rng:NextNumber() < 0.5 then
+	if rng:NextNumber() < 0.3 then
 		SK.ball(m, "Canopy", cf * CF(1.6 * s, 9.2 * s, 0.8 * s), 5 * s, leaf)
 	end
 	m.Parent = parent
@@ -77,9 +77,91 @@ local function bench(parent: Instance, cf: CFrame)
 	SK.part(parent, "BenchBack", cf * CF(0, 2.2, 0.8), V(6, 1.6, 0.4), C.Wood)
 end
 
+local hydrantCount = 0
 local function hydrant(parent: Instance, cf: CFrame)
+	hydrantCount += 1
 	local h = MapKit.hydrant(parent, cf)
-	h:SetAttribute("HydrantId", `H_{parent.Name}`)
+	h:SetAttribute("HydrantId", `H_{parent.Name}_{hydrantCount}`)
+end
+BlockFiller.hydrant = hydrant
+
+---------------------------------------------------------------------------------------------------
+-- street furniture: knockable (PhysicsFxService turns models named *TrashCan / *Bench / *Cone into
+-- props; the "Knockable" tag says so explicitly), hydrants refill hoses (MapKit.hydrant: tag Hydrant +
+-- Refill prompt). cf: base on the sidewalk, -Z = toward the road.
+---------------------------------------------------------------------------------------------------
+local KNOCKABLE = "Knockable"
+
+function BlockFiller.trashCan(parent: Instance, cf: CFrame, color: Color3?)
+	local m = Instance.new("Model")
+	m.Name = "TrashCan"
+	SK.cyl(m, "Can", cf * CF(0, 1.6, 0), 3.2, 2.2, color or Color3.fromHex("#2F6B4F"))
+	SK.cyl(m, "Lid", cf * CF(0, 3.35, 0), 0.3, 2.5, C.MetalDark)
+	m:AddTag(KNOCKABLE)
+	m.Parent = parent
+	return m
+end
+
+function BlockFiller.parkBench(parent: Instance, cf: CFrame)
+	local m = Instance.new("Model")
+	m.Name = "Bench"
+	SK.part(m, "Seat", cf * CF(0, 1.4, 0), V(6, 0.5, 2), C.Wood)
+	SK.part(m, "Back", cf * CF(0, 2.5, 0.9), V(6, 1.6, 0.3), C.Wood)
+	for _, x in { -2.6, 2.6 } do
+		SK.part(m, "Leg", cf * CF(x, 0.6, 0), V(0.4, 1.2, 1.8), C.MetalDark)
+	end
+	m:AddTag(KNOCKABLE)
+	m.Parent = parent
+	return m
+end
+
+-- Bus shelter: roof, glass back, a knockable bench inside, a stop sign on a post.
+function BlockFiller.busStop(parent: Instance, cf: CFrame, name: string?)
+	local m = Instance.new("Model")
+	m.Name = "BusStop"
+	SK.part(m, "Roof", cf * CF(0, 8.2, 0.2), V(12, 0.5, 4.2), C.MetalDark)
+	SK.part(m, "BackPanel", cf * CF(0, 4.3, 1.9), V(12, 7.2, 0.3), C.Glass, { material = Enum.Material.Glass, transparency = 0.45 })
+	SK.part(m, "Post", cf * CF(-5.8, 4.1, 1.9), V(0.4, 8.2, 0.4), C.MetalDark)
+	SK.part(m, "Post", cf * CF(5.8, 4.1, 1.9), V(0.4, 8.2, 0.4), C.MetalDark)
+	BlockFiller.parkBench(m, cf * CF(0, 0, 0.6))
+	-- a lit ad panel at the shelter's end (glows at night)
+	local ad = SK.part(m, "AdPanel", cf * CF(-5.4, 4.3, 0.2), V(0.4, 6, 3.4), C.Awnings[1 + math.floor(math.abs(cf.X + cf.Z)) % #C.Awnings], { neon = true, collide = false, cast = false })
+	SK.sign(ad, "MEGA DONUT", Enum.NormalId.Left, C.Trim)
+	SK.part(m, "SignPole", cf * CF(8.5, 4.5, -0.5), V(0.35, 9, 0.35), C.MetalDark)
+	local sign = SK.part(m, "StopSign", cf * CF(8.5, 8.4, -0.5), V(2.6, 2.6, 0.2), Color3.fromHex("#2A6FBB"))
+	SK.sign(sign, "BUS", Enum.NormalId.Front, C.Trim)
+	SK.sign(sign, "BUS", Enum.NormalId.Back, C.Trim)
+	if name then
+		m:SetAttribute("StopName", name)
+	end
+	m.Parent = parent
+	return m
+end
+
+-- A row of kerbside furniture along a straight stretch. along(t) -> CFrame on the kerb line facing
+-- the road; marks: sorted positions along the stretch (lot boundaries); skip(t) -> true for aprons.
+function BlockFiller.furnish(parent: Instance, rng: Random, along: (number) -> CFrame, marks: { number }, skip: (number) -> boolean, opts: any?)
+	local o = opts or {}
+	local n = #marks
+	if n == 0 then
+		return
+	end
+	local stopAt = if o.busStop then math.max(1, (n + 1) // 2) else -1
+	local hydrantAt = if n >= 2 then 1 else (if stopAt == 1 then -1 else 1)
+	for k, t in marks do
+		if not skip(t) then
+			local cf = along(t)
+			if k == stopAt then
+				BlockFiller.busStop(parent, cf, o.street)
+			elseif k == hydrantAt or (o.hydrantEvery and k % o.hydrantEvery == 0) then
+				hydrant(parent, cf)
+			elseif rng:NextNumber() < 0.55 then
+				BlockFiller.trashCan(parent, cf * CF(rng:NextNumber(-1, 1), 0, 0), o.canColor)
+			elseif o.benches then
+				BlockFiller.parkBench(parent, cf)
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -572,16 +654,19 @@ function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numb
 	SK.sign(sign, "MAPLEWOOD ELEMENTARY", Enum.NormalId.Front, C.Trim)
 	SK.cyl(site, "Flagpole", F * CF(-w / 2 - 8, GY + 14, -4), 28, 0.6, C.Trim)
 	SK.part(site, "Flag", F * CF(-w / 2 - 5.5, GY + 25.5, -4), V(5, 3, 0.2), C.Red)
-	-- playground behind
-	local py = F * CF(0, GY, d + 30)
+	-- playground behind (a shallow lot: beside the building, no court)
+	local deep = maxD >= d + 90
+	local py = if deep then F * CF(0, GY, d + 30) else F * CF(w / 2 + 32, GY, d * 0.4)
 	SK.wedge(site, "Slide", py * CF(-20, 3, 0), V(3, 6, 10), C.Red)
 	SK.part(site, "SlideTop", py * CF(-20, 3, 6), V(4, 6, 4), Color3.fromHex("#E9C46A"))
 	SK.part(site, "SwingBar", py * CF(10, 8, 0), V(14, 0.6, 0.6), C.MetalDark)
 	for _, x in { 3, 17 } do
 		SK.part(site, "SwingPost", py * CF(x, 4, 0), V(0.6, 8, 0.6), C.MetalDark)
 	end
-	SK.part(site, "Court", py * CF(0, 0.05, 34), V(60, 0.1, 34), Color3.fromHex("#B0553E"))
-	SK.part(site, "CourtLine", py * CF(0, 0.11, 34), V(0.4, 0.1, 34), C.Trim)
+	if deep then
+		SK.part(site, "Court", py * CF(0, 0.05, 34), V(60, 0.1, 34), Color3.fromHex("#B0553E"))
+		SK.part(site, "CourtLine", py * CF(0, 0.11, 34), V(0.4, 0.1, 34), C.Trim)
+	end
 	if rng:NextNumber() < 0.5 then
 		BlockFiller.tree(site, py * CF(40, 0, 10), rng)
 	end
@@ -688,15 +773,14 @@ function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	local rc = pick(rng, { C.RoofBrown, C.RoofSlate, C.RoofTerra })
 	SK.wedge(m, "Roof1", F * CF(0, GY + h + rise / 2, d / 4 - 0.5), V(w + 2, rise, d / 2 + 1), rc)
 	SK.wedge(m, "Roof2", F * CF(0, GY + h + rise / 2, 3 * d / 4 + 0.5) * FLIP, V(w + 2, rise, d / 2 + 1), rc)
-	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.1), V(4, 7, 0.4), C.Wood)
-	for _, x in { -w * 0.3, w * 0.3 } do
-		SK.part(m, "WindowFake", F * CF(x, GY + 5, -0.1), V(4, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass })
-	end
+	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.35), V(4, 7, 0.4), C.Wood)
+	-- windows as one dark strip per storey (cheap LOD shell)
+	SK.part(m, "WindowFake", F * CF(0, GY + 5, -0.1), V(w * 0.8, 3.6, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	if h > 12 then
-		SK.part(m, "WindowFake", F * CF(0, GY + 15, -0.1), V(w * 0.7, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass })
+		SK.part(m, "WindowFake", F * CF(0, GY + 15, -0.1), V(w * 0.7, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	end
 	m.Parent = parent
-	if rng:NextNumber() < 0.5 then
+	if rng:NextNumber() < 0.3 then
 		BlockFiller.tree(parent, F * CF(w / 2 + 6, GY, -6), rng)
 	end
 	if rng:NextNumber() < 0.25 then
@@ -707,7 +791,8 @@ end
 function Scenery.tower(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
 	local w, d = math.min(maxW - 6, rng:NextInteger(40, 70)), math.min(maxD - 10, rng:NextInteger(36, 56))
-	local h = rng:NextInteger(50, 130)
+	local hubDist = Vector3.new(F.Position.X, 0, F.Position.Z).Magnitude
+	local h = if hubDist < 650 then rng:NextInteger(80, 170) else rng:NextInteger(50, 130)
 	local m = Instance.new("Model")
 	m.Name = "Tower"
 	local color = pick(rng, { Color3.fromHex("#8E9AAF"), Color3.fromHex("#CBC0D3"), Color3.fromHex("#DEE2FF"), Color3.fromHex("#B7B1A8"), C.Walls[4] })
@@ -772,11 +857,31 @@ function Scenery.plaza(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	local c = F * CF(0, GY, d / 2)
 	SK.cyl(parent, "FountainRim", c * CF(0, 1, 0), 2, 22, C.Concrete)
 	SK.cyl(parent, "FountainWater", c * CF(0, 1.6, 0), 1.4, 20, C.Water, { material = Enum.Material.Glass, transparency = 0.25 })
-	-- the statue of a firefighter who looks very sure of himself
-	SK.part(parent, "Plinth", c * CF(0, 4, 0), V(4, 6, 4), C.Concrete)
-	SK.part(parent, "Statue", c * CF(0, 9.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#6D8F7A"))
-	SK.ball(parent, "StatueHead", c * CF(0, 12.8, 0), 2, Color3.fromHex("#6D8F7A"))
-	SK.part(parent, "StatueHelmet", c * CF(0, 13.8, 0), V(2.6, 0.8, 2.6), Color3.fromHex("#6D8F7A"))
+	-- a centrepiece in the fountain (so the plazas round downtown are not all the same)
+	local piece = rng:NextInteger(1, 4)
+	if piece == 1 then
+		-- the statue of a firefighter who looks very sure of himself
+		SK.part(parent, "Plinth", c * CF(0, 4, 0), V(4, 6, 4), C.Concrete)
+		SK.part(parent, "Statue", c * CF(0, 9.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#6D8F7A"))
+		SK.ball(parent, "StatueHead", c * CF(0, 12.8, 0), 2, Color3.fromHex("#6D8F7A"))
+		SK.part(parent, "StatueHelmet", c * CF(0, 13.8, 0), V(2.6, 0.8, 2.6), Color3.fromHex("#6D8F7A"))
+	elseif piece == 2 then
+		-- a giant rubber duck (googly eyes, obviously)
+		SK.ball(parent, "GiantDuck", c * CF(0, 5, 0), 8, Color3.fromHex("#F2D13C"))
+		SK.ball(parent, "GiantDuckHead", c * CF(0, 10, -2.4), 5, Color3.fromHex("#F2D13C"))
+		SK.part(parent, "GiantDuckBeak", c * CF(0, 9.6, -5.2), V(2.4, 1, 2), Color3.fromHex("#E76F51"))
+		MapKit.googlyEyes(parent, c * CF(0, 11, -4.6), 1.3)
+	elseif piece == 3 then
+		-- a golden fire hydrant on a plinth ("To Our Most Reliable Citizen")
+		SK.part(parent, "Plinth", c * CF(0, 3, 0), V(5, 4, 5), C.Concrete)
+		SK.cyl(parent, "GoldHydrant", c * CF(0, 8, 0), 6, 3.4, Color3.fromHex("#E9C46A"))
+		SK.ball(parent, "GoldHydrantCap", c * CF(0, 11.2, 0), 3.4, Color3.fromHex("#E9C46A"))
+	else
+		-- an abstract donut sculpture nobody asked for
+		SK.part(parent, "Plinth", c * CF(0, 3, 0), V(4, 4, 4), C.Concrete)
+		SK.cyl(parent, "Donut", c * CF(0, 10, 0) * ANG(math.rad(90), 0, 0), 2.6, 9, Color3.fromHex("#D98B6F"))
+		SK.cyl(parent, "DonutHole", c * CF(0, 10, 0) * ANG(math.rad(90), 0, 0), 2.8, 3.4, Color3.fromHex("#9EC9DA"))
+	end
 	for _, s in { { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } } do
 		BlockFiller.tree(parent, c * CF(s[1] * w * 0.35, 0, s[2] * d * 0.32), rng)
 		bench(parent, c * CF(s[1] * 16, 0, s[2] * 4) * ANG(0, math.rad(90 * s[1]), 0))
@@ -861,7 +966,7 @@ BlockFiller.pine = pine
 
 function Scenery.woods(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
-	local n = math.clamp(math.floor(maxW * maxD / 900), 3, 9)
+	local n = math.clamp(math.floor(maxW * maxD / 1200), 3, 5)
 	for _ = 1, n do
 		pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 4, maxW / 2 - 4), GY, rng:NextNumber(4, math.max(5, maxD - 4))), rng)
 	end
@@ -898,6 +1003,210 @@ function Scenery.barn(_ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	SK.wedge(m, "Roof2", F * CF(w / 4, GY + 20, d / 2) * ANG(0, math.rad(-90), 0), V(d + 1, 8, w / 2 + 1), C.RoofSlate)
 	SK.part(m, "Door", F * CF(0, GY + 6, -0.2), V(10, 12, 0.4), C.Trim)
 	m.Parent = parent
+end
+
+---------------------------------------------------------------------------------------------------
+-- low-detail facades (avenue corridors): 2-4 big parts each, read as a skyline from the road
+---------------------------------------------------------------------------------------------------
+local FACADE_COLORS = {
+	Color3.fromHex("#8E9AAF"),
+	Color3.fromHex("#CBC0D3"),
+	Color3.fromHex("#B7B1A8"),
+	Color3.fromHex("#D9B99B"),
+	Color3.fromHex("#A3B18A"),
+	Color3.fromHex("#9EC1CC"),
+	Color3.fromHex("#C9A9A6"),
+	Color3.fromHex("#E8D3A8"),
+}
+local FACADE_GLASS = { Color3.fromHex("#6FA8C8"), Color3.fromHex("#88B9C4"), C.GlassDark, Color3.fromHex("#5D7F99") }
+
+-- An office/apartment slab: body, a glass front, a coloured cornice. Height grows with lot depth.
+function Scenery.facade(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.max(20, maxW - rng:NextInteger(4, 12)), math.max(16, maxD - rng:NextInteger(6, 24))
+	-- a skyline: taller the closer to the hub (downtown round the station), lower out by the edges
+	local hubDist = Vector3.new(F.Position.X, 0, F.Position.Z).Magnitude
+	local h = if hubDist < 650 then rng:NextInteger(70, 160) else rng:NextInteger(36, 100)
+	local m = Instance.new("Model")
+	m.Name = "Facade"
+	local color = pick(rng, FACADE_COLORS)
+	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2), V(w, h, d), color)
+	SK.part(m, "Glass", F * CF(0, GY + 6 + (h - 10) / 2, -0.2), V(w - 4, h - 10, 0.4), pick(rng, FACADE_GLASS), {
+		material = Enum.Material.Glass,
+		transparency = 0.05,
+		collide = false,
+		query = false,
+	})
+	SK.part(m, "Cornice", F * CF(0, GY + h + 0.6, d / 2), V(w + 1.2, 1.2, d + 1.2), pick(rng, C.Awnings), { cast = false })
+	m.Parent = parent
+end
+
+-- A shop-topped midrise: body, a storefront band with a sign colour, rows of windows as one strip.
+function Scenery.midrise(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.max(20, maxW - 6), math.max(16, math.min(maxD - 8, 40))
+	local h = rng:NextInteger(24, 44)
+	local m = Instance.new("Model")
+	m.Name = "Midrise"
+	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2), V(w, h, d), pick(rng, C.Walls))
+	SK.part(m, "Storefront", F * CF(0, GY + 4.5, -0.3), V(w - 2, 9, 0.6), pick(rng, C.Awnings), { collide = false })
+	SK.part(m, "Windows", F * CF(0, GY + 12 + (h - 16) / 2, -0.2), V(w - 6, h - 16, 0.4), C.GlassDark, {
+		material = Enum.Material.Glass,
+		collide = false,
+		query = false,
+	})
+	m.Parent = parent
+end
+
+-- Suburban pair of houses under one gable (4 parts).
+function Scenery.duplex(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.min(maxW - 8, rng:NextInteger(26, 36)), math.min(maxD - 30, rng:NextInteger(18, 24))
+	local h = if rng:NextNumber() < 0.5 then 11 else 18
+	local setback = rng:NextInteger(10, 22)
+	local G = F * CF(rng:NextNumber(-3, 3), 0, setback)
+	local m = Instance.new("Model")
+	m.Name = "Duplex"
+	SK.part(m, "Body", G * CF(0, GY + h / 2, d / 2), V(w, h, d), pick(rng, C.Walls))
+	local rc = pick(rng, { C.RoofBrown, C.RoofSlate, C.RoofTerra })
+	SK.wedge(m, "Roof1", G * CF(0, GY + h + 3, d / 4 - 0.5), V(w + 2, 6, d / 2 + 1), rc)
+	SK.wedge(m, "Roof2", G * CF(0, GY + h + 3, 3 * d / 4 + 0.5) * FLIP, V(w + 2, 6, d / 2 + 1), rc)
+	SK.part(m, "Front", G * CF(0, GY + 3.5, -0.15), V(w * 0.7, 7, 0.3), C.GlassDark, { collide = false, query = false })
+	m.Parent = parent
+	-- a knockable mailbox at the kerb (PhysicsFxService: name ends with "mailbox")
+	local mb = Instance.new("Model")
+	mb.Name = "Mailbox"
+	SK.part(mb, "Post", F * CF(-w / 2 + 2, GY + 1.6, 2), V(0.4, 3.2, 0.4), C.Wood)
+	SK.part(mb, "Box", F * CF(-w / 2 + 2, GY + 3.6, 2), V(1.2, 1.2, 2), pick(rng, C.Awnings))
+	mb:AddTag("Knockable")
+	mb.Parent = parent
+	if rng:NextNumber() < 0.35 then
+		BlockFiller.tree(parent, F * CF(w / 2 + 5, GY, 6), rng)
+	end
+end
+
+-- Corrugated shed with a roll-up door (industrial filler, 3 parts).
+function Scenery.shed(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d, h = math.max(20, maxW - 16), math.max(16, math.min(maxD - 12, 46)), rng:NextInteger(14, 22)
+	local m = Instance.new("Model")
+	m.Name = "Shed"
+	SK.part(m, "Body", F * CF(0, GY + h / 2, d / 2 + 8), V(w, h, d), pick(rng, { Color3.fromHex("#8C9096"), Color3.fromHex("#A3B18A"), Color3.fromHex("#B08A1F"), Color3.fromHex("#5F7A8A") }), {
+		material = Enum.Material.CorrodedMetal,
+	})
+	SK.part(m, "RollDoor", F * CF(0, GY + 6, 7.8), V(math.min(16, w - 6), 12, 0.4), Color3.fromHex("#E76F51"), { collide = false })
+	SK.part(m, "Yard", F * CF(0, GY + 0.03, 4), V(w, 0.1, 8), C.AsphaltDark, { collide = false, cast = false })
+	m.Parent = parent
+end
+
+-- A single crop field with a few furrows (cheaper than "farmland").
+function Scenery.cropfield(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local crop = pick(rng, { Color3.fromHex("#E2C35A"), Color3.fromHex("#8DBE52"), Color3.fromHex("#D98B3A"), Color3.fromHex("#B5C95A") })
+	SK.part(parent, "Field", F * CF(0, GY + 0.6, maxD / 2), V(maxW - 6, 1.2, maxD - 6), crop, { material = Enum.Material.Grass, cast = false })
+	for k = -1, 1 do
+		SK.part(parent, "Furrow", F * CF(k * maxW * 0.28, GY + 1.25, maxD / 2), V(2.5, 0.2, maxD - 10), Color3.fromHex("#8A6A45"), {
+			material = Enum.Material.Ground,
+			collide = false,
+			cast = false,
+		})
+	end
+	if rng:NextNumber() < 0.5 then
+		SK.part(parent, "HayBale", F * CF(maxW * 0.3, GY + 1.8, 6), V(5, 3.2, 3.2), Color3.fromHex("#D9B44A"))
+	elseif rng:NextNumber() < 0.6 then
+		-- a scarecrow who has clearly given up
+		local s = F * CF(rng:NextNumber(-maxW * 0.3, maxW * 0.3), GY + 1.2, maxD * 0.5) * ANG(0, 0, math.rad(rng:NextNumber(-12, 12)))
+		SK.part(parent, "ScarecrowPole", s * CF(0, 4, 0), V(0.6, 8, 0.6), C.Wood)
+		SK.part(parent, "ScarecrowArms", s * CF(0, 6, 0), V(7, 0.6, 0.6), Color3.fromHex("#3D5A80"))
+		SK.ball(parent, "ScarecrowHead", s * CF(0, 8.6, 0), 2.2, Color3.fromHex("#E2C35A"))
+	end
+end
+
+-- A surface car park (cheap): asphalt, two stall lines, an entrance sign and a few parked cars.
+function Scenery.carpark(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = maxW - 4, math.min(maxD - 4, 60)
+	SK.part(parent, "CarPark", F * CF(0, GY + 0.03, d / 2), V(w, 0.1, d), C.AsphaltDark, { cast = false })
+	for _, z in { d * 0.3, d * 0.7 } do
+		SK.part(parent, "StallLine", F * CF(0, GY + 0.1, z), V(w - 8, 0.05, 0.4), C.LineWhite, { collide = false, cast = false, query = false })
+	end
+	local sign = SK.part(parent, "ParkSign", F * CF(-w / 2 + 3, GY + 6, 1), V(3.2, 3.2, 0.3), Color3.fromHex("#2A6FBB"))
+	SK.sign(sign, "P", Enum.NormalId.Front, C.Trim)
+	SK.part(parent, "ParkSignPole", F * CF(-w / 2 + 3, GY + 2.2, 1.2), V(0.3, 4.4, 0.3), C.MetalDark)
+	local stalls = math.max(1, math.floor((w - 10) / 11))
+	for _, row in { { d * 0.15, 0 }, { d * 0.85, math.pi } } do
+		for k = 1, stalls do
+			if rng:NextNumber() < 0.35 then
+				local x = -w / 2 + 5 + (k - 0.5) * (w - 10) / stalls
+				BlockFiller.car(parent, F * CF(x, GY, row[1]) * ANG(0, row[2], 0), pick(rng, C.Awnings), rng:NextNumber() < 0.2)
+			end
+		end
+	end
+end
+
+-- Blazeville City Hall: columned portico, a domed roof, a flag and a paved forecourt (~25 parts).
+function Scenery.cityhall(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local m = Instance.new("Model")
+	m.Name = "CityHall"
+	m:SetAttribute("DisplayName", "Blazeville City Hall")
+	local stone = Color3.fromHex("#E8E1D3")
+	local w = math.min(maxW - 40, 100)
+	local d = math.min(maxD - 30, 44)
+	local z0 = math.max(16, maxD - d - 6) -- building front
+	SK.part(m, "Forecourt", F * CF(0, GY + 0.04, z0 / 2), V(math.min(maxW - 4, w + 60), 0.1, z0), Color3.fromHex("#D9CBB8"), { cast = false })
+	SK.part(m, "Plinth", F * CF(0, GY + 1, z0 + d / 2 - 4), V(w + 8, 2, d + 10), stone)
+	SK.wedge(m, "Steps", F * CF(0, GY + 1, z0 - 11), V(w * 0.6, 2, 4) , stone)
+	SK.part(m, "Body", F * CF(0, GY + 2 + 14, z0 + d / 2), V(w, 28, d), stone)
+	SK.part(m, "Cornice", F * CF(0, GY + 2 + 28.75, z0 + d / 2), V(w + 2, 1.5, d + 2), C.Trim)
+	-- portico: columns + pediment
+	local pw = w * 0.55
+	for k = 0, 5 do
+		local x = -pw / 2 + k * pw / 5
+		SK.cyl(m, "Column", F * CF(x, GY + 2 + 11, z0 - 5), 22, 2.4, C.Trim)
+	end
+	SK.part(m, "Entablature", F * CF(0, GY + 2 + 23, z0 - 4), V(pw + 4, 2, 9), stone)
+	local ped = F * CF(0, GY + 2 + 26.5, z0 - 4)
+	SK.wedge(m, "Pediment", ped * CF(-pw / 4 - 1, 0, 0) * ANG(0, math.rad(90), 0), V(9, 5, pw / 2 + 2), stone)
+	SK.wedge(m, "Pediment", ped * CF(pw / 4 + 1, 0, 0) * ANG(0, math.rad(-90), 0), V(9, 5, pw / 2 + 2), stone)
+	local sign = SK.part(m, "Sign", F * CF(0, GY + 2 + 23, z0 - 8.6), V(pw - 4, 1.6, 0.3), stone)
+	SK.sign(sign, "BLAZEVILLE CITY HALL", Enum.NormalId.Front, Color3.fromHex("#3D5A80"))
+	-- drum + dome + golden finial
+	local top = F * CF(0, GY + 2 + 29.5, z0 + d / 2)
+	SK.cyl(m, "Drum", top * CF(0, 4, 0), 8, 26, stone)
+	SK.ball(m, "Dome", top * CF(0, 8, 0), 26, Color3.fromHex("#6FA08A"))
+	SK.cyl(m, "Finial", top * CF(0, 23, 0), 6, 1, Color3.fromHex("#E9C46A"), { neon = true, collide = false })
+	-- flagpole + flag, two trees on the forecourt
+	SK.cyl(m, "Flagpole", F * CF(w / 2 + 12, GY + 16, z0 * 0.5), 32, 0.6, C.Trim)
+	SK.part(m, "Flag", F * CF(w / 2 + 15, GY + 29.5, z0 * 0.5), V(6, 3.6, 0.2), C.Red)
+	m.Parent = parent
+	for _, s in { -1, 1 } do
+		BlockFiller.tree(parent, F * CF(s * (w / 2 + 2), GY, z0 * 0.4), rng, 1.3)
+	end
+end
+
+-- Zoo-side topiary: hedge animals (an elephant and a giraffe) on a lawn with a bench (~10 parts).
+function Scenery.topiary(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local hedge = Color3.fromHex("#4F8A3A")
+	local c = F * CF(-maxW * 0.2, GY, maxD * 0.5) * ANG(0, rng:NextNumber(-0.5, 0.5), 0)
+	SK.ball(parent, "TopiaryElephant", c * CF(0, 6, 0), 10, hedge, { material = Enum.Material.Grass })
+	SK.ball(parent, "TopiaryElephantHead", c * CF(0, 8, -6), 6, hedge, { material = Enum.Material.Grass })
+	SK.part(parent, "TopiaryTrunk", c * CF(0, 4, -9), V(1.6, 7, 1.6), hedge, { material = Enum.Material.Grass })
+	local gc = F * CF(maxW * 0.22, GY, maxD * 0.45)
+	SK.ball(parent, "TopiaryGiraffe", gc * CF(0, 6, 0), 6, hedge, { material = Enum.Material.Grass })
+	SK.part(parent, "TopiaryNeck", gc * CF(0, 11, -2) * ANG(math.rad(-15), 0, 0), V(1.8, 10, 1.8), hedge, { material = Enum.Material.Grass })
+	SK.ball(parent, "TopiaryGiraffeHead", gc * CF(0, 16.5, -3.6), 3, hedge, { material = Enum.Material.Grass })
+	MapKit.googlyEyes(parent, gc * CF(0, 17, -5), 0.9)
+	BlockFiller.parkBench(parent, F * CF(0, GY, 6) * FLIP)
+end
+
+-- A loose clump of pines (woods filler, ~9 parts).
+function Scenery.copse(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	for _ = 1, 3 do
+		BlockFiller.pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 8, maxW / 2 - 8), GY, rng:NextNumber(10, math.max(11, maxD - 8))), rng, 1.3)
+	end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -999,6 +1308,16 @@ local BAND_GROUND = {
 }
 BlockFiller.BandGround = BAND_GROUND
 
+-- kerbside furniture per neighbourhood theme (BlockFiller.furnish opts)
+local FURNISH = {
+	downtown = { busStop = true, benches = true, canColor = Color3.fromHex("#3B3940") },
+	suburb = { busStop = true, canColor = Color3.fromHex("#2F6B4F") },
+	industrial = { canColor = Color3.fromHex("#3D5A80") },
+	park = { benches = true, canColor = Color3.fromHex("#6B4A2F") },
+	farmland = { canColor = Color3.fromHex("#8A4A35") },
+	woods = { canColor = Color3.fromHex("#6B4A2F") },
+}
+
 -- The neighbourhood round one district's loop: themed ground, the loop's outer sidewalk (curb cuts at
 -- site aprons, gaps at the gates) and every band lot. gateHalf: half width of the gate gaps.
 function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any }, gateHalf: number): Model
@@ -1063,7 +1382,109 @@ function BlockFiller.fillBand(ctx: any, parent: Instance, d: any, lots: { any },
 		end
 		seg(cursor, inner, sy, C.Sidewalk, "Sidewalk")
 	end
+	-- kerbside furniture along the band's lot fronts (one mark per lot, off the curb cuts)
+	local furn = FURNISH[d.band]
+	if furn then
+		local outward = { N = V(0, 0, -1), S = V(0, 0, 1), W = V(-1, 0, 0), E = V(1, 0, 0) }
+		for side, list in cuts do
+			local marks = {}
+			for _, lot in lots do
+				if sideOf[lot.face] == side then
+					local at = if side == "N" or side == "S" then lot.x - cx else lot.z - cz
+					table.insert(marks, at - lot.w / 2 + 3)
+				end
+			end
+			table.sort(marks)
+			local o = outward[side]
+			BlockFiller.furnish(m, ctx.rng, function(t: number): CFrame
+				local across = inner + 1.4
+				local p = if side == "N" or side == "S" then V(cx + t, GY, cz + o.Z * across) else V(cx + o.X * across, GY, cz + t)
+				return CFrame.lookAt(p, p - o)
+			end, marks, function(t: number): boolean
+				for _, c in list do
+					if t > c.at - c.w / 2 - 3 and t < c.at + c.w / 2 + 3 then
+						return true
+					end
+				end
+				return false
+			end, (function() local o = table.clone(furn); o.street = d.street; return o end)())
+		end
+	end
 	for _, lot in lots do
+		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
+		local site = ctx.siteFor(lot)
+		if lot.site and site then
+			BlockFiller.buildSiteLot(ctx, m, site, lf, lot)
+		else
+			scenery(ctx, m, lot, lf, false)
+		end
+	end
+	m.Parent = parent
+	return m
+end
+
+-- One avenue corridor run (Districts.corridors): themed ground, the avenue's sidewalk (curb cuts at
+-- site aprons) and its frontage lots.
+function BlockFiller.fillCorridor(ctx: any, parent: Instance, run: any): Model
+	local cfg = ctx.cfg
+	local m = Instance.new("Model")
+	m.Name = `Corridor_{run.district}`
+	m:SetAttribute("Street", run.street)
+	local look = BAND_GROUND[run.theme] or BAND_GROUND.park
+	local s = run.side
+	local sw = cfg.SidewalkWidth
+	local front = run.near + s * sw
+	local function slab(a0: number, a1: number, c0: number, c1: number, top: number, color: Color3, mat: Enum.Material?, name: string)
+		if a1 - a0 < 0.1 or math.abs(c1 - c0) < 0.1 then
+			return
+		end
+		local ac, cc = (a0 + a1) / 2, (c0 + c1) / 2
+		local la, lc = a1 - a0, math.abs(c1 - c0)
+		local cf = if run.axis == "x" then CF(cc, (top - 0.1) / 2, ac) else CF(ac, (top - 0.1) / 2, cc)
+		local size = if run.axis == "x" then V(lc, top + 0.1, la) else V(la, top + 0.1, lc)
+		SK.part(m, name, cf, size, color, { material = mat })
+	end
+	slab(run.a0, run.a1, front, run.far, GY, look[1], look[2], "CorridorGround")
+	-- sidewalk along the avenue, cut at every site apron
+	local cuts = {}
+	for _, lot in run.lots do
+		if lot.site then
+			local at = if run.axis == "x" then lot.z else lot.x
+			table.insert(cuts, { a = at - math.min(lot.w - 6, 48) / 2, b = at + math.min(lot.w - 6, 48) / 2 })
+		end
+	end
+	table.sort(cuts, function(x, y)
+		return x.a < y.a
+	end)
+	local cursor = run.a0
+	for _, c in cuts do
+		slab(cursor, c.a, run.near, front, cfg.SidewalkY, C.Sidewalk, nil, "Sidewalk")
+		slab(c.a, c.b, run.near, front, cfg.RoadY + 0.15, C.Concrete, nil, "CurbCut")
+		cursor = c.b
+	end
+	slab(cursor, run.a1, run.near, front, cfg.SidewalkY, C.Sidewalk, nil, "Sidewalk")
+	-- kerbside furniture just inside the lot fronts (one mark per lot, off the aprons)
+	local marks = {}
+	for _, lot in run.lots do
+		local at = if run.axis == "x" then lot.z else lot.x
+		table.insert(marks, at - lot.w / 2 + 3)
+	end
+	table.sort(marks)
+	local toRoad = -s
+	BlockFiller.furnish(m, ctx.rng, function(t: number): CFrame
+		local c = front + s * 1.4
+		local p = if run.axis == "x" then V(c, GY, t) else V(t, GY, c)
+		local look = if run.axis == "x" then V(toRoad, 0, 0) else V(0, 0, toRoad)
+		return CFrame.lookAt(p, p + look)
+	end, marks, function(t: number): boolean
+		for _, c in cuts do
+			if t > c.a - 3 and t < c.b + 3 then
+				return true
+			end
+		end
+		return false
+	end, (function() local o = table.clone(FURNISH[run.theme] or {}); o.street = run.street; return o end)())
+	for _, lot in run.lots do
 		local lf = BlockFiller.lotFrame(lot.x, lot.z, lot.face)
 		local site = ctx.siteFor(lot)
 		if lot.site and site then

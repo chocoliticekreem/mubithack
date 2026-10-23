@@ -53,6 +53,11 @@ return Config.define({
 	DamRiverZ = 168, -- DamBuilder's river centre, local z (Z 160..176)
 	SpillwayOffset = 60, -- procedural dam only (no DamBuilder): spillway x offset
 	RiverDepth = 6,
+	-- Mill Pond: the creek widens into a lake in the east greenbelt between the Elm Ave avenue (x 450)
+	-- and Pine Ridge (x 590), south of the Forest gate street (world rect; nil = no lake)
+	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
+	-- Ridge Tunnel: Highway 67's west side (x = -1350) runs through a grassy hill here (Lib/Map/City/Highway)
+	Tunnel = { x = -1350, z0 = -840, z1 = -570, name = "Ridge Tunnel" }, -- between the Farm gate (z -900) and Oak Blvd (z -450)
 
 	-- Station (hub core)
 	StationOrigin = CFrame.new(0, 0, 132), -- kerb (local Z 68) on the hub loop's inner edge, z = 200
@@ -86,12 +91,13 @@ return Config.define({
 	SitesPerSuburbBlock = 2, -- per core sub-block; the rest of the houses are cheap LOD shells
 
 	-- Street furniture
-	LampSpacing = 120, -- per road edge, alternating sides (highway: x 2)
-	TreeSpacing = 60, -- along roads (highway: x 2.5)
+	LampSpacing = 130, -- per road edge, alternating sides (highway: x 2)
+	LampLightEvery = 3, -- only every 3rd street lamp carries a PointLight (range 50); the rest glow (neon)
+	TreeSpacing = 80, -- along roads (highway: x 2.5)
 	Crosswalks = true,
 	TrafficLights = true,
 	TrafficCycle = 7, -- seconds per green phase (amber 1.5 s at the end)
 
 	-- Budget (counter city_parts, attribute PartCount on Workspace.Map.City)
-	PartBudget = 25000,
+	PartBudget = 30000, -- the bigger city (corridors, furniture) sits at ~28k in a mock build; warn above 30k
 })
