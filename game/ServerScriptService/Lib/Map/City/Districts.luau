@@ -352,7 +352,7 @@ Districts.FaceDir = FACE_DIR
 -- Lots run from the district's gate street out to its edge (|along| <= DistrictHalf), so the corners
 -- where two strips meet stay open. The creek side of the east avenue stays a greenbelt.
 Districts.CorridorStyle = {
-	downtown = { lotW = 68, kinds = { "facade", "facade", "midrise", "facade", "plaza" }, sites = { "apartment", "shop", "diner", "gas", "apartment" } },
+	downtown = { lotW = 68, kinds = { "facade", "facade", "midrise", "facade", "plaza" }, sites = { "apartment", "shop", "apartment", "diner", "gas" } },
 	suburb = { lotW = 54, kinds = { "duplex", "duplex", "duplex", "grove" }, sites = { "house" } },
 	industrial = { lotW = 92, kinds = { "warehouse", "shed", "tanks", "warehouse" }, sites = { "storage" } },
 	farmland = { lotW = 130, kinds = { "cropfield", "cropfield", "barn" }, sites = { "house" } },
@@ -362,6 +362,8 @@ Districts.CorridorStyle = {
 -- incident sites per corridor run side (a district's frontage on one avenue); the hub's own frontage
 -- has none (dispatch wants a real drive from the station)
 Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School = 1, Apartment = 1 }
+-- a whole corridor run becomes one big site (a second school campus etc.), far from the station
+Districts.CorridorBigSites = { Town = "school", School = "school", Storage = "apartment" }
 
 export type Corridor = {
 	district: string,
@@ -457,12 +459,44 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 					end
 				end
 			end
+			-- one run becomes a single big site: the longest run furthest from the hub
+			local big = Districts.CorridorBigSites[d.id]
+			local bigRun: Corridor? = nil
+			if big then
+				local best = -math.huge
+				for _, run in sides do
+					local mid = (run.a0 + run.a1) / 2
+					local cx = if run.axis == "x" then (run.near + run.far) / 2 else mid
+					local cz = if run.axis == "x" then mid else (run.near + run.far) / 2
+					local score = (run.a1 - run.a0) * 4 + math.abs(cx) + math.abs(cz)
+					if run.a1 - run.a0 >= 200 and score > best then
+						best, bigRun = score, run
+					end
+				end
+				if bigRun then
+					local l = bigRun.lots[1]
+					local len = bigRun.a1 - bigRun.a0
+					local t = (bigRun.a0 + bigRun.a1) / 2
+					local ac = if bigRun.axis == "x" then l.x else l.z
+					bigRun.lots = {
+						{
+							kind = big,
+							x = if bigRun.axis == "x" then ac else t,
+							z = if bigRun.axis == "x" then t else ac,
+							w = len,
+							d = l.d,
+							face = l.face,
+							site = true,
+						},
+					}
+				end
+			end
 			-- incident sites: pick lots across this district's runs
 			local want = Districts.CorridorSites[d.id] or 0
 			if want > 0 and #style.sites > 0 then
 				local pool = {}
 				for _, run in sides do
-					for _, l in run.lots do
+					for _, l in (if run == bigRun then {} else run.lots) do
 						if l.w >= 40 then
 							table.insert(pool, l)
 						end

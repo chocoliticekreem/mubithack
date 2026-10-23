@@ -651,16 +651,19 @@ function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numb
 	SK.sign(sign, "MAPLEWOOD ELEMENTARY", Enum.NormalId.Front, C.Trim)
 	SK.cyl(site, "Flagpole", F * CF(-w / 2 - 8, GY + 14, -4), 28, 0.6, C.Trim)
 	SK.part(site, "Flag", F * CF(-w / 2 - 5.5, GY + 25.5, -4), V(5, 3, 0.2), C.Red)
-	-- playground behind
-	local py = F * CF(0, GY, d + 30)
+	-- playground behind (a shallow lot: beside the building, no court)
+	local deep = maxD >= d + 90
+	local py = if deep then F * CF(0, GY, d + 30) else F * CF(w / 2 + 32, GY, d * 0.4)
 	SK.wedge(site, "Slide", py * CF(-20, 3, 0), V(3, 6, 10), C.Red)
 	SK.part(site, "SlideTop", py * CF(-20, 3, 6), V(4, 6, 4), Color3.fromHex("#E9C46A"))
 	SK.part(site, "SwingBar", py * CF(10, 8, 0), V(14, 0.6, 0.6), C.MetalDark)
 	for _, x in { 3, 17 } do
 		SK.part(site, "SwingPost", py * CF(x, 4, 0), V(0.6, 8, 0.6), C.MetalDark)
 	end
-	SK.part(site, "Court", py * CF(0, 0.05, 34), V(60, 0.1, 34), Color3.fromHex("#B0553E"))
-	SK.part(site, "CourtLine", py * CF(0, 0.11, 34), V(0.4, 0.1, 34), C.Trim)
+	if deep then
+		SK.part(site, "Court", py * CF(0, 0.05, 34), V(60, 0.1, 34), Color3.fromHex("#B0553E"))
+		SK.part(site, "CourtLine", py * CF(0, 0.11, 34), V(0.4, 0.1, 34), C.Trim)
+	end
 	if rng:NextNumber() < 0.5 then
 		BlockFiller.tree(site, py * CF(40, 0, 10), rng)
 	end
