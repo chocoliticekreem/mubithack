@@ -9,8 +9,15 @@
 --   MapService:GetSpawnCFrame(slot: number): CFrame      -- StationSpawn pad 1..4, 3 studs up
 --   MapService:RandomFlammable(id: string, rng: Random): BasePart?
 --   MapService:BuildAll(): number                        -- ms taken; also works in Edit (preview)
+-- v1.5 (parallel squads, each mission in its own copy of a location):
+--   MapService:BuildInstance(locationId: string, instanceId: string): Model?  -- nil: no builder / no free slot
+--   MapService:DestroyInstance(instanceId: string): boolean
+--   MapService:GetInstance(instanceId: string): Model?
+--   MapService:GetInstances(): { [string]: Model }
 -- Signals: LocationBuilt(model: Model, locationId: string)
--- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms
+--          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5
+-- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms;
+--         Workspace.Instances.<instanceId> (attrs InstanceId, LocationId), counter map_instances_built
 -- Test hooks (DevHook only): _selftest()
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -23,9 +30,12 @@ local MapConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild(
 local MapService = {}
 MapService.Priority = 0
 MapService.LocationBuilt = Signal.new() :: Signal.Signal<Model, string>
+MapService.InstanceBuilt = Signal.new() :: Signal.Signal<Model, string, string>
 
 local locations: { [string]: Model } = {}
 local builders: { [string]: any } = {}
+local instances: { [string]: Model } = {}
+local slotOwner: { [number]: string } = {} -- instance slot -> instanceId
 
 local function hash(s: string): number
 	local h = 0
@@ -43,6 +53,22 @@ local function mapFolder(): Folder
 		f.Parent = workspace
 	end
 	return f :: Folder
+end
+
+local function instancesFolder(): Folder
+	local f = workspace:FindFirstChild("Instances")
+	if not f then
+		f = Instance.new("Folder")
+		f.Name = "Instances"
+		f.Parent = workspace
+	end
+	return f :: Folder
+end
+
+local function count(name: string, n: number?)
+	pcall(function()
+		require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count(name, n or 1)
+	end)
 end
 
 local function locationsFolder(): Instance?
@@ -149,6 +175,70 @@ function MapService:RandomFlammable(id: string, rng: Random): BasePart?
 		return nil
 	end
 	return list[rng:NextInteger(1, #list)]
+end
+
+function MapService:BuildInstance(locationId: string, instanceId: string): Model?
+	if instances[instanceId] then
+		MapService:DestroyInstance(instanceId)
+	end
+	if builders[locationId] == nil then
+		discover()
+	end
+	local b = builders[locationId]
+	if not b then
+		warn(`[MapService] BuildInstance: no builder for {locationId}`)
+		return nil
+	end
+	local slot: number? = nil
+	for i = 0, MapConfig.MaxInstances - 1 do
+		local s = MapConfig.InstanceFirstSlot + i
+		if slotOwner[s] == nil then
+			slot = s
+			break
+		end
+	end
+	if not slot then
+		warn(`[MapService] BuildInstance: all {MapConfig.MaxInstances} instance slots are in use`)
+		return nil
+	end
+	slotOwner[slot] = instanceId
+	local model = Instance.new("Model")
+	model.Name = instanceId
+	model:SetAttribute(Names.Attr.InstanceId, instanceId)
+	model:SetAttribute(Names.Attr.LocationId, locationId)
+	local rng = Random.new(MapConfig.Seed + hash(locationId))
+	local ok, err = pcall(b.Build, model, MapConfig.SlotOrigin(slot), rng)
+	if not ok then
+		warn(`[MapService] {locationId}.Build (instance {instanceId}) failed: {err}`)
+	end
+	model.Parent = instancesFolder()
+	instances[instanceId] = model
+	count("map_instances_built")
+	MapService.InstanceBuilt:Fire(model, instanceId, locationId)
+	return model
+end
+
+function MapService:DestroyInstance(instanceId: string): boolean
+	local model = instances[instanceId]
+	for s, owner in slotOwner do
+		if owner == instanceId then
+			slotOwner[s] = nil
+		end
+	end
+	if not model then
+		return false
+	end
+	instances[instanceId] = nil
+	model:Destroy()
+	return true
+end
+
+function MapService:GetInstance(instanceId: string): Model?
+	return instances[instanceId]
+end
+
+function MapService:GetInstances(): { [string]: Model }
+	return instances
 end
 
 function MapService:Start()
