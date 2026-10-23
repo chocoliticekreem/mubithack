@@ -59,6 +59,7 @@ end
 
 local MapService = {}
 MapService.Priority = 0
+MapService.BlocksBoot = true -- the city build yields; everything else starts after it
 MapService.LocationBuilt = Signal.new() :: Signal.Signal<Model, string>
 MapService.InstanceBuilt = Signal.new() :: Signal.Signal<Model, string, string>
 

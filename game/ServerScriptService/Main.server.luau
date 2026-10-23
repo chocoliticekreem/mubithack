@@ -4,6 +4,7 @@
 --   1. require all (sorted by Priority, then name)   - no yields, no Instances at module top level
 --   2. Init(self, services) on each                  - grab peers, create Signals; no cross-calls
 --   3. Start(self) on each, each on its own thread   - remotes, loops, cross-service calls
+--      (BlocksBoot = true runs Start on the boot thread, so later services wait for it)
 -- A service that errors in require/Init is dropped (warned, ForgeProbe records it); the rest run.
 -- A WIP service merged into main sets `Enabled = false` and is skipped.
 
@@ -65,12 +66,17 @@ Net.event("Shared", "Ragdoll")
 
 for _, e in entries do
 	if e.ok and type(e.mod.Start) == "function" then
-		task.spawn(function()
+		local function run()
 			local ok, err = pcall(e.mod.Start, e.mod)
 			if not ok then
 				warn(`[Boot] {e.name}:Start failed: {err}`)
 			end
-		end)
+		end
+		if e.mod.BlocksBoot == true then
+			run() -- e.g. MapService: its build yields, later services still see a finished map
+		else
+			task.spawn(run)
+		end
 	end
 end
 

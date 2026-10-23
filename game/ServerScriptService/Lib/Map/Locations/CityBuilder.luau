@@ -893,6 +893,16 @@ end
 ---------------------------------------------------------------------------------------------------
 -- build
 ---------------------------------------------------------------------------------------------------
+-- the build takes several seconds: yield now and then on a live server so boot never hits
+-- "Script timeout" (Edit-mode previews stay synchronous)
+local lastYield = 0
+local function breathe()
+	if game:GetService("RunService"):IsRunning() and os.clock() - lastYield > 0.1 then
+		task.wait()
+		lastYield = os.clock()
+	end
+end
+
 function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local t0 = os.clock()
 	table.clear(CityBuilder.Sites)
@@ -951,7 +961,9 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 	local sections: { [string]: Instance } = {}
 
+	lastYield = os.clock()
 	buildGround(ctx, model)
+	breathe()
 	sections.Ground = model:FindFirstChild("Ground") :: Instance
 
 	-- roads, crossings, bridges, signposts
@@ -959,15 +971,18 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	roads.Name = "Roads"
 	for idx, e in g.edges do
 		drawEdge(ctx, roads, g, e, idx)
+		breathe()
 	end
 	for id in g.nodes do
 		drawCrossing(ctx, roads, g, id)
+		breathe()
 	end
 	buildBridges(ctx, roads)
 	signposts(ctx, roads, g)
 	roads.Parent = model
 	sections.Roads = roads
 
+	breathe()
 	-- the open ground between the neighbourhoods: Mill Pond, pocket parks, verges, outskirts fields
 	local hok, hres = pcall(Highway.build, { cfg = cfg, plan = plan, rng = rng, streetNames = Districts.StreetNames }, model)
 	if hok then
@@ -984,6 +999,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			return clear(ctx, p, r)
 		end,
 	}, model)
+	breathe()
 	if gok then
 		sections.Greenbelt = gres
 	else
@@ -1032,6 +1048,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		-- avenue frontage between this neighbourhood and its avenues
 		for _, run in plan.corridors or {} do
 			if run.district == d.id then
+				breathe()
 				local cok, cerr = pcall(BlockFiller.fillCorridor, fillCtx, folder, run)
 				if not cok then
 					warn(`[CityBuilder] {d.id} corridor failed: {cerr}`)
@@ -1061,6 +1078,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			else
 				for _, b in plan.blocks do
 					if b.district == d.id then
+						breathe()
 						BlockFiller.fillBlock(fillCtx, folder, b)
 					end
 				end
@@ -1087,6 +1105,7 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		landmark(ctx, scenery, d)
 		scenery.Parent = folder
 		folder.Parent = districtsFolder
+		breathe()
 	end
 	districtsFolder.Parent = model
 	sections.Districts = districtsFolder
