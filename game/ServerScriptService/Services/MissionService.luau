@@ -1070,7 +1070,7 @@ local function chooseSite(missionId: string): (Model?, string?)
 	end
 	local sid = MissionFlow.pickSite(infos, missionId, GameConfig.SiteTieStuds, function(n: number): number
 		return rng:NextInteger(1, n)
-	end)
+	end, GameConfig.MinDispatchStuds)
 	if not sid then
 		return nil, nil
 	end

@@ -349,7 +349,7 @@ local function step(rig: Rig)
 		local cc = rig.cc :: ColorCorrectionEffect
 		cc.Enabled = true
 		local p1 = (math.sin(t * 2 * math.pi) + 1) / 2
-		cc.TintColor = WHITE:Lerp(RED, p1 * 0.5)
+		cc.TintColor = WHITE:Lerp(RED, p1 * 0.12) -- subtle pulse, not a red screen
 	elseif rig.cc then
 		rig.cc.TintColor = WHITE
 	end

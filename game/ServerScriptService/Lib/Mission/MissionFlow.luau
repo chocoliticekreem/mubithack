@@ -325,7 +325,7 @@ export type SiteInfo = {
 -- The nearest free site that can host `missionId`. Sites within `tieStuds` of the nearest one tie, and
 -- `roll(n) -> 1..n` picks among them (random in the service, fixed in tests); without `roll` the nearest
 -- wins (lowest id on an exact tie). nil when every matching site is busy, or none matches.
-function MissionFlow.pickSite(sites: { SiteInfo }, missionId: string, tieStuds: number?, roll: ((n: number) -> number)?): string?
+function MissionFlow.pickSite(sites: { SiteInfo }, missionId: string, tieStuds: number?, roll: ((n: number) -> number)?, minStuds: number?): string?
 	local free: { SiteInfo } = {}
 	for _, s in sites do
 		if not s.busy and MissionFlow.siteSupports(s.types, missionId) then
@@ -334,6 +334,24 @@ function MissionFlow.pickSite(sites: { SiteInfo }, missionId: string, tieStuds: 
 	end
 	if #free == 0 then
 		return nil
+	end
+	-- prefer sites at least `minStuds` from the station (a real drive); all of them tie, picked by roll
+	if minStuds and minStuds > 0 then
+		local far: { SiteInfo } = {}
+		for _, s in free do
+			if s.dist >= minStuds then
+				table.insert(far, s)
+			end
+		end
+		if #far > 0 then
+			table.sort(far, function(a, b)
+				return a.id < b.id
+			end)
+			if roll and #far > 1 then
+				return far[math.clamp(math.floor(roll(#far)), 1, #far)].id
+			end
+			return far[1].id
+		end
 	end
 	table.sort(free, function(a, b)
 		if a.dist ~= b.dist then
