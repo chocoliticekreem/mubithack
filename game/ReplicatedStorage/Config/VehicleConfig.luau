@@ -21,23 +21,49 @@ return Config.define({
 	LostBelowY = -60, -- chassis below this = lost, rebuilt at the bay
 
 	-- Driving (client-simulated by the driver, who owns the truck's physics). Units: studs, seconds.
-	MaxSpeed = 70, -- studs/s forward; reverse is half
-	Accel = 42, -- studs/s^2 under throttle
-	Brake = 95, -- studs/s^2 when pressing against the motion
-	TurnSpeed = 2.2, -- rad/s at speed (turning circle ~40 studs at 70 studs/s, ~12 at 20: fits the 24-stud roads)
-	Grip = 5.5, -- 1/s; lower = more drifty
-	DriftGrip = 0.9, -- grip while the handbrake (Space) is held
-	DriftTurn = 1.7, -- yaw multiplier while drifting
-	HandbrakeDrag = 18, -- studs/s^2 the handbrake bleeds off
-	AirControl = 0.15, -- fraction of drive/steer while airborne
+	-- Arcade bicycle model (ClientLib/TruckDrive): springs carry the body, two axles make tyre forces.
+	MaxSpeed = 72, -- studs/s forward top speed (the torque curve fades to 0 here)
+	Accel = 46, -- studs/s^2 peak engine pull (TruckDrive.torqueCurve shapes it over speed)
+	Brake = 110, -- studs/s^2 when pressing against the motion
+	ReverseSpeed = 28, -- studs/s
+	ReverseAccel = 34,
+	RollDrag = 5, -- studs/s^2 coasting drag
+	AeroDrag = 0.0025, -- per (studs/s)^2 (top-speed coast ~18 studs/s^2)
+	StopBelow = 1.2, -- no input + slower than this = parking brake (no creeping)
+	DriveFront = 0.3, -- share of engine pull through the front axle (rest = rear: a little power-oversteer)
+	BrakeFront = 0.6, -- share of braking on the front axle
+	-- Axles (studs from the chassis centre along the truck; the bicycle model's wheelbase)
+	FrontAxle = 8, -- ahead
+	RearAxle = 5, -- behind
+	ForceHeight = 1.1, -- tyre forces act this far below the centre -> weight transfer (roll/pitch)
+	-- Steering
+	SteerLow = 0.72, -- rad max front-wheel angle at a crawl (tight turns in the station)
+	SteerHigh = 0.13, -- rad at top speed (stable on the avenue)
+	SteerRate = 3.6, -- rad/s the front wheels turn
+	SteerReturn = 6, -- rad/s back to centre
+	CounterSteer = 0.9, -- assist: extra front angle per rad of body slip (catches slides)
+	CounterSteerMax = 0.45,
+	-- Tyres
+	Grip = 0.95, -- mu (front); lateral force cap = Grip * axle load
+	RearGrip = 1.05, -- rear mu multiplier (>1 = stable, <1 = loose)
+	SlipPeak = 0.14, -- rad slip angle where the tyre lets go
+	SlideGrip = 0.72, -- fraction of grip left once sliding
+	GripStiff = 0.9, -- 0..1 of the slide a gripping tyre cancels per step (1 = on rails)
+	DriftGrip = 0.32, -- rear grip multiplier while the handbrake (Space) is held
+	HandbrakeDrag = 26, -- studs/s^2 the handbrake bleeds off (rear axle)
+	DriftKick = 1.1, -- rad/s yaw kick when you pull the handbrake while steering at speed
+	YawDamp = 0.6, -- 1/s yaw damping while sliding (keeps spins catchable)
+	AirControl = 0.15, -- fraction of steer yaw while airborne
+	-- Engine note (only if EngineSoundId is set): virtual gears for pitch drops on shifts
+	GearShifts = { 0.2, 0.42, 0.68, 1.0 },
 
-	-- Bouncy suspension: four raycasts from the chassis corners. Low damping = jelly truck.
+	-- Suspension: four raycasts from the chassis corners. Lower damping = bouncier.
 	RideRest = 3.4, -- ray length from chassis centre (chassis centre sits ~2.4 studs up at rest)
-	Spring = 240, -- accel per stud of compression (gravity is 196 -> ~0.8 stud sag)
-	Damping = 6, -- accel per stud/s of vertical speed (raise to calm the bounce)
-	BodyRoll = 0.16, -- radians of lean at full steer + speed
-	RollStiffness = 7, -- how fast the body leans into the target roll (1/s)
-	WheelieKick = 1.6, -- rad/s pitch-up when you floor it from a standstill
+	Spring = 260, -- accel per stud of compression (gravity is 196 -> ~0.75 stud sag)
+	Damping = 15, -- accel per stud/s of vertical speed (~0.45 of critical: one goofy bounce, no float)
+	AntiRoll = 9, -- 1/s extra roll-rate damping (no wallowing after a slalom)
+	PitchTransfer = 5, -- extra nose dive/squat from braking/throttle (visual + shifts grip front/back)
+	WheelieKick = 1.2, -- rad/s pitch-up when you floor it from a standstill
 	BumpKick = 0.05, -- rad/s pitch-up per stud/s of sudden front compression (wheelies on bumps)
 	BumpThreshold = 9, -- front compression speed (studs/s) that counts as a bump
 	SquashSeconds = 0.3, -- spring goes soft this long after a hard landing (cartoon squash + rebound)
@@ -72,9 +98,13 @@ return Config.define({
 	CamDistance = 30,
 	CamHeight = 15, -- high enough to see the road over the 9.6-stud truck
 	CamLookAhead = 16,
-	CamStiffness = 7, -- 1/s follow lerp
+	CamStiffness = 7, -- 1/s position follow
+	CamYawLag = 4.5, -- 1/s the chase cam swings round behind the nose (lower = more drift angle on screen)
+	CamSpeedPull = 6, -- extra studs of distance at top speed
 	FovBase = 72,
-	FovAdd = 22, -- extra FOV at top speed
+	FovAdd = 18, -- extra FOV at top speed
+	FovKick = 7, -- extra FOV while accelerating hard
+	ShakeSpeed = 0.06, -- studs of camera shake at top speed (road rumble)
 	CabEye = Vector3.new(0, 3.7, -0.8), -- cab view eye, relative to the DriveSeat (driver's eyes, over the wheel)
 	CabPitch = -0.08, -- rad; a touch down so the road ahead shows over the dash
 	CabFov = 80,

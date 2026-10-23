@@ -59,9 +59,14 @@ local squashT = math.huge
 local squashSoft = 1
 local engine: Sound? = nil
 local boing: Sound? = nil
+local steerAngle = 0 -- current front-wheel angle (rad, + = right)
+local prevHandbrake = false
+local prevFwdSpeed = 0
+local longAccel = 0 -- filtered forward acceleration (studs/s^2), for the FOV kick
 
 -- chase camera state
 local camPos: Vector3? = nil
+local camHeading: Vector3? = nil
 local camYaw = 0
 local camPitch = 0
 local looking = false
@@ -124,24 +129,56 @@ end
 
 ---------------------------------------------------------------------------- driving physics
 
+-- Studio-only test hook (player attrs, set from execute_luau): TruckTestThrottle / TruckTestSteer
+-- (-1..1), TruckTestHandbrake (bool), TruckTestCruise (target studs/s; overrides throttle).
+local function testInputs(fwdSpeed: number, throttle: number, steer: number, hb: boolean): (number, number, boolean)
+	if not RunService:IsStudio() then
+		return throttle, steer, hb
+	end
+	local cruise = player:GetAttribute("TruckTestCruise")
+	local t = player:GetAttribute("TruckTestThrottle")
+	local s = player:GetAttribute("TruckTestSteer")
+	local h = player:GetAttribute("TruckTestHandbrake")
+	if type(cruise) == "number" then
+		throttle = math.clamp((cruise - fwdSpeed) * 0.3, -1, 1)
+	elseif type(t) == "number" then
+		throttle = t
+	end
+	if type(s) == "number" then
+		steer = s
+	end
+	if type(h) == "boolean" then
+		hb = h
+	end
+	return throttle, steer, hb
+end
+
 local function step(truck: Model, dt: number)
 	local seat = truck:FindFirstChild("DriveSeat") :: VehicleSeat?
 	local chassis = truck.PrimaryPart
 	if not seat or not chassis or chassis.Anchored then
 		return
 	end
+	local C = VehicleConfig :: any
 	local cf = chassis.CFrame
-	local up = cf.UpVector
-	local mass = chassis.AssemblyMass
+	local up, right, fwd = cf.UpVector, cf.RightVector, cf.LookVector
+	local m = chassis.AssemblyMass
+	local size = chassis.Size
+	-- box inertia of the chassis (the body parts are massless): yaw, roll (about fwd), pitch (about right)
+	local iYaw = m * (size.X * size.X + size.Z * size.Z) / 12
+	local iRoll = m * (size.X * size.X + size.Y * size.Y) / 12
+	local iPitch = m * (size.Y * size.Y + size.Z * size.Z) / 12
 	local params = rayParams(truck)
-	local rest = VehicleConfig.RideRest
+	local rest = C.RideRest
 
 	-- landing squash: the springs go soft for a beat, so the body slams down and rebounds
 	squashT += dt
-	local springK = VehicleConfig.Spring * TruckDrive.squashSpring(squashT, VehicleConfig.SquashSeconds, squashSoft)
+	local springK = C.Spring * TruckDrive.squashSpring(squashT, C.SquashSeconds, squashSoft)
 
+	-- suspension: four springs; their forces are the wheel loads (weight transfer falls out of this)
 	local hits = 0
 	local frontComp = 0
+	local loadF, loadR = 0, 0
 	for i, c in CORNERS do
 		local origin = cf:PointToWorldSpace(c)
 		local res = workspace:Raycast(origin, -up * rest, params)
@@ -153,21 +190,27 @@ local function step(truck: Model, dt: number)
 			end
 		end
 		local vel = chassis:GetVelocityAtPosition(origin):Dot(up)
-		local a = TruckDrive.spring(dist, rest, vel, springK, VehicleConfig.Damping)
-		if a > 0 then
-			chassis:ApplyImpulseAtPosition(up * a * mass * 0.25 * dt, origin)
+		local acc = TruckDrive.spring(dist, rest, vel, springK, C.Damping)
+		if acc > 0 then
+			local f = acc * m * 0.25
+			chassis:ApplyImpulseAtPosition(up * f * dt, origin)
+			if i <= 2 then
+				loadF += f
+			else
+				loadR += f
+			end
 		end
 	end
 	local grounded = hits >= 2
-	local ctrl = if grounded then 1 else VehicleConfig.AirControl
 
 	local v = chassis.AssemblyLinearVelocity
+	local w = chassis.AssemblyAngularVelocity
 	-- hard landing -> cartoon squash + BOING
 	if grounded and airborne > 0 then
 		local amt = TruckDrive.squash(airborne, -lastVelY)
 		if amt > 0 then
 			squashT = 0
-			squashSoft = 1 - (1 - VehicleConfig.SquashSoften) * amt
+			squashSoft = 1 - (1 - C.SquashSoften) * amt
 			camDip = math.max(camDip, 1.5 * amt)
 			if boing and boing.SoundId ~= "" then
 				boing.PlaybackSpeed = 0.8 + math.random() * 0.4
@@ -179,61 +222,129 @@ local function step(truck: Model, dt: number)
 	airborne = if grounded then 0 else airborne + dt
 	lastVelY = v.Y
 
-	local look = cf.LookVector
-	local fwd = Vector3.new(look.X, 0, look.Z)
-	fwd = if fwd.Magnitude > 0.05 then fwd.Unit else Vector3.new(0, 0, -1)
-	local right = Vector3.new(-fwd.Z, 0, fwd.X)
-	local fwdSpeed = v:Dot(fwd)
-	local lat = v:Dot(right)
-	local throttle = seat.ThrottleFloat
-	local steer = seat.SteerFloat
+	-- planar state in truck axes
+	local vF0, vR0, yaw0 = v:Dot(fwd), v:Dot(right), w:Dot(up)
+	local vF, vR, yaw = vF0, vR0, yaw0
+	local throttle, steerIn, hb = testInputs(vF0, seat.ThrottleFloat, seat.SteerFloat, handbrake)
 
-	-- drive + grip (handbrake = drift)
-	local acc = TruckDrive.drive(throttle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.Accel, VehicleConfig.Brake)
-	local dv = fwd * acc * dt * ctrl
+	-- steering: speed-sensitive lock, rate-limited wheel, counter-steer assist while sliding
+	local lock = TruckDrive.steerMax(vF, C.SteerLow, C.SteerHigh, C.MaxSpeed)
+	steerAngle = TruckDrive.steerToward(steerAngle, steerIn * lock, dt, C.SteerRate, C.SteerReturn)
+	local bodySlip = math.atan2(vR, math.max(math.abs(vF), 1))
+	local delta = steerAngle
 	if grounded then
-		local grip = if handbrake then VehicleConfig.DriftGrip else VehicleConfig.Grip
-		dv += right * TruckDrive.grip(lat, grip) * dt
-		if handbrake and math.abs(fwdSpeed) > 1 then
-			dv -= fwd * math.sign(fwdSpeed) * math.min(math.abs(fwdSpeed), VehicleConfig.HandbrakeDrag * dt)
+		delta += TruckDrive.counterSteer(bodySlip, vF, C.CounterSteer, C.CounterSteerMax)
+	end
+	delta = math.clamp(delta, -0.85, 0.85)
+	local cosD, sinD = math.cos(delta), math.sin(delta)
+	local a, b = C.FrontAxle, C.RearAxle
+
+	-- longitudinal: torque curve / brakes / reverse / coast, split over the axles, capped by traction
+	local aLong = TruckDrive.drive(throttle, vF, C :: TruckDrive.DriveCfg)
+	local parked = math.abs(throttle) < 0.05 and math.abs(vF) < C.StopBelow
+	if parked or (math.abs(throttle) < 0.05 and math.abs(aLong * dt) > math.abs(vF)) then
+		aLong = -vF / math.max(dt, 1e-3) -- coasting never pushes past standstill; parked = hold
+	end
+	local powered = (throttle > 0.05 and vF >= -1) or (throttle < -0.05 and vF <= 1)
+	local share = if powered then C.DriveFront elseif math.abs(throttle) >= 0.05 then C.BrakeFront else 0.5
+	local fLongF = m * aLong * share
+	local fLongR = m * aLong * (1 - share)
+	if hb and grounded and math.abs(vF) > 1 then
+		fLongR -= math.sign(vF) * m * C.HandbrakeDrag
+	end
+	local muF = C.Grip
+	local muR = C.Grip * C.RearGrip * (if hb then C.DriftGrip else 1)
+	if not parked then
+		fLongF = math.clamp(fLongF, -muF * loadF, muF * loadF)
+		fLongR = math.clamp(fLongR, -C.Grip * C.RearGrip * loadR, C.Grip * C.RearGrip * loadR)
+	end
+	local ctrl = if grounded then 1 else C.AirControl
+	-- front long force acts along the steered wheel (and so turns the truck a little too)
+	local jF, jR = fLongF * dt * ctrl, fLongR * dt * ctrl
+	vF += (jF * cosD + jR) / m
+	vR += jF * sinD / m
+	yaw += -C.FrontAxle * jF * sinD / iYaw
+	local jLongTotal = jF * cosD + jR
+
+	-- lateral: each axle's tyre force from its slip angle, friction-circle budget, 2 solver passes
+	local jLatTotal = 0
+	if grounded then
+		local capF = TruckDrive.frictionCircle(fLongF, muF * loadF) * dt
+		local capR = TruckDrive.frictionCircle(fLongR, muR * loadR) * dt
+		local mEffF = 1 / (1 / m + (a * cosD) ^ 2 / iYaw)
+		local mEffR = 1 / (1 / m + b * b / iYaw)
+		local inv = 1 / math.max(dt, 1e-3)
+		local accF, accR = 0, 0
+		for _ = 1, 2 do
+			-- front axle (steered)
+			local latAtF = vR - yaw * a
+			local vLatF = -vF * sinD + latAtF * cosD
+			local vLongF = vF * cosD + latAtF * sinD
+			local want = TruckDrive.axleImpulse(vLatF, vLongF, capF * inv, 1, mEffF, dt, C.SlipPeak, C.SlideGrip, C.GripStiff)
+			local total = math.clamp(accF + want, -capF, capF)
+			local dj = total - accF
+			accF = total
+			vF += -dj * sinD / m
+			vR += dj * cosD / m
+			yaw += -a * dj * cosD / iYaw
+			jLatTotal += dj * cosD
+			-- rear axle
+			local vLatR = vR + yaw * b
+			want = TruckDrive.axleImpulse(vLatR, vF, capR * inv, 1, mEffR, dt, C.SlipPeak, C.SlideGrip, C.GripStiff)
+			total = math.clamp(accR + want, -capR, capR)
+			dj = total - accR
+			accR = total
+			vR += dj / m
+			yaw += b * dj / iYaw
+			jLatTotal += dj
 		end
+		-- handbrake flick: pull it while steering at speed and the tail kicks out
+		if hb and not prevHandbrake and math.abs(steerIn) > 0.3 and vF > 15 then
+			yaw += -math.sign(steerIn) * C.DriftKick
+		end
+		-- sliding: a touch of yaw damping so spins stay catchable
+		if math.abs(bodySlip) > 0.15 then
+			yaw -= yaw * math.min(1, C.YawDamp * dt)
+		end
+	else
+		-- airborne: a little steer for style
+		yaw += (-steerIn * 1.2 - yaw) * math.min(1, C.AirControl * dt * 3)
 	end
-	chassis.AssemblyLinearVelocity = v + dv
+	prevHandbrake = hb
 
-	-- rotation in truck axes: yaw (up), pitch (right, + = nose up), roll (look, + = right side down)
-	local U, R, L = cf.UpVector, cf.RightVector, cf.LookVector
-	local av = chassis.AssemblyAngularVelocity
-	local yaw, pitch, roll = av:Dot(U), av:Dot(R), av:Dot(L)
+	-- write the planar result back, keep the vertical motion the springs/gravity made
+	chassis.AssemblyLinearVelocity = v + fwd * (vF - vF0) + right * (vR - vR0)
 
-	local yawTarget = TruckDrive.steerRate(steer, fwdSpeed, VehicleConfig.TurnSpeed, VehicleConfig.MaxSpeed) * ctrl
-	if handbrake and grounded then
-		yawTarget *= VehicleConfig.DriftTurn
-	end
-	yaw += (yawTarget - yaw) * math.min(1, dt * 6)
-
+	-- weight transfer: tyre forces act below the centre -> lean out of turns, dive on brakes, squat on gas
+	local h = C.ForceHeight
+	local roll, pitch = w:Dot(fwd), w:Dot(right)
+	roll += -h * jLatTotal / iRoll
+	pitch += h * jLongTotal / iPitch * C.PitchTransfer
 	if grounded then
-		-- body roll: lean out of the turn
-		local rollNow = -R.Y
-		local want = TruckDrive.rollTarget(steer, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.BodyRoll)
-		local rollRate = (want - rollNow) * VehicleConfig.RollStiffness
-		roll += (rollRate - roll) * math.min(1, dt * 8)
+		roll -= roll * math.min(1, C.AntiRoll * dt)
 		-- wheelies: flooring it from a stop, and slamming the front wheels into a bump
-		pitch += TruckDrive.wheelie(throttle, prevThrottle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.WheelieKick)
+		pitch += TruckDrive.wheelie(throttle, prevThrottle, vF, C.MaxSpeed, C.WheelieKick)
 		local compRate = (frontComp - prevFrontComp) / math.max(dt, 1e-3)
-		pitch += TruckDrive.bump(compRate, VehicleConfig.BumpThreshold, VehicleConfig.BumpKick) * math.min(1, math.abs(fwdSpeed) / 20)
-		pitch *= math.max(0, 1 - dt * 1.2)
+		pitch += TruckDrive.bump(compRate, C.BumpThreshold, C.BumpKick) * math.min(1, math.abs(vF) / 20)
 	end
 	prevThrottle = throttle
 	prevFrontComp = frontComp
-	chassis.AssemblyAngularVelocity = U * yaw + R * pitch + L * roll
+	chassis.AssemblyAngularVelocity = up * yaw + right * pitch + fwd * roll
+
+	-- for the camera (FOV kick) and the engine note
+	local accNow = (vF - prevFwdSpeed) / math.max(dt, 1e-3)
+	prevFwdSpeed = vF
+	longAccel += (accNow - longAccel) * math.min(1, dt * 6)
 
 	-- flipped? pop back upright after a beat (goofy, keeps the round going)
 	if up.Y < 0.2 then
 		upsideDown += dt
-		if upsideDown > VehicleConfig.SelfRightAfter then
+		if upsideDown > C.SelfRightAfter then
 			upsideDown = 0
+			local flat = Vector3.new(fwd.X, 0, fwd.Z)
+			flat = if flat.Magnitude > 0.05 then flat.Unit else Vector3.new(0, 0, -1)
 			local pos = chassis.Position + Vector3.new(0, 6, 0)
-			truck:PivotTo(CFrame.lookAt(pos, pos + fwd) * chassis.CFrame:ToObjectSpace(truck:GetPivot()))
+			truck:PivotTo(CFrame.lookAt(pos, pos + flat) * chassis.CFrame:ToObjectSpace(truck:GetPivot()))
 			chassis.AssemblyLinearVelocity = Vector3.zero
 			chassis.AssemblyAngularVelocity = Vector3.zero
 		end
@@ -242,7 +353,9 @@ local function step(truck: Model, dt: number)
 	end
 
 	if engine then
-		engine.PlaybackSpeed = 0.7 + math.min(1, math.abs(fwdSpeed) / VehicleConfig.MaxSpeed) * 0.9
+		local _, rpm = TruckDrive.gear(vF, C.MaxSpeed, C.GearShifts)
+		local want = TruckDrive.enginePitch(rpm, throttle)
+		engine.PlaybackSpeed += (want - engine.PlaybackSpeed) * math.min(1, dt * 10)
 	end
 end
 
@@ -275,19 +388,29 @@ local function camStep(dt: number)
 		camPos = nil
 		return
 	end
+	local C = VehicleConfig :: any
 	local look = chassis.CFrame.LookVector
 	local fwd = Vector3.new(look.X, 0, look.Z)
 	fwd = if fwd.Magnitude > 0.05 then fwd.Unit else Vector3.new(0, 0, -1)
 	local speed = chassis.AssemblyLinearVelocity.Magnitude
+	local speedFrac = math.clamp(speed / math.max(C.MaxSpeed, 1), 0, 1)
+
+	-- the camera's heading swings round behind the nose with a lag: turns whip the view, drifts show
+	-- their angle on screen
+	local heading = camHeading or fwd
+	heading = heading:Lerp(fwd, 1 - math.exp(-C.CamYawLag * dt))
+	heading = if heading.Magnitude > 0.05 then heading.Unit else fwd
+	camHeading = heading
 
 	local orbit = CFrame.Angles(0, camYaw, 0)
-	local back = orbit:VectorToWorldSpace(-fwd)
-	local height = VehicleConfig.CamHeight + camPitch * VehicleConfig.CamDistance - camDip
-	local desired = chassis.Position + back * VehicleConfig.CamDistance + Vector3.new(0, height, 0)
-	local target = chassis.Position + fwd * VehicleConfig.CamLookAhead + Vector3.new(0, 5, 0)
+	local back = orbit:VectorToWorldSpace(-heading)
+	local dist = C.CamDistance + C.CamSpeedPull * speedFrac
+	local height = C.CamHeight + camPitch * C.CamDistance - camDip
+	local desired = chassis.Position + back * dist + Vector3.new(0, height, 0)
+	local target = chassis.Position + heading * C.CamLookAhead + Vector3.new(0, 5, 0)
 
 	local cur = camPos or desired
-	cur = cur:Lerp(desired, 1 - math.exp(-VehicleConfig.CamStiffness * dt))
+	cur = cur:Lerp(desired, 1 - math.exp(-C.CamStiffness * dt))
 	camPos = cur
 	camDip = math.max(0, camDip - dt * 5)
 
@@ -295,8 +418,12 @@ local function camStep(dt: number)
 	local dir = cur - target
 	local hit = workspace:Raycast(target, dir, rayParams(truck))
 	local final = if hit then hit.Position + hit.Normal * 1.2 else cur
+	-- road rumble: a little shake that grows with speed
+	local t = os.clock() * 14
+	local shake = C.ShakeSpeed * speedFrac
+	final += Vector3.new(math.noise(t, 0.3) * shake, math.noise(0.7, t) * shake, 0)
 	cam.CFrame = CFrame.lookAt(final, target)
-	local wantFov = TruckDrive.fov(speed, VehicleConfig.MaxSpeed, VehicleConfig.FovBase, VehicleConfig.FovAdd)
+	local wantFov = TruckDrive.fov(speed, C.MaxSpeed, C.FovBase, C.FovAdd) + TruckDrive.fovKick(longAccel, C.Accel, C.FovKick)
 	cam.FieldOfView += (wantFov - cam.FieldOfView) * math.min(1, dt * 4)
 end
 
@@ -491,8 +618,9 @@ local function enterDrive(truck: Model)
 	driving = truck
 	handbrake = false
 	airborne, upsideDown, prevThrottle, prevFrontComp = 0, 0, 0, 0
+	steerAngle, prevHandbrake, prevFwdSpeed, longAccel = 0, false, 0, 0
 	squashT = math.huge
-	camPos, camYaw, camPitch = nil, 0, 0
+	camPos, camYaw, camPitch, camHeading = nil, 0, 0, nil
 	local FP = controllers.FirstPersonController
 	if FP and type(FP.SetEnabled) == "function" then
 		pcall(FP.SetEnabled, FP, false)
