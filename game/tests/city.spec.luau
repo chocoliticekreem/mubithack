@@ -339,6 +339,27 @@ Spec.test("no builders: procedural cores everywhere, still connected", function(
 	Spec.truthy(seen.school and seen.storage and seen.apartment and seen.zoo and seen.dam, "procedural sites")
 end)
 
+Spec.test("other seeds: truck spots beside a road, corridor lots off the roads, every site routable", function()
+	for _, seed in { 1, 99, 1234, 777777, 31337 } do
+		local p = Districts.planCity(cfg, ON_MAIN, Catalog, seed)
+		local gg = p.graph
+		Spec.truthy(RoadGraph.connected(gg), `connected ({seed})`)
+		for _, s in p.sites do
+			Spec.truthy(RoadGraph.shortestPath(gg, "Station", s.roadNode), `route to {s.siteId} ({seed})`)
+			if s.lot then
+				local gap = roadGap(gg, s.truck.x, s.truck.z)
+				Spec.truthy(gap > 2 and gap < cfg.SidewalkWidth + cfg.ApronDepth, `{s.siteId} truck gap {gap} ({seed})`)
+			end
+		end
+		for _, run in p.corridors do
+			for _, l in run.lots do
+				local hx, hz = if run.axis == "x" then l.d / 2 else l.w / 2, if run.axis == "x" then l.w / 2 else l.d / 2
+				Spec.truthy(roadGap(gg, l.x, l.z) >= math.min(hx, hz) - 1, `corridor lot on a road ({seed})`)
+			end
+		end
+	end
+end)
+
 Spec.test("deterministic for a seed", function()
 	local a = Districts.planCity(cfg, ON_MAIN, Catalog, 42)
 	local b = Districts.planCity(cfg, ON_MAIN, Catalog, 42)
