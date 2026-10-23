@@ -45,6 +45,7 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigFolder:WaitForChild("StructureConfig") :: ModuleScript) :: any
 local Structure = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Fire"):WaitForChild("Structure") :: ModuleScript)
+local Rubble = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Physics"):WaitForChild("Rubble") :: ModuleScript)
 
 local StructureService = {}
 StructureService.Priority = 75
@@ -54,7 +55,16 @@ StructureService.TotalLoss = Signal.new() :: Signal.Signal<Model, string?>
 
 local INCIDENT_SITE = "IncidentSite" -- v2 tag (docs/game/08); not in the frozen Names yet
 
-type Saved = { cf: CFrame, anchored: boolean, collide: boolean, query: boolean, transparency: number }
+type Saved = {
+	cf: CFrame,
+	anchored: boolean,
+	collide: boolean,
+	query: boolean,
+	touch: boolean,
+	transparency: number,
+	phys: PhysicalProperties?,
+	group: string,
+}
 type Rec = {
 	model: Model,
 	s: Structure.Struct,
@@ -77,8 +87,7 @@ local recs: { [Model]: Rec } = {}
 local partRec: { [BasePart]: Rec } = {}
 local partId: { [BasePart]: number } = {}
 local notStructure: { [Instance]: boolean } = {}
-local debris: { { part: BasePart, at: number, rec: Rec } } = {}
-local loose: { [BasePart]: boolean } = {}
+local loose: { [BasePart]: Rec } = {} -- unanchored rubble Lib/Physics/Rubble is watching
 local looseCount = 0
 local fxRemote: RemoteEvent? = nil
 local rng = Random.new()
@@ -174,20 +183,28 @@ local function drop(rec: Rec)
 	if rec.conn then
 		rec.conn:Disconnect()
 	end
-	for i = #debris, 1, -1 do
-		if debris[i].rec == rec then
-			loose[debris[i].part] = nil
-			table.remove(debris, i)
+	for p, r in loose do
+		if r == rec then
+			Rubble.forget(p)
+			loose[p] = nil
 			looseCount -= 1
 		end
 	end
 end
 
+local function unloose(p: BasePart)
+	if loose[p] then
+		loose[p] = nil
+		looseCount -= 1
+	end
+end
+
+-- Someone else (HazardService's ceiling collapse, an explosion) unanchored one of our pieces: Rubble
+-- zeroes it and keeps it on the plot.
 local function track(rec: Rec, p: BasePart)
-	if not loose[p] then
-		loose[p] = true
+	if not loose[p] and Rubble.adopt(p, unloose) then
+		loose[p] = rec
 		looseCount += 1
-		table.insert(debris, { part = p, at = os.clock(), rec = rec })
 	end
 end
 
@@ -420,7 +437,16 @@ end
 
 local function save(rec: Rec, p: BasePart)
 	if not rec.saved[p] then
-		rec.saved[p] = { cf = p.CFrame, anchored = p.Anchored, collide = p.CanCollide, query = p.CanQuery, transparency = p.Transparency }
+		rec.saved[p] = {
+			cf = p.CFrame,
+			anchored = p.Anchored,
+			collide = p.CanCollide,
+			query = p.CanQuery,
+			touch = p.CanTouch,
+			transparency = p.Transparency,
+			phys = p.CustomPhysicalProperties,
+			group = p.CollisionGroup,
+		}
 	end
 end
 
@@ -430,7 +456,8 @@ local function fallPart(rec: Rec, p: BasePart)
 	end
 	save(rec, p)
 	for _, j in p:GetJoints() do
-		if j:IsA("JointInstance") or j:IsA("WeldConstraint") then
+		-- keep PhysicsFx prop welds: a chair falls as one chair, not as four flying legs
+		if (j:IsA("JointInstance") or j:IsA("WeldConstraint")) and j.Name ~= "PropWeld" then
 			j:Destroy()
 		end
 	end
@@ -442,14 +469,12 @@ local function fallPart(rec: Rec, p: BasePart)
 		count("structure_debris_crumbled")
 		return
 	end
-	p.CanCollide = true
-	p.Anchored = false
-	local k = Cfg.FallKick
-	p.AssemblyAngularVelocity = Vector3.new(rng:NextNumber(-k, k), rng:NextNumber(-k / 2, k / 2), rng:NextNumber(-k, k))
-	pcall(function()
-		p:SetNetworkOwner(nil) -- server simulates rubble: nobody can fling it at the squad
-	end)
-	track(rec, p)
+	-- zero velocity, no-bounce physics, no rubble-on-rubble collision while fresh, clamped + leashed
+	-- every frame, anchored when settled (Lib/Physics/Rubble): it falls DOWN and stays on the plot
+	if Rubble.release(p, unloose) then
+		loose[p] = rec
+		looseCount += 1
+	end
 end
 
 local function bboxOf(parts: { BasePart }): (Vector3, Vector3, number)
@@ -671,6 +696,9 @@ local function sync(rec: Rec)
 			end
 		elseif not p.Parent or not p.Anchored then
 			Structure.collapse(s, id)
+			if p.Parent and not p.Anchored then
+				track(rec, p) -- unanchored by someone else (HazardService's own ceiling collapse...)
+			end
 		elseif c.burning > 0 then
 			Structure.setBurning(s, id, tonumber(p:GetAttribute(Names.Attr.FireLevel)) or 0)
 		end
@@ -715,31 +743,6 @@ local function stepRec(rec: Rec, dt: number, now: number)
 	end
 end
 
-local function settleDebris(now: number)
-	for i = #debris, 1, -1 do
-		local d = debris[i]
-		local p = d.part
-		local age = now - d.at
-		local done = not p.Parent
-		if not done and p.Position.Y < workspace.FallenPartsDestroyHeight + 50 then
-			p.Anchored = true
-			p.Transparency = 1
-			p.CanCollide = false
-			done = true
-		elseif not done and (age >= Cfg.SettleMaxSeconds or (age >= Cfg.SettleMinSeconds and p.AssemblyLinearVelocity.Magnitude < Cfg.SettleSpeed)) then
-			p.AssemblyLinearVelocity = Vector3.zero
-			p.AssemblyAngularVelocity = Vector3.zero
-			p.Anchored = true
-			done = true
-		end
-		if done then
-			loose[p] = nil
-			table.remove(debris, i)
-			looseCount -= 1
-		end
-	end
-end
-
 local function step(dt: number)
 	local t0 = os.clock()
 	local now = t0
@@ -748,7 +751,6 @@ local function step(dt: number)
 			stepRec(rec, dt, now)
 		end
 	end
-	settleDebris(now)
 	if (os.clock() - t0) * 1000 > 3 then
 		count("structure_tick_over_budget")
 	end
@@ -791,6 +793,7 @@ end
 
 local function reset(rec: Rec)
 	for p, sv in rec.saved do
+		Rubble.forget(p)
 		if p.Parent then
 			p.Anchored = true
 			p.AssemblyLinearVelocity = Vector3.zero
@@ -799,7 +802,10 @@ local function reset(rec: Rec)
 			p.Anchored = sv.anchored
 			p.CanCollide = sv.collide
 			p.CanQuery = sv.query
+			p.CanTouch = sv.touch
 			p.Transparency = sv.transparency
+			p.CustomPhysicalProperties = sv.phys
+			p.CollisionGroup = sv.group
 			if p:HasTag(Names.Tag.Window) then
 				p:SetAttribute(Names.Attr.Broken, nil)
 			end

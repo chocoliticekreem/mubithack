@@ -32,10 +32,20 @@ return Config.define({
 	MaxCollapsesPerTick = 3, -- clusters started per structure per tick
 	AttachMaxPerChunk = 14, -- trim/shutters/furniture riding down with a chunk
 	MaxLooseDebris = 140, -- server-wide unanchored rubble; beyond it pieces crumble to dust instead
-	SettleMinSeconds = 2.5, -- rubble re-anchors once it is this old and nearly still...
-	SettleMaxSeconds = 7, -- ...or this old regardless
+	SettleMinSeconds = 1.5, -- rubble re-anchors once it is this old and nearly still...
+	SettleMaxSeconds = 6, -- ...or this old regardless
 	SettleSpeed = 1.5,
-	FallKick = 6, -- random angular velocity on fallen pieces
+	FallKick = 1.2, -- random angular velocity on fallen pieces (rad/s; they tip, they don't spin away)
+	-- containment (Lib/Physics/Rubble): debris falls DOWN and stays on the plot
+	RubbleFreshSeconds = 0.5, -- fresh pieces ignore other rubble (overlapping chunks would explode apart)
+	RubbleMaxHorizontal = 10, -- studs/s sideways cap on every loose piece
+	RubbleMaxUp = 6, -- studs/s upward cap (no bouncing up off the ground)
+	RubbleMaxDown = 70, -- studs/s fall cap (softer landings, fewer deep overlaps)
+	RubbleMaxSpin = 3, -- rad/s
+	RubbleLeash = 8, -- + half its footprint: beyond this from where it let go it loses outward speed
+	RubbleMaxDrift = 40, -- beyond this it crumbles to dust (never lands in the street)
+	RubbleDensity = 0.9, -- sane, heavy-ish, no bounce
+	RubbleFriction = 1.2,
 	-- hurting people
 	HurtRadius = 10, -- beyond the section's footprint
 	PlayerHeat = 30, -- HeatService:AddHeat at the centre (100 = Downed)
