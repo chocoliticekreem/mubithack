@@ -344,6 +344,31 @@ function MapService:GetSite(siteId: string): Model?
 	return nil
 end
 
+-- The pristine copy must be a STANDING site: an awake prop or a loose bit of rubble caught mid-flight
+-- would come back unanchored on every rebuild (and pop out of the geometry). Anchor every loose part that
+-- isn't a character/NPC or held by a constraint, and drop rubble collision groups.
+local function settleCopy(copy: Model)
+	for _, d in copy:GetDescendants() do
+		if not d:IsA("BasePart") then
+			continue
+		end
+		if d.CollisionGroup == "Rubble" or d.CollisionGroup == "RubbleFresh" then
+			d.CollisionGroup = "Default"
+		end
+		if d.Anchored then
+			continue
+		end
+		local model = d:FindFirstAncestorWhichIsA("Model")
+		if model and model ~= copy and model:FindFirstChildOfClass("Humanoid") then
+			continue
+		end
+		if d:FindFirstChildWhichIsA("Constraint") or (d:FindFirstChildWhichIsA("Attachment") and #d:GetJoints() > 0) then
+			continue -- hinged doors, ropes: built to swing
+		end
+		d.Anchored = true
+	end
+end
+
 -- Replace the site with a fresh clone of its first-seen state. Returns the live model (the old one if it
 -- can't be cloned, e.g. Archivable = false).
 local function swapSite(siteId: string): Model?
@@ -358,6 +383,7 @@ local function swapSite(siteId: string): Model?
 		end
 		copy:SetAttribute("Busy", false)
 		copy:SetAttribute(Names.Attr.InstanceId, nil)
+		settleCopy(copy)
 		pristine[siteId] = copy
 	end
 	local fresh = pristine[siteId]:Clone()

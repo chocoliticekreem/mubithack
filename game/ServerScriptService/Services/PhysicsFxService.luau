@@ -6,7 +6,8 @@
 --   whenever builders add more: anything tagged "Knockable", any Model/Folder whose name matches
 --   PhysicsConfig.KnockableNames (Lib/Physics/PropPhysics.isKnockableName), and every hydrant's "Cap".
 --   Attr Knockable = false opts out. Registered props are welded into one assembly and stay ANCHORED
---   (asleep) until a player comes within WakeRadius (plus a velocity lookahead, so fast trucks wake
+--   (asleep) until a player comes within WakeRadius (props inside a BuildingId Model never wake from
+--   proximity, only from direct hits) (plus a velocity lookahead, so fast trucks wake
 --   ahead); then they are unanchored, light and bouncy. They fall asleep again (re-anchored where they
 --   lie, or back home if they fell out of the world) when nobody is near. The nearest player within
 --   OwnerRadius owns an awake prop's physics so pushing it feels instant.
@@ -86,6 +87,7 @@ type Prop = {
 	lastHit: number,
 	owner: Player?,
 	tuned: boolean,
+	indoor: boolean, -- inside a building (BuildingId ancestor): only direct hits wake it, never proximity
 }
 
 local services: { [string]: any } = {}
@@ -178,6 +180,20 @@ local function blockedByAncestor(inst: Instance): boolean
 			return true
 		end
 		if a:IsA("Model") and a:FindFirstChildOfClass("Humanoid") then
+			return true
+		end
+		a = a.Parent
+	end
+	return false
+end
+
+-- Furniture inside a house overlaps its floor / walls / other furniture; waking it just because a player
+-- walked by made it pop out of the geometry and fly (a burning house "bounced off the plot"). Props
+-- under a Model with a BuildingId only wake from direct hits (hose, axe, Impulse, Blast).
+local function insideBuilding(inst: Instance): boolean
+	local a: Instance? = inst
+	while a and a ~= workspace do
+		if a:IsA("Model") and a:GetAttribute(Names.Attr.BuildingId) ~= nil then
 			return true
 		end
 		a = a.Parent
@@ -316,6 +332,7 @@ function PhysicsFxService:Register(inst: Instance): boolean
 		lastHit = 0,
 		owner = nil,
 		tuned = false,
+		indoor = insideBuilding(inst),
 	}
 	props[inst] = prop
 	for _, p in parts do
@@ -491,7 +508,7 @@ local function tick(dt: number)
 		local r = Cfg.WakeRadius + b.vel.Magnitude * Cfg.WakeLookahead
 		for _, id in grid:query(b.pos.X, b.pos.Z, r) do
 			local p = id :: Prop
-			if not p.awake and (p.root.Position - b.pos).Magnitude <= r then
+			if not p.awake and not p.indoor and (p.root.Position - b.pos).Magnitude <= r then
 				wake(p, false)
 			end
 		end

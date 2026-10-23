@@ -51,6 +51,7 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local HazardConfig = require(ConfigFolder:WaitForChild("HazardConfig") :: ModuleScript)
 local HazardMath = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Hazard"):WaitForChild("HazardMath") :: ModuleScript)
+local Rubble = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Physics"):WaitForChild("Rubble") :: ModuleScript)
 
 local HazardService = {}
 HazardService.Priority = 70
@@ -1078,9 +1079,9 @@ local function ceilingCollapse(instanceId: string, root: Instance, params: { [st
 		for p, cf in base do
 			if p.Parent then
 				p.CFrame = cf
-				p.Anchored = false
-				p.CanCollide = true
-				p.AssemblyAngularVelocity = Vector3.new(math.random(-3, 3), math.random(-2, 2), math.random(-3, 3))
+				-- Lib/Physics/Rubble: zero velocity, no rubble-on-rubble overlap explosions, clamped and
+				-- leashed so the ceiling falls DOWN instead of launching off the plot; anchors when settled
+				Rubble.release(p)
 			end
 		end
 		count("collapses")
