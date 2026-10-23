@@ -94,5 +94,5 @@ return Config.define({
 	TrafficCycle = 7, -- seconds per green phase (amber 1.5 s at the end)
 
 	-- Budget (counter city_parts, attribute PartCount on Workspace.Map.City)
-	PartBudget = 25000,
+	PartBudget = 30000, -- the bigger city (corridors, furniture) sits at ~28k in a mock build; warn above 30k
 })

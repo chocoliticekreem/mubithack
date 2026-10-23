@@ -767,12 +767,11 @@ function Scenery.house(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	local rc = pick(rng, { C.RoofBrown, C.RoofSlate, C.RoofTerra })
 	SK.wedge(m, "Roof1", F * CF(0, GY + h + rise / 2, d / 4 - 0.5), V(w + 2, rise, d / 2 + 1), rc)
 	SK.wedge(m, "Roof2", F * CF(0, GY + h + rise / 2, 3 * d / 4 + 0.5) * FLIP, V(w + 2, rise, d / 2 + 1), rc)
-	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.1), V(4, 7, 0.4), C.Wood)
-	for _, x in { -w * 0.3, w * 0.3 } do
-		SK.part(m, "WindowFake", F * CF(x, GY + 5, -0.1), V(4, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass })
-	end
+	SK.part(m, "Door", F * CF(0, GY + 3.5, -0.35), V(4, 7, 0.4), C.Wood)
+	-- windows as one dark strip per storey (cheap LOD shell)
+	SK.part(m, "WindowFake", F * CF(0, GY + 5, -0.1), V(w * 0.8, 3.6, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	if h > 12 then
-		SK.part(m, "WindowFake", F * CF(0, GY + 15, -0.1), V(w * 0.7, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass })
+		SK.part(m, "WindowFake", F * CF(0, GY + 15, -0.1), V(w * 0.7, 4, 0.3), C.GlassDark, { material = Enum.Material.Glass, collide = false, query = false })
 	end
 	m.Parent = parent
 	if rng:NextNumber() < 0.5 then
@@ -940,7 +939,7 @@ BlockFiller.pine = pine
 
 function Scenery.woods(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
-	local n = math.clamp(math.floor(maxW * maxD / 900), 3, 9)
+	local n = math.clamp(math.floor(maxW * maxD / 1200), 3, 6)
 	for _ = 1, n do
 		pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 4, maxW / 2 - 4), GY, rng:NextNumber(4, math.max(5, maxD - 4))), rng)
 	end

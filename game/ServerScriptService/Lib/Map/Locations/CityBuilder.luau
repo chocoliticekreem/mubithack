@@ -527,6 +527,17 @@ local function arch(parent: Instance, at: Vector3, along: Vector3, span: number,
 	local beam = SK.part(parent, "ArchSign", CFrame.lookAt(V(at.X, y0 + 19, at.Z), V(at.X, y0 + 19, at.Z) + along), V(span + 8, 5, 1.2), color)
 	SK.sign(beam, text, Enum.NormalId.Front, C.Trim)
 	SK.sign(beam, text, Enum.NormalId.Back, C.Trim)
+	-- polish (all above the beam, so the clearance under it is unchanged): a neon trim line on top,
+	-- a crown with the town crest, glowing lanterns on the pillar caps, coloured pillar feet
+	local face = CFrame.lookAt(V(at.X, 0, at.Z), V(at.X, 0, at.Z) + along)
+	SK.part(parent, "ArchTrim", face * CF(0, y0 + 21.75, 0), V(span + 8, 0.5, 1.4), C.Trim, { neon = true, collide = false, cast = false })
+	SK.part(parent, "ArchCrown", face * CF(0, y0 + 23.5, 0), V(10, 3, 1), color)
+	SK.ball(parent, "ArchCrest", face * CF(0, y0 + 25, 0), 4.4, C.Trim, { collide = false })
+	for _, s in { -1, 1 } do
+		local p = at + across * s * (span / 2 + 2)
+		SK.ball(parent, "ArchLantern", CF(p.X, y0 + 24.4, p.Z), 2.2, Color3.fromHex("#FFE2A8"), { neon = true, collide = false, cast = false })
+		SK.part(parent, "ArchFoot", CF(p.X, y0 + 1.5, p.Z), V(5, 3, 5), color)
+	end
 end
 
 local function gateSign(parent: Instance, at: Vector3, along: Vector3, text: string, color: Color3)
@@ -547,6 +558,18 @@ local LANDMARK_COLOR = {
 	School = Color3.fromHex("#E9C46A"),
 	Apartment = Color3.fromHex("#6A4C93"),
 	Zoo = Color3.fromHex("#E76F51"),
+}
+
+-- top of each landmark silhouette (studs above the ground) for its beacon + floating name
+local LANDMARK_TOP = {
+	watertower = 65,
+	smokestacks = 91,
+	silo = 69,
+	hosetower = 76,
+	lookout = 72,
+	belltower = 68,
+	skyscraper = 222,
+	ferriswheel = 64,
 }
 
 -- A tall silhouette in the band corner nearest the hub.
@@ -628,6 +651,29 @@ local function landmark(ctx: Ctx, parent: Instance, d: any)
 			SK.part(m, "Gondola", CF(gp.Position) * CF(0, -2, 0), V(4, 4, 4), C.Awnings[(k % #C.Awnings) + 1])
 		end
 		SK.cyl(m, "Hub", hub * ANG(0, 0, math.rad(90)), 3, 4, col)
+	end
+	-- beacon + floating district name on top: find the neighbourhoods from anywhere in the city
+	local top = LANDMARK_TOP[kind]
+	if top then
+		local beacon = SK.ball(m, "TopBeacon", cf * CF(0, top + 2.5, 0), 4, col, { neon = true, collide = false, cast = false })
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "DistrictName"
+		bb.Size = UDim2.new(48, 0, 9, 0) -- studs: shrinks with distance like the landmark itself
+		bb.StudsOffset = V(0, 9, 0)
+		bb.MaxDistance = 2600
+		bb.LightInfluence = 0
+		bb.AlwaysOnTop = false
+		local t = Instance.new("TextLabel")
+		t.Size = UDim2.fromScale(1, 1)
+		t.BackgroundTransparency = 1
+		t.TextScaled = true
+		t.Font = Enum.Font.FredokaOne
+		t.TextColor3 = C.Trim
+		t.TextStrokeColor3 = col
+		t.TextStrokeTransparency = 0
+		t.Text = string.upper(SHORT[d.id] or d.id)
+		t.Parent = bb
+		bb.Parent = beacon
 	end
 	m.Parent = parent
 end
