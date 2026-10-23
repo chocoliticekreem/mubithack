@@ -1,5 +1,6 @@
 """`forge server`: the `forge` stdio MCP server. Make a Roblox game with Forge from any MCP client.
 
+Setup:   setup (guided first run: Mubit key, model, luau, Roblox Studio, MCP toggle)
 Build:   doctor, new_game, iterate, correct, improve, fix, tester_report (long ones start a background job)
 Jobs:    job, jobs, cancel_job
 Read:    games, game, read_file, scores, playbook, lessons, calls
@@ -15,8 +16,13 @@ Every LLM call goes through Mubit (MUBIT_API_KEY in .env), one Mubit task per ro
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
+import shutil
+import urllib.error
+import urllib.request
 import shlex
 import signal
 import subprocess
@@ -34,7 +40,9 @@ from forge.memory import RunStore
 
 INSTRUCTIONS = (
     "forge builds Roblox games from an idea and improves them, with every LLM call going through "
-    "Mubit so corrections become model updates. Start with doctor. new_game(idea) designs, codes and "
+    "Mubit so corrections become model updates. ALWAYS call setup first in a new session and walk the "
+    "user through every step it marks as missing (it can save their Mubit key, install luau and open "
+    "a Studio place for them); only build once it says ready. new_game(idea) designs, codes and "
     "playtests a game in the connected Roblox Studio; it returns a job id, so poll job(id) until it "
     "says finished. iterate(slug) keeps improving it, correct(slug, path, note) applies a human "
     "correction (a Mubit training example), improve(slug) runs the anomaly loop (planted faults, "
@@ -125,6 +133,156 @@ def job_state(job_id: str, tail: int = 60) -> dict:
 def _job_reply(meta: dict, what: str) -> str:
     return (f"Started {what}: job `{meta['id']}`.\n"
             f"Poll with job(\"{meta['id']}\") every minute or so; it takes several minutes.")
+
+
+# ---------------------------------------------------------------- setup (guided first run)
+
+STARTER_MODELS = ("claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-4-5")
+STUDIO_APP = Path("/Applications/RobloxStudio.app")
+SETUP_PLACE = "place/Forge.rbxlx"
+
+
+def check_key(base_url: str, key: str) -> tuple[bool, str]:
+    """Ask Mubit to list models with this key: no task, no charge. Returns (ok, detail)."""
+    req = urllib.request.Request(base_url.rstrip("/") + "/v1/models",
+                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status == 200, f"HTTP {r.status}"
+    except urllib.error.HTTPError as e:
+        body = e.read()[:300].decode("utf-8", "replace")
+        code = re.search(r'"code":\s*"([^"]+)"', body)
+        return False, f"HTTP {e.code} {code.group(1) if code else ''}".strip()
+    except OSError as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def save_key(repo_root: Path, key: str) -> None:
+    """Write MUBIT_API_KEY into the checkout's .env (created from .env.example if missing)."""
+    env = repo_root / ".env"
+    if not env.exists():
+        example = repo_root / ".env.example"
+        env.write_text(example.read_text(encoding="utf-8") if example.exists() else "", encoding="utf-8")
+    text = env.read_text(encoding="utf-8")
+    line = f"MUBIT_API_KEY={key}"
+    text, n = re.subn(r"(?m)^MUBIT_API_KEY=.*$", line, text)
+    env.write_text(text if n else text.rstrip("\n") + ("\n" if text.strip() else "") + line + "\n",
+                   encoding="utf-8")
+    os.environ["MUBIT_API_KEY"] = key
+
+
+async def connected_studios(settings: Settings, tries: int = 4) -> list[dict]:
+    """Studio windows with the MCP toggle on. The first call after a restart is often empty."""
+    from forge.studio import Studio
+
+    async with Studio(settings) as studio:
+        for _ in range(tries):
+            found = await studio.list_studios()
+            if found:
+                return found
+            await asyncio.sleep(1.5)
+    return []
+
+
+def _open_place(settings: Settings) -> str:
+    empty = settings.repo_root / "place" / "empty"
+    empty.mkdir(parents=True, exist_ok=True)
+    out = settings.repo_root / SETUP_PLACE
+    subprocess.run([sys.executable, str(settings.base_game_dir / "tools" / "make_place.py"),
+                    "--root", str(empty), "--out", str(out)], check=True, capture_output=True)
+    subprocess.run(["open", "-a", str(STUDIO_APP), str(out)], check=False, capture_output=True)
+    return str(out)
+
+
+@mcp.tool()
+async def setup(mubit_api_key: str | None = None, install_luau: bool = False,
+                open_place: bool = False) -> str:
+    """Guided first run. Checks everything Forge needs and says exactly what to do next.
+
+    Call it with no arguments first. Then, as it asks: `mubit_api_key="mbt_..."` (checked against
+    Mubit, then saved to .env), `install_luau=True` (brew install luau), `open_place=True` (builds
+    an empty Forge place and opens it in Roblox Studio). Call it again until it says ready."""
+    s = _settings()
+    steps: list[str] = []
+    todo: list[str] = []
+
+    def ok(msg: str) -> None:
+        steps.append(f"- ✓ {msg}")
+
+    def need(msg: str, how: str) -> None:
+        steps.append(f"- ✗ {msg}")
+        todo.append(how)
+
+    ok(f"Forge checkout: `{s.repo_root}` (games are saved under `runs/`)")
+
+    if mubit_api_key:
+        good, detail = check_key(s.base_url, mubit_api_key.strip())
+        if not good:
+            raise ToolError(f"Mubit rejected that key ({detail}). Copy it again from "
+                            f"{CONSOLE_URL} → Mubit keys; it starts with mbt_.")
+        save_key(s.repo_root, mubit_api_key.strip())
+        s = _settings()
+    if not s.mubit_api_key:
+        need("Mubit API key", f"Create a key at {CONSOLE_URL} (Mubit keys), then call "
+             "`setup(mubit_api_key=\"mbt_...\")`. Every Forge call goes through Mubit, so this is required.")
+    else:
+        good, detail = check_key(s.base_url, s.mubit_api_key)
+        if good:
+            ok("Mubit key works")
+        else:
+            need(f"Mubit key rejected ({detail})", "Paste a fresh key: `setup(mubit_api_key=\"mbt_...\")`.")
+
+    if s.model in STARTER_MODELS:
+        ok(f"model `{s.model}`")
+    else:
+        steps.append(f"- ! model `{s.model}`: Mubit's starter credit only serves {', '.join(STARTER_MODELS)}. "
+                     "Fine if your workspace has its own provider key; otherwise set FORGE_MODEL.")
+
+    luau = shutil.which("luau-compile")
+    if not luau and install_luau:
+        if shutil.which("brew"):
+            subprocess.run(["brew", "install", "luau"], capture_output=True, timeout=600)
+            luau = shutil.which("luau-compile") or (
+                "/opt/homebrew/bin/luau-compile" if Path("/opt/homebrew/bin/luau-compile").exists() else None)
+        else:
+            raise ToolError("Homebrew isn't installed. Install luau from "
+                            "https://github.com/luau-lang/luau/releases and put luau-compile on PATH.")
+    if luau:
+        ok("luau-compile (Luau syntax checks)")
+    else:
+        need("luau-compile", "Call `setup(install_luau=True)` (uses Homebrew).")
+
+    if not STUDIO_APP.exists():
+        need("Roblox Studio", "Install Roblox Studio from https://create.roblox.com/ and sign in, "
+             "then call setup again.")
+    else:
+        ok("Roblox Studio installed")
+        opened = _open_place(s) if open_place else None
+        try:
+            studios = await connected_studios(s)
+        except Exception as e:  # noqa: BLE001
+            studios = []
+            steps.append(f"- ! could not reach StudioMCP: {type(e).__name__}: {e}")
+        if studios:
+            names = ", ".join(f"`{x.get('name')}` (id `{x.get('id')}`)" for x in studios)
+            ok(f"Studio connected: {names}")
+        else:
+            how = ("In the Studio window that just opened" if opened else
+                   "Open a place in Roblox Studio (or call `setup(open_place=True)` to make one), then in it")
+            need("No Studio window connected to MCP",
+                 f"{how}: Assistant → ⋯ → Manage MCP Servers → turn on **Enable Studio as MCP server**. "
+                 "The toggle is per window. Then call setup again. (Without Studio, Forge still builds "
+                 "with `use_studio=False`, compile-only.)")
+
+    head = "## Forge setup: ready" if not todo else f"## Forge setup: {len(todo)} step(s) left"
+    out = [head, "", *steps]
+    if todo:
+        out += ["", "### Next", *[f"{i}. {t}" for i, t in enumerate(todo, 1)]]
+    else:
+        out += ["", "Try: `new_game(\"co-op lava escape where you carry friends\", iterations=2)`, then "
+                "`job(<id>)`. Later: `fix(slug)` to let it find and fix problems, and "
+                f"`calls(slug)` to see the Mubit requests ({CONSOLE_URL})."]
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- build
@@ -424,7 +582,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
     return _clip("\n".join(lines[-5:]))
 
 
-TOOL_NAMES = ("doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
+TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
               "fix", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync")

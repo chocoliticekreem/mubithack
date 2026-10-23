@@ -2,7 +2,8 @@
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
     "mattpocock-skills@claude-plugins-official": true,
-    "mubit-tester@mubithack": true
+    "mubit-tester@mubithack": true,
+    "forge@mubithack": true
   },
   "permissions": {
     "allow": [
@@ -26,7 +27,7 @@
       "Bash(python3 game/tools/make_place.py:*)",
       "mcp__plugin_mubit-tester_mubit-tester",
       "mcp__plugin_mubit-tester_roblox-studio",
-      "mcp__forge"
+      "mcp__plugin_forge_forge"
     ]
   },
   "extraKnownMarketplaces": {

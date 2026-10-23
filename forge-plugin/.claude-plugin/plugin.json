@@ -1,0 +1,29 @@
+{
+  "name": "forge",
+  "displayName": "Forge",
+  "version": "0.1.0",
+  "description": "Make Roblox games from an idea and keep improving them: Forge designs, codes and playtests in Roblox Studio, an auditor finds anomalies, the fixer repairs them and a verifier keeps or rolls back each fix. Every LLM call goes through Mubit, so corrections become model updates.",
+  "author": { "name": "mubithack team" },
+  "repository": "https://github.com/chocoliticekreem/mubithack",
+  "license": "MIT",
+  "keywords": ["roblox", "game", "mubit", "mcp", "self-improving", "studio"],
+  "userConfig": {
+    "mubit_api_key": {
+      "type": "string",
+      "title": "Mubit API key",
+      "description": "Your mbt_ key from https://app.mubit.ai/console/ (Mubit keys). Leave empty to use MUBIT_API_KEY from the checkout's .env.",
+      "sensitive": true
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "Model id sent through Mubit. Keep it the same for the whole team so tasks pool. The starter credit serves claude-sonnet-5-5, claude-opus-5-5 and claude-haiku-4-5.",
+      "default": "claude-sonnet-5-5"
+    },
+    "project_dir": {
+      "type": "string",
+      "title": "mubithack checkout",
+      "description": "Path to your clone of chocoliticekreem/mubithack (where games are saved under runs/). Leave empty to use the current project or the marketplace copy."
+    }
+  }
+}
