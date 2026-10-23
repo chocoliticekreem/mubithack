@@ -98,7 +98,7 @@ local function build()
 
 	local p = Instance.new("Frame")
 	p.Name = "LevelPanel"
-	p.Position = UDim2.fromOffset(16, 56)
+	p.Position = UDim2.fromOffset(16, 100) -- clear of the Roblox top bar + HUD band
 	p.Size = UDim2.fromOffset(280, 64)
 	p.BackgroundColor3 = Palette.UiCream
 	p.Visible = false

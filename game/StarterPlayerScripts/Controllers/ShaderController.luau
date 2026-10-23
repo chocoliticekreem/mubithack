@@ -852,7 +852,7 @@ function ShaderController:Start()
 	-- settings button (lobby only)
 	local sg = UiKit.screen("GraphicsSettingsUI", 5)
 	fx.settingsGui = sg
-	local btn = UiKit.button(sg, "Quality", "GRAPHICS", UDim2.fromOffset(250, 40), UDim2.fromOffset(16 + 125, 150), Color3.fromRGB(60, 70, 96))
+	local btn = UiKit.button(sg, "Quality", "GRAPHICS", UDim2.fromOffset(250, 40), UDim2.fromOffset(16 + 125, 196), Color3.fromRGB(60, 70, 96))
 	btn.TextSize = 20
 	fx.settingsButton = btn
 	btn.Activated:Connect(function()
