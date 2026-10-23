@@ -1,0 +1,39 @@
+
+━━ forge run  flame-and-blame-feat ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━ build  1 modules ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [coder]     ServerScriptService/Services/FlareUpService.luau ✓  5.5s  mreq_01a16b…
+  [studio]    connected                                      ✓ 420326b8-9d7c-4792-b28b-2df4926e31b9
+
+━━ iteration 1  flame-and-blame-feat ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [check]     luau-compile 1 files                           ✓  0.7s
+  [version]   v2                                             ✓ forge versions / forge rollback
+  [studio]    sync → Studio                                  ✓  3.8s  OK 155 files, changed: ServerScriptService/Lib/Bla
+  [studio]    playtest running (60s)                         ✓  3.5s
+  [probe]     ForgeProbe report                              ✓ 0 errors, 1 warnings, players 1  {"leaderboard_refreshes": 1, "city_sites
+  [studio]    screenshot                                     ✓ runs/flame-and-blame-feat/iterations/1/screenshot.png
+  [studio]    stop playtest                                  ✓
+  [critic]    1 files                                        ✓ 20.1s  mreq_01a16b…
+  [score]     5/10  4 issues                                 · The server booted cleanly with no errors and no [Boot] warnings, and F
+  [fixer]     ServerScriptService/Services/FlareUpService.luau ✓  8.0s  mreq_01a16b…
+  [check]     luau-compile 1 files                           ✓  0.7s
+  [reflector] runs/lessons.md                                ✓ 21.2s  mreq_01a16b…
+
+━━ iteration 2  flame-and-blame-feat ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [check]     luau-compile 1 files                           ✓  0.6s
+  [version]   v3                                             ✓ forge versions / forge rollback
+  [studio]    sync → Studio                                  ✓  2.8s  OK 155 files, changed: ServerScriptService/Service
+  [studio]    playtest running (60s)                         ✓  3.2s
+  [probe]     ForgeProbe report                              ✓ 0 errors, 1 warnings, players 1  {"leaderboard_refreshes": 1, "city_sites
+  [studio]    screenshot                                     ✓ runs/flame-and-blame-feat/iterations/2/screenshot.png
+  [studio]    stop playtest                                  ✓
+  [critic]    1 files                                        ✓  6.3s  mreq_01a16b…
+  [score]     5/10  3 issues                                 · The game boots cleanly with no runtime errors, and the map, lobby, tra
+  [fixer]     ServerScriptService/Services/FlareUpService.luau ✓  8.3s  mreq_01a16b…
+  [check]     luau-compile 1 files                           ✓  0.6s
+  [reflector] runs/lessons.md                                ✓ 22.2s  mreq_01a16b…
+
+━━ summary ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  iteration 1: score 5  issues 4  errors 0
+  iteration 2: score 5  issues 3  errors 0
+  game files: runs/flame-and-blame-feat/game

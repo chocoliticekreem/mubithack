@@ -1,0 +1,34 @@
+[cycle 4] planted 0 faults: 
+[auditor] 3 anomalies, detected 0/0 mreq_01a16ace74b7705281795452c795c980
+[versions] v10: the game before this cycle's fixes
+[investigator] probe (Server): Locate the Mission Board 'Pick a call' prompt and inspect its properties. -> [{"enabled":true,"path":"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt","action":"Supply line"
+[investigator] probe (Server): Find the Mission Board prompt specifically (previous output was truncated). -> {"prompts":[{"enabled":true,"path":"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt","action":"Pick a call","obj":"
+[investigator] read ServerScriptService/Services/LobbyService.luau
+[investigator] probe (Client): Test whether the BoardPrompt fires from the client when standing in range. -> {"enabled":true,"squad":"","dist":6.600189685821533,"fired":1,"shown":false,"look":"-0, -0, 1","instAttr":"","pos":"-40,
+[investigator] probe (Client): Trigger prompt and observe the client-visible effect (attributes, UI). -> {"wsattrs":{"MapReady":true,"ServerBooted":true,"RoundState":"Lobby"},"inst":"","squad":"","guis":["Chat:true","BubbleCh
+[investigator] probe (Server): Attach a server-side Triggered listener to check whether the server receives the trigger, and check  -> connected; tagged boards=1 parentTags=MissionBoard promptTags=
+[investigator] probe (Client): Check whether the server-side Triggered listener receives the client trigger. -> {"before":0,"after":1,"inst":""}
+[investigator] root cause: The prompt itself is not broken. Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt is enabled, has hold 0 and a range of 16, and a probe client triggered it  -> ServerScriptService/Services/LobbyService.luau mreq_01a16acfb02c7692b636497940dbd50f
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: attempt 1 fixer reply unusable (patch could not be applied: no edits)
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: attempt 2 fixer reply unusable (patch could not be applied: no edits)
+[fix] Mission Board 'Pick a call' prompt never triggers, so the round cannot start: no attempt verified, ServerScriptService/Services/LobbyService.luau restored
+[investigator] root cause: Unproven, and I could not run a probe. The best-supported hypothesis is that the Mission Board 'Pick a call' ProximityPrompt is not usable as built. It is proba -> ServerScriptService/Lib/Map/Locations/StationBuilder.luau mreq_01a16acff069768187b515333c9149d3
+[investigator] probe (Server): Find the Gear Rack prompts and inspect their properties -> [["Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt","Grab Axe","Gear Rack",true,0,9,false,"-58.70000076293
+[investigator] read ServerScriptService/Services/InventoryService.luau
+[investigator] probe (Client): Test triggering the rack prompt from the client and see whether the server gives the item -> {"attrs":{"InvPrompt":true},"style":"Enum.ProximityPromptStyle.Custom","trig":false,"tools":20,"enabled":true,"hand":"",
+[investigator] probe (Client): Control: does a plain prompt trigger via InputHoldBegin in the same place, vs the rack prompt -> {"rackpos":"-58.70000076293945, 5.199999809265137, 108","parent":"Workspace.Map.Station.LockerRoom.GearRack1.GearRack","
+[investigator] probe (Client): Check ProximityPromptService state and whether prompts are shown/triggered client-side -> {"enabled":true,"guis":20,"hand":"","hp":100,"shown":0,"state":"Enum.HumanoidStateType.Running","trigd":0,"hidden":0}
+[investigator] probe (Client): Control with a fresh plain prompt next to the player: does any prompt get shown/triggered on this cl -> {"ptrig":0,"trig":0,"shown":0,"d":4,"pos":"-55.70000076293945, 3.599999189376831, 108"}
+[investigator] probe (Client): Check camera distance from character and client scripts that might block prompt display -> probe error: StudioError: execute_luau error: sabuiltin_Assistant.rbxm.Assistant.Packages._Index.AssistantUI.AssistantUI
+[investigator] root cause: Most likely a testing artefact, not a game bug. On the playtest client, a fresh plain ProximityPrompt (HoldDuration 0, 4 studs from the player, no line-of-sight -> ServerScriptService/Services/InventoryService.luau mreq_01a16ad179bc78038aeb4c382bcff340
+[fix] Gear Rack prompts (Grab Axe / Grab Extinguisher) do not trigger in range: attempt 1 fixer reply unusable (patch could not be applied: no edits)
+[fix] Gear Rack prompts (Grab Axe / Grab Extinguisher) do not trigger in range: attempt 2 fixer reply unusable (patch could not be applied: no edits)
+[fix] Gear Rack prompts (Grab Axe / Grab Extinguisher) do not trigger in range: no attempt verified, ServerScriptService/Services/InventoryService.luau restored
+[investigator] root cause: Unproven, since I ran no probes and read no files. The Gear Rack 'Grab Axe' / 'Grab Extinguisher' ProximityPrompts most likely never reach a working server gran -> ServerScriptService/Services/InventoryService.luau mreq_01a16ad1c0557d1184227d1fe86e56c2
+[reflector] lessons updated from 4 rejected fix attempt(s)
+[cycle 4] detected 0/0, unmatched anomalies 3, fixed+verified 0, open 3, code fixes kept 0/2 -> /Users/sonionring/orca/mubithack/runs/flame-and-blame/improve/4.json
+cycle planted detected missed unmatched fixed open code kept  ts
+    1       0        0      0         4     0    3       0/1  2026-10-23T21:35:48Z
+    2       0        0      0         4     0    3       1/2  2026-10-23T21:49:56Z
+    3       0        0      0         4     0    3       0/2  2026-10-23T22:02:46Z
+    4       0        0      0         3     0    3       0/2  2026-10-23T22:12:02Z

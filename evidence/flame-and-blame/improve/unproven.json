@@ -1,0 +1,18 @@
+[
+ {
+  "system": "gear/tools",
+  "title": "Gear rack and truck locker prompts never trigger, so no tool can be obtained"
+ },
+ {
+  "system": "fire",
+  "title": "Fire spreads unchecked and the structure is destroyed"
+ },
+ {
+  "system": "water/hose",
+  "title": "Water economy never exercised"
+ },
+ {
+  "system": "rescue",
+  "title": "No rescues possible and NPCs die"
+ }
+]

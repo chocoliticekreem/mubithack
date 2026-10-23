@@ -1,0 +1,218 @@
+{
+  "cycle": 1,
+  "ts": "2026-10-23T21:35:48Z",
+  "session_id": "improve-flame-and-blame-1",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "planted": 0,
+  "detected": 0,
+  "missed": 0,
+  "unmatched": 4,
+  "fixed_verified": 0,
+  "score": {
+    "planted": 0,
+    "detected": [],
+    "missed": [],
+    "anomaly_for": {},
+    "unmatched_anomalies": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "audit": {
+    "summary": "Only one round was played, and it never got past the lobby: the round could not start, so none of the firefighting systems (fire, hose, water, rescue, doors) were exercised. The mission start flow looks broken.",
+    "anomalies": [
+      {
+        "kind": "broken_link",
+        "system": "round",
+        "title": "Mission Board 'Pick a call' prompt never triggers, so the round cannot start",
+        "expected": "Triggering the Mission Board prompt selects a call and starts the alarm, then teleports players to the Town.",
+        "observed": "Round 1 judge reported high severity: the prompt never triggers and the round cannot start. goal_met is false. No gameplay counters (fires_extinguished, water_used, rescued, rounds_completed) appear at all, while city and traffic setup counters are populated.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "lobby",
+        "title": "SquadPad 'Change call' prompt does not trigger",
+        "expected": "Interacting with the SquadPad lets the player change the selected call.",
+        "observed": "Round 1 judge reported high severity: the prompt does not respond. This is a second lobby prompt failing in the same round, which points to a shared cause such as prompt setup, distance or enablement.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "round",
+        "title": "No gameplay telemetry produced, so core systems are unverified",
+        "expected": "A full round produces counters for fires, water, rescues and Blame results, and the playbook issues (hose not extinguishing, no way to drop a carried pet) can be checked.",
+        "observed": "Round 1 counters contain only world-build, traffic and data counters. Hose, fire, water, rescue and drop behavior are untested, so the playbook issues remain unverified.",
+        "severity": "medium"
+      },
+      {
+        "kind": "error",
+        "system": "testing",
+        "title": "Player position inconsistent with walk_to arrival",
+        "expected": "After walk_to arrives, the player's position and the 'near' list agree.",
+        "observed": "Round 1 low-severity bug: the position and the 'near' list were inconsistent after walk_to. This may explain why the prompts could not be triggered, if the player was not actually in range.",
+        "severity": "low"
+      }
+    ],
+    "request_id": "mreq_01a16aabd5fe74219b266c2cbcb19d12"
+  },
+  "correction": null,
+  "verdicts": [],
+  "before": [
+    {
+      "round": 1,
+      "goal": "Play a full round: put out fires, rescue everyone, refill water",
+      "goal_met": false,
+      "players": 1,
+      "counters": {
+        "leaderboard_refreshes": 1,
+        "city_sites": 24,
+        "props_woken": 10,
+        "city_parts": 25105,
+        "trucks_built": 1,
+        "traffic_despawned": 16,
+        "map_build_ms": 211,
+        "traffic_honks": 2,
+        "data_saved": 1,
+        "traffic_spawned": 30,
+        "traffic_graph_loaded": 1,
+        "props_registered": 87,
+        "data_loaded": 1
+      },
+      "errors": {
+        "count": 0,
+        "first": []
+      },
+      "bugs": [
+        {
+          "title": "Mission Board 'Pick a call' prompt never triggers, so the round cannot start",
+          "severity": "high"
+        },
+        {
+          "title": "SquadPad 'Change call' prompt does not trigger",
+          "severity": "high"
+        },
+        {
+          "title": "Player position and 'near' list inconsistent with walk_to arrival",
+          "severity": "low"
+        }
+      ],
+      "events": {
+        "count": 12
+      }
+    }
+  ],
+  "open": 3,
+  "code_fixes": [
+    {
+      "anomaly": "Mission Board 'Pick a call' prompt never triggers, so the round cannot start",
+      "path": "ServerScriptService/Services/LobbyService.luau",
+      "attempts": [
+        {
+          "status": "regression",
+          "verdict": {
+            "verdict": "regression",
+            "evidence": "After the rewrite, the round still cannot start: goal_met is false, no gameplay counters (fires_extinguished, rescued, rounds_completed) appear, and the judge reports 'Round stuck in Lobby'. Errors went from 0 before to 1 after: 'LobbyService:7: attempt to index nil with 'pads''.",
+            "regressions": [
+              "New LobbyService server error at line 7 (attempt to index nil with 'pads'); errors rose from 0 to 1",
+              "Gear rack and hose reel prompts now reported as never triggering (new high-severity bug)",
+              "Round stuck in Lobby, so the Mission Board prompt anomaly is not resolved"
+            ],
+            "request_id": "mreq_01a16aaf214c7cc3b796db6f5fc5a135"
+          }
+        },
+        {
+          "status": "fixer_error",
+          "error": "reply has no ```luau code block"
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "Most likely a testing artefact, not a game bug. The Mission Board prompt (Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt) is correctly configured: Enabled, HoldDuration 0, MaxActivationDistance 16, no line-of-sight requirement, and the player was in range at about 6.6 studs. The client showed it (PromptShown fired for BoardPrompt) and then hid it. A fresh control ProximityPrompt created beside the player also never fired Triggered when driven by InputHoldBegin/InputHoldEnd from the client probe. So the failure comes from the synthetic prompt trigger in the test harness, not from the board prompt itself. I did not read the server-side BoardPrompt.Triggered handler in LobbyService (the file excerpt was cut off before it) and did not test it directly. If the bug is real, it would be in that handler, which is where LobbyService wires the board prompt to Choose and Launch. The missing gameplay counters (fires_extinguished, rounds_completed and the rest) follow from the round never launching, because the prompt was never triggered.",
+          "file": "ServerScriptService/Services/LobbyService.luau",
+          "evidence": "Probes 4 and 5: BoardPrompt.Triggered did not fire after InputHoldBegin/InputHoldEnd at 6.6 studs, and the fresh control ProximityPrompt (HoldDuration 0, distance 16) also did not fire. Probe 7: PromptShown and PromptHidden fired for BoardPrompt, but PromptTriggered stayed empty. The prompt properties are valid and the player is in the lobby (InstanceId \"\", SquadId \"\"), so nothing in the prompt setup blocks it.",
+          "fix_hint": "No change to the prompt setup is needed. To check the real path, read the BoardPrompt.Triggered handler in LobbyService and drive it with a real player input, or call the server hooks _join and _launch from a Server probe. If the handler turns out to be gated, for example by the cooldown/ready() check or by requiring a squad leader before it calls Choose and Launch, fix that gate in LobbyService so a lone player at the board can pick a call and start the round."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out = {}\nfor _, d in ipairs(workspace:GetDescendants()) do\n  if d:IsA('ProximityPrompt') then\n    table.insert(out, {path = d:GetFullName(), action = d.ActionText, obj = d.ObjectText, enabled = d.Enabled, hold = d.HoldDuration, dist = d.MaxActivationDistance, los = d.RequiresLineOfSight, style = tostring(d.Style)})\n  end\nend\nreturn game:GetService('HttpService'):JSONEncode(out)",
+              "why": "Locate the Mission Board 'Pick a call' prompt and inspect its properties (Enabled, distance, hold, line of sight)."
+            },
+            "result": "[{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt\",\"action\":\"Supply line\",\"obj\":\"Hydrant\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0.5},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Farm.Farm.Barn.BarnSideDoor.ProximityPrompt\",\"action\":\"Break (axe)\",\"obj\":\"Door\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.FrontDoor.ProximityPrompt\",\"action\":\"Open\",\"obj\":\"Door\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.BackDoor.ProximityPrompt\",\"action\":\"Break (axe)\",\"obj\":\"Door\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Farm.Farm.DuckPond.Water.ProximityPrompt\",\"action\":\"Supply line\",\"obj\":\"Pond\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":16,\"hold\":0.5},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Hydrant.Body.ProximityPrompt\",\"action\":\"Supply line\",\"obj\":\"Hydrant\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0.5},{\"enabled\":true,\"path\":\"Workspace.Map.City.Districts.Town.Town_Band.house-Town-1.Door.ProximityPrompt\",\"action\":\"Open\",\"obj\":\"Door\",\"style\":\"Enum.ProximityPromptStyle.Default\",\"los\":false,\"dist\":8,\"hold\":0},{\"enabled\":true,\"pat"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local out = {}\nfor _, d in ipairs(workspace:GetDescendants()) do\n  if d:IsA('ProximityPrompt') and (d.ActionText:lower():find('call') or d.ObjectText:lower():find('board') or d.ObjectText:lower():find('mission')) then\n    table.insert(out, {path = d:GetFullName(), action = d.ActionText, obj = d.ObjectText, enabled = d.Enabled, hold = d.HoldDuration, dist = d.MaxActivationDistance, parentPos = tostring(d.Parent:IsA('BasePart') and d.Parent.Position or 'n/a'), attrs = d:GetAttributes()})\n  end\nend\nlocal boards = {}\nfor _, d in ipairs(workspace:GetDescendants()) do\n  if d.Name:lower():find('board') then table.insert(boards, d:GetFullName()) end\nend\nreturn game:GetService('HttpService'):JSONEncode({prompts=out, boards=boards})",
+              "why": "Find the Mission Board prompt specifically (previous output was truncated)."
+            },
+            "result": "{\"prompts\":[{\"enabled\":true,\"path\":\"Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\",\"action\":\"Pick a call\",\"obj\":\"Mission Board\",\"attrs\":[],\"hold\":0,\"dist\":16,\"parentPos\":\"-40, 6.25, 170\"},{\"enabled\":true,\"path\":\"Workspace.Map.Station.Lobby.SquadPad1.PadPrompt\",\"action\":\"Change call\",\"obj\":\"Pad 1\",\"attrs\":[],\"hold\":0,\"dist\":9,\"parentPos\":\"-52, 0.6399999856948853, 183\"},{\"enabled\":true,\"path\":\"Workspace.Map.Station.Lobby.SquadPad2.PadPrompt\",\"action\":\"Change call\",\"obj\":\"Pad 2\",\"attrs\":[],\"hold\":0,\"dist\":9,\"parentPos\":\"-40, 0.6399999856948853, 183\"},{\"enabled\":true,\"path\":\"Workspace.Map.Station.Lobby.SquadPad3.PadPrompt\",\"action\":\"Change call\",\"obj\":\"Pad 3\",\"attrs\":[],\"hold\":0,\"dist\":9,\"parentPos\":\"-28, 0.6399999856948853, 183\"}],\"boards\":[\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.Bed.Headboard\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.Bed.HeadboardTop\",\"Workspace.Map.City.Districts.Farm.Farm.Farmhouse.Bed.Footboard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.City.Districts.Town.Town.Street.FenceBoard\",\"Workspace.Map.C"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/Services/LobbyService.luau",
+              "why": "Find the handler for MissionBoard.BoardPrompt.Triggered and see how it picks a call and starts the round."
+            },
+            "result": "--!strict\n-- LobbyService [owner: G3]. The fire station is the LOBBY. Players spawn on the StationSpawn pads.\n-- A big Mission Board (tag MissionBoard: SurfaceGui + ProximityPrompt + ClickDetector) lists\n-- MissionCatalog; 3 glowing queue pads (tag SquadPad, attr PadId) on the apron each show their\n-- squad's call + \"2/4 READY\". Stepping on a pad joins its squad; the first player on a pad starts a\n-- countdown (LobbyConfig.CountdownSeconds, cut to FullCountdownSeconds when the squad is full, reset\n-- when the pad empties). At 3..2..1 the station alarm lamps flash; at 0 the alarm blares and the\n-- squad launches into its OWN mission instance (MissionService:StartMission), so several pads count\n-- down and launch in parallel. On MissionService.MissionEnded the squad comes home (\"Welcome back,\n-- heroes (mostly)\"). Idle fun: slide the fire pole, ring the bell, honk truck 67; standing still\n-- labels you \"on coffee break\". Queue/countdown rules live in the pure ReplicatedStorage/Lobby/LobbyQueue.\n-- LobbyConfig.UseLobby = false keeps v1's single auto-round (remotes are still declared).\n--\n-- Public API (contract, docs/game/03-tech-architecture.md §10 \"v1.5 additions\"):\n--   LobbyService:GetSquads(): { Types.Squad }\n--   LobbyService:GetSquad(squadId: string): Types.Squad?\n--   LobbyService:Join(player: Player, padId: number): string?     -- squadId; first on a pad leads\n--   LobbyService:Leave(player: Player)\n--   LobbyService:Choose(player: Player, missionId: string): boolean -- leader only, enabled missions only\n--   LobbyService:Launch(squadId: string, missionId: string): string? -- instanceId (MissionService:StartMission)\n--   LobbyService:ReturnToLobby(players: { Player })               -- back onto station pads, InstanceId = \"\"\n-- Signals: SquadChanged(squadId: string), Launched(squadId: string, missionId: string, instanceId: string)\n-- Remotes: Lobby/Board (S->C all: squads: { Types.Squad }), Lobby/Choose (C->S missionId: string, 2/s),\n--          Lobby/Launch (C->S none, 1/s; leader only: cuts the countdown to LaunchCountdown)\n--          added: Lobby/Countdown (S->C squad: padId: number, seconds: number (-1 = cancel), title: string)\n--                 Lobby/Fx (S->C one: kind: \"slide\" | \"welcome\" | \"toast\", ...args)\n-- Writes: Player attrs SquadId (\"\" = none), InstanceId (\"\" = in the lobby); Workspace.Map.Station.Lobby;\n--         counters squads_launched, lobby_joins, lobby_returns, lobby_bell, lobby_honk, lobby_pole, lobby_afk\n-- Test hooks (DevHook only): _join(player, padId), _launch(squadId, missionId), _selftest()\nlocal CollectionService = game:GetService(\"CollectionService\")\nlocal Debris = game:GetService(\"Debris\")\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerScriptService = game:GetService(\"ServerScriptService\")\nlocal TweenService = game:GetService(\"TweenService\")\n\nlocal Shared = ReplicatedStorage:WaitForChild(\"Shared\")\nlocal Signal = require(Shared:WaitForChild(\"Signal\") :: ModuleScript)\nlocal Net = require(Shared:WaitForChild(\"Net\") :: ModuleScript)\nlocal Popup = require(Shared:WaitForChild(\"Popup\") :: ModuleScript)\nlocal Names = require(Shared:WaitForChild(\"Names\") :: ModuleScript)\nlocal Types = require(Shared:WaitForChild(\"Types\") :: ModuleScript)\nlocal ConfigDir = ReplicatedStorage:WaitForChild(\"Config\")\nlocal LobbyConfig = require(ConfigDir:WaitForChild(\"LobbyConfig\") :: ModuleScript) :: any\nlocal MapConfig = require(ConfigDir:WaitForChild(\"MapConfig\") :: ModuleScript) :: any\nlocal MissionCatalog = require(ConfigDir:WaitForChild(\"MissionCatalog\") :: ModuleScript) :: { any }\nlocal LobbyQueue = require(ReplicatedStorage:WaitForChild(\"Lobby\"):WaitForChild(\"LobbyQueue\") :: ModuleScript)\n\nlocal LobbyService = {}\nLobbyService.Priority = 55\nLobbyService.SquadChanged = Signal.new() :: Signal.Signal<string>\nLobbyService.Launched = Signal.new() :: Signal.Signal<string, string, string>\n\ntype ActiveSquad = Types.Squad & { fallback: boolean? }\n\nlocal services: { [string]: any } = {}\nlocal byId: { [string]: any } = {}\nlocal queue: LobbyQueue.State? = nil\nlocal built: any = nil -- LobbyProps.Built\nlocal stationModel: Model? = nil\nlocal active: { [string]: ActiveSquad } = {} -- launched squads (InMission), by squadId\nlocal remotes: { [string]: RemoteEvent } = {}\nlocal afk: { [Player]: { pos: Vector3, t: number, tagged: boolean } } = {}\nlocal cooldown: { [string]: number } = {}\nlocal fallbackSeq = 0\nlocal launching: { [number]: boolean } = {} -- userIds between countdown 0 and InstanceId being set\n\nlocal function count(name: string, n: number?)\n\tpcall(function()\n\t\trequire(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\") :: ModuleScript).count(name, n or 1)\n\tend)\nend\n\nlocal function catalogIndex()\n\ttable.clear(byId)\n\tfor _, m in MissionCatalog do\n\t\tbyId[m.id] = m\n\tend\nend\n\nlocal function firstEnabled(): string?\n\tfor _, m in MissionCatalog do\n\t\tif m.enabled then\n\t\t\treturn m.id\n\t\tend\n\tend\n\treturn nil\nend\n\nlocal function title(missionId: string?): string\n\tlocal def = missionId and byId[missionId]\n\treturn if def then def.title else \"No call\"\nend\n\nlocal function playerById(uid: number): Player?\n\treturn Players:GetPlayerByUserId(uid)\nend\n\nlocal function rootOf(player: Player): BasePart?\n\tlocal char = player.Character\n\treturn char and char:FindFirstChild(\"HumanoidRootPart\") :: BasePart?\nend\n\nlocal function inLobby(player: Player): boolean\n\tlocal id = player:GetAttribute(Names.Attr.InstanceId)\n\treturn id == nil or id == \"\"\nend\n\nlocal function ready(key: string, seconds: number): boolean\n\tlocal now = os.clock()\n\tif (cooldown[key] or 0) > now then\n\t\treturn false\n\tend\n\tcooldown[key] = now + seconds\n\treturn true\nend\n\nlocal function playSound(parent: Instance, soundId: string, volume: number?)\n\tif soundId == nil or soundId == \"\" then\n\t\treturn\n\tend\n\tlocal s = Instance.new(\"Sound\")\n\ts.SoundId = soundId\n\ts.Volume = volume or 1\n\ts.RollOffMaxDistance = 160\n\ts.Parent = parent\n\ts:Play()\n\tDebris:AddItem(s, 8)\nend\n\n-- \"HONK!\" / \"DING!\" pop-up over a part, visible to everyone nearby.\nlocal function popText(adornee: BasePart, str: string, _color: Color3, _height: number)\n\tPopup.show(adornee, str, \"blame\") -- small world text for players nearby (ClientLib/WorldPopup)\nend\n\n------------------------------------------------------------------ squads as Types.Squad\n\nlocal function padSquad(pad: LobbyQueue.Pad): Types.Squad?\n\tif not pad.squadId or #pad.members == 0 then\n\t\treturn nil\n\tend\n\tlocal secs = pad.remaining and math.ceil(pad.remaining) or nil\n\treturn {\n\t\tid = pad.squadId,\n\t\tpadId = pad.padId,\n\t\tleader = pad.leader or pad.members[1],\n\t\tmembers = table.clone(pad.members),\n\t\tmissionId = pad.missionId,\n\t\tinstanceId = nil,\n\t\tstate = if secs and secs <= LobbyConfig.FullCountdownSeconds then \"Launching\" else \"Forming\",\n\t}\nend\n\nfunction LobbyService:GetSquads(): { Types.Squad }\n\tlocal out: { Types.Squad } = {}\n\tif queue then\n\t\tfor _, pad in queue.pads do\n\t\t\tlocal s = padSquad(pad)\n\t\t\tif s then\n\t\t\t\ttable.insert(out, s)\n\t\t\tend\n\t\n...[28068 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p = workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal char = game.Players.LocalPlayer.Character\nlocal hrp = char:WaitForChild('HumanoidRootPart')\nhrp.CFrame = CFrame.new(p.Parent.Position + Vector3.new(0,0,-6))\ntask.wait(0.5)\nlocal fired = false\nlocal c = p.Triggered:Connect(function() fired = true end)\np:InputHoldBegin()\ntask.wait(0.3)\np:InputHoldEnd()\ntask.wait(0.5)\nc:Disconnect()\nreturn game:GetService('HttpService'):JSONEncode({fired = fired, pos = tostring(hrp.Position), boardPos = tostring(p.Parent.Position), dist = (hrp.Position - p.Parent.Position).Magnitude, parentClass = p.Parent.ClassName, parentName = p.Parent:GetFullName(), instanceId = game.Players.LocalPlayer:GetAttribute('InstanceId'), squad = game.Players.LocalPlayer:GetAttribute('SquadId')})",
+              "why": "Test whether the Mission Board prompt triggers from the client when standing in range, and see player state."
+            },
+            "result": "{\"parentClass\":\"Part\",\"instanceId\":\"\",\"parentName\":\"Workspace.Map.Station.Lobby.MissionBoard\",\"fired\":false,\"squad\":\"\",\"dist\":6.600189685821533,\"boardPos\":\"-40, 6.25, 170\",\"pos\":\"-40, 3.4999992847442627, 164\"}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local p = workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal hrp = game.Players.LocalPlayer.Character:WaitForChild('HumanoidRootPart')\nhrp.CFrame = CFrame.new(p.Parent.Position + Vector3.new(0,-2,-6))\nlocal part = Instance.new('Part')\npart.Anchored = true\npart.CanCollide = false\npart.Transparency = 0.5\npart.Size = Vector3.new(2,2,2)\npart.Position = hrp.Position + Vector3.new(3,0,0)\npart.Parent = workspace\nlocal cp = Instance.new('ProximityPrompt')\ncp.HoldDuration = 0\ncp.MaxActivationDistance = 16\ncp.Parent = part\ntask.wait(1)\nlocal f1, f2 = false, false\nlocal c1 = p.Triggered:Connect(function() f1 = true end)\nlocal c2 = cp.Triggered:Connect(function() f2 = true end)\ncp:InputHoldBegin()\ntask.wait(0.2)\ncp:InputHoldEnd()\ntask.wait(0.3)\np:InputHoldBegin()\ntask.wait(0.2)\np:InputHoldEnd()\ntask.wait(0.5)\nc1:Disconnect()\nc2:Disconnect()\npart:Destroy()\nreturn game:GetService('HttpService'):JSONEncode({board = f1, control = f2, los = p.RequiresLineOfSight, enabled = p.Enabled, ex = tostring(p.Exclusivity), keycode = tostring(p.KeyboardKeyCode), parentAnch = p.Parent.Anchored, parentCollide = p.Parent.CanCollide, parentSize = tostring(p.Parent.Size), trans = p.Parent.Transparency, uiOffset = tostring(p.UIOffset), dist = (hrp.Position - p.Parent.Position).Magnitude})",
+              "why": "Control: does a fresh prompt trigger via InputHoldBegin in the same place, versus the board prompt?"
+            },
+            "result": "{\"enabled\":true,\"keycode\":\"Enum.KeyCode.E\",\"board\":false,\"dist\":6.600189685821533,\"uiOffset\":\"0, 0\",\"ex\":\"Enum.ProximityPromptExclusivity.OnePerButton\",\"los\":false,\"control\":false,\"parentAnch\":true,\"parentSize\":\"12, 8.5, 0.30000001192092896\",\"parentCollide\":true,\"trans\":0}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pps = game:GetService('ProximityPromptService')\nlocal p = workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal shown = {}\nlocal c1 = pps.PromptShown:Connect(function(pr) table.insert(shown, pr:GetFullName()) end)\nlocal hrp = game.Players.LocalPlayer.Character:WaitForChild('HumanoidRootPart')\nhrp.CFrame = CFrame.new(p.Parent.Position + Vector3.new(0,-2,-6))\ntask.wait(1.5)\nc1:Disconnect()\nlocal char = game.Players.LocalPlayer.Character\nlocal hum = char:FindFirstChildOfClass('Humanoid')\nreturn game:GetService('HttpService'):JSONEncode({ppsEnabled = pps.Enabled, shown = shown, health = hum and hum.Health, state = hum and tostring(hum:GetState()), walk = hum and hum.WalkSpeed, anchored = hrp.Anchored, attrs = char:GetAttributes(), plrAttrs = game.Players.LocalPlayer:GetAttributes()})",
+              "why": "Check whether ProximityPromptService is enabled on the client and whether prompts are being shown to the player at all (control prompt also failed, so it may be a client/test artefact)."
+            },
+            "result": "{\"state\":\"Enum.HumanoidStateType.Running\",\"plrAttrs\":{\"Heat\":0,\"Carrying\":\"\",\"Helmet\":1,\"InvHand\":\"\",\"XpTotal\":0,\"HelmetCosmetic\":\"helmet_red\",\"XpIntoLevel\":0,\"Level\":1,\"Downed\":false,\"HoseCosmetic\":\"hose_blue\",\"GraphicsTier\":\"Low\",\"Feedback\":0,\"GraphicsQuality\":0,\"InvCarry\":\"\",\"SquadId\":\"\",\"ProfileReady\":true,\"InvBack\":\"\",\"XpForNext\":100,\"InstanceId\":\"\"},\"health\":100,\"attrs\":[],\"shown\":[],\"anchored\":false,\"ppsEnabled\":true,\"walk\":16}"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pps = game:GetService('ProximityPromptService')\nlocal p = workspace.Map.Station.Lobby.MissionBoard.BoardPrompt\nlocal hrp = game.Players.LocalPlayer.Character:WaitForChild('HumanoidRootPart')\nlocal shown, trig, hidden = {}, {}, {}\nlocal c1 = pps.PromptShown:Connect(function(pr) table.insert(shown, pr.Name) end)\nlocal c2 = pps.PromptTriggered:Connect(function(pr) table.insert(trig, pr.Name) end)\nlocal c3 = pps.PromptHidden:Connect(function(pr) table.insert(hidden, pr.Name) end)\nhrp.CFrame = CFrame.new(p.Parent.Position + Vector3.new(0,-2,60))\ntask.wait(1)\nhrp.CFrame = CFrame.new(p.Parent.Position + Vector3.new(0,-2,-6))\ntask.wait(1.5)\np:InputHoldBegin()\ntask.wait(0.2)\np:InputHoldEnd()\ntask.wait(0.5)\nc1:Disconnect() c2:Disconnect() c3:Disconnect()\nlocal gui = game.Players.LocalPlayer.PlayerGui\nlocal names = {}\nfor _, g in ipairs(gui:GetChildren()) do table.insert(names, g.Name .. ':' .. tostring(g:IsA('ScreenGui') and g.Enabled)) end\nreturn game:GetService('HttpService'):JSONEncode({shown=shown, trig=trig, hidden=hidden, guis=names, cam=tostring(workspace.CurrentCamera.CameraType)})",
+              "why": "Re-enter range from far away so PromptShown fires; see if the client shows/triggers the prompt at all."
+            },
+            "result": "{\"guis\":[\"Chat:true\",\"BubbleChat:true\",\"Freecam:true\",\"ShaderFx:false\",\"GraphicsSettingsUI:true\",\"FirstPersonFx:true\",\"Hud:true\",\"HudMarkers:true\",\"FeedbackSettingsUI:true\",\"Carry:true\",\"SquadGui:true\",\"TruckHud:true\",\"InventoryHud:true\",\"NavMinimap:true\",\"NavBigMap:false\",\"StructureHud:true\",\"LobbyUI:true\",\"ProfileHud:true\",\"NavEdge:true\",\"ProximityPrompts:true\"],\"trig\":[],\"shown\":[\"BoardPrompt\"],\"hidden\":[\"BoardPrompt\"],\"cam\":\"Enum.CameraType.Custom\"}"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16aac21417c21afd07054752ad214",
+          "mreq_01a16aac405377529079d03140ee26b8",
+          "mreq_01a16aac58897562bf7281aa2be6debe",
+          "mreq_01a16aac8e4f71f299a0a3db281b49bd",
+          "mreq_01a16aacda8c73518ce577bc7b664db2",
+          "mreq_01a16aad0d447cc0a2432b732fedbfbb",
+          "mreq_01a16aad60fa7f5084d9a26ff3353fb1",
+          "mreq_01a16aad7e9f7de2b8e59d67289a6a8a"
+        ]
+      },
+      "status": "rolled_back"
+    }
+  ],
+  "code_kept": 0
+}

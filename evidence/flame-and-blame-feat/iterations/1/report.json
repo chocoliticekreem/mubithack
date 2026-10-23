@@ -1,0 +1,28 @@
+{
+  "players": 1,
+  "uptime": 63,
+  "errors": [],
+  "counters": {
+    "leaderboard_refreshes": 1,
+    "city_sites": 45,
+    "props_woken": 1,
+    "city_parts": 31108,
+    "lobby_afk": 1,
+    "data_loaded": 1,
+    "trucks_built": 1,
+    "map_build_ms": 297,
+    "onboarding_started": 1,
+    "traffic_graph_loaded": 1,
+    "data_saved": 1,
+    "traffic_spawned": 53,
+    "traffic_despawned": 33,
+    "props_registered": 442,
+    "traffic_rerouted": 1
+  },
+  "warnings": [
+    "[CityBuilder] 31108 parts > budget 30000"
+  ],
+  "joins": 1,
+  "instances": 42955,
+  "compile_errors": []
+}

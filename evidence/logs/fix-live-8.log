@@ -1,0 +1,55 @@
+[cycle 5] planted 0 faults: 
+[auditor] 6 anomalies, detected 0/0 mreq_01a16b1c0c7b7992b1f500bd49598543
+[versions] v14: the game before this cycle's fixes
+[investigator] probe (Server): List proximity prompts in the world, find gear rack / locker prompts and their configuration -> ["Workspace.Map.City.Districts.Farm.Farm.Entrance.H1.Body.ProximityPrompt | Supply line | en=true dist=8 hold=0.5 rlos=f
+[investigator] probe (Server): Find gear rack / locker prompts specifically and see their configuration -> ["Workspace.Map.Station.LockerRoom.GearRack1.GearRack.InvPrompt | Grab Axe | en=true dist=9 hold=0 attrs={\"InvPrompt\":
+[investigator] read ServerScriptService/Services/InventoryService.luau
+[investigator] probe (Client): Trigger the rack prompt from the client and see if the item is granted -> {"enabled":true,"after":"","dist":4.428318023681641,"rack":"Workspace.Map.Station.LockerRoom.GearRack1.GearRack","before
+[investigator] probe (Client): Test whether Custom style is why client-driven trigger fails: switch to Default style and trigger ag -> {"rlos":false,"dist":4.428318023681641,"shown":false,"hand":""}
+[investigator] probe (Client): Control: do fresh prompts trigger from the client in the same place? -> {"state":"Running","ctlFresh":true,"ppsEnabled":true,"origParent":"Workspace.Map.Station.LockerRoom.GearRack1.GearRack",
+[investigator] probe (Client): Check whether nearby prompts' exclusivity is blocking the rack prompt (control prompt on the rack al -> {"size":"6, 7.599999904632568, 0.6000000238418579","hand":"","near":["Workspace.Map.Station.LockerRoom.GearRack2.GearRac
+[investigator] root cause: Not fully proven. The rack and locker InvPrompt prompts exist and are enabled, with distance 9, hold 0 and no line-of-sight requirement. The racks are tagged Ge -> ServerScriptService/Services/InventoryService.luau mreq_01a16b1dc02c779283bd5a2160aef96e
+[fix] Gear rack and truck locker prompts never trigger, so no tool can be obtained: investigator could not prove a code cause, skipped
+[investigator] read ReplicatedStorage/Config/FireConfig.luau
+[investigator] read ServerScriptService/Services/FireService.luau
+[investigator] read ServerScriptService/Lib/Fire/FireSim.luau
+[investigator] probe (Server): Find the service that handles hose/extinguisher and calls ApplyWater -> MapService,AtmosphereService,BlameService,FireService,MissionService,RescueService,SquadService,ToolService,VehicleServi
+[investigator] read ServerScriptService/Services/ToolService.luau
+[investigator] probe (Server): Test whether ApplyWater extinguishes a burning part directly on the server -> {"before":false,"name":"Workspace.Map.City.Districts.Farm.Farm.Barn.HayBale","after":false,"res":[0,0,0,0,0],"ignited":f
+[investigator] probe (Server): See whether Ignite works on any flammable part (indexing issue vs part-specific) -> {"ok":0,"sample":[],"cnt":0,"burning":0,"failed":["Workspace.Map.City.Districts.Farm.Farm.Barn.HayBale","Workspace.Map.C
+[investigator] root cause: Probably a balance problem in the fire numbers, not a missing code path, though I could not fully prove it. Each burning part heats every neighbour within 8 stu -> ReplicatedStorage/Config/FireConfig.luau mreq_01a16b1e824e76a19dc4b01ad3c6bcba
+[fix] Fire spreads unchecked and the structure is destroyed: investigator could not prove a code cause, skipped
+[investigator] probe (Server): The file list was truncated; list the services to find the hose/water/inventory ones. -> MapService,AtmosphereService,BlameService,FireService,MissionService,RescueService,SquadService,ToolService,VehicleServi
+[investigator] read ServerScriptService/Services/ToolService.luau
+[investigator] read ServerScriptService/Services/InventoryService.luau
+[investigator] probe (Server): Check whether refill/hydrant/rack tagged parts and prompts exist in the live game and the player's i -> {"Truck":[1,["Workspace.Trucks.FireTruck_2617803405 prompt:true attrInv:nil "]],"TruckCompartment":[6,["Workspace.Trucks
+[investigator] probe (Server): Inspect reel/hydrant prompt state versus the gear rack prompt that InventoryService manages, to see  -> {"truck":{"DoorOpen_L":false,"OwnerUserId":2617803405,"InstanceId":"","SirenOn":false,"Bay":1,"Driver":0,"Water":600,"Ta
+[investigator] probe (Client): Try grabbing the hose from the reel as a real player would, to see whether the prompt triggers and t -> {"reelSize":"4.599999904632568, 2.4000000953674316, 2.4000000953674316","trig":true,"en":true,"ptext":"Stow Hose","hand"
+[investigator] read ReplicatedStorage/ForgeTelemetry.luau
+[investigator] root cause: Most likely a testing artefact, not a broken hose. A real player can get the hose: the TruckRefill reel prompt ('Grab Hose') triggers from the client and puts ' -> ServerScriptService/Services/InventoryService.luau mreq_01a16b1fab8b7f229afb592c2bd3d563
+[fix] Water economy never exercised: investigator could not prove a code cause, skipped
+[investigator] read ServerScriptService/Services/RescueService.luau
+[investigator] probe (Server): Check whether RescueDropoff volumes exist, and state of NPCs -> {"spawns":120,"rescuables":[],"dropoffs":[["Workspace.Trucks.FireTruck_2617803405.RescueDropoff","-10, 4.099999904632568
+[investigator] probe (Server): Find how dropoff detection is implemented in RescueService -> -- RescueDropoff delivers it (cheer + confetti). NPCs near fire panic and run in circles; fire drains
+--   RescueService
+[investigator] probe (Server): Read firstDropoff and deliver implementations to see how delivery is detected and why it never fires -> 245: local function firstDropoff(): BasePart?
+246: 	for _, d in CollectionService:GetTagged(Names.Tag.RescueDropoff) do
+
+[investigator] probe (Server): Read deliver function and the heartbeat loop that detects dropoff -> 516: local function deliverNpc(npc: Npc, credit: Player?, spot: BasePart?): boolean
+517: 	if npc.state == "Rescued" or n
+[investigator] probe (Server): Find where delivery is triggered (dropoff proximity check) -> 564: local function deliver(player: Player, spot: BasePart?): boolean
+728: 		local spot = hrp and dropoffAt(hrp.Position
+[investigator] probe (Server): Read dropoffAt and the loop calling it to see why delivery never fires -> 229: 	return best, level
+230: end
+231: 
+232: local function dropoffAt(pos: Vector3): BasePart?
+233: 	for _, d in Collect
+[investigator] root cause: Not proven; this is a best inference. Delivery logic itself looks sound: a RescueDropoff part tagged on the truck exists (Workspace.Trucks.FireTruck_*/RescueDro -> ServerScriptService/Services/RescueService.luau mreq_01a16b20c3e67e71a015649c3dbf7b30
+[fix] No rescues possible and NPCs die: investigator could not prove a code cause, skipped
+[cycle 5] detected 0/0, unmatched anomalies 6, fixed+verified 0, open 4, code fixes kept 0/4 -> /Users/sonionring/orca/mubithack/runs/flame-and-blame/improve/5.json
+cycle planted detected missed unmatched fixed open code kept  ts
+    1       0        0      0         4     0    3       0/1  2026-10-23T21:35:48Z
+    2       0        0      0         4     0    3       1/2  2026-10-23T21:49:56Z
+    3       0        0      0         4     0    3       0/2  2026-10-23T22:02:46Z
+    4       0        0      0         3     0    3       0/2  2026-10-23T22:12:02Z
+    5       0        0      0         6     0    4       0/4  2026-10-23T23:38:02Z

@@ -1,0 +1,32 @@
+{
+  "slug": "flame-and-blame",
+  "idea": "Co-op chaotic firefighters on Roblox: alarm, burning town block, hose, axe, rescues, Blame awards.",
+  "iterations": [],
+  "corrections": [
+    {
+      "ts": "2026-10-23T22:16:06Z",
+      "kind": "human",
+      "path": "ServerScriptService/Services/InventoryService.luau",
+      "note": "Gear rack prompts never fire, for real players too. Ground truth from live Studio experiments: a ProximityPrompt parented to the GearRack part does not trigger even 3 studs away on the room side, and even after removing the rack's children or moving the part elsewhere in the hierarchy. The same prompt cloned onto a plain part fires, and a plain prompt 1.3 studs in front of the rack fires. The rack part's centre is inside the wall. Fix locally in setupStock (the invPrompt call for racks and compartments): create an Attachment named InvPromptAnchor on the part, set its WorldCFrame to outwardCFrame(part, kind) so it sits on the room side in front of the rack, and parent the prompt to that attachment instead of the part. Keep everything else unchanged.",
+      "request_id": "mreq_01a16ad5b66276e2a7f15285eccccd18",
+      "after_iteration": null,
+      "compile_ok": true,
+      "compile_errors": [],
+      "synced": true,
+      "calls": [
+        {
+          "role": "patcher",
+          "label": "ServerScriptService/Services/InventoryService.luau (human)",
+          "ok": true,
+          "request_id": "mreq_01a16ad5b66276e2a7f15285eccccd18",
+          "request_ids": [
+            "mreq_01a16ad5b66276e2a7f15285eccccd18"
+          ],
+          "latency_ms": 6988
+        }
+      ]
+    }
+  ],
+  "created": "2026-10-23T19:43:21Z",
+  "updated": "2026-10-23T22:16:06Z"
+}

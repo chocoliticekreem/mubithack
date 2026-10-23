@@ -1,0 +1,2326 @@
+{
+  "run_id": "20261023-200501-57f3",
+  "kind": "multi_playtest",
+  "agent_role": "player",
+  "session_id": "playtest-20261023-200501-57f3",
+  "goal": "Play a full round: put out fires, rescue everyone, refill water",
+  "studio": "3c4fdf08-a0c8-41dc-84cd-a2c11570cdcd",
+  "started": "2026-10-23T20:05:01Z",
+  "ended": null,
+  "max_steps": 10,
+  "goal_met": null,
+  "summary": "",
+  "bugs": [],
+  "steps": [
+    {
+      "n": 1,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 34,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Interior.FirePole.Mat",
+            "action": "Slide the pole",
+            "dist": 41,
+            "in_range": false,
+            "hold": 0,
+            "range": 8,
+            "object": "Fire pole"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 49,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 54,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 59,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -31,
+            3.8,
+            8
+          ]
+        },
+        "hud": [
+          "To chat click here or press \"/\" key",
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 3,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 6,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 11,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 15,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 59,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 60,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 62,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 70,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 88,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785902,
+          "RoundState": "Lobby"
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "n_warnings": 1,
+          "counters": {
+            "map_build_ms": 45,
+            "trucks_built": 1,
+            "data_loaded": 1
+          }
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.MissionBoard"
+        },
+        "reason": "Round is in Lobby state, so I need to pick a call at the Mission Board to start the round.",
+        "bug": null
+      },
+      "result": "walk_to {\"path\":\"Workspace.Map.Station.Lobby.MissionBoard\"} -> done=True arrived 9.7 studs from target via path",
+      "request_id": "mreq_01a16a5deb7e7ea39e3a3b2cff1c1bf3",
+      "latency_ms": 2010,
+      "step_ms": 5301
+    },
+    {
+      "n": 2,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 10,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 22,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 24,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 28,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "H",
+            "path": "Workspace.Map.Station.FireTruck67.Chassis",
+            "action": "Honk",
+            "dist": 31,
+            "in_range": false,
+            "hold": 0,
+            "range": 14,
+            "object": "Truck 67"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            1.1,
+            3.6,
+            19.1
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 21,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 25,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 30,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 31,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 34,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 36,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 36,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 41,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 54,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785908,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 5.008,
+          "kind": "count",
+          "data": {
+            "value": 1,
+            "name": "leaderboard_refreshes",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.MissionBoard"
+        },
+        "reason": "Mission Board prompt is in range; pick a call to start the round.",
+        "bug": null
+      },
+      "result": "interact {\"path\":\"Workspace.Map.Station.Lobby.MissionBoard\"} -> done=False held, not triggered: 'Pick a call Mission Board' on Workspace.Map.Station.Lobby.MissionBoard at 10.0 studs (range 16)",
+      "request_id": "mreq_01a16a5e033777c38d46e0f4faa2785a",
+      "latency_ms": 1413,
+      "step_ms": 2496
+    },
+    {
+      "n": 3,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 10,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 22,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 24,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 28,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "H",
+            "path": "Workspace.Map.Station.FireTruck67.Chassis",
+            "action": "Honk",
+            "dist": 31,
+            "in_range": false,
+            "hold": 0,
+            "range": 14,
+            "object": "Truck 67"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            1.1,
+            3.6,
+            19.1
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 21,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 25,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 30,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 31,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 34,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 36,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 36,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 41,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 54,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785911,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "interact",
+        "args": {
+          "key": "E",
+          "hold": 0.5
+        },
+        "reason": "Prompt interaction did not trigger the first time, so retry with an explicit key and short hold.",
+        "bug": null
+      },
+      "result": "interact {} -> done=False held, not triggered: 'Pick a call Mission Board' on Workspace.Map.Station.Lobby.MissionBoard at 10.0 studs (range 16)",
+      "request_id": "mreq_01a16a5e10e577e293678a59318d0e09",
+      "latency_ms": 3165,
+      "step_ms": 4197
+    },
+    {
+      "n": 4,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 10,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 22,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 24,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 28,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "H",
+            "path": "Workspace.Map.Station.FireTruck67.Chassis",
+            "action": "Honk",
+            "dist": 31,
+            "in_range": false,
+            "hold": 0,
+            "range": 14,
+            "object": "Truck 67"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            1.1,
+            3.6,
+            19.1
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 21,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 25,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 30,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 31,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 34,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 36,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 36,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 41,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 54,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785917,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.Bell"
+        },
+        "reason": "Mission Board prompt failed twice, so I'll try another way to start the round.",
+        "bug": {
+          "title": "Mission Board 'Pick a call' prompt does not trigger",
+          "evidence": "At 10 studs (range 16, in_range true, hold 0) I interacted twice, once by path and once with E held 0.5s. Both returned 'held, not triggered'. RoundState is still Lobby and no mission UI appeared. The backpack is also empty.",
+          "severity": "high"
+        }
+      },
+      "result": "walk_to {\"path\":\"Workspace.Map.Station.Lobby.Bell\"} -> done=True arrived 3.9 studs from target via path",
+      "request_id": "mreq_01a16a5e25377e42bb594ffe359ffbe5",
+      "latency_ms": 4906,
+      "step_ms": 7358
+    },
+    {
+      "n": 5,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 6,
+            "in_range": true,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 17,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 29,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 41,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 42,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -9.7,
+            3.3,
+            35.2
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 28,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 30,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 32,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 35,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 48,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 50,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 55,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 59,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 60,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          }
+        ],
+        "world": {
+          "now": 1792785925,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.Bell"
+        },
+        "reason": "The Mission Board prompt wouldn't trigger, so I'll try the in-range Bell to see if it starts the round.",
+        "bug": {
+          "title": "Mission Board prompt does not trigger when held in range",
+          "evidence": "At step 2 and step 3 I interacted with 'Pick a call Mission Board' from 10 studs (range 16, hold 0). Both attempts returned 'held, not triggered'. RoundState is still 'Lobby' and no call-selection UI appeared.",
+          "severity": "medium"
+        }
+      },
+      "result": "interact {\"path\":\"Workspace.Map.Station.Lobby.Bell\"} -> done=False held, not triggered: 'Ring the bell Bell' on Workspace.Map.Station.Lobby.Bell at 5.8 studs (range 10)",
+      "request_id": "mreq_01a16a5e45f67c228b43e7f31acd1515",
+      "latency_ms": 3313,
+      "step_ms": 4337
+    },
+    {
+      "n": 6,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 6,
+            "in_range": true,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 17,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 29,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 41,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 42,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -9.7,
+            3.3,
+            35.2
+          ]
+        },
+        "hud": [
+          "Chat '/?' or '/help' for a list of chat commands.",
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 28,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 30,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 32,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 35,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 48,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 50,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 55,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 59,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 60,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          }
+        ],
+        "world": {
+          "now": 1792785930,
+          "RoundState": "Lobby"
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "n_warnings": 1,
+          "counters": {
+            "leaderboard_refreshes": 1,
+            "trucks_built": 1,
+            "map_build_ms": 45,
+            "data_loaded": 1
+          }
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "key",
+        "args": {
+          "key": "E"
+        },
+        "reason": "The interact action failed on the Bell and the Mission Board, so I'll try a raw E key press next to the Bell.",
+        "bug": {
+          "title": "In-range ProximityPrompts do not trigger (Bell, Mission Board)",
+          "evidence": "Interacting with Mission Board at 10 studs (range 16) failed twice with 'held, not triggered'. Interacting with Bell at 5.8 studs (range 10, hold 0) also failed with 'held, not triggered'. RoundState stays 'Lobby' and no HUD or event reaction appeared.",
+          "severity": "high"
+        }
+      },
+      "result": "unsupported: key 'E' (the harness has no raw key presses)",
+      "request_id": "mreq_01a16a5e5b0877408140b3aa04e5f37b",
+      "latency_ms": 3792,
+      "step_ms": 4083
+    },
+    {
+      "n": 7,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 6,
+            "in_range": true,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 17,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 23,
+            "in_range": false,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 29,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 41,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 42,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            -9.7,
+            3.3,
+            35.2
+          ]
+        },
+        "hud": [
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 28,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 30,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 32,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 35,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 48,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 50,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 55,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 59,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 60,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          }
+        ],
+        "world": {
+          "now": 1792785935,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.MissionBoard"
+        },
+        "reason": "Bell prompt won't trigger, so get right next to the Mission Board to start a call.",
+        "bug": {
+          "title": "ProximityPrompts report 'held, not triggered' when interacting in range",
+          "evidence": "At step 3 'Pick a call' on MissionBoard was in range (10 of 16 studs) and at step 5 'Ring the bell' on Bell was in range (5.8 of 10 studs, hold 0). Both interacts returned done=False 'held, not triggered'. The round is still in the Lobby with no mission started.",
+          "severity": "high"
+        }
+      },
+      "result": "walk_to {\"path\":\"Workspace.Map.Station.Lobby.MissionBoard\"} -> done=True arrived 8.4 studs from target via path",
+      "request_id": "mreq_01a16a5e6ea17b3199a7584075d19ff8",
+      "latency_ms": 4540,
+      "step_ms": 7189
+    },
+    {
+      "n": 8,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 9,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 12,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 19,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 19,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 27,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 30,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            4,
+            3.6,
+            28.8
+          ]
+        },
+        "hud": [
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "1",
+          "LVL",
+          "0 / 100 XP",
+          "E",
+          "Pick a call",
+          "Mission Board"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 29,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 33,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 33,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 35,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 37,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 41,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 41,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 47,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 47,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785944,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "interact",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.MissionBoard"
+        },
+        "reason": "The Mission Board prompt is in range, so I'll pick a call to start the round.",
+        "bug": {
+          "title": "Bell prompt does not trigger when interacted with in range",
+          "evidence": "At step 5 I interacted with 'Ring the bell' on Workspace.Map.Station.Lobby.Bell from 5.8 studs (range 10). The harness reported 'held, not triggered', and the HUD and RoundState did not change.",
+          "severity": "low"
+        }
+      },
+      "result": "interact {\"path\":\"Workspace.Map.Station.Lobby.MissionBoard\"} -> done=True triggered 'Pick a call Mission Board' on Workspace.Map.Station.Lobby.MissionBoard at 8.8 studs (range 16)",
+      "request_id": "mreq_01a16a5e8e99761196d98f16f94adba8",
+      "latency_ms": 3606,
+      "step_ms": 4083
+    },
+    {
+      "n": 9,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 9,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 12,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 19,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 19,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 27,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 30,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            4,
+            3.6,
+            28.8
+          ]
+        },
+        "hud": [
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "DISPATCH: PICK A CALL",
+          "Pick a call, then step on a glowing pad outside.",
+          "X",
+          "12 Maple Street",
+          "A kitchen fire on a sunset street. Two neighbours, a cat, a dog, and a confused ",
+          "1-4 players HEAT *----",
+          "ROLL OUT",
+          "Night Apartment"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 29,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 33,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 33,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 35,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 37,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 41,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 41,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 47,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 47,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          }
+        ],
+        "world": {
+          "now": 1792785949,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 48.173,
+          "kind": "prompt_triggered",
+          "data": {
+            "name": "xXBeansTitanXx",
+            "object": "Mission Board",
+            "helmet": 1,
+            "prompt": "Workspace.Map.Station.Lobby.MissionBoard.BoardPrompt",
+            "userId": 2617803405,
+            "action": "Pick a call"
+          }
+        }
+      ],
+      "action": {
+        "action": "move_to_instance",
+        "args": {
+          "path": "Workspace.Map.Station.Lobby.SquadPad1"
+        },
+        "reason": "The call is picked, so I need to step on a squad pad to start the round.",
+        "bug": null
+      },
+      "result": "walk_to {\"path\":\"Workspace.Map.Station.Lobby.SquadPad1\"} -> done=True arrived 7.7 studs from target via path",
+      "request_id": "mreq_01a16a5ea2847341a39b50c4c50e983f",
+      "latency_ms": 4230,
+      "step_ms": 4874
+    },
+    {
+      "n": 10,
+      "player": 2617803405,
+      "player_name": "xXBeansTitanXx",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad1",
+            "action": "Change call",
+            "dist": 8,
+            "in_range": true,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 1"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.MissionBoard",
+            "action": "Pick a call",
+            "dist": 11,
+            "in_range": true,
+            "hold": 0,
+            "range": 16,
+            "object": "Mission Board"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad2",
+            "action": "Change call",
+            "dist": 16,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 2"
+          },
+          {
+            "key": "E",
+            "path": "Workspace.Map.Station.Lobby.Bell",
+            "action": "Ring the bell",
+            "dist": 19,
+            "in_range": false,
+            "hold": 0,
+            "range": 10,
+            "object": "Bell"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.Lobby.SquadPad3",
+            "action": "Change call",
+            "dist": 28,
+            "in_range": false,
+            "hold": 0,
+            "range": 9,
+            "object": "Pad 3"
+          },
+          {
+            "key": "F",
+            "path": "Workspace.Map.Station.FireTruck67.DoorPanel_R",
+            "action": "Drive",
+            "dist": 29,
+            "in_range": false,
+            "hold": 0.2,
+            "range": 9,
+            "object": "Fire Truck 67"
+          }
+        ],
+        "me": {
+          "attrs": {
+            "Helmet": 1,
+            "Downed": false,
+            "Carrying": ""
+          },
+          "backpack": [],
+          "health": 100,
+          "name": "xXBeansTitanXx",
+          "helmet": 1,
+          "max_health": 100,
+          "userId": 2617803405,
+          "pos": [
+            4.7,
+            3.5,
+            32.6
+          ]
+        },
+        "hud": [
+          "ALARM!",
+          "[1] Wave [2] Facepalm [3] Blame!",
+          "DISPATCH: PICK A CALL",
+          "Pick a call, then step on a glowing pad outside.",
+          "X",
+          "12 Maple Street",
+          "A kitchen fire on a sunset street. Two neighbours, a cat, a dog, and a confused ",
+          "1-4 players HEAT *----",
+          "ROLL OUT",
+          "Night Apartment"
+        ],
+        "things": [
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad4",
+            "name": "SpawnPad4",
+            "dist": 32,
+            "pos": [
+              -16,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Interior.Hydrant.Body",
+            "name": "Body",
+            "dist": 33,
+            "pos": [
+              37,
+              2.1,
+              25
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad3",
+            "name": "SpawnPad3",
+            "dist": 36,
+            "pos": [
+              -21,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67",
+            "name": "FireTruck67",
+            "dist": 38,
+            "pos": [
+              28,
+              2.6,
+              3
+            ],
+            "tag": "Truck"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad2",
+            "name": "SpawnPad2",
+            "dist": 39,
+            "pos": [
+              -26,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.Spawns.SpawnPad1",
+            "name": "SpawnPad1",
+            "dist": 43,
+            "pos": [
+              -31,
+              0.5,
+              8
+            ],
+            "tag": "StationSpawn"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.Reel",
+            "name": "Reel",
+            "dist": 44,
+            "pos": [
+              28,
+              6,
+              -4.6
+            ],
+            "tag": "TruckRefill"
+          },
+          {
+            "path": "Workspace.Map.Station.Outside.Hydrant.Body",
+            "name": "Body",
+            "dist": 45,
+            "pos": [
+              48,
+              2.2,
+              46
+            ],
+            "tag": "Hydrant"
+          },
+          {
+            "path": "Workspace.Map.Station.FireTruck67.RescueDropoff",
+            "name": "RescueDropoff",
+            "dist": 50,
+            "pos": [
+              28,
+              4.1,
+              -12
+            ],
+            "tag": "RescueDropoff"
+          }
+        ],
+        "world": {
+          "now": 1792785955,
+          "RoundState": "Lobby"
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "done",
+        "args": {},
+        "reason": "Out of steps; the round never left the Lobby, so the goal was not reached.",
+        "bug": {
+          "title": "Dispatch stays on 'PICK A CALL' after interacting with the Mission Board",
+          "evidence": "At step 8 I triggered 'Pick a call Mission Board' successfully, then walked to SquadPad1. At step 10 the HUD still reads 'DISPATCH: PICK A CALL' and RoundState is still 'Lobby'. The backpack is empty, and the move action stops about 8 studs from the pad, so I could not step on it. The call selection may need a UI click the harness can't do, or the prompt has no visible effect.",
+          "severity": "medium"
+        }
+      },
+      "result": "done",
+      "request_id": "mreq_01a16a5eb97d7500b35bbeec023c8439",
+      "latency_ms": 6854,
+      "step_ms": 7068
+    }
+  ],
+  "players": [
+    {
+      "userId": 2617803405,
+      "name": "xXBeansTitanXx",
+      "helmet": 1,
+      "role": "nozzle (fight fires)"
+    }
+  ],
+  "probe": {},
+  "counters": {
+    "leaderboard_refreshes": 1,
+    "trucks_built": 1,
+    "map_build_ms": 45,
+    "data_loaded": 1
+  },
+  "events": [],
+  "request_ids": [
+    "mreq_01a16a5deb7e7ea39e3a3b2cff1c1bf3",
+    "mreq_01a16a5e033777c38d46e0f4faa2785a",
+    "mreq_01a16a5e10e577e293678a59318d0e09",
+    "mreq_01a16a5e25377e42bb594ffe359ffbe5",
+    "mreq_01a16a5e45f67c228b43e7f31acd1515",
+    "mreq_01a16a5e5b0877408140b3aa04e5f37b",
+    "mreq_01a16a5e6ea17b3199a7584075d19ff8",
+    "mreq_01a16a5e8e99761196d98f16f94adba8",
+    "mreq_01a16a5ea2847341a39b50c4c50e983f",
+    "mreq_01a16a5eb97d7500b35bbeec023c8439"
+  ],
+  "bug_hints": [
+    {
+      "title": "Mission Board 'Pick a call' prompt does not trigger",
+      "evidence": "At 10 studs (range 16, in_range true, hold 0) I interacted twice, once by path and once with E held 0.5s. Both returned 'held, not triggered'. RoundState is still Lobby and no mission UI appeared. The backpack is also empty.",
+      "severity": "high",
+      "step": 4,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Mission Board prompt does not trigger when held in range",
+      "evidence": "At step 2 and step 3 I interacted with 'Pick a call Mission Board' from 10 studs (range 16, hold 0). Both attempts returned 'held, not triggered'. RoundState is still 'Lobby' and no call-selection UI appeared.",
+      "severity": "medium",
+      "step": 5,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "In-range ProximityPrompts do not trigger (Bell, Mission Board)",
+      "evidence": "Interacting with Mission Board at 10 studs (range 16) failed twice with 'held, not triggered'. Interacting with Bell at 5.8 studs (range 10, hold 0) also failed with 'held, not triggered'. RoundState stays 'Lobby' and no HUD or event reaction appeared.",
+      "severity": "high",
+      "step": 6,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "ProximityPrompts report 'held, not triggered' when interacting in range",
+      "evidence": "At step 3 'Pick a call' on MissionBoard was in range (10 of 16 studs) and at step 5 'Ring the bell' on Bell was in range (5.8 of 10 studs, hold 0). Both interacts returned done=False 'held, not triggered'. The round is still in the Lobby with no mission started.",
+      "severity": "high",
+      "step": 7,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Bell prompt does not trigger when interacted with in range",
+      "evidence": "At step 5 I interacted with 'Ring the bell' on Workspace.Map.Station.Lobby.Bell from 5.8 studs (range 10). The harness reported 'held, not triggered', and the HUD and RoundState did not change.",
+      "severity": "low",
+      "step": 8,
+      "player": "xXBeansTitanXx"
+    },
+    {
+      "title": "Dispatch stays on 'PICK A CALL' after interacting with the Mission Board",
+      "evidence": "At step 8 I triggered 'Pick a call Mission Board' successfully, then walked to SquadPad1. At step 10 the HUD still reads 'DISPATCH: PICK A CALL' and RoundState is still 'Lobby'. The backpack is empty, and the move action stops about 8 studs from the pad, so I could not step on it. The call selection may need a UI click the harness can't do, or the prompt has no visible effect.",
+      "severity": "medium",
+      "step": 10,
+      "player": "xXBeansTitanXx"
+    }
+  ],
+  "corrections": [],
+  "errors": [],
+  "ready": {
+    "players": 1,
+    "agents": 1,
+    "version": "1",
+    "clock": 2.108,
+    "studio": true,
+    "mapReady": true,
+    "time": 1792785901.8352
+  }
+}

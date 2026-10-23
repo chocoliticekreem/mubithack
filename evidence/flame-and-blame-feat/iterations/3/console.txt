@@ -1,0 +1,24 @@
+[CityBuilder] 31108 parts > budget 30000
+[CityBuilder] 45 incident sites, 31108 parts in 189 ms
+[MapService] built 2 locations in 285 ms
+[AtmosphereService] note: set Lighting.LightingStyle = Realistic and PrioritizeLightingQuality = true in Studio (not settable from scripts) for fire point-light shadows.
+[AtmosphereService] applied StationGolden
+[DataService] Studio: in-memory profiles (DataConfig.UseMemoryInStudio)
+[VehicleService] per-player trucks; 4 TruckBay(s) found
+[LobbyService] lobby built: board + 3 pads
+[PhysicsFx] 442 knockable props
+[Boot] server: 26 services
+[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
+[Navigation] road graph: 172 nodes, 222 edges
+[TrafficService] road graph: 222 edges, 590 lanes, 92 junctions (15 with lights)
+[GraphicsController] material pass City: 5841 parts
+[MissionService] M1 DISPATCHED: house_fire at diner-Dam-1 (37 Maple St), 1677 studs, 38s travel, 1 fires, 1 player(s)
+[FlareUpService] round active, MissionId=City
+[FlareUpService] ignited Workspace.Map.City.Districts.Dam.Dam.City.Building4.Wall_3
+[FlareUpService] ignited Workspace.Map.City.Districts.Farm.Farm.WheatField.Wheat
+[FlareUpService] ignited Workspace.Map.City.Districts.Forest.Forest.RangerCabin.Log
+[FlareUpService] ignited Workspace.Map.City.Districts.Forest.Corridor_Forest.house-Forest-2.Ceiling
+[FlareUpService] ignited Workspace.Map.City.Districts.Town.Town.House2.Wall_4
+[FlareUpService] ignited Workspace.Map.City.Districts.Farm.Farm.WheatField.Wheat
+[FlareUpService] ignited Workspace.Map.City.Districts.Storage.Storage.Office.Plant.Petal
+[FlareUpService] ignited Workspace.Map.City.Districts.Farm.Farm.WheatField.Wheat

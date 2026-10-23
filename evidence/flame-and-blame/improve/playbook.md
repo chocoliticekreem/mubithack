@@ -1,0 +1,2 @@
+- Testers reported Hose does not extinguish fire in water: check that Sustained spraying on a burning house reduces its fire and extinguishes it within a reasonable time.
+- Testers reported No way to drop a carried pet in rescue: check that A player carrying a civilian or pet can drop or release it at any time (for example with a key or button), and delivery at truck 67 releases it automatically.

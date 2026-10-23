@@ -1,0 +1,14 @@
+[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
+[CityBuilder] 31108 parts > budget 30000
+[CityBuilder] 45 incident sites, 31108 parts in 170 ms
+[MapService] built 2 locations in 269 ms
+[AtmosphereService] note: set Lighting.LightingStyle = Realistic and PrioritizeLightingQuality = true in Studio (not settable from scripts) for fire point-light shadows.
+[AtmosphereService] applied StationGolden
+[DataService] Studio: in-memory profiles (DataConfig.UseMemoryInStudio)
+[VehicleService] per-player trucks; 4 TruckBay(s) found
+[LobbyService] lobby built: board + 3 pads
+[PhysicsFx] 442 knockable props
+[Boot] server: 26 services
+[Navigation] road graph: 172 nodes, 222 edges
+[GraphicsController] material pass Station: 100 parts
+[TrafficService] road graph: 222 edges, 590 lanes, 92 junctions (15 with lights)
