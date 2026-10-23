@@ -11,9 +11,15 @@ local CoreGui = game:GetService("CoreGui")
 local URL = "__MUBIT_SERVICE_URL__"
 local TOKEN = "__MUBIT_PAIRING_TOKEN__"
 local marker = Http:GenerateGUID(false)
+local transferred
 -- Stable internal IDs preserve the previous install's placement and single-panel cleanup.
 local previous = CoreGui:FindFirstChild("MubitTesterControl")
 if previous then
+    local export=previous:FindFirstChild("ExportState")
+    if export and export:IsA("BindableFunction") then
+        local ok,value=pcall(function() return export:Invoke() end)
+        if ok and type(value)=="table" and value.version==1 then transferred=value end
+    end
     local cleanup = previous:FindFirstChild("Dispose")
     if cleanup and cleanup:IsA("BindableFunction") then pcall(function() cleanup:Invoke() end) end
     if previous.Parent then previous:Destroy() end
@@ -27,6 +33,7 @@ local snapshot,selectedJob,selectedAction = nil,nil,nil
 local savedPreference
 pcall(function() savedPreference=plugin:GetSetting("MuMakeLayoutV1") end)
 local experience=Experience.new(savedPreference)
+if transferred and type(transferred.experience)=="table" then experience=transferred.experience end
 local mode,tab,selectedScenario = "quick",experience.route,"smoke.json"
 local connections,actionButtons,navButtons,modeButtons = {},{},{},{}
 local render,show,connect,displayReport,beginReport,applyExperience,refreshWelcome,refreshGuide,goBack
@@ -401,11 +408,16 @@ local checkOptions=section(checkPage,"CheckOptions") checkOptions.Visible=false
 text(checkOptions,"How long should MuMake try?","small")
 local budgetLabel=text(checkOptions,"Up to 8 moves, then a review. Each AI move uses a paid call.","small")
 local budgetButtons={}
+local function setStepBudget(value)
+    if value~=4 and value~=8 and value~=16 then return false end
+    stepBudget=value budgetLabel.Text="Up to "..value.." moves, then a review. Each AI move uses a paid call."
+    for amount,entry in budgetButtons do entry.BackgroundColor3=amount==value and palette.tint or palette.surface end
+    return true
+end
 local budgetRow=Instance.new("Frame") budgetRow.BackgroundTransparency=1 budgetRow.Size=UDim2.new(1,-4,0,36) budgetRow.Parent=checkOptions
 for index,value in {4,8,16} do
     local b=button(budgetRow,tostring(value).." moves",function()
-        stepBudget=value budgetLabel.Text="Up to "..value.." moves, then a review. Each AI move uses a paid call."
-        for amount,entry in budgetButtons do entry.BackgroundColor3=amount==value and palette.tint or palette.surface end
+        setStepBudget(value)
     end)
     b.Size=UDim2.new(1/3,-4,1,0) b.Position=UDim2.new((index-1)/3,0,0,0) budgetButtons[value]=b
 end
@@ -780,8 +792,19 @@ render=function(data)
 end
 modeButtons.quick.BackgroundColor3=palette.tint
 modeButtons.quick.TextColor3=palette.blue
+if transferred then
+    local fields=transferred.fields or {}
+    for key,el in {idea=idea,mustHave=mustHave,avoid=avoid,goal=goal,correctionNote=correctionNote,changeNote=changeNote} do
+        if type(fields[key])=="string" then el.Text=fields[key] end
+    end
+    selectedJob=transferred.selectedJob
+    submittedActions=transferred.submittedActions or 0
+    setStepBudget(transferred.stepBudget or 8)
+    setMode(transferred.mode=="goal" and "goal" or "quick")
+end
 refreshWelcome() refreshGuide() applyExperience()
 show(experience.route,true)
+if transferred and typeof(transferred.scroll)=="Vector2" then body.CanvasPosition=transferred.scroll end
 for _,el in {root,status,footer,welcomeActions} do
     table.insert(connections,el:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSurface))
 end
@@ -797,6 +820,16 @@ local function dispose()
     control:Destroy()
 end
 local cleanup=Instance.new("BindableFunction") cleanup.Name="Dispose" cleanup.OnInvoke=dispose cleanup.Parent=control
+-- A direct local handoff preserves drafts during plugin updates. Preferences never
+-- leave Studio or enter the companion's HTTP requests.
+local export=Instance.new("BindableFunction") export.Name="ExportState"
+export.OnInvoke=function()
+    return {version=1,experience=experience,selectedJob=selectedJob,mode=mode,stepBudget=stepBudget,
+        scroll=body.CanvasPosition,submittedActions=submittedActions,
+        fields={idea=idea.Text,mustHave=mustHave.Text,avoid=avoid.Text,goal=goal.Text,
+            correctionNote=correctionNote.Text,changeNote=changeNote.Text}}
+end
+export.Parent=control
 table.insert(connections,plugin.Unloading:Connect(dispose))
 local command=Instance.new("BindableFunction") command.Name="Command"
 command.OnInvoke=function(operation,args)
@@ -807,7 +840,8 @@ command.OnInvoke=function(operation,args)
             result_summary=resultDetail.Text,feedback=say and feedback.Text,visible_checks=#checkRows:GetChildren()-1,
             onboarding_step=experience.onboardingStep,back_visible=backButton.Visible,
             extra_controls=extraBuild.Visible,guide_step=experience.guideStep,submitted_actions=submittedActions,
-            draft_chars=#idea.Text,guide_title=guideTitle.Text}
+            draft_chars=#idea.Text,guide_title=guideTitle.Text,step_budget=stepBudget,
+            library_count=#(snapshot and snapshot.games or {})}
     end
     if operation=="onboard_choose" then return selectPreference(args.kind,args.value) end
     if operation=="onboard_next" then continueWelcome() return true end
@@ -817,6 +851,7 @@ command.OnInvoke=function(operation,args)
     if operation=="guide_step" then experience.guideStep=math.clamp(tonumber(args.step) or 1,1,4) refreshGuide() return true end
     if operation=="set_draft" then idea.Text=tostring(args.text or "") return true end
     if operation=="toggle_controls" then experience.moreControls=not experience.moreControls applyExperience() return true end
+    if operation=="set_budget" then return setStepBudget(args.value) end
     if operation=="layout_snapshot" then
         local originalSize=root.Size
         if args.width and args.height then

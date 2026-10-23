@@ -16,6 +16,8 @@ Enable **Studio as MCP server** under Assistant's MCP settings in that window. I
 
 Open the panel with **Plugins → MuMake**. Files installed while Studio is running may need local plugin reload on a later session; `--load-existing` displays the panel immediately without a restart. Immediate loading uses Studio's deprecated `PluginManager():CreatePlugin()` compatibility API. The on-disk plugin uses the ordinary `plugin` object on future Studio starts.
 
+Live updates of a panel that supports state handoff preserve typed drafts, navigation, layout choices and test budget directly inside Studio. They do not send those preferences to the companion. The installer leaves an active MuMake job running and defers reloading its panel until the job finishes or is stopped.
+
 ## A workspace that fits the creator
 
 The panel adapts to its actual dock width. Narrow docks use compact margins and keep every tool available; wrapped text and buttons grow vertically. Wide panels keep a centered content column capped at 560 pixels. Actions stay above the bottom edge while the page scrolls. The floating width hint is 440 pixels and the minimum width is 320; Studio owns dock sizing and may restore a previous size. No fixed-width canvas or text scaling is used.

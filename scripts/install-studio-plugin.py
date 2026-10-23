@@ -106,6 +106,8 @@ def main():
     print(f'Installed {path}')
     print(f'Companion ready on 127.0.0.1:{args.port}')
     if args.load_existing:
+        if health(args.port, token).get('busy'):
+            raise SystemExit('Installed on disk. Finish or stop the active MuMake job before reloading the panel.')
         asyncio.run(load_existing(source, args.studio_id))
 
 
