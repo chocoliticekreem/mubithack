@@ -389,7 +389,17 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
                 break
 
 
+def _sigterm_as_interrupt() -> None:
+    import signal
+
+    def handler(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, handler)
+
+
 def cmd_fix(args) -> int:
+    _sigterm_as_interrupt()  # a killed run still restores the file it was testing
     asyncio.run(_improve(args, faults_on=False, fix=True))
     return cmd_scores(args)
 

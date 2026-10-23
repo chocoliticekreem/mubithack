@@ -214,6 +214,28 @@ class ImproveStore:
         self.scores_path.write_text(json.dumps(self.scores() + [row], indent=2), encoding="utf-8")
         return path
 
+    @property
+    def unproven_path(self) -> Path:
+        return self.dir / "unproven.json"
+
+    def _unproven(self) -> list[dict]:
+        if not self.unproven_path.exists():
+            return []
+        return json.loads(self.unproven_path.read_text(encoding="utf-8"))
+
+    def mark_unproven(self, anomaly: dict) -> None:
+        rows = self._unproven()
+        rows.append({"system": anomaly.get("system", ""), "title": anomaly.get("title", "")})
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.unproven_path.write_text(json.dumps(rows[-50:], indent=1), encoding="utf-8")
+
+    def was_unproven(self, anomaly: dict) -> bool:
+        import difflib
+
+        t = anomaly.get("title", "").lower()
+        return any(difflib.SequenceMatcher(None, t, r["title"].lower()).ratio() >= UNPROVEN_SIMILAR
+                   for r in self._unproven())
+
     def learn(self, lessons: list[str]) -> None:
         """Fast learning: lessons from missed faults go into the next audit's playbook."""
         known = self.playbook()
@@ -227,11 +249,18 @@ class ImproveStore:
 # ---------------------------------------------------------------- one cycle
 
 
+ROUND_TIMEOUT = 360.0  # seconds; a Studio call can stall and nothing else would end the round
+
+
 async def _rounds(settings, playtest: Playtest, n: int, start: int, *, goal: str, players, steps: int,
                   llm, harness) -> list[dict]:
     out = []
     for i in range(n):
-        rep = await playtest(settings, goal, players, steps, llm=llm, harness=harness)
+        try:
+            rep = await asyncio.wait_for(playtest(settings, goal, players, steps, llm=llm, harness=harness),
+                                         ROUND_TIMEOUT)
+        except asyncio.TimeoutError:
+            rep = {"goal": goal, "probe": {"errors": [{"message": f"playtest round timed out after {ROUND_TIMEOUT:.0f}s"}]}}
         out.append(round_digest(rep, start + i))
     return out
 
@@ -316,6 +345,17 @@ def telemetry_changes(before: list[dict], after: list[dict]) -> tuple[list[str],
 # ---------------------------------------------------------------- code fixes for real anomalies
 
 FIX_SEVERITIES = ("high", "medium")
+UNPROVEN_SIMILAR = 0.6
+UNPROVEN_MARKERS = ("not conclusively proven", "unproven", "testing artefact", "testing artifact",
+                    "best guess", "could not prove", "no probe results", "not a game bug")
+
+
+def unproven(conclusion: dict) -> bool:
+    """The investigator could not prove a code cause (or says it is the test, not the game)."""
+    if not conclusion:
+        return True
+    text = str(conclusion.get("root_cause", "")).lower()
+    return any(m in text for m in UNPROVEN_MARKERS)
 NOT_IN_STUDIO = ("tests/", "tools/")
 Resync = Callable[[Path], Awaitable[None]]
 
@@ -378,13 +418,20 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
     context = (f"Game: {spec.get('pitch', slug)}\nRound digests before the fix:\n"
                + "\n".join(json.dumps(d) for d in before[-2:]))[:4000]
     results: list[dict] = []
-    for a in [x for x in anomalies if x["severity"] in FIX_SEVERITIES][:max(0, max_fixes)]:
+    todo = sorted((x for x in anomalies if x["severity"] in FIX_SEVERITIES),
+                  key=lambda x: store.was_unproven(x))  # stable: unproven-before anomalies go last
+    for a in todo[:max(0, max_fixes)]:
         found = None
         studio = getattr(harness, "studio", None)
         if investigate_first and studio is not None:
             await harness.ensure_ready()
             found = await investigate(settings, slug, a, llm=llm, studio=studio, session_id=session_id, log=log)
         concl = (found or {}).get("conclusion") or {}
+        if found is not None and unproven(concl):
+            store.mark_unproven(a)
+            results.append({"anomaly": a["title"], "status": "unproven", "investigation": found})
+            log(f"[fix] {a['title']}: investigator could not prove a code cause, skipped")
+            continue
         rel = concl.get("file") or candidate_file(settings, root, a)
         if rel is None:
             results.append({"anomaly": a["title"], "status": "no_file", "investigation": found})
@@ -420,6 +467,12 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                     new = await asyncio.to_thread(rewrite, llm, rel, old, ask, context,
                                                   read_lessons(settings), session_id=session_id)
                 except LLMError as e:
+                    if big and "no edits" in str(e):
+                        rec["attempts"].append({"status": "no_fix_needed", "error": str(e)[:300]})
+                        status = "no_fix_needed"
+                        store.mark_unproven(a)
+                        log(f"[fix] {a['title']}: patcher sees no code change to make, skipped")
+                        break
                     rec["attempts"].append({"status": "fixer_error", "error": str(e)[:300]})
                     why = (f"Your patch could not be applied: {e}" if big else
                            "Your reply could not be used: return the full file in one ```luau block.")
@@ -463,6 +516,9 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             (root / rel).write_text(old, encoding="utf-8")
             log(f"[fix] {a['title']}: stopped mid-fix, {rel} restored")
             raise
+        if status == "no_fix_needed":
+            results.append({**rec, "status": status})
+            continue
         if status != "kept":
             (root / rel).write_text(old, encoding="utf-8")
             if any(x["status"] not in ("compile_failed", "fixer_error", "too_destructive")
