@@ -1,5 +1,5 @@
 --!strict
--- Viewmodel [owner: FirstPerson lane]. Client-only first-person arms: chunky olive gloves, tan
+-- Viewmodel [owner: G1]. Client-only first-person arms: chunky olive gloves, tan
 -- turnout sleeves with the lime/silver/lime reflective 3-band at the wrist (the trailer's look),
 -- plus a client-only nozzle and axe prop. Built from blocks (docs/game/02-art-feel-ui.md §7).
 --
@@ -162,6 +162,12 @@ local function buildAxe(model: Model): Prop
 	return prop
 end
 
+local function setPartsVisible(parts: { PartRec }, on: boolean)
+	for _, r in parts do
+		r.part.LocalTransparencyModifier = if on then 0 else 1
+	end
+end
+
 export type Viewmodel = typeof(setmetatable(
 	{} :: {
 		model: Model,
@@ -191,6 +197,9 @@ function Viewmodel.new(): Viewmodel
 		soot = 0,
 		t = 0,
 	}, Viewmodel)
+	for _, prop in self.props do
+		setPartsVisible(prop.parts, false)
+	end
 	return self
 end
 
@@ -201,12 +210,6 @@ end
 function Viewmodel.Swing(self: Viewmodel)
 	if self.swingT < 0 or self.swingT > 0.3 then
 		self.swingT = 0
-	end
-end
-
-local function setPartsVisible(parts: { PartRec }, on: boolean)
-	for _, r in parts do
-		r.part.LocalTransparencyModifier = if on then 0 else 1
 	end
 end
 
