@@ -867,11 +867,11 @@ function PhysicsHands._basePose(self: PhysicsHands, hand: Hand, cam: CFrame, f: 
 				charge = HandsMath.windupCharge(self.t - self.windStart, HandsConfig.AxeWindupSeconds)
 				self.windCharge = charge
 			end
-			return tweak(
-				HandsMath.axePose(charge, if self.strikeT >= 0 then self.strikeT else nil, HandsConfig.AxeStrikeSeconds, self.strikeFrom),
-				"axe",
-				side
-			)
+			local ap = HandsMath.axePose(charge, if self.strikeT >= 0 then self.strikeT else nil, HandsConfig.AxeStrikeSeconds, self.strikeFrom)
+			-- the fist holds the handle thumb-up (see gripAtt), so a pitch-up lays the axe back over
+			-- the shoulder: wind-ups pitch up, strikes pitch down
+			ap = { x = ap.x, y = ap.y, z = ap.z, rx = -ap.rx, ry = ap.ry, rz = ap.rz }
+			return tweak(ap, "axe", side)
 		elseif item.kind == "hose" then
 			return tweak(HandsMath.Poses.hose, "hose", side)
 		elseif item.kind == "extinguisher" then

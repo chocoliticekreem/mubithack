@@ -17,10 +17,10 @@ return Config.define({
 		idle = { x = 0.1, y = 0.2, z = 0.05, rx = 45, ry = 12, rz = -32 },
 		lowered = { x = 0.1, y = 0.4, z = -0.1, rx = 35, ry = 10, rz = -25 },
 		-- held tools: the fist rolls thumb-up so the handle stands up out of it
-		hose = { x = 0.15, y = 0, z = -0.35, rx = 0, ry = 0, rz = -80 },
+		hose = { x = 0.25, y = -0.1, z = -0.35, rx = 0, ry = 0, rz = -65 },
 		extinguisher = { x = 0.1, y = 0.1, z = -0.2, rx = 0, ry = 0, rz = -80 },
 		item = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = -80 },
-		axe = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = -80 },
+		axe = { x = 0, y = 0, z = 0, rx = 30, ry = 0, rz = -80 },
 	},
 
 	-- hand springs: the target pose is sprung (lag, overshoot, wobble) and the physical palm is
