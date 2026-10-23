@@ -12,3 +12,4 @@ game/tools/manifest.json
 docs/reference/
 docs/vendor/
 place/
+.claude/settings.local.json

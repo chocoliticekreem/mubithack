@@ -71,6 +71,18 @@ python3 game/tools/make_place.py --out place/Forge.rbxlx && open place/Forge.rbx
 .venv/bin/python -m pytest -q
 ```
 
+## Claude Code setup (shared via git)
+
+- `.claude/settings.json` turns on the **superpowers** and **mattpocock-skills** plugins (from the
+  official marketplace, so Claude Code installs them when you trust the folder). It also
+  pre-approves the Studio MCP and forge commands.
+- `.mcp.json` registers Roblox Studio's built-in MCP (`Roblox_Studio`) for this project.
+- `.claude/skills/roblox-studio-dev/` is our skill for editing and playtesting game code over MCP.
+- `CLAUDE.md` holds the core rules. Personal overrides go in `.claude/settings.local.json`
+  (gitignored).
+- Superpowers flow for features: brainstorming → writing-plans → subagent-driven-development, with
+  plans in `docs/superpowers/plans/`.
+
 ## Auto-sync files → Studio
 
 Leave `forge watch` running in a terminal while you work. Every time you save a `.luau` file under
