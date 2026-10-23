@@ -1,0 +1,189 @@
+# Forge — architecture and contracts
+
+Forge takes a game idea and builds a Roblox game: it writes Luau, syncs it into a running Roblox
+Studio over the Studio MCP, playtests, reads errors, fixes, and iterates. Every LLM call goes through
+Mubit, so each role's calls become a Mubit **task** and Mubit trains an adapter for it once it has
+enough kept examples. Corrections (from Studio errors, the critic, or a human) are fed back as new
+calls in the **same task**, which is how a correction turns into a model update.
+
+Research behind this: `docs/research/mubit.md`, `docs/research/roblox-studio-mcp.md`,
+`docs/reference/intofire/` (the earlier project this workflow comes from).
+
+## The loop
+
+```
+idea ──designer──▶ spec.json ──coder (per module)──▶ game/*.luau
+                                          │
+                       luau-compile check ┤◀── fixer (compile errors, ≤3 tries)
+                                          ▼
+              sync into Studio (execute_luau runs game/tools/pull.luau)
+                                          ▼
+       playtest: start_stop_play → wait → ForgeProbe report + console + screenshot → stop
+                                          ▼
+                   critic ──▶ {score, issues[]} ──fixer (per issue)──▶ files
+                                          ▼
+                   reflector ──▶ runs/lessons.md (self-evolving notes)
+                                          ▼
+                                next iteration (until score ≥ target or N iterations)
+```
+
+Human correction: `forge correct <game> <file> "what is wrong"` sends a fixer call with the human's
+note. The fixed reply is a recorded call in the fixer task, so Mubit can train on it.
+
+## Mubit rules (they decide how calls become tasks)
+
+1. A task = system prompt + tools + output format + model. **System prompts are fixed files in
+   `forge/prompts/<role>.md` and never contain per-call text.** Everything that varies (idea, spec,
+   code, errors, lessons) goes in the user message.
+2. Session = `metadata.session_id` (OpenAI) / `metadata.user_id` (Anthropic) = the game slug, so
+   Mubit's test split is per game.
+3. Keep each call under ~8k tokens: one module per coder/fixer call, and only the APIs of the
+   modules it depends on.
+4. Record the `x-middleware-request-id` response header for every call (`runs/<game>/calls.jsonl`)
+   so calls can be found and rated Good/Bad in the Mubit console (Requests page).
+5. No feedback API exists; adapters can't be called by model id. The demo shows the task in the
+   console going Collecting → Training → Passed, then Try models side by side.
+
+## Layout
+
+```
+forge/                 Python package (uv), entry point `forge`
+  config.py            Settings from env (.env)                         [owner: core]
+  llm.py               MubitLLM + FakeLLM                               [owner: llm]
+  prompts/*.md         fixed system prompts, one per role               [owner: llm]
+  roles.py             typed wrappers: design/code/fix/critique/reflect [owner: llm]
+  studio.py            StudioMCP stdio client                           [owner: studio]
+  sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
+  memory.py            run state, lessons                               [owner: loop]
+  loop.py              the orchestration above                          [owner: loop]
+  cli.py               `forge new|run|correct|status|doctor`            [owner: loop]
+game/                  the Roblox place, file-mapped like Script Sync
+  ServerScriptService/ X.server.luau → Script, X.luau → ModuleScript, dirs → Folders
+  ReplicatedStorage/
+  StarterPlayerScripts/ (under StarterPlayer)
+  tools/sync.py        check / manifest / serve                         [owner: game]
+  tools/pull.luau      run via execute_luau (Edit DM) to pull files from the local server
+  ServerScriptService/ForgeProbe.server.luau  playtest error/telemetry collector (runtime contract)
+runs/<game>/           per-game state, gitignored
+  spec.json  state.json  calls.jsonl  iterations/<n>/{report.json,critique.json,screenshot.png}
+runs/lessons.md        shared lessons, injected into every coder/fixer user message
+```
+
+Generated games live in `runs/<game>/game/` (same layout as `game/`). The base `game/` folder holds
+the always-present runtime (ForgeProbe, DevHook), which is copied into each generated game.
+
+## Contracts
+
+### config.py
+```python
+@dataclass(frozen=True)
+class Settings:
+    mubit_api_key: str | None      # MUBIT_API_KEY
+    provider: str                   # FORGE_PROVIDER: "anthropic" | "openai"   (default anthropic)
+    base_url: str                   # MUBIT_BASE_URL (default per provider, see .env.example)
+    model: str                      # FORGE_MODEL (default "claude-sonnet-5")
+    studio_mcp_path: str            # STUDIO_MCP_PATH
+    sync_port: int                  # FORGE_SYNC_PORT (34873)
+    repo_root: Path
+    runs_dir: Path                  # repo_root / "runs"
+    base_game_dir: Path             # repo_root / "game"
+def load_settings() -> Settings     # loads .env via python-dotenv
+```
+
+### llm.py
+```python
+@dataclass
+class LLMResult:
+    text: str; role: str; request_id: str | None; model: str
+    latency_ms: int; input_tokens: int | None; output_tokens: int | None
+
+class LLM(Protocol):
+    def complete(self, role: str, user: str, *, session_id: str, max_tokens: int = 4096) -> LLMResult
+    def complete_json(self, role: str, user: str, *, session_id: str, required: list[str],
+                      max_tokens: int = 4096) -> tuple[dict, LLMResult]
+        # parses the first JSON object in the reply; on failure sends up to 2 repair calls in the
+        # same role (user msg = original user + error + previous output). Raises LLMError after.
+
+class MubitLLM(LLM):  # __init__(settings, log_path: Path | None)
+    # system prompt = (prompts/<role>.md). Appends one JSON line per call to log_path:
+    # {ts, role, session_id, model, request_id, latency_ms, input_tokens, output_tokens,
+    #  user_chars, reply_chars}
+class FakeLLM(LLM):   # __init__(responses: dict[str, list[str]]) — pops scripted replies per role
+def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else MubitLLM; raises if no key
+```
+Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`.
+
+### roles.py (all go through LLM; user-message builders live here)
+```python
+def design(llm, idea: str, lessons: str, *, session_id) -> dict          # Spec
+def code_module(llm, spec: dict, module: dict, deps: dict[str, str], lessons: str, *, session_id) -> str
+def fix_file(llm, path: str, source: str, problem: str, context: str, lessons: str, *, session_id) -> str
+def critique(llm, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id) -> dict
+def reflect(llm, lessons: str, iteration_summary: str, *, session_id) -> str   # new lessons.md text
+```
+Code replies: the model returns the full file in one ```luau fenced block; `extract_luau(text)`
+returns its body (raise if missing).
+
+Spec (designer output):
+```json
+{"title": "...", "slug": "kebab-case", "pitch": "one line", "core_loop": "...",
+ "modules": [{"path": "ServerScriptService/Game.server.luau", "purpose": "...",
+              "depends": ["ReplicatedStorage/Config.luau"]}],
+ "acceptance": ["players spawn on the map", "..."]}
+```
+Critique: `{"score": 0-10, "summary": "...", "issues": [{"path": "...", "problem": "...",
+"fix_hint": "..."}], "done": bool}`
+
+### game/tools/sync.py (stdlib only, runnable standalone: `python3 game/tools/sync.py <cmd> --root DIR`)
+- `check --root DIR` → exit 0/1; prints `FAIL <file>\n<msg>` per bad file (uses `luau-compile --null`).
+  As a library: `check(root: Path) -> list[tuple[str, str]]` (relative path, error).
+- `manifest --root DIR` → writes `DIR/tools/manifest.json`: `[{service, dirs, name, class, path}]`.
+- `serve --root DIR --port P` → HTTP file server for DIR on 127.0.0.1. As a library:
+  `serve_in_thread(root, port) -> ThreadingHTTPServer`.
+- `pull_luau(port: int, prune: bool = True) -> str` → Luau source for execute_luau that fetches
+  the manifest and every file, creates/updates scripts, and (if prune) deletes scripts under the
+  synced roots that are tagged `ForgeManaged` but no longer in the manifest. Returns a string like
+  `OK n files, changed: a, b` or `ERROR ...`.
+- Mapping: `X.server.luau` → Script, `X.client.luau` → LocalScript, `X.luau` → ModuleScript;
+  roots ServerScriptService, ReplicatedStorage, StarterPlayerScripts (→ StarterPlayer.StarterPlayerScripts),
+  also ServerStorage, StarterGui, Workspace if present.
+
+### ForgeProbe runtime contract (game/ServerScriptService/ForgeProbe.server.luau)
+During a playtest it records `ScriptContext.Error` and `LogService.MessageOut` (warnings/errors),
+player joins, and any `ForgeProbe` attribute counters games set. It exposes
+`ServerStorage.ForgeProbe` (BindableFunction): `Invoke("report")` returns a JSON string:
+```json
+{"uptime": 12.3, "errors": [{"message": "...", "trace": "...", "script": "..."}],
+ "warnings": ["..."], "players": 1, "counters": {"coins_collected": 3}, "instances": 412}
+```
+Games may call `require(ReplicatedStorage.ForgeTelemetry).count(name, n)` to bump counters
+(ReplicatedStorage/ForgeTelemetry.luau, server side only). Also `ServerStorage.DevHook`
+(BindableFunction) `Invoke(moduleName, method, ...)` to reach live server modules from execute_luau.
+
+### studio.py
+```python
+class Studio:  # async context manager; spawns settings.studio_mcp_path over stdio (mcp SDK)
+    async def list_studios(self) -> list[dict]            # [{id, name}]
+    async def select(self, name_hint: str | None = None) -> str   # picks studio_id (first if one)
+    async def call(self, tool: str, **args) -> str        # raw tool call, returns text content
+    async def execute_luau(self, code: str, datamodel: str = "Edit") -> str
+    async def state(self) -> dict
+    async def play(self) -> None                          # start_stop_play(is_start=True), waits for Server DM
+    async def stop(self) -> None
+    async def console(self) -> str
+    async def screenshot(self, out: Path) -> Path | None  # screen_capture; saves image if returned
+    async def probe_report(self) -> dict                  # execute_luau in Server DM: ForgeProbe:Invoke("report")
+    async def sync(self, root: Path, port: int) -> str    # manifest + serve_in_thread + execute pull_luau
+```
+
+### loop.py / memory.py / cli.py
+```
+forge doctor                       # checks key, luau-compile, StudioMCP binary, studios connected
+forge new "<idea>" [--iterations N] [--no-studio]   # design + build + playtest loop
+forge run <slug> [--iterations N] [--no-studio]     # continue iterating an existing game
+forge correct <slug> <path> "<note>"                # human correction → fixer call → resync
+forge status [<slug>]                                # iterations, scores, call counts per role
+```
+`--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
+State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
+created, updated}`.
