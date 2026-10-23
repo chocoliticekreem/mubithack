@@ -38,37 +38,37 @@ def outline(src: str, limit: int = 80) -> str:
 
 def relevant_excerpt(src: str, text: str, budget: int = EXCERPT_CHARS) -> str:
     """Line-numbered windows around the lines that share the most words with `text` (anomaly + root
-    cause), merged and capped at `budget` characters."""
+    cause), best matches first, never more than `budget` characters in total."""
     lines = src.splitlines()
     words = {w.lower() for w in _WORD.findall(text)} - _STOP
-    scored = []
-    for i, line in enumerate(lines):
-        low = line.lower()
-        hits = sum(1 for w in words if w in low)
-        if hits:
-            scored.append((hits, i))
-    scored.sort(key=lambda t: (-t[0], t[1]))
-    windows: list[list[int]] = []
+    scored = sorted(((sum(1 for w in words if w in ln.lower()), i) for i, ln in enumerate(lines)),
+                    key=lambda t: (-t[0], t[1]))
+    chosen: set[int] = set()
     used = 0
-    for _, i in scored:
-        lo, hi = max(0, i - CONTEXT_LINES), min(len(lines), i + CONTEXT_LINES + 1)
-        if any(lo < w[1] and hi > w[0] for w in windows):
-            for w in windows:
-                if lo < w[1] and hi > w[0]:
-                    w[0], w[1] = min(w[0], lo), max(w[1], hi)
-            continue
-        cost = sum(len(ln) + 8 for ln in lines[lo:hi])
+    for hits, i in scored:
+        if hits == 0:
+            break
+        new = [n for n in range(max(0, i - CONTEXT_LINES), min(len(lines), i + CONTEXT_LINES + 1))
+               if n not in chosen]
+        cost = sum(len(lines[n]) + 8 for n in new)
         if used + cost > budget:
             continue
-        windows.append([lo, hi])
+        chosen.update(new)
         used += cost
-    if not windows:
-        windows = [[0, min(len(lines), 120)]]
-    windows.sort()
-    out = []
-    for lo, hi in windows:
-        out.append(f"--- lines {lo + 1}-{hi} ---")
-        out += [f"{n + 1:>5}| {lines[n]}" for n in range(lo, hi)]
+    if not chosen:
+        for n in range(len(lines)):
+            cost = len(lines[n]) + 8
+            if used + cost > budget:
+                break
+            chosen.add(n)
+            used += cost
+    out: list[str] = []
+    prev = None
+    for n in sorted(chosen):
+        if prev is None or n != prev + 1:
+            out.append(f"--- from line {n + 1} ---")
+        out.append(f"{n + 1:>5}| {lines[n]}")
+        prev = n
     return "\n".join(out)
 
 

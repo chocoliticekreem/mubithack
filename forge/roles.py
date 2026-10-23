@@ -277,18 +277,20 @@ def patch_file(
     from forge.patch import PatchError, apply_edits, outline, relevant_excerpt
 
     n = len(source.splitlines())
-    user = _fit(
+    # The problem comes before the code, so a long excerpt can never push it out of the message.
+    head = (
         "## File\n"
-        f"path: {path} ({n} lines)\nOutline (line: function):\n{outline(source)}\n\n"
-        "## Relevant code\n"
-        f"```\n{relevant_excerpt(source, problem)}\n```\n\n"
+        f"path: {path} ({n} lines)\nOutline (line: function):\n{_truncate(outline(source), 2000, label='outline')}\n\n"
         "## Problem\n"
         f"{_truncate(problem.strip(), 3000, keep='both', label='problem')}\n\n"
         "## Context\n"
-        f"{_truncate((context or '').strip() or '(none)', 2500, keep='both', label='context')}\n\n"
-        f"{_lessons_block(lessons, 3000)}\n"
-        "Return only the patch JSON object."
+        f"{_truncate((context or '').strip() or '(none)', 2000, keep='both', label='context')}\n\n"
+        f"{_lessons_block(lessons, 2500)}\n"
     )
+    room = max(2000, MAX_USER_CHARS - len(head) - 200)
+    user = (head + "## Relevant code\n"
+            f"```\n{relevant_excerpt(source, problem, budget=room)}\n```\n\n"
+            "Return only the patch JSON object.")
     obj, _ = llm.complete_json("patcher", user, session_id=session_id, required=["edits"], max_tokens=4096)
     try:
         return apply_edits(source, obj.get("edits"))
