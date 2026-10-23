@@ -115,19 +115,27 @@ local function button(parent,label,fn,options)
     if options.action then table.insert(actionButtons,{el=el,ai=options.ai,needsReady=options.needsReady,base=label,primary=options.primary}) end
     return el
 end
+local fieldShells={}
 local function field(parent,placeholder,height)
+    local shell=Instance.new("Frame") shell.Name="InputFrame"
+    shell.Size=UDim2.new(1,-4,0,height or 88) shell.BackgroundColor3=palette.field
+    shell.BorderSizePixel=0 shell.Parent=parent round(shell,10)
+    local stroke=outline(shell)
     local el=Instance.new("TextBox")
-    el.Size=UDim2.new(1,-4,0,height or 88) el.BackgroundColor3=palette.field el.BorderSizePixel=0
+    el.Size=UDim2.fromScale(1,1) el.BackgroundTransparency=1 el.BorderSizePixel=0
     el.TextColor3=palette.text el.PlaceholderColor3=palette.secondary el.Font=fonts.body
+    el.TextStrokeTransparency=1 el.RichText=false
     el.TextSize=16 el.TextXAlignment=Enum.TextXAlignment.Left el.TextYAlignment=Enum.TextYAlignment.Top
-    el.TextWrapped=true el.MultiLine=true el.ClearTextOnFocus=false el.Text="" el.PlaceholderText=placeholder el.Parent=parent
+    el.TextWrapped=true el.MultiLine=true el.ClearTextOnFocus=false el.Text="" el.PlaceholderText=placeholder el.Parent=shell
     local padding=Instance.new("UIPadding") padding.PaddingLeft=UDim.new(0,8) padding.PaddingRight=UDim.new(0,8)
     padding.PaddingTop=UDim.new(0,8) padding.PaddingBottom=UDim.new(0,8) padding.Parent=el
-    round(el,10) outline(el)
-    local stroke=el:FindFirstChildOfClass("UIStroke")
     el.Focused:Connect(function() stroke.Color=palette.blue stroke.Thickness=2 end)
     el.FocusLost:Connect(function() stroke.Color=palette.border stroke.Thickness=1 end)
+    fieldShells[el]=shell
     return el
+end
+local function setFieldHeight(el,height)
+    fieldShells[el].Size=UDim2.new(1,-4,0,height)
 end
 local function clear(parent)
     for _,child in parent:GetChildren() do if child:IsA("GuiObject") then child:Destroy() end end
@@ -335,7 +343,10 @@ local idea=field(makePage,"Example: an obby where players collect coins and avoi
 local starters=section(makePage,"IdeaStarters")
 text(starters,"Pick a starting point, or write your own.","small")
 for _,example in {"An obby with coins and checkpoints","A race through a disappearing maze","A tiny island with a treasure hunt"} do
-    button(starters,example,function() idea.Text=example idea:CaptureFocus() end)
+    button(starters,example,function()
+        idea.Text=example idea:CaptureFocus()
+        idea.CursorPosition=#idea.Text+1 idea.SelectionStart=-1
+    end)
 end
 local extraBuild=section(makePage,"DraftControls")
 text(extraBuild,"Shape your first draft","heading")
@@ -495,7 +506,7 @@ applyExperience=function()
     makePath.Visible=config.stepByStep or config.playful
     pathText.Text=config.playful and "Your idea    /    Make it real    /    Play & improve" or "Your idea    /    First draft    /    Try it in Studio"
     pathText.TextColor3=palette.blue
-    idea.Size=UDim2.new(1,-4,0,config.playful and 148 or (config.focused and 112 or 136))
+    setFieldHeight(idea,config.playful and 148 or (config.focused and 112 or 136))
     starters.Visible=config.hints
     extraBuild.Visible=config.controls controlDock.Visible=config.controls
     buildExplanation.Visible=config.hints
@@ -557,7 +568,7 @@ end
 local function showTechnical(value)
     technical.Visible=true details.Text=readable(value)
     local size=game:GetService("TextService"):GetTextSize(details.Text,16,details.Font,Vector2.new(math.max(220,details.AbsoluteSize.X-20),100000))
-    details.Size=UDim2.new(1,-4,0,math.clamp(size.Y+24,160,16000))
+    setFieldHeight(details,math.clamp(size.Y+24,160,16000))
 end
 displayReport=function(job)
     local view=job.presentation
