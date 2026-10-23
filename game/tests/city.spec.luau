@@ -26,6 +26,7 @@ local cfg = {
 	RiverInset = 80,
 	DamRiverZ = 168,
 	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
+	Tunnel = { x = -1350, z0 = -840, z1 = -570 },
 	StationDriveway = { x = 20, z = 175 },
 	SitesPerSuburbBlock = 2,
 	KindMissions = {
@@ -261,6 +262,22 @@ Spec.test("incident sites are spread out: most are a real drive from the station
 	end
 	Spec.truthy(#plan.sites >= 30, `sites {#plan.sites}`)
 	Spec.truthy(far >= 25, `far sites {far}`)
+end)
+
+Spec.test("Ridge Tunnel: on the highway, no junction or side road inside it or its hill", function()
+	local t = cfg.Tunnel
+	local reach = cfg.HighwayWidth / 2 + 3 + 4 + 44 -- walls + hill flanks (Highway.luau)
+	local onHighway = false
+	for id, n in g.nodes do
+		Spec.truthy(not (math.abs(n.x - t.x) < reach + 20 and n.z > t.z0 - 40 and n.z < t.z1 + 40), `node {id} under the tunnel hill`)
+	end
+	for _, e in g.edges do
+		local a, b = g.nodes[e.a], g.nodes[e.b]
+		if e.info.kind == "highway" and a.x == t.x and b.x == t.x and math.min(a.z, b.z) <= t.z0 and math.max(a.z, b.z) >= t.z1 then
+			onHighway = true
+		end
+	end
+	Spec.truthy(onHighway, "tunnel sits on one highway edge")
 end)
 
 Spec.test("creek: carved out of the ground; every road crossing it is a bridge", function()
