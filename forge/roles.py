@@ -101,8 +101,19 @@ def extract_luau(text: str) -> str:
     return body + "\n"
 
 
+# A whole Luau file per reply. Large game files (2k+ lines) need far more than 8k tokens; above ~21k the
+# Anthropic SDK requires streaming, so stay under that.
+LUAU_MAX_TOKENS = 20_000
+
+
+def _check_complete(res) -> None:
+    if res.output_tokens is not None and res.output_tokens >= LUAU_MAX_TOKENS:
+        raise LLMError(f"reply cut off at the {LUAU_MAX_TOKENS}-token output limit (file too long to rewrite whole)")
+
+
 def _complete_luau(llm: LLM, role: str, user: str, *, session_id: str) -> str:
-    res = llm.complete(role, user, session_id=session_id, max_tokens=8192)
+    res = llm.complete(role, user, session_id=session_id, max_tokens=LUAU_MAX_TOKENS)
+    _check_complete(res)
     try:
         return extract_luau(res.text)
     except LLMError as e:
@@ -110,7 +121,8 @@ def _complete_luau(llm: LLM, role: str, user: str, *, session_id: str) -> str:
             f"{user}\n\n## Your previous reply could not be used\nError: {e}.\n"
             "Reply with the complete file in exactly one ```luau fenced block."
         )
-        res = llm.complete(role, retry, session_id=session_id, max_tokens=8192)
+        res = llm.complete(role, retry, session_id=session_id, max_tokens=LUAU_MAX_TOKENS)
+        _check_complete(res)
         return extract_luau(res.text)
 
 

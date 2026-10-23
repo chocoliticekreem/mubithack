@@ -7,6 +7,7 @@ Everything that varies goes in the user message.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -320,6 +321,8 @@ class MubitLLM(_JSONMixin):
                         output_tokens=None, user_chars=len(user), reply_chars=0,
                         error=f"{type(e).__name__}: {str(e)[:300]}",
                     )
+                    self._trace(role, session_id, system, user, None, rid=rid, model=self.model,
+                                error=f"{type(e).__name__}: {str(e)[:2000]}")
                     raise LLMError(f"{role} call failed: {type(e).__name__}: {e}") from e
                 self.sleep(min(wait if wait is not None else 2.0 * attempt, MAX_RETRY_WAIT_S))
                 continue
@@ -337,8 +340,26 @@ class MubitLLM(_JSONMixin):
                 latency_ms=res.latency_ms, input_tokens=tin, output_tokens=tout,
                 user_chars=len(user), reply_chars=len(text),
             )
+            self._trace(role, session_id, system, user, text, rid=rid, model=model,
+                        latency_ms=res.latency_ms, input_tokens=tin, output_tokens=tout)
             return res
         raise LLMError(f"{role} call failed: {last_exc}")  # pragma: no cover
+
+    def _trace(self, role: str, session_id: str, system: str, user: str, reply: str | None, **meta) -> None:
+        """Save the full call (prompt and reply) as traces/<time>-<role>-<request id>.json next to the
+        call log, so every Mubit example can be read back and shown later."""
+        if self.log_path is None:
+            return
+        now = datetime.now(timezone.utc)
+        rid = meta.get("rid") or "no-id"
+        rec = {"ts": now.isoformat(timespec="seconds"), "role": role, "session_id": session_id,
+               "request_id": meta.pop("rid", None), "system_prompt": f"{role}.md",
+               "system_sha256": hashlib.sha256(system.encode("utf-8")).hexdigest()[:16],
+               **meta, "user": user, "reply": reply}
+        path = self.log_path.parent / "traces" / f"{now.strftime('%Y%m%dT%H%M%S%f')}-{role}-{rid}.json"
+        with self._log_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
 
     def _log(self, **fields) -> None:
         if self.log_path is None:
