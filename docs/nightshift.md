@@ -11,9 +11,11 @@ Overnight hackathon in London built around Mubit. 42 hours, ~500 builders.
 - **Teams:** 1–4 people. 18+, in person only. At least one member must be at Sunday's demos to win.
 - **Food:** all meals, snacks, caffeine covered for all 42 hours.
 - **Bring:** laptop, charger, photo ID, toiletries, sleeping bag/pillow if staying overnight.
-- **Discord:** read `#night-shift-info`. Max (the event AI) handles teams, check-ins, questions.
-  - `/team create <name> <public GitHub repo>` → join code
-  - teammates `/team join <code>`, then everyone `/team accept`
+- **Discord:** read `#night-shift-info`. Max (the event AI) handles teams, check-ins, submissions, questions.
+  - `/team create <name> <public GitHub repo>` → private team channels + join code. Repo URL is
+    captured here.
+  - teammates `/team join <code>`, then everyone `/team accept` (event rules + data notice)
+  - Talk to Max by DM or in the team's `#max` channel (no @ needed). Max can't read the team `#chat`.
 
 ## Schedule
 
@@ -24,9 +26,13 @@ Overnight hackathon in London built around Mubit. 42 hours, ~500 builders.
 | Fri 19:00 | Dinner, team matching |
 | Fri 19:30 | Hacking starts |
 | Sat all day | Meals + office hours with the Mubit team |
+| **Sat by 12:00** | **Check-in 1** (`/checkin`) |
+| **Sat 12:00–18:00** | **Check-in 2** (`/checkin`) |
+| Sat 20:00 | Submissions open (`/submit`) |
+| Sat 24:00 | Target: submit by midnight |
 | Sun 02:00 | Clocks go back to 01:00 |
+| **Sun 05:00** | **Code freeze: hard deadline for code and submissions** |
 | Sun 08:00 | Breakfast |
-| **Sun 10:00** | **Code freeze, submissions close** |
 | Sun 10:30 | Judging round 1 (expo) |
 | Sun 12:30 | Finalist demos on stage |
 | Sun 13:30 | Awards |
@@ -60,9 +66,26 @@ updates for a recurring task.**
 
 ### Rules
 
-- All project code written during the event. OSS libraries and your own tooling are fine.
+- All project code written during the event, from Fri 19:30. OSS libraries and your own tooling
+  are fine.
 - **Every project must route its LLM calls through Mubit.**
 - You own what you build.
+
+> Deadline conflict: the original Luma page said code freeze Sun 10:00. Max's Discord rules (posted
+> 21 Oct) say **Sun 05:00**. Plan for 05:00.
+
+### Check-ins
+
+Two, both Saturday, via `/checkin`: first by 12:00, second 12:00–18:00. Tell Max what shipped,
+what's next, blockers; Max replies with feedback in `#max`. A missed check-in can be made late
+until the code freeze.
+
+### Submission
+
+- `/submit` gives the team's upload page once submissions open (Sat 20:00). Aim for midnight.
+- Uploads only: **demo video (MP4 or MOV, max 3 min)** + **PDF deck**. No YouTube links.
+- Resubmit any time before the freeze; latest submission counts. After 05:00 counts only if an
+  organizer accepts it.
 
 ## Prizes
 

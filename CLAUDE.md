@@ -7,7 +7,8 @@ Night Shift x Mubit hackathon project. Event brief, schedule, tracks, judging an
 
 Hard constraints:
 - Every LLM call routes through Mubit (base URL + Mubit key).
-- Code freeze Sun 25 Oct 10:00. Demo must show a correction turning into a model update.
+- Code freeze Sun 25 Oct 05:00 (hard). Submit by Sat midnight: MP4/MOV demo <=3 min + PDF deck.
+  Check-ins Sat by 12:00 and 12:00-18:00. Demo must show a correction turning into a model update.
 
 Project: **Forge** — idea → Luau → Roblox Studio (StudioMCP) playtest → fix loop; roles are Mubit tasks.
 - Contracts: `docs/ARCHITECTURE.md` (keep signatures in sync when changing modules).
