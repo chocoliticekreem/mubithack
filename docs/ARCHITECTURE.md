@@ -56,10 +56,15 @@ forge/                 Python package (uv), entry point `forge`
   sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
-  cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote|assets`   [owner: loop]
+  cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote|assets|improve|scores`   [owner: loop]
   seed.py              seed(settings, slug, spec_path=None) -> RunStore; promote(settings, slug, rel) -> Path
   seeds/<slug>.json    Forge spec for a seeded run (flame-and-blame: FlareUpService)
   assets.py            assets/manifest.json -> generate/search/upload -> Config/AssetIds.luau (no LLM)
+  improve.py           self-improving loop (docs/MUBIT_LOOP.md): run_cycle(settings, slug, *, llm, harness,
+                       playtest, faults, goal, rounds, players, steps) -> cycle dict; round_digest, audit,
+                       verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
+  faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
+  prompts/auditor.md, prompts/verifier.md   Mubit tasks: anomaly detection, fix verification
   play.py              AI playtester (observe → act → report)           [owner: play]
   mcp_server.py        stdio MCP server "forge" exposing the playtester [owner: play]
 game/                  the Roblox place, file-mapped like Script Sync
@@ -215,6 +220,8 @@ forge correct <slug> <path> "<note>"                # human correction → fixer
 forge status [<slug>]                                # iterations, scores, call counts per role
 forge seed <slug> [--spec FILE]                      # runs/<slug>/game <- game/ (+ spec base_files)
 forge promote <slug> <path>                          # runs/<slug>/game/<path> -> game/<path>
+forge improve <slug> [--cycles N --rounds R --only ids]  # faults -> playtests -> auditor -> fix -> verifier
+forge scores <slug>                                  # detected / missed / fixed per improve cycle
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
