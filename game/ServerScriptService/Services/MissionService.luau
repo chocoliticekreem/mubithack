@@ -458,6 +458,16 @@ local function teleportSquad(run: Live)
 	for i, p in run.players do
 		local char = p.Character
 		if char and char:FindFirstChild("HumanoidRootPart") then
+			-- a seated character is welded to its truck seat: get out first or the pivot snaps back
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum and hum.SeatPart then
+				local weld = hum.SeatPart:FindFirstChild("SeatWeld")
+				if weld then
+					weld:Destroy()
+				end
+				hum.Sit = false
+				task.wait()
+			end
 			local offset = (i - (n + 1) / 2) * (GameConfig.SpawnSpread or 4)
 			char:PivotTo(base * CFrame.new(offset, 0, 0))
 		end
