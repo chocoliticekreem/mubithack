@@ -11,9 +11,14 @@ in a small PR that says so in its title.
 
 | Lane | Owner | Owns | Goal for the demo |
 |---|---|---|---|
-| **A — Brain (Mubit)** | _name_ | `forge/llm.py`, `forge/roles.py`, `forge/prompts/`, `forge/loop.py`, `forge/memory.py` | Good games from one idea; the correction → model update story; enough calls per task to train (25 kept examples per role) |
-| **B — Studio (runtime)** | _name_ | `forge/studio.py`, `forge/sync.py`, `game/` (ForgeProbe, ForgeTelemetry, `tools/`), `scripts/` | Reliable sync and playtests, screenshots, simulated input, honest playtest reports |
-| **C — Demo (product)** | _name_ | `forge/cli.py`, a demo UI (new `ui/`), `README.md`, `docs/` except ARCHITECTURE | A 3-minute live demo: idea → game → correction → Mubit console showing training |
+| **K0 Kickoff** (frozen `[K]`) | Arvin | `game/ReplicatedStorage/Shared/*`, `Main.server`/`Main.client`, `game/tests/` runner, CI | Contracts in `docs/game/03` §10; every API stubbed |
+| **G1 Fire & tools** | Anson | FireService, ToolService, `Lib/Fire/`, FireConfig, ToolConfig, FireFxController, ToolController | Fire spreads; hose + tank + refill; axe breaks locked doors |
+| **G2 World & truck** | Arvin | MapService, VehicleService, AtmosphereService, `Lib/Map/**`, Map/Vehicle/AtmosphereConfig, Vehicle/AlarmController | Station 67 + a 4-house town from code; truck 67 at the scene |
+| **G3 Loop & people** | _Dev C (add your name)_ | Mission/Rescue/Squad/BlameService, `Lib/Rescue/`, `Lib/Squad/`, `Lib/Blame/`, Game/Rescue/BlameConfig, Hud/Results/RescueController, `ClientLib/UiKit` | 3-minute round, carry civilians and pets to the truck, Blame screen |
+| **GF Forge + Mubit demo** | Anson | `forge/**`, `tests/test_*.py`, `docs/ARCHITECTURE.md`, `runs/flame-and-blame/`, new Forge-made files in `game/` | Forge builds a v1 module; a human correction becomes a recorded fixer call; Mubit console |
+
+File-level ownership is `docs/game/03-tech-architecture.md` §1. Integration lead (shared place, recordings): Arvin.
+The weekend plan: `docs/superpowers/plans/2026-10-23-flame-and-blame-v1.md`.
 
 Shared files changed by anyone, but **only in their own small PR**, merged first:
 - `docs/ARCHITECTURE.md`: the contract between lanes. If you change a signature, update it here in

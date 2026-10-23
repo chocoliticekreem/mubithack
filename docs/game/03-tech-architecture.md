@@ -66,6 +66,7 @@ game/
       Config.luau                                   Config.define helper (§3)
       Names.luau                                    every cross-system tag and attribute name
       Types.luau                                    cross-system types (RoundState, Award, ...)
+      Palette.luau                                  colour tokens from docs/game/02 §1
     Config/                                   one file per system, owned by that system's lane
       GameConfig.luau                         [G3]  round length, max players, phases
       MapConfig.luau                          [G2]  seed, slot size, location slots
@@ -1296,6 +1297,10 @@ and get a harmless default, so nobody waits on anybody.
 | `Window` | window part | MapService | RescueService (trampoline, v2) |
 | `WetFloor`, `FuseBox` | floor / box part | MapService (FuseBox), ToolService (WetFloor while sprayed) | HazardService (v2) |
 | `Truck` | truck Model | VehicleService | MissionService, VehicleController |
+| `FireStart` | Flammable part that lights at round start | MapService builders | MissionService |
+| `RescueSpawn` | invisible 2x2x2 marker, attrs `Kind`, `BuildingId` (NPC feet at marker Y - 1) | MapService builders | RescueService |
+| `TruckSpot` | invisible marker, attr `LocationId`; LookVector = truck forward | MapService builders | VehicleService |
+| `AlarmLamp` | Neon lamp part at the station | StationBuilder | AlarmController |
 
 ### Attributes, in `Names.Attr`
 
@@ -1318,6 +1323,7 @@ and get a harmless default, so nobody waits on anybody.
 | `RoundEndsAt` | Workspace | number (`workspace:GetServerTimeNow()` time) | MissionService |
 | `MissionId` | Workspace | string (location Id) | MissionService |
 | `ServerBooted`, `MapReady` | Workspace | boolean | Main.server, MapService |
+| `Slot` | StationSpawn pad | number 1-4 | MapService builders |
 
 ### Remotes (`ReplicatedStorage.Net.<Namespace>.<Name>`), declared by the server owner
 
@@ -1331,7 +1337,9 @@ and get a harmless default, so nobody waits on anybody.
 | `Hazard/Zapped` (v2) | S→C all | `victim: number, culprit: number?` (UserIds) | | HazardService | HazardController |
 
 Carry, revive, refill and door interactions are **ProximityPrompts** handled on the server (no
-remotes). Axe swings use server-side `Tool.Activated`.
+remotes). Axe swings use server-side `Tool.Activated`. The **builders create** the one ProximityPrompt on each
+Door/Hydrant/TruckRefill part (MapKit, TruckBuilder); the **system lane owns its behaviour** (ToolService).
+`Shared/Notify` is declared by `Main.server.luau` before any `Start` (it has no single owner).
 
 ### Server service APIs (call through `services.X`, always nil-guarded)
 
@@ -1358,6 +1366,7 @@ ToolService:Refill(player: Player, litres: number?)    -- nil = full
 ToolService:ResetDoors(locationId: string)             -- only if not rebuilt
 ToolService.DoorBroken: Signal<Player, BasePart>
 ToolService.WaterUsed: Signal<Player, number>
+ToolService.HoseHit: Signal<Player, Player>            -- K0: (sprayer, victim) friendly fire, P1.5
 ToolService:_spray(player: Player, aim: Vector3)       -- test hook = one Tool/Spray event
 
 -- MissionService [G3]
@@ -1386,6 +1395,7 @@ SquadService.Downed: Signal<Player, string, Player?>   -- (victim, cause, culpri
 -- VehicleService [G2]
 VehicleService:GetTruck(): Model?
 VehicleService:ResetTruck()                            -- back to the station bay
+VehicleService:ParkAt(locationId: string): boolean     -- K0: truck onto that location's TruckSpot (v1 travel = teleport)
 VehicleService.Driven: Signal<Player, number>          -- (driver, studs) for awards
 
 -- BlameService [G3]                  consumer: subscribes to every signal above
@@ -1399,15 +1409,36 @@ BlameService:Reset()
 ```lua
 export type RoundState = "Lobby" | "Alarm" | "Active" | "Results"
 export type RescueKind = "Civilian" | "Dog" | "Cat" | "Panda"
+export type RescueState = "Trapped" | "Carried" | "Downed" | "Rescued"
+export type EndReason = "time" | "allOut" | "forced"
+export type NotifyKind = "info" | "good" | "bad" | "blame"
 export type PlayerStats = {
-	userId: number, helmet: number,
-	firesOut: number, firesStarted: number, water: number, doors: number,
-	rescued: number, pandas: number, downedOthers: number, timesDowned: number,
+	userId: number,
+	helmet: number,
+	name: string,
+	firesOut: number,
+	firesStarted: number,
+	water: number,
+	doors: number,
+	rescued: number,
+	pandas: number,
+	downedOthers: number,
+	timesDowned: number,
+	teammateSprayed: number,
 }
-export type Award = { id: string, title: string, userId: number, value: number, blurb: string }
+export type Award = { id: string, title: string, userId: number, value: number, blurb: string, blame: boolean }
 export type ResultsPayload = {
-	locationId: string, seconds: number, firesOut: number, burnedParts: number,
-	rescued: number, trapped: number, awards: { Award }, stats: { PlayerStats },
+	locationId: string,
+	seconds: number,
+	firesOut: number,
+	burnedParts: number,
+	rescued: number,
+	trapped: number,
+	burningAtEnd: number,
+	stars: number,
+	reason: EndReason,
+	awards: { Award },
+	stats: { PlayerStats },
 }
 return {}
 ```
@@ -1428,4 +1459,4 @@ return {}
 - [ ] `sync.py check --root game` passes with every stub in place.
 - [ ] Solo Play: Output shows `[Boot] server: N services` and no warnings; ForgeProbe `errors == []`.
 - [ ] The `_selftest` runner (§7) returns `pass = true` for every stub.
-- [ ] Each lane has written its name in the §1 lane table.
+- [ ] Each lane has written its name in the lane table in `docs/TEAM.md`.
