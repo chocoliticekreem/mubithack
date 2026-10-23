@@ -13,7 +13,8 @@
 -- Overlays (blended on top, weights smoothed per frame):
 --   Smoke: nearby Burning parts within SmokeRadius of the camera, x full when a roof raycast says
 --          "indoors" (doc's smoke-filled room, no hand-placed zones needed).
---   Heat:  Player attr Heat (HeatService) above HeatFrom -> warm tint.
+--   Heat:  Player attr Heat (HeatService) above HeatFrom -> warm tint. Off by default
+--          (AtmosphereConfig.HeatOverlay): FirstPersonController already grades heat.
 -- Material pass: SmoothPlastic parts in the player's current location get a real Enum.Material from
 --   the part attr MaterialHint or AtmosphereConfig.MaterialPass.Rules (by name). Chunked per frame.
 --
@@ -84,10 +85,17 @@ local function findOrMake(kind: string): Instance?
 	if not class or not parent then
 		return nil
 	end
-	-- Prefer the server's replicated Forge_<Kind>; else any effect of that class; else make a local one.
-	local inst = parent:FindFirstChild("Forge_" .. kind)
+	-- Prefer the server's replicated Forge_<Kind>; else a Studio default with the plain name; else make a
+	-- local one. Never grab another controller's effect (e.g. FirstPersonController's FirstPersonHeatCC).
+	local inst: Instance? = parent:FindFirstChild("Forge_" .. kind)
 	if not (inst and inst:IsA(class)) then
-		inst = parent:FindFirstChildOfClass(class)
+		inst = nil
+		for _, child in parent:GetChildren() do
+			if child:IsA(class) and (child.Name == kind or child.Name == class) then
+				inst = child
+				break
+			end
+		end
 	end
 	if not inst then
 		local ok, made = pcall(Instance.new, class)
@@ -433,7 +441,9 @@ local function step(dt: number)
 	state.dirty = false
 	local values = composeBase()
 	applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Smoke, state.smoke)
-	applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Heat, state.heat)
+	if Cfg.HeatOverlay then
+		applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Heat, state.heat)
+	end
 	write(values)
 end
 

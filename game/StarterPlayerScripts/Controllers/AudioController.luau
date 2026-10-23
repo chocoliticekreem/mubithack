@@ -380,8 +380,10 @@ local function siren(seconds: number)
 	local trucks = nearestTagged(Names.Tag.Truck, 1, function(t)
 		return inst == nil or t:IsDescendantOf(inst)
 	end)
-	if trucks[1] then
-		playFor("Siren", trucks[1], seconds)
+	local truck = trucks[1]
+	if truck then
+		local horn = truck:FindFirstChild("Siren", true) -- TruckBuilder's siren part, else the truck pivot
+		playFor("Siren", if horn and horn:IsA("BasePart") then horn else truck, seconds)
 	end
 end
 

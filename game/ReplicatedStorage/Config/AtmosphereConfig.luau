@@ -335,6 +335,7 @@ return Config.define({
 	SmokeFullAt = 5, -- that many nearby fires indoors = full smoke overlay
 	RoofCheck = 45, -- studs straight up from the camera; a hit = "indoors"
 	OverlayResponse = 2.5, -- per-second smoothing rate for overlay weights (higher = snappier)
+	HeatOverlay = false, -- FirstPersonController's FirstPersonHeatCC already tints for Heat; true = also blend Overlays.Heat
 	HeatFrom = 25, -- Heat below this adds no tint; at 100 the Heat overlay is full
 
 	-- Client material pass: upgrades SmoothPlastic parts in the player's location to real materials.
