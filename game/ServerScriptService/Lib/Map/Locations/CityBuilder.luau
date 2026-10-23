@@ -934,6 +934,10 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			table.insert(ctx.keepClear, V(p.x, 0, p.z))
 		end
 	end
+	-- and off the exit gantry posts
+	for _, sp in Highway.gantrySpots(cfg, plan.lines) do
+		table.insert(ctx.keepClear, V(sp[1], 0, sp[2]))
+	end
 	local sections: { [string]: Instance } = {}
 
 	buildGround(ctx, model)

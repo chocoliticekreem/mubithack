@@ -109,6 +109,33 @@ local function tunnel(ctx: any, parent: Instance)
 	m.Parent = parent
 end
 
+-- Where the exit gantries stand (road centreline points), so CityBuilder keeps lamps/trees off
+-- their posts: { { x, z } }.
+function Highway.gantrySpots(cfg: any, lines: { number }): { { number } }
+	local out = {}
+	local blocked = Highway.blocked(cfg)
+	for _, hi in { 1, #lines } do
+		for ai = 2, #lines - 1 do
+			for _, axis in { "x", "z" } do
+				for _, dirSign in { -1, 1 } do
+					local along = lines[ai] + dirSign * 70
+					local x, z = if axis == "x" then lines[hi] else along, if axis == "x" then along else lines[hi]
+					local inside = false
+					for _, r in blocked do
+						if x > r.x0 and x < r.x1 and z > r.z0 - 40 and z < r.z1 + 40 then
+							inside = true
+						end
+					end
+					if not inside then
+						table.insert(out, { x, z })
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
 -- Overhead exit gantries on Highway 67 before every junction with an avenue.
 local function gantries(ctx: any, parent: Instance)
 	local cfg = ctx.cfg
