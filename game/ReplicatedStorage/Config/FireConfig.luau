@@ -23,6 +23,7 @@ return Config.define({
 	MaxClientFx = 40, -- burning parts with emitters, nearest first
 	MaxClientLights = 10, -- of those, how many get a flickering PointLight
 	MaxShadowLights = 4, -- of those, how many cast shadows
+	FxLightClusterRadius = 10, -- one light per cluster of burning parts this close together
 	FxDistance = 180, -- no effects beyond this (studs from the camera)
 	FxLodDistance = 90, -- beyond this: cheap tier (no embers/haze, quarter rate)
 	FxScorchSeconds = 30, -- a burning part darkens toward CharredWarm over this long (client only)

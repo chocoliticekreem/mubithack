@@ -6,7 +6,8 @@
 -- Writes (local only): per nearby burning part
 --   * ParticleEmitters "FlameCore" + "FlameLicks" on the part itself (Box volume, so the whole part burns)
 --   * Attachment "FireFx" on the top face with "Embers", "Smoke" (darkens with FireLevel), "HeatHaze"
---     and, for the nearest MaxClientLights, a flickering PointLight (nearest MaxShadowLights cast shadows)
+--     and a flickering PointLight on the nearest part of each ~FxLightClusterRadius cluster (at most
+--     MaxClientLights; the nearest MaxShadowLights cast shadows)
 --   * a progressive scorch tint on the part while it burns
 -- On put-out (tag removed, not Charred): one-shot Attachment "SteamFx" (puff + lingering wisps + hiss),
 --   and with FireConfig.FxPoofChance a tiny cartoon "poof" smoke ring.
@@ -486,6 +487,8 @@ local function refresh()
 	-- past ~16 full fires, thin every emitter so the particle total stays near the budget
 	local scale = math.clamp(16 / math.max(1, shown), 0.35, 1)
 	local keep: { [BasePart]: boolean } = {}
+	local lit: { Vector3 } = {} -- one light per cluster: skip parts close to an already-lit one
+	local clusterR = FireConfig.FxLightClusterRadius :: number
 	for i, item in list do
 		if i > maxFx or item.d > FireConfig.FxDistance then
 			break
@@ -498,7 +501,19 @@ local function refresh()
 		local level = (part:GetAttribute(Names.Attr.FireLevel) :: number?) or 1
 		local tier = if item.d <= FireConfig.FxLodDistance then 1 else 2
 		tune(f, level, tier, scale)
-		setLight(f, i <= FireConfig.MaxClientLights, i <= FireConfig.MaxShadowLights)
+		local wantLight = #lit < FireConfig.MaxClientLights
+		if wantLight then
+			for _, p in lit do
+				if (p - part.Position).Magnitude < clusterR then
+					wantLight = false
+					break
+				end
+			end
+		end
+		if wantLight then
+			table.insert(lit, part.Position)
+		end
+		setLight(f, wantLight, wantLight and #lit <= FireConfig.MaxShadowLights)
 		-- crackle loop on the nearest few only
 		if i <= FireConfig.MaxCrackles and not f.sound then
 			f.sound = playSound(f.attachment, FireConfig.SfxCrackle :: string, 0.35 + 0.15 * level, true)
