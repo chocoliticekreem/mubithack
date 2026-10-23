@@ -29,7 +29,7 @@ from mubit_tester.studio_presenter import check_choices, present_job
 PROTOCOL = 1
 DEFAULT_PORT = 34874
 TERMINAL = {"passed", "failed", "skipped", "cancelled", "interrupted"}
-OPERATIONS = {"install_harness", "scenario", "playtest", "explore", "inspect", "suggest_fix", "correct"}
+OPERATIONS = {"make_game", "load_game", "install_harness", "scenario", "playtest", "explore", "inspect", "suggest_fix", "correct"}
 MARKER_CODE = '''local s=game:GetService("ServerScriptService")
 local p=game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
 return game:GetService("HttpService"):JSONEncode({
@@ -189,8 +189,19 @@ class Companion:
         if payload.get("args") and not isinstance(payload["args"], dict):
             raise ValueError("Expected operation arguments")
         args = dict(payload.get("args") or {})
-        if operation in {"playtest", "explore", "suggest_fix", "correct"} and not self.settings.mubit_api_key:
+        if operation in {"make_game", "playtest", "explore", "suggest_fix", "correct"} and not self.settings.mubit_api_key:
             raise ValueError("MUBIT_API_KEY is missing in the companion's .env. Scripted scenarios work without it.")
+        if operation == "make_game":
+            idea = str(args.get("idea", "")).strip()
+            if not idea or len(idea) > 4000:
+                raise ValueError("Describe your game in 1 to 4000 characters")
+            args = {"idea": idea}
+        if operation == "load_game":
+            draft = self.jobs.get(str(args.get("source_job", "")))
+            if (not draft or draft["operation"] != "make_game" or draft["state"] != "passed"
+                or draft["studio_id"] != session["studio_id"] or not (draft.get("result") or {}).get("ready")):
+                raise ValueError("Choose a finished game draft from this Studio window")
+            args = {"source_job": draft["id"]}
         if operation == "scenario":
             names = {s["file"] for s in list_scenarios(self.settings.repo_root)}
             if args.get("scenario", "smoke.json") not in names:
@@ -238,7 +249,8 @@ class Companion:
             raise ValueError("This job belongs to another Studio session")
         if job["state"] != "cancelling":
             job["state"] = "cancelling"
-            self.emit(job, "Stopping new actions and returning the owned playtest to Edit.")
+            self.emit(job, "Stopping the build. Your partial draft stays saved." if job["operation"] == "make_game"
+                      else "Stopping new actions and returning the owned playtest to Edit.")
             self.task.cancel()
         return job
 
@@ -262,7 +274,26 @@ class Companion:
                     identity = extract_json(await studio.execute_luau(MARKER_CODE))
                     if not isinstance(identity, dict) or identity.get("marker") != job["marker"]:
                         raise ValueError("Studio identity changed; reconnect before running another job.")
-                if operation in {"suggest_fix", "correct"}:
+                if operation in {"make_game", "load_game"}:
+                    if state.get("playing"):
+                        raise ValueError("A playtest is already running. Stop it in Studio first.")
+                    from mubit_tester.studio_builder import build_draft, draft_install_code
+                    if operation == "make_game":
+                        self.emit(job, "Planning your game…")
+                        job["result"] = await build_draft(self.settings, args["idea"], lambda m: self.emit(job, m))
+                    else:
+                        if identity.get("placeId"):
+                            raise ValueError("Add a draft to an unpublished local game, using the normal sync workflow for published games.")
+                        from forge import sync
+                        draft = self.jobs[args["source_job"]]["result"]
+                        game_root = self.settings.runs_dir / draft["slug"] / "game"
+                        errors = await asyncio.to_thread(sync.check, game_root)
+                        if errors:
+                            raise ValueError("The draft code has errors. Keep it out of Studio until they are fixed.")
+                        self.emit(job, "Adding your draft to this Studio window…")
+                        job["result"] = {"summary": await studio.execute_luau(draft_install_code(self.settings, draft["slug"])),
+                                         "slug": draft["slug"], "title": draft["title"], "runtime_checked": False}
+                elif operation in {"suggest_fix", "correct"}:
                     from mubit_tester.ai import correct_step, suggest_fix
                     self.emit(job, "Sending the report and request through Mubit.")
                     if operation == "suggest_fix":

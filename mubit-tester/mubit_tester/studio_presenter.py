@@ -40,6 +40,10 @@ def title_for(job):
         return CHECK_NAMES.get(job.get('args', {}).get('scenario', 'smoke.json'), ('Saved game check', ''))[0]
     if operation == 'playtest':
         return str(job.get('args', {}).get('goal', 'Try a goal'))
+    if operation == 'make_game':
+        return str((job.get('result') or {}).get('title') or 'Making your game')
+    if operation == 'load_game':
+        return str((job.get('result') or {}).get('title') or 'Add draft to Studio')
     return {'explore': 'Look for problems', 'inspect': 'Look at the current game',
             'install_harness': 'Prepare this game', 'suggest_fix': 'Get a fix idea',
             'correct': 'Send feedback'}.get(operation, 'Game check')
@@ -53,7 +57,15 @@ def present_job(job):
               'passed': 'Finished', 'failed': 'Needs a look'}.get(state, 'In progress')
     summary = ''
     checks, issues, actions = [], [], []
-    if operation == 'scenario':
+    if operation == 'make_game':
+        if state == 'passed' and result.get('ready'):
+            status = 'Your first draft is ready'
+            summary = str(result.get('pitch') or '') + '\nReview it below, then add it to Studio to try it. It has not been played yet.'
+        elif state == 'failed':
+            status, summary = 'The draft needs more work', 'The code is saved, but some parts could not finish. It has not been added to Studio.'
+    elif operation == 'load_game' and state == 'passed':
+        status, summary = 'Added to Studio', 'Press Play in Studio to try your draft. You can undo adding its scripts. It has not been playtested by MuMake yet.'
+    elif operation == 'scenario':
         for item in result.get('steps', []):
             title = SMOKE_LABELS.get(item.get('label'), (item.get('label') or 'Game check').replace('_', ' '))
             unchecked = bool(item.get('warning') or str(item.get('detail', '')).startswith(('SKIP', 'unmet, skipping')))
@@ -115,7 +127,7 @@ def present_job(job):
             summary = 'MuMake could not finish trying your game. Try again, or open technical details to find out why.'
     if state == 'cancelled':
         status = 'Stopped'
-        summary = 'You stopped this check. Anything it did not finish is still unchecked.'
+        summary = 'You stopped this build. Any partial draft stays saved and has not been added to Studio.' if operation == 'make_game' else 'You stopped this check. Anything it did not finish is still unchecked.'
     if state == 'interrupted':
         status = 'Interrupted'
         summary = 'MuMake restarted before this finished. Check Studio has stopped playing before trying again.'

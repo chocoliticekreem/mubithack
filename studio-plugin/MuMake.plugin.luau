@@ -24,7 +24,7 @@ control.Parent = CoreGui
 CoreGui:SetAttribute("MubitTesterSession",marker)
 local alive,bound,connecting = true,false,false
 local snapshot,selectedJob,selectedAction = nil,nil,nil
-local mode,tab,selectedScenario = "quick","Check game","smoke.json"
+local mode,tab,selectedScenario = "quick","Make game","smoke.json"
 local connections,actionButtons,navButtons,modeButtons = {},{},{},{}
 local render,show,connect,displayReport,beginReport
 local toolbar = plugin:CreateToolbar("MuMake")
@@ -88,7 +88,7 @@ local function button(parent,label,fn,options)
         if options.action then
             if not bound then say("Open Settings to connect MuMake first.") return end
             if snapshot and snapshot.busy then say("Wait for the current check, or press Stop.") return end
-            if options.ai and (not snapshot or not snapshot.has_mubit_key) then say("AI play needs setup in Settings. Quick check is available.") return end
+            if options.ai and (not snapshot or not snapshot.has_mubit_key) then say("Connect AI in Settings first. Quick check is available.") return end
         end
         task.spawn(function()
             local ok,err=pcall(fn)
@@ -140,13 +140,13 @@ body.Position=UDim2.fromOffset(16,128) body.Size=UDim2.new(1,-28,1,-228)
 body.ScrollBarThickness=4 body.AutomaticCanvasSize=Enum.AutomaticSize.Y body.CanvasSize=UDim2.new() body.Parent=root
 stack(body,16)
 local footer=section(root,"Footer") footer.Position=UDim2.new(0,16,1,-88) footer.Size=UDim2.new(1,-32,0,0)
-feedback=text(footer,"Choose what you want to check.","small")
+feedback=text(footer,"Start with an idea for your game.","small")
 feedback.AutomaticSize=Enum.AutomaticSize.None feedback.Size=UDim2.new(1,-4,0,32)
 local stopButton=button(footer,"Stop",function()
-    request("POST","/cancel",{}) say("Stopping MuMake and closing its playthrough…")
+    request("POST","/cancel",{}) say("Stopping MuMake…")
 end)
 local pages={}
-for _,name in {"Check game","Results","Settings"} do
+for _,name in {"Make game","Check game","Results","Settings"} do
     pages[name]=section(body,name) pages[name].Visible=name==tab
 end
 show=function(name)
@@ -156,11 +156,26 @@ show=function(name)
     for key,b in navButtons do b.BackgroundColor3=key==name and palette.blue or palette.field end
     body.CanvasPosition=Vector2.zero
 end
-for index,name in {"Check game","Results","Settings"} do
+for index,name in {"Make game","Check game","Results","Settings"} do
     local b=button(nav,name,function() show(name) end)
-    b.Size=UDim2.new(1/3,-6,1,0) b.Position=UDim2.new((index-1)/3,0,0,0)
+    b.Size=UDim2.new(.25,-6,1,0) b.Position=UDim2.new((index-1)*.25,0,0,0)
     navButtons[name]=b
 end
+local makePage=pages["Make game"]
+text(makePage,"What do you want to make?","heading")
+text(makePage,"Tell MuMake your idea. Start small; you can try the first version in Studio.","muted")
+local idea=field(makePage,"Example: an obby where players collect coins and avoid rising lava.",136)
+text(makePage,"Need an idea?","small")
+for _,example in {"An obby with coins and checkpoints","A race through a disappearing maze","A tiny island with a treasure hunt"} do
+    button(makePage,example,function() idea.Text=example idea:CaptureFocus() end)
+end
+local buildAccess=text(makePage,"Checking whether game creation is ready…","small")
+local makeButton=button(makePage,"Make my game",function()
+    if not idea.Text:match("%S") then error("Describe the game you want to make first.",0) end
+    start("make_game",{idea=idea.Text})
+end,{primary=true,action=true,ai=true})
+text(makePage,"MuMake plans the game, writes its code, and checks the draft for code errors. Then you can add it to this Studio window.","muted")
+text(makePage,"Creating a game uses paid AI calls. The draft stays separate from your current game until you add it.","small")
 local checkPage=pages["Check game"]
 text(checkPage,"Will it work for your friends?","heading")
 text(checkPage,"Let MuMake try your game, then see what happened.","muted")
@@ -233,7 +248,7 @@ local history=section(results,"EarlierChecks")
 beginReport=function(job)
     clear(checkRows) clear(issueRows) clear(reportActions) clear(actionRows)
     correction.Visible=false technical.Visible=false
-    resultTitle.Text=job.operation=="playtest" and job.args.goal or "Your next check"
+    resultTitle.Text=job.operation=="playtest" and job.args.goal or (job.operation=="make_game" and "Making your game" or "Your next step")
     resultStatus.Text="Getting ready…" resultStatus.TextColor3=palette.blue
     resultDetail.Text="MuMake is finding your game. You can press Stop at any time."
 end
@@ -245,7 +260,7 @@ button(settingsPage,"Allow MuMake to connect in this local game",function()
     if game.PlaceId~=0 then error("Open Experience Settings to allow HTTP for a published game.",0) end
     Http.HttpEnabled=true connect()
 end)
-text(settingsPage,"AI play","heading")
+text(settingsPage,"AI connection","heading")
 local aiSetting=text(settingsPage,"Checking AI connection…","muted")
 text(settingsPage,"AI play uses paid calls. You can always use Quick check without an AI key.","small")
 local more=section(settingsPage,"MoreChecks")
@@ -307,6 +322,20 @@ displayReport=function(job)
     elseif job.state=="failed" then resultStatus.TextColor3=palette.amber else resultStatus.TextColor3=palette.secondary end
     clear(checkRows) clear(issueRows) clear(reportActions) clear(actionRows)
     correction.Visible=false technical.Visible=false
+    if job.operation=="make_game" and job.result then
+        if #(job.result.files or {})>0 then
+            text(checkRows,"What your draft aims to do","heading")
+            for _,item in job.result.acceptance or {} do text(checkRows,tostring(item)) end
+            text(checkRows,tostring(#job.result.files).." game scripts written. Not played yet.","small")
+        end
+        if job.state=="passed" and job.result.ready then
+            button(reportActions,"Add draft to Studio",function() start("load_game",{source_job=job.id}) end,{primary=true,action=true})
+            text(reportActions,"Adds the draft scripts to this local game with Undo. If a script would replace your own code, MuMake stops and asks you to use an empty game.","small")
+        end
+    end
+    if job.operation=="load_game" and job.state=="passed" then
+        button(reportActions,"Check my game",function() show("Check game") end)
+    end
     for _,check in view.checks do
         local prefix=check.optional and "Not checked: " or (check.ok and "Worked: " or "Did not pass: ")
         local row=text(checkRows,prefix..check.title)
@@ -351,8 +380,9 @@ render=function(data)
     control:SetAttribute("Busy",data.busy)
     control:SetAttribute("Connected",bound)
     local aiReady=bound and data.has_mubit_key
+    buildAccess.Text=aiReady and "Ready to make your first draft. This can take a few minutes." or "Game creation needs AI connected in Settings. Your idea can stay here while you set it up."
     aiAccess.Text=aiReady and "AI play is ready. This uses paid AI calls, with up to 8 moves and a review." or "AI play is not connected yet. Quick check is available; open Settings for AI setup."
-    aiSetting.Text=aiReady and "Connected. Goal play and feedback are available." or "Not connected yet. Add a Mubit key in Technical setup details to use AI play."
+    aiSetting.Text=aiReady and "Connected. Game creation, goal play and feedback are available." or "Not connected yet. Add a Mubit key in Technical setup details to create games or use AI play."
     local canGo=bound and ready and not data.busy and (mode=="quick" or aiReady)
     updateButton(go,canGo,true)
     if not bound then goReason.Text="Open Settings to connect MuMake."
@@ -378,7 +408,7 @@ render=function(data)
         elseif message:find("Starting a solo") then message="Joining your game…"
         elseif message:find("player%(s%) ready") then message="Your character is ready. Trying the check…"
         elseif message:find("act:") then message="Trying a move in your game…"
-        elseif message:find("Stopping") then message="Finishing up and stopping play…"
+        elseif message:find("Stopping") then message=active.operation=="make_game" and "Stopping the build. Your draft stays saved." or "Finishing up and stopping play…"
         elseif message:find("Mubit") or message:find("AI decisions") then message="AI is deciding what to try…"
         elseif message:find("Scenario finished") then message="Checking what happened…" end
         say(message)
@@ -422,7 +452,7 @@ render=function(data)
     end
 end
 modeButtons.quick.BackgroundColor3=palette.blue
-show("Check game")
+show("Make game")
 table.insert(connections,toggle.Click:Connect(function() widget.Enabled=not widget.Enabled end))
 table.insert(connections,widget:GetPropertyChangedSignal("Enabled"):Connect(function() toggle:SetActive(widget.Enabled) end))
 local function dispose()
@@ -441,7 +471,7 @@ command.OnInvoke=function(operation,args)
     args=args or {}
     if operation=="diagnostics" then
         return {title=widget.Title,status=status.Text,detail=connectionDetail.Text,bound=bound,enabled=widget.Enabled,
-            tab=tab,mode=mode,can_check=go.Active,result_title=resultTitle.Text,result_status=resultStatus.Text,
+            tab=tab,mode=mode,can_make=makeButton.Active,make_reason=buildAccess.Text,can_check=go.Active,result_title=resultTitle.Text,result_status=resultStatus.Text,
             result_summary=resultDetail.Text,feedback=say and feedback.Text,visible_checks=#checkRows:GetChildren()-1}
     end
     if operation=="show" then show(args.tab) return true end

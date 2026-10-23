@@ -203,3 +203,66 @@ async def test_ai_uses_existing_runner_and_requires_a_positive_verdict(service, 
     await service.task
     assert job['state'] == ('passed' if verdict else 'failed')
     assert FakeStudio.stopped == 1
+
+
+async def test_creation_requires_key_and_nonempty_idea(service):
+    with pytest.raises(ValueError, match='MUBIT_API_KEY'):
+        submit(service, 'make_game', idea='an obby')
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    with pytest.raises(ValueError, match='Describe your game'):
+        submit(service, 'make_game', idea='   ')
+
+
+async def test_create_draft_does_not_start_or_change_studio(service, monkeypatch):
+    from mubit_tester import studio_builder
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    async def build(settings, idea, emit):
+        assert idea == 'an obby'
+        emit('Writing your game code…')
+        return {'slug': 'obby', 'title': 'Obby', 'ready': True, 'errors': [], 'files': ['Game.server.luau']}
+    monkeypatch.setattr(studio_builder, 'build_draft', build)
+    job = submit(service, 'make_game', idea='an obby')
+    await service.task
+    assert job['state'] == 'passed'
+    assert job['result']['ready']
+    assert not FakeStudio.playing and FakeStudio.stopped == 0
+    view = service.snapshot('test-marker')['history'][0]['presentation']
+    assert view['status'] == 'Your first draft is ready'
+    assert 'not been played' in view['summary']
+
+
+async def test_incomplete_draft_is_not_ready_to_load(service, monkeypatch):
+    from mubit_tester import studio_builder
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    async def build(*args):
+        return {'slug': 'broken', 'ready': False, 'errors': ['Missing game script']}
+    monkeypatch.setattr(studio_builder, 'build_draft', build)
+    job = submit(service, 'make_game', idea='an obby')
+    await service.task
+    assert job['state'] == 'failed'
+    with pytest.raises(ValueError, match='finished game draft'):
+        submit(service, 'load_game', source_job=job['id'])
+
+
+async def test_loading_draft_rejects_another_window(service):
+    service.jobs['other'] = {'id': 'other', 'operation': 'make_game', 'state': 'passed',
+                              'studio_id': 'other-window', 'result': {'ready': True}}
+    with pytest.raises(ValueError, match='this Studio window'):
+        submit(service, 'load_game', source_job='other')
+
+
+async def test_loads_an_authorized_draft_without_starting_play(service, monkeypatch):
+    from forge import sync
+    from mubit_tester import studio_builder
+    service.jobs['draft'] = {'id': 'draft', 'operation': 'make_game', 'state': 'passed',
+        'studio_id': 'chosen', 'result': {'ready': True, 'slug': 'obby', 'title': 'Obby'}}
+    monkeypatch.setattr(sync, 'check', lambda root: [])
+    def code(settings, slug):
+        assert slug == 'obby'
+        return 'return "add draft"'
+    monkeypatch.setattr(studio_builder, 'draft_install_code', code)
+    job = submit(service, 'load_game', source_job='draft')
+    await service.task
+    assert job['state'] == 'passed'
+    assert job['result']['runtime_checked'] is False
+    assert not FakeStudio.playing and FakeStudio.stopped == 0

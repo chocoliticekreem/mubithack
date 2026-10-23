@@ -1,6 +1,6 @@
 # MuMake in Roblox Studio
 
-MuMake is a native Studio dock panel backed by the existing Python tester. Forge remains the separate game builder. The panel reuses the tester's scenarios, AI players, explorer, judge, corrections and fix suggestions. It does not introduce new AI prompts or bypass Mubit.
+MuMake is a native Studio dock panel backed by the existing Python game builder and tester. The panel reuses the builder's design and coding loop and the tester's scenarios, AI players, explorer, judge, corrections and fix suggestions. It does not introduce new AI prompts or bypass Mubit.
 
 ## Install into an open Studio window
 
@@ -18,7 +18,11 @@ Open the panel with **Plugins → MuMake**. Files installed while Studio is runn
 
 ## The creator's flow
 
-The panel is for a first-time creator, including a 13-year-old who has never written a test. It uses **Check game**, **Results** and **Settings**. There are no run IDs, step numbers, model names or JSON dumps in the main flow.
+The panel is for a first-time creator, including a 13-year-old who has never written a test. It opens on **Make game**, followed by **Check game**, **Results** and **Settings**. There are no run IDs, step numbers, model names or JSON dumps in the main flow.
+
+The default **Make game** screen asks “What do you want to make?”, offers example ideas, and calls the existing `forge.loop.new_game` builder through Mubit. It makes one design/code/review iteration into an isolated `runs/<slug>/game` draft, without choosing a different Studio or touching the place. Source files must exist and compile before it is marked ready. It has not been playtested yet.
+
+**Add draft to Studio** is a separate action on a finished draft. It only works in the same unpublished local Studio window. The installer preflights every destination before changing anything, refuses to overwrite different human-owned scripts, adds an undo recording, and does not delete unrelated content. It never opens another Studio instance. Use an empty local game if names conflict with existing scripts. Press Studio Play to try the draft, then use Check game to run checks.
 
 1. **Prepare this game** appears only if MuMake cannot see all four helper scripts. Setup adds them with an undo record. It never changes unrelated game scripts.
 2. **Quick check** shows its checklist before starting: join, walk, and read game errors. It uses the existing hand-written smoke scenario, with no AI calls.
@@ -37,7 +41,7 @@ Mubit receives model requests and responses, including an extra request when the
 
 The intended next stage is to derive visible checks from each requested feature, run them against the real game, save reproducible checks for verified bugs, propose changes, and rerun before claiming a fix. For example, a sword shop needs checks for enough coins, insufficient coins, one sword per purchase, and the correct deduction. None of that feature-specific generation or automatic repair is implemented by this UI change.
 
-AI actions require `MUBIT_API_KEY` in the checkout's `.env`. The companion reads it; the installed plugin only holds a random local pairing token. After changing `.env`, stop and restart the companion. Scripted scenarios need no AI key. This first version does not provide game generation, content changes, automatic patch application, scheduled improvement or multiplayer window creation. Game-specific scenarios use Flame and Blame's existing tags and service contracts; another game needs its own scenarios and instrumentation.
+AI actions require `MUBIT_API_KEY` in the checkout's `.env`. The companion reads it; the installed plugin only holds a random local pairing token. After changing `.env`, stop and restart the companion. Scripted scenarios need no AI key. This first version does not yet revise a generated game from follow-up instructions, apply fix suggestions automatically, schedule improvement or create multiplayer windows. Game-specific scenarios use Flame and Blame's existing tags and service contracts; another game needs its own scenarios and instrumentation.
 
 ## Ownership and stopping
 
@@ -58,7 +62,7 @@ Re-run the installer to start it again. It runs for the current login session, w
 ## Verification
 
 ```bash
-.venv/bin/python -m pytest -q mubit-tester/tests/test_studio_service.py mubit-tester/tests/test_studio_presenter.py
+.venv/bin/python -m pytest -q mubit-tester/tests/test_studio_service.py mubit-tester/tests/test_studio_presenter.py mubit-tester/tests/test_studio_builder.py
 luau-compile studio-plugin/MuMake.plugin.luau > /dev/null
 ```
 
