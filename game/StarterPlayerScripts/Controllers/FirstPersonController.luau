@@ -1,26 +1,594 @@
 --!strict
--- FirstPersonController [owner: G1]. STUB from K0 (v1.5): does nothing until G1 replaces this file.
--- Will render: first-person camera lock (LocalPlayer.CameraMode = LockFirstPerson when
--- PhysicsConfig.FirstPerson), FOV, viewmodel gloves/sleeves parented to the camera, head bob scaled by
--- walk speed, and camera shake for hazards. Unlocks while the local character is Ragdolled.
--- (SquadService may also set CameraMode server-side as a fallback; both are idempotent.)
--- Public API for other controllers:
+-- FirstPersonController [owner: G1]. The trailer's camera (docs/game/02-art-feel-ui.md §7):
+--   * LockFirstPerson while the player is in a mission (Player attr InstanceId ~= "", or the v1
+--     single round is Alarm/Active); free third person in the lobby (InstanceId == ""). Unlocked
+--     while the character is Ragdolled or Downed, or when SetEnabled(false). PhysicsConfig.FirstPerson
+--     = false turns the lock off everywhere.
+--   * Client-only Viewmodel (ClientLib/Viewmodel): giant gloves + turnout sleeves with reflective
+--     bands; poses empty / hose / axe / carry / item from the equipped Tool and the Carrying attr;
+--     axe swing on Tool.Activated, hose jitter while Spraying, soot after time near fire.
+--   * Head bob, tool sway (camera-rotation spring), landing dip, sprint FOV.
+--   * Screen: smoke-darkened edge vignette near Burning parts, heat tint at Heat >= 60 with heavy
+--     breathing, sweat drops at >= 85, pulse near 100 (Player attr Heat, written by HeatService).
+--   * Trauma camera shake for hazards/explosions (Shake).
+-- Pure client visuals: reads replicated attributes/tags, sends nothing to the server.
+-- Public API for other controllers (03 §10 "v1.5 additions"):
 --   FirstPersonController:SetEnabled(on: boolean)             -- e.g. ResultsController unlocks the mouse
 --   FirstPersonController:Shake(magnitude: number, seconds: number)
 --   FirstPersonController:GetViewmodel(): Model?
+local CollectionService = game:GetService("CollectionService")
+local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Names = require(Shared:WaitForChild("Names") :: ModuleScript) :: any
+local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
+local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
+local HeatConfig = require(ConfigFolder:WaitForChild("HeatConfig") :: ModuleScript) :: any
+local PhysicsConfig = require(ConfigFolder:WaitForChild("PhysicsConfig") :: ModuleScript) :: any
+local Viewmodel = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Viewmodel") :: ModuleScript)
+
 local FirstPersonController = {}
 FirstPersonController.Priority = 50
 
+-- Camera feel numbers not in PhysicsConfig (02 §7, research §2). FOV and head bob amplitude/rate
+-- come from PhysicsConfig (FieldOfView, HeadBobAmplitude, HeadBobHz) at use time.
+local CAM = {
+	SprintFovAdd = 8,
+	SprintSpeed = 18, -- horizontal studs/s above which the sprint FOV kicks in
+	FovLerp = 8,
+	WalkSpeedRef = 16,
+	ViewmodelBobScale = 1.4,
+	ShakePitch = math.rad(3),
+	ShakeYaw = math.rad(3),
+	ShakeRoll = math.rad(2),
+	SwayPerRad = 0.9, -- viewmodel lag per radian of camera turn
+	SwayMax = math.rad(6),
+	SwaySpring = 12,
+	DipStuds = 0.25,
+	DipDown = 0.08,
+	DipUp = 0.2,
+	LobbyZoom = 14,
+	SmokeRange = 26, -- studs: Burning parts closer than this darken the screen edges
+	SootAfter = 10, -- seconds near fire until gloves are fully sooty
+}
+
+local ATTR_HEAT = Names.Attr.Heat
+local ATTR_INSTANCE = Names.Attr.InstanceId
+
+local player = Players.LocalPlayer
+
+local function attr(name: string): any
+	return player:GetAttribute(name)
+end
+
+local function inMission(): boolean
+	local id = attr(ATTR_INSTANCE)
+	if type(id) == "string" and id ~= "" then
+		return true
+	end
+	-- v1 single auto-round (no lobby instance): everyone is in it while it runs
+	local round = workspace:GetAttribute(Names.Attr.RoundState)
+	return round == "Alarm" or round == "Active"
+end
+
+local function poseFor(char: Model?): (string, Tool?)
+	local carrying = attr(Names.Attr.Carrying)
+	if type(carrying) == "string" and carrying ~= "" then
+		return "carry", nil
+	end
+	local tool = char and char:FindFirstChildOfClass("Tool")
+	if not tool then
+		return "empty", nil
+	end
+	local n = string.lower(tool.Name)
+	if string.find(n, "hose") or string.find(n, "nozzle") then
+		return "hose", tool
+	elseif string.find(n, "axe") then
+		return "axe", tool
+	end
+	return "item", tool
+end
+
+-- Screen overlay: four edge frames with UIGradient ramps (02 §9 hazard vignettes), a full-screen
+-- warm wash, and a few sweat drops.
+type Overlay = {
+	gui: ScreenGui,
+	edges: { Frame },
+	wash: Frame,
+	drops: { { frame: Frame, x: number, y: number, speed: number } },
+}
+
+local function buildOverlay(): Overlay
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "FirstPersonFx"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = -5 -- under the HUD
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	local wash = Instance.new("Frame")
+	wash.Name = "Wash"
+	wash.Size = UDim2.fromScale(1, 1)
+	wash.BorderSizePixel = 0
+	wash.BackgroundColor3 = Palette.FireEdge
+	wash.BackgroundTransparency = 1
+	wash.Parent = gui
+
+	local edges: { Frame } = {}
+	-- {anchor, position, size, gradient rotation}: gradient goes opaque at the screen edge.
+	local specs = {
+		{ Vector2.new(0, 0), UDim2.fromScale(0, 0), UDim2.fromScale(1, 0.32), 90 }, -- top
+		{ Vector2.new(0, 1), UDim2.fromScale(0, 1), UDim2.fromScale(1, 0.32), -90 }, -- bottom
+		{ Vector2.new(0, 0), UDim2.fromScale(0, 0), UDim2.fromScale(0.26, 1), 0 }, -- left
+		{ Vector2.new(1, 0), UDim2.fromScale(1, 0), UDim2.fromScale(0.26, 1), 180 }, -- right
+	}
+	for i, s in specs do
+		local f = Instance.new("Frame")
+		f.Name = "Edge" .. i
+		f.AnchorPoint = s[1] :: Vector2
+		f.Position = s[2] :: UDim2
+		f.Size = s[3] :: UDim2
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = Palette.SmokeBlack
+		f.BackgroundTransparency = 1
+		local g = Instance.new("UIGradient")
+		g.Rotation = s[4] :: number
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.55, 0.65),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		g.Parent = f
+		f.Parent = gui
+		table.insert(edges, f)
+	end
+
+	local drops = {}
+	for i = 1, 7 do
+		local d = Instance.new("Frame")
+		d.Name = "Sweat" .. i
+		d.AnchorPoint = Vector2.new(0.5, 0.5)
+		d.Size = UDim2.fromOffset(16 + (i % 3) * 6, 26 + (i % 3) * 8)
+		d.BackgroundColor3 = Palette.WaterSpray
+		d.BackgroundTransparency = 1
+		d.BorderSizePixel = 0
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.5, 0)
+		corner.Parent = d
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.new(1, 1, 1)
+		stroke.Thickness = 2
+		stroke.Transparency = 1
+		stroke.Parent = d
+		d.Parent = gui
+		table.insert(drops, { frame = d, x = math.random(), y = math.random() * 0.3, speed = 0.08 + math.random() * 0.12 })
+	end
+
+	gui.Parent = player:WaitForChild("PlayerGui")
+	return { gui = gui, edges = edges, wash = wash, drops = drops }
+end
+
+local vm: Viewmodel.Viewmodel? = nil
+local overlay: Overlay? = nil
+local cc: ColorCorrectionEffect? = nil
+local breath: Sound? = nil
+
+local state = {
+	t = 0,
+	fov = 80,
+	enabled = true,
+	locked = nil :: boolean?,
+	trauma = 0,
+	traumaDecay = 1.6,
+	sway = Vector2.zero,
+	lastLook = nil :: Vector3?,
+	dipT = -1,
+	dipScale = 1,
+	fallSpeed = 0,
+	fireProx = 0, -- 0..1, nearest Burning part
+	nearFireSeconds = 0,
+	scanAt = 0,
+	mission = false,
+	hiddenTool = nil :: Tool?,
+	toolConn = nil :: RBXScriptConnection?,
+	toolFor = nil :: Tool?,
+	heatShown = 0,
+	bobPhase = 0,
+	lastShake = CFrame.identity,
+}
+
+local function wantLock(char: Model?): boolean
+	if not state.enabled or PhysicsConfig.FirstPerson == false or not inMission() then
+		return false
+	end
+	if attr(Names.Attr.Downed) == true then
+		return false
+	end
+	return not (char and char:GetAttribute(Names.Attr.Ragdolled) == true)
+end
+
+-- Only touches the camera properties when the wanted mode changes, so other scripts (cinematics)
+-- can still take over between transitions.
+local function applyCameraMode(lock: boolean)
+	if state.locked == lock then
+		return
+	end
+	state.locked = lock
+	if lock then
+		player.CameraMode = Enum.CameraMode.LockFirstPerson
+		player.CameraMinZoomDistance = 0.5
+	else
+		player.CameraMode = Enum.CameraMode.Classic
+		player.CameraMinZoomDistance = 0.5
+		player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, CAM.LobbyZoom)
+		-- step out of the head so the lobby starts in third person
+		local cam = workspace.CurrentCamera
+		local char = player.Character
+		local head = char and char:FindFirstChild("Head") :: BasePart?
+		if cam and head and (cam.CFrame.Position - head.Position).Magnitude < 2 then
+			player.CameraMinZoomDistance = 10
+			task.delay(0.1, function()
+				player.CameraMinZoomDistance = 0.5
+			end)
+		end
+	end
+end
+
+local function isFirstPerson(cam: Camera, char: Model?): boolean
+	local head = char and char:FindFirstChild("Head") :: BasePart?
+	if not head then
+		return false
+	end
+	return (cam.CFrame.Position - head.Position).Magnitude < 1.6
+end
+
+local function scanFire(root: BasePart?)
+	if not root then
+		state.fireProx = 0
+		return
+	end
+	local best = math.huge
+	local pos = root.Position
+	for _, p in CollectionService:GetTagged(Names.Tag.Burning) do
+		if p:IsA("BasePart") then
+			local d = (p.Position - pos).Magnitude
+			if d < best then
+				best = d
+			end
+		end
+	end
+	state.fireProx = if best == math.huge then 0 else math.clamp(1 - best / CAM.SmokeRange, 0, 1)
+end
+
+local function hideToolLocally(tool: Tool?)
+	if state.hiddenTool and state.hiddenTool ~= tool then
+		for _, d in state.hiddenTool:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+		state.hiddenTool = nil
+	end
+	if tool then
+		for _, d in tool:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 1
+			end
+		end
+		state.hiddenTool = tool
+	end
+end
+
+local function bindSwing(tool: Tool?, pose: string)
+	if state.toolFor == tool then
+		return
+	end
+	if state.toolConn then
+		state.toolConn:Disconnect()
+		state.toolConn = nil
+	end
+	state.toolFor = tool
+	if tool and pose == "axe" then
+		state.toolConn = tool.Activated:Connect(function()
+			if vm then
+				vm:Swing()
+			end
+		end)
+	end
+end
+
+local function updateScreen(dt: number)
+	local o = overlay
+	if not o then
+		return
+	end
+	local heat = tonumber(attr(ATTR_HEAT)) or 0
+	state.heatShown += (heat - state.heatShown) * math.min(1, dt * 6)
+	local h = state.heatShown
+	local warmAt = HeatConfig.WarmAt or 60
+	local sweatyAt = HeatConfig.SweatyAt or 85
+	local maxHeat = HeatConfig.Max or 100
+
+	-- smoke darkens the edges near fire; heat pushes them orange and pulses near the top
+	local heatRatio = math.clamp(h / maxHeat, 0, 1)
+	local pulse = if h >= 70 then 0.5 + 0.5 * math.sin(state.t * math.pi * 2 * (1 + (h - 70) / 30)) else 0
+	local smoke = state.fireProx * 0.75
+	local strength = math.clamp(math.max(smoke, heatRatio * 0.85) + pulse * 0.15, 0, 0.95)
+	local color = Palette.SmokeBlack:Lerp(Palette.FireEdge, math.clamp((h - 30) / 60, 0, 1))
+	for _, e in o.edges do
+		e.BackgroundColor3 = color
+		e.BackgroundTransparency = 1 - strength
+	end
+
+	local warm = math.clamp((h - warmAt) / (maxHeat - warmAt), 0, 1)
+	o.wash.BackgroundTransparency = 1 - (warm * 0.14 + pulse * warm * 0.06)
+	if cc then
+		cc.TintColor = Color3.new(1, 1, 1):Lerp(Color3.fromHex("#FFC79A"), warm)
+		cc.Saturation = -0.15 * state.fireProx + 0.1 * warm
+		cc.Brightness = -0.06 * state.fireProx
+	end
+
+	if breath then
+		local want = if h >= warmAt then 0.25 + 0.5 * warm else 0
+		breath.Volume += (want - breath.Volume) * math.min(1, dt * 3)
+		breath.PlaybackSpeed = 1 + 0.35 * warm
+		if want > 0 and not breath.IsPlaying and breath.SoundId ~= "" then
+			breath:Play()
+		elseif want == 0 and breath.IsPlaying and breath.Volume < 0.02 then
+			breath:Stop()
+		end
+	end
+
+	local sweaty = h >= sweatyAt
+	for _, d in o.drops do
+		if sweaty then
+			d.y += d.speed * dt
+			if d.y > 1.1 then
+				d.y = -0.05
+				d.x = math.random()
+				d.speed = 0.08 + math.random() * 0.14
+			end
+			-- stay near the edges so the crosshair is clear
+			local x = if d.x < 0.5 then d.x * 0.3 else 0.7 + (d.x - 0.5) * 0.6
+			d.frame.Position = UDim2.fromScale(x, d.y)
+			d.frame.BackgroundTransparency = 0.35
+			local s = d.frame:FindFirstChildOfClass("UIStroke")
+			if s then
+				s.Transparency = 0.5
+			end
+		elseif d.frame.BackgroundTransparency < 1 then
+			d.frame.BackgroundTransparency = math.min(1, d.frame.BackgroundTransparency + dt * 2)
+			local s = d.frame:FindFirstChildOfClass("UIStroke")
+			if s then
+				s.Transparency = math.min(1, s.Transparency + dt * 2)
+			end
+		end
+	end
+end
+
+local function step(dt: number)
+	state.t += dt
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+
+	if state.t >= state.scanAt then
+		state.scanAt = state.t + 0.2
+		scanFire(root)
+	end
+	if state.fireProx > 0.35 then
+		state.nearFireSeconds = math.min(CAM.SootAfter, state.nearFireSeconds + dt)
+	end
+
+	local vel = if root then root.AssemblyLinearVelocity else Vector3.zero
+	local speed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+	if vel.Y < -1 then
+		state.fallSpeed = math.max(state.fallSpeed, -vel.Y)
+	end
+
+	-- per-frame mode check (cheap; only writes on change)
+	local mission = inMission()
+	if mission ~= state.mission then
+		state.mission = mission
+		if not mission then
+			state.nearFireSeconds = 0 -- soot washes off back at the station
+		end
+	end
+	applyCameraMode(wantLock(char))
+	local scripted = cam.CameraType == Enum.CameraType.Scriptable
+
+	-- sprint FOV
+	local baseFov = tonumber(PhysicsConfig.FieldOfView) or 80
+	local wantFov = if speed > CAM.SprintSpeed then baseFov + CAM.SprintFovAdd else baseFov
+	state.fov += (wantFov - state.fov) * math.min(1, dt * CAM.FovLerp)
+	if not scripted then
+		cam.FieldOfView = state.fov
+	end
+
+	local fp = state.enabled and not scripted and isFirstPerson(cam, char) and hum ~= nil and hum.Health > 0
+	local downed = attr(Names.Attr.Downed) == true
+
+	-- head bob and landing dip (camera)
+	local amp = tonumber(PhysicsConfig.HeadBobAmplitude) or 0.12
+	local hz = tonumber(PhysicsConfig.HeadBobHz) or 1.8
+	local moving = if hum and hum.FloorMaterial ~= Enum.Material.Air
+		then math.clamp(speed / CAM.WalkSpeedRef, 0, 1.3)
+		else 0
+	state.bobPhase += dt * hz * math.pi * 2 * math.max(moving, 0.0001)
+	local bobY = -math.abs(math.sin(state.bobPhase)) * amp * moving
+	local bobX = math.cos(state.bobPhase) * amp * 0.6 * moving
+	local dip = 0
+	if state.dipT >= 0 then
+		state.dipT += dt
+		local d = state.dipT
+		if d < CAM.DipDown then
+			dip = -CAM.DipStuds * state.dipScale * (d / CAM.DipDown)
+		elseif d < CAM.DipDown + CAM.DipUp then
+			dip = -CAM.DipStuds * state.dipScale * (1 - (d - CAM.DipDown) / CAM.DipUp)
+		else
+			state.dipT = -1
+		end
+	end
+
+	-- trauma shake (02 §8): angles = max * trauma^2 * noise
+	local shake = CFrame.identity
+	if state.trauma > 0 then
+		local k = state.trauma * state.trauma
+		local n = state.t * 25
+		shake = CFrame.Angles(
+			CAM.ShakePitch * k * math.noise(n, 0.5),
+			CAM.ShakeYaw * k * math.noise(n, 10.5),
+			CAM.ShakeRoll * k * math.noise(n, 20.5)
+		)
+		state.trauma = math.max(0, state.trauma - state.traumaDecay * dt)
+	end
+	if not scripted then
+		if fp then
+			cam.CFrame = cam.CFrame * CFrame.new(bobX, bobY + dip, 0) * shake
+		else
+			cam.CFrame = cam.CFrame * shake
+		end
+		state.lastShake = shake
+	end
+
+	-- sway: viewmodel lags behind camera turns
+	local look = cam.CFrame.LookVector
+	local target = Vector2.zero
+	if state.lastLook and dt > 0 then
+		local last = state.lastLook :: Vector3
+		local yaw = math.atan2(-look.X, -look.Z) - math.atan2(-last.X, -last.Z)
+		if yaw > math.pi then
+			yaw -= 2 * math.pi
+		elseif yaw < -math.pi then
+			yaw += 2 * math.pi
+		end
+		local pitch = math.asin(math.clamp(look.Y, -1, 1)) - math.asin(math.clamp(last.Y, -1, 1))
+		target = Vector2.new(
+			math.clamp(-pitch * CAM.SwayPerRad * 8, -CAM.SwayMax, CAM.SwayMax),
+			math.clamp(-yaw * CAM.SwayPerRad * 8, -CAM.SwayMax, CAM.SwayMax)
+		)
+	end
+	state.lastLook = look
+	state.sway += (target - state.sway) * math.min(1, dt * CAM.SwaySpring)
+
+	local v = vm
+	if v then
+		local pose, tool = poseFor(char)
+		bindSwing(tool, pose)
+		local show = fp and not downed
+		v:SetVisible(show)
+		if show then
+			hideToolLocally(tool)
+			v:SetSoot(state.nearFireSeconds / CAM.SootAfter)
+			v:Update(dt, cam.CFrame, {
+				pose = pose :: any,
+				bob = Vector2.new(bobX, bobY) * CAM.ViewmodelBobScale,
+				sway = state.sway,
+				spraying = attr(Names.Attr.Spraying) == true,
+				dip = dip * 0.5,
+			})
+		else
+			hideToolLocally(nil)
+		end
+	end
+
+	updateScreen(dt)
+end
+
+local function watchCharacter(char: Model)
+	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
+	if not hum then
+		return
+	end
+	state.fallSpeed = 0
+	hum.StateChanged:Connect(function(_old, new)
+		if new == Enum.HumanoidStateType.Landed then
+			state.dipScale = math.clamp(state.fallSpeed / 40, 0.4, 1.6)
+			state.dipT = 0
+			state.fallSpeed = 0
+		end
+	end)
+end
+
 function FirstPersonController:Init(_controllers: { [string]: any }) end
 
-function FirstPersonController:Start() end
+function FirstPersonController:Start()
+	vm = Viewmodel.new()
+	local function parentVm()
+		if vm then
+			vm:SetParent(workspace.CurrentCamera)
+		end
+	end
+	parentVm()
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(parentVm)
 
-function FirstPersonController:SetEnabled(_on: boolean) end
+	overlay = buildOverlay()
 
-function FirstPersonController:Shake(_magnitude: number, _seconds: number) end
+	local effect = Instance.new("ColorCorrectionEffect")
+	effect.Name = "FirstPersonHeatCC"
+	effect.Parent = Lighting
+	cc = effect
+
+	local s = Instance.new("Sound")
+	s.Name = "FirstPersonBreathing"
+	s.Looped = true
+	s.Volume = 0
+	s.SoundId = HeatConfig.BreathingSoundId or ""
+	s.Parent = SoundService
+	breath = s
+
+	state.fov = tonumber(PhysicsConfig.FieldOfView) or 80
+	state.mission = inMission()
+	applyCameraMode(wantLock(player.Character))
+	player.CharacterAdded:Connect(function(char)
+		state.locked = nil -- re-apply the mode for the new character
+		watchCharacter(char)
+	end)
+	if player.Character then
+		task.spawn(watchCharacter, player.Character)
+	end
+
+	-- The default camera derives next frame's look from Camera.CFrame, so take last frame's shake
+	-- rotation back out before it runs (otherwise noise accumulates into drift).
+	RunService:BindToRenderStep("FFCamUnshake", Enum.RenderPriority.Camera.Value - 1, function()
+		local cam = workspace.CurrentCamera
+		if cam and state.lastShake ~= CFrame.identity then
+			if cam.CameraType ~= Enum.CameraType.Scriptable then
+				cam.CFrame = cam.CFrame * state.lastShake:Inverse()
+			end
+			state.lastShake = CFrame.identity
+		end
+	end)
+	RunService:BindToRenderStep("FFCam", Enum.RenderPriority.Camera.Value + 1, step)
+end
+
+function FirstPersonController:SetEnabled(on: boolean)
+	state.enabled = on == true
+	if vm and not state.enabled then
+		vm:SetVisible(false)
+		hideToolLocally(nil)
+	end
+end
+
+function FirstPersonController:Shake(magnitude: number, seconds: number)
+	local m = math.clamp(tonumber(magnitude) or 0, 0, 1)
+	if m <= 0 then
+		return
+	end
+	state.trauma = math.min(1, state.trauma + m)
+	state.traumaDecay = math.clamp(state.trauma / math.max(tonumber(seconds) or 0.5, 0.05), 0.3, 10)
+end
 
 function FirstPersonController:GetViewmodel(): Model?
-	return nil
+	return if vm then vm.model else nil
 end
 
 return FirstPersonController
