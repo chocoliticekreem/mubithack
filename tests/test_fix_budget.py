@@ -33,16 +33,19 @@ async def _cycle(settings, llm, playtest=None):
 
 
 def test_unproven_markers():
-    assert imp.unproven({"root_cause": "Not conclusively proven. The prompts are fine"})
-    assert imp.unproven({"root_cause": "Most likely a testing artefact, not a game bug"})
-    assert imp.unproven({})
-    assert not imp.unproven({"root_cause": "HudController reads FireCount before MissionService sets it"})
+    f = "ReplicatedStorage/Config/FireConfig.luau"
+    assert imp.unproven({"root_cause": "Most likely a testing artefact, not a game bug", "file": f})
+    assert imp.unproven({}) and imp.unproven({"root_cause": "x", "file": None})
+    assert not imp.unproven({"root_cause": "HudController reads FireCount before MissionService sets it", "file": f})
+    # plausible but unproven causes get one attempt (run 8 skipped all four of these)
+    assert not imp.unproven({"root_cause": "Probably a balance problem in the fire numbers, though I could "
+                                           "not fully prove it", "file": f})
 
 
 async def test_unproven_anomaly_is_skipped_and_the_next_one_is_fixed(settings):
     _seeded_game(settings)
     llm = FakeLLM({"auditor": [audit_reply([HOSE, OTHER])],
-                   "investigator": [_concl("Not conclusively proven: prompts look fine"),
+                   "investigator": [_concl("Most likely a testing artefact: prompts look fine"),
                                     _concl("HUD reads the counter before it is set")],
                    "fixer": ["```luau\nreturn {hose = 2}\n```"],
                    "verifier": [json.dumps({"verdict": "fixed", "evidence": "e"})]})
@@ -56,7 +59,7 @@ async def test_previously_unproven_anomalies_go_last(settings):
     _seeded_game(settings)
     ImproveStore(settings, "fab").mark_unproven(HOSE)
     llm = FakeLLM({"auditor": [audit_reply([HOSE, OTHER])],
-                   "investigator": [_concl("HUD reads the counter before it is set"), _concl("unproven")],
+                   "investigator": [_concl("HUD reads the counter before it is set"), _concl("a testing artefact")],
                    "fixer": ["```luau\nreturn {hose = 2}\n```"],
                    "verifier": [json.dumps({"verdict": "fixed", "evidence": "e"})]})
     cycle = await _cycle(settings, llm)
