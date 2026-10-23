@@ -204,12 +204,24 @@ def _load_check_fn(settings: Settings) -> Callable[[Path], list]:
     return mod.check
 
 
+# The Forge runtime every generated game gets. Everything else in game/ is the human-built
+# Flame and Blame tree, which only `forge seed` copies (forge/seed.py).
+RUNTIME_FILES = ("ServerScriptService/ForgeProbe.server.luau", "ReplicatedStorage/ForgeTelemetry.luau")
+RUNTIME_DIRS = ("tools",)
+_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "manifest.json", ".DS_Store")
+
+
 def copy_base_game(settings: Settings, dest: Path) -> None:
-    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "manifest.json", ".DS_Store")
-    if dest.exists():
-        shutil.copytree(settings.base_game_dir, dest, dirs_exist_ok=True, ignore=ignore)
-    else:
-        shutil.copytree(settings.base_game_dir, dest, ignore=ignore)
+    """Copy the Forge runtime (ForgeProbe, ForgeTelemetry, tools/) from game/ into a generated game."""
+    base = settings.base_game_dir
+    for rel in RUNTIME_FILES:
+        src = base / rel
+        if src.exists():
+            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest / rel)
+    for d in RUNTIME_DIRS:
+        if (base / d).is_dir():
+            shutil.copytree(base / d, dest / d, dirs_exist_ok=True, ignore=_IGNORE)
     for root in ("ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts"):
         (dest / root).mkdir(parents=True, exist_ok=True)
 
@@ -229,7 +241,6 @@ class Run:
         self.spec: dict = {}
         self.calls: list[dict] = []          # calls of the current phase (iteration / correction)
         self._check_fn: Callable | None = None
-        self.base_files = self._base_files()
 
     @property
     def slug(self) -> str:
@@ -239,11 +250,12 @@ class Run:
     def game_dir(self) -> Path:
         return self.store.game_dir
 
-    def _base_files(self) -> set[str]:
-        base = self.settings.base_game_dir
-        if not base.exists():
-            return set()
-        return {_rel(p, base) for p in base.rglob(f"*{LUAU_SUFFIX}")}
+    @property
+    def base_files(self) -> set[str]:
+        """Files Forge's fixer must not touch: the runtime, plus every human file of a seeded game
+        (spec["base_files"], written by `forge seed`)."""
+        seeded = {p for p in (self.spec.get("base_files") or []) if isinstance(p, str)}
+        return set(RUNTIME_FILES) | seeded
 
     # ---------------------------------------------------------- LLM calls
     async def call(self, role: str, label: str, fn: Callable, *args, **kwargs) -> Any:
@@ -637,7 +649,7 @@ class Run:
         try:
             from forge.studio import Studio
             studio = await stack.enter_async_context(Studio(self.settings))
-            sid = await studio.select()
+            sid = await studio.select(os.environ.get("FORGE_STUDIO") or None)
             self.ui.line("studio", "connected", True, self.ui.dim(str(sid)))
             return studio
         except Exception as e:

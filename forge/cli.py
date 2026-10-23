@@ -297,6 +297,28 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- seed / promote
+
+def cmd_seed(args) -> int:
+    from forge.seed import seed
+    s = load_settings()
+    store = seed(s, args.slug, Path(args.spec) if args.spec else None)
+    spec = store.load_spec()
+    mods = ", ".join(m["path"] for m in spec.get("modules", [])) or "(none)"
+    print(f"seeded {store.game_dir} from {s.base_game_dir} ({len(spec['base_files'])} human files, fixer-protected)")
+    print(f"Forge modules: {mods}")
+    print(f"next: FORGE_STUDIO=<your Forge-ai place> forge run {args.slug} -n 1")
+    return 0
+
+
+def cmd_promote(args) -> int:
+    from forge.seed import promote
+    dest = promote(load_settings(), args.slug, args.path)
+    print(f"promoted -> {dest}")
+    print("next: git switch -c gf/<topic> && git add " + str(dest) + " && gh pr create --fill")
+    return 0
+
+
 # ---------------------------------------------------------------- main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -354,6 +376,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("play-list", help="list past playtest runs")
     _add_test_parsers(sub)
     sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
+
+    se = sub.add_parser("seed", help="copy game/ into runs/<slug>/game + spec from forge/seeds/<slug>.json")
+    se.add_argument("slug")
+    se.add_argument("--spec", help="spec JSON (default forge/seeds/<slug>.json)")
+
+    pr = sub.add_parser("promote", help="copy a Forge-made file from runs/<slug>/game back into game/")
+    pr.add_argument("slug")
+    pr.add_argument("path", help="e.g. ServerScriptService/Services/FlareUpService.luau")
     return p
 
 
@@ -361,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
-               "place": cmd_place, "play": cmd_play, "play-correct": cmd_play_correct,
+               "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0

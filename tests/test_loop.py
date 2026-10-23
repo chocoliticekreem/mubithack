@@ -11,7 +11,7 @@ import pytest
 
 from forge.config import load_settings
 from forge.llm import FakeLLM
-from forge.loop import UI, correct, new_game
+from forge.loop import RUNTIME_FILES, UI, correct, new_game
 from forge.memory import RunStore, read_lessons, slugify
 
 pytestmark = pytest.mark.skipif(shutil.which("luau-compile") is None, reason="luau-compile not on PATH")
@@ -110,9 +110,11 @@ async def test_new_game_no_studio(settings):
     assert (game / "ReplicatedStorage/Config.luau").read_text().strip() == CONFIG_SRC.strip()
     assert (game / "ServerScriptService/Game.server.luau").read_text().strip() == GAME_CRITIC_FIXED.strip()
 
-    # base runtime copied in
-    for p in settings.base_game_dir.rglob("*.luau"):
-        assert (game / p.relative_to(settings.base_game_dir)).exists(), p
+    # only the Forge runtime is copied in, never the human Flame and Blame tree
+    for rel in RUNTIME_FILES:
+        assert (game / rel).exists(), rel
+    assert not (game / "ServerScriptService/Main.server.luau").exists()
+    assert not (game / "ReplicatedStorage/Shared").exists()
 
     spec = store.load_spec()
     assert [m["path"] for m in spec["modules"]] == [m["path"] for m in SPEC["modules"]]
