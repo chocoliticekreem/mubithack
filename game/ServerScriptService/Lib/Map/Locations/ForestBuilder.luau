@@ -679,7 +679,7 @@ local function cabin(model: Model, o: CFrame)
 		gableTri(m, "Gable", rcf, 0, -9, top, top + 6, z, 1.6, C.Log, { flammable = true, fuel = 30, material = PLANKS })
 		gableTri(m, "Gable", rcf, 0, 9, top, top + 6, z, 1.6, C.Log, { flammable = true, fuel = 30, material = PLANKS })
 	end
-	local RF = { flammable = true, fuel = 35, material = Enum.Material.CorrugatedPlate }
+	local RF = { flammable = true, fuel = 35, material = Enum.Material.DiamondPlate }
 	slopePanel(m, "Roof", rcf, -9, top, 0, top + 6, -14, 14, 2.4, 0.4, 0.8, C.RoofGreen, RF)
 	slopePanel(m, "Roof", rcf, 0, top + 6, 9, top, -14, 14, 0.4, 2.4, 0.8, C.RoofGreen, RF)
 	part(m, "Ridge", rcf * CFrame.new(0, top + 6.7, 0), v(1.8, 0.7, 28.4), C.RoofGreen:Lerp(C.Black, 0.35))
