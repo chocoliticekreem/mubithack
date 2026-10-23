@@ -427,8 +427,9 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		end
 	end
 	downs = math.max(downs, blameDowns)
-	if Blame and type(Blame.BuildAwards) == "function" then
-		local ok, list = pcall(Blame.BuildAwards, Blame, run.players)
+	local buildFor = Blame and (Blame.BuildAwardsFor or Blame.BuildAwards)
+	if type(buildFor) == "function" then
+		local ok, list = pcall(buildFor, Blame, run.players)
 		if ok and type(list) == "table" then
 			for _, a in list do
 				if inSquad[a.userId] then
