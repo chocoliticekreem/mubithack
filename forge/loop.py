@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from forge.config import Settings, load_settings
+from forge.patch import PATCH_ABOVE_LINES
 from forge.versions import GameVersions
 from forge.memory import (
     RunStore,
@@ -766,7 +767,10 @@ async def correct(slug: str, path: str, note: str, use_studio: bool = True, *,
         context += f"\nLast playtest probe (iteration {last}):\n" + json.dumps(report)[:3000]
     before = run.read(rel)
     problem = f"Human playtester correction:\n{note}"
-    fixed = await run.call("fixer", f"{rel} (human)", roles.fix_file, rel, before, problem, context,
+    # big files get exact edits (patcher) so a correction never shortens the file; small ones a rewrite
+    big = len(before.splitlines()) > PATCH_ABOVE_LINES
+    role, rewrite = ("patcher", roles.patch_file) if big else ("fixer", roles.fix_file)
+    fixed = await run.call(role, f"{rel} (human)", rewrite, rel, before, problem, context,
                            read_lessons(settings), session_id=slug)
     run.write(rel, fixed)
     request_id = run.last_request_id
