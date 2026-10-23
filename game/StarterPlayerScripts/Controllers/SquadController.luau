@@ -399,6 +399,7 @@ local function stepUi()
 	end
 	if hintLabel then
 		hintLabel.Visible = inLobby() and LocalPlayer:GetAttribute(Names.Attr.Downed) ~= true
+			and LocalPlayer:GetAttribute("HelpOpen") ~= false -- OnboardingController: emotes live in Help (H)
 	end
 end
 

@@ -153,7 +153,8 @@ local function buildUi()
 	scale.Parent = big
 	ui.big, ui.bigScale = big, scale
 
-	local banner = label(gui, "Banner", UDim2.new(0.25, 0, 0, 70), UDim2.new(0.5, 0, 0, 44), "", C.Yellow, Enum.Font.LuckiestGuy, 3)
+	-- under the OnboardingController objective card (top centre), not on top of it
+	local banner = label(gui, "Banner", UDim2.new(0.25, 0, 0, 170), UDim2.new(0.5, 0, 0, 40), "", C.Yellow, Enum.Font.LuckiestGuy, 3)
 	banner.Visible = false
 	ui.banner = banner
 
@@ -166,7 +167,7 @@ local function buildUi()
 	local strip = Instance.new("Frame")
 	strip.Name = "Squad"
 	strip.AnchorPoint = Vector2.new(0.5, 1)
-	strip.Position = UDim2.new(0.5, 0, 1, -24)
+	strip.Position = UDim2.new(0.5, 0, 1, -128) -- above the inventory hotbar
 	strip.Size = UDim2.new(0, 520, 0, 64)
 	strip.BackgroundColor3 = C.Panel
 	strip.BackgroundTransparency = 0.15
@@ -382,11 +383,14 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		shake(0.8, 0.5)
 		playLocal(LobbyConfig.GoSoundId)
 		alarmHook()
-		task.delay(0.6, function()
-			TweenService:Create(ui.fade, TweenInfo.new(0.25), { BackgroundTransparency = 0 }):Play()
-			task.wait(0.7)
-			ui.big.Visible = false
-			TweenService:Create(ui.fade, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
+		-- v2 dispatch: you stay in the station and run to your truck, so no fade-to-black blink here
+		task.delay(1.1, function()
+			if ui.big.Text == "GO GO GO!" then
+				TweenService:Create(ui.big, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+				task.delay(0.35, function()
+					ui.big.Visible = false
+				end)
+			end
 		end)
 		return
 	end

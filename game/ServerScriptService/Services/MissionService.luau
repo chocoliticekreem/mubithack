@@ -1078,6 +1078,17 @@ local function chooseSite(missionId: string): (Model?, string?)
 end
 
 -- v2: dispatch the squad to a free IncidentSite. nil when no site can host the mission.
+-- City sites have no Address attr yet: "house-Town-3" reads like a bug in the DISPATCH banner, so make a
+-- stable, readable street address from the site id instead ("27 Maple St").
+local STREETS = { "Maple St", "Oak Ave", "Elm St", "Birch Rd", "Cedar Ln", "Pine St", "Willow Way", "Main St", "Ash Ct", "Juniper Dr" }
+local function friendlyAddress(siteId: string): string
+	local h = 0
+	for i = 1, #siteId do
+		h = (h * 31 + string.byte(siteId, i)) % 1000003
+	end
+	return `{(h % 89) + 2} {STREETS[(h // 89) % #STREETS + 1]}`
+end
+
 local function startDispatch(players: { Player }, def: any, seconds: number?): string?
 	local site, siteId = chooseSite(def.id)
 	if not (site and siteId) then
@@ -1120,7 +1131,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?): s
 	}, now())
 
 	local addr = model:GetAttribute(SITE.Address)
-	local address = if type(addr) == "string" and addr ~= "" then addr else siteId
+	local address = if type(addr) == "string" and addr ~= "" then addr else friendlyAddress(siteId)
 	local call = def.call or def.title or "Fire"
 	local siteLoc = model:GetAttribute(Names.Attr.LocationId)
 	local locationId = if type(siteLoc) == "string" and siteLoc ~= "" then siteLoc else def.locationId
