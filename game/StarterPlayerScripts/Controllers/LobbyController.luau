@@ -363,11 +363,24 @@ local function placeStrip()
 	end
 end
 
+-- Local only: hide the sign over the pad you're standing on (you'd be right under it, so it filled the
+-- screen); the squad strip shows the same info. Other pads keep their signs.
+local function hideOwnPadSign()
+	local mine = if mySquad and not mySquad.instanceId then mySquad.padId else nil
+	for _, pad in CollectionService:GetTagged(Names.Tag.SquadPad) do
+		local bb = pad:FindFirstChild("PadBillboard")
+		if bb and bb:IsA("BillboardGui") then
+			bb.Enabled = pad:GetAttribute(Names.Attr.PadId) ~= mine
+		end
+	end
+end
+
 local function renderStrip()
 	if not ui.strip then
 		return
 	end
 	placeStrip()
+	hideOwnPadSign()
 	if inMission() or not mySquad or mySquad.instanceId then
 		ui.strip.Visible = false
 		return

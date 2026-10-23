@@ -16,6 +16,7 @@
 --                                                          Lib/PopupLogic). Important events only; minor juice is
 --                                                          world text above heads (ClientLib/WorldPopup, started here).
 local CollectionService = game:GetService("CollectionService")
+local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -324,6 +325,18 @@ local function build(): Ui
 		color = Palette.UiCream,
 		stroke = true,
 	})
+
+	-- phones: the bottom-right corner belongs to the touch jump button (+ our action buttons), so the
+	-- tank and thermometer move to the left edge, above the thumbstick
+	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+		tank.AnchorPoint = Vector2.new(0, 0.5)
+		tank.Position = UDim2.new(0, 14, 0.5, -10)
+		heat.AnchorPoint = Vector2.new(0, 0.5)
+		heat.Position = UDim2.new(0, 98, 0.5, -10)
+		refillHint.AnchorPoint = Vector2.new(0, 1)
+		refillHint.Position = UDim2.new(0, 14, 0.5, -110)
+		refillHint.TextXAlignment = Enum.TextXAlignment.Left
+	end
 
 	-- carry slot (bottom left)
 	local carry = UiKit.panel(gui, "Carry", UDim2.fromOffset(300, 70), UDim2.new(0, 14, 1, -14), Vector2.new(0, 1))

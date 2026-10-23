@@ -330,8 +330,10 @@ local function rebind()
 		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
 		ContextActionService:SetTitle("InvDrop", "DROP")
 		ContextActionService:SetTitle("InvThrow", "THROW")
-		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -190, 1, -150))
-		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -260, 1, -110))
+		-- touch buttons hug the jump button (left of it, under the minimap) so they stay clear of the
+		-- lobby squad strip / GO NOW button in the bottom centre on phones
+		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -215, 1, -120))
+		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -170, 1, -75))
 		boundItem = true
 	elseif not wantItem and boundItem then
 		ContextActionService:UnbindAction("InvDrop")
@@ -343,7 +345,7 @@ local function rebind()
 	if wantSwap and not boundSwap then
 		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
 		ContextActionService:SetTitle("InvSwap", "SWAP")
-		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -190, 1, -220))
+		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -165, 1, -140))
 		boundSwap = true
 	elseif not wantSwap and boundSwap then
 		ContextActionService:UnbindAction("InvSwap")
