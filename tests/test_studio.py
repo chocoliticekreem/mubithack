@@ -101,7 +101,8 @@ def _fake_studio(replies) -> st.Studio:
     return s
 
 
-async def test_select_no_studios_raises_helpful_error():
+async def test_select_no_studios_raises_helpful_error(monkeypatch):
+    monkeypatch.setattr(st, "SELECT_RETRY_SECONDS", 0)
     s = _fake_studio({"list_roblox_studios": FakeResult([TextContent(text='{"studios":[]}')])})
     with pytest.raises(st.StudioError, match="Manage MCP Servers"):
         await s.execute_luau("return 1")
@@ -160,3 +161,10 @@ async def test_select_by_id_when_two_studios_share_a_name():
     s = _fake_studio({"list_roblox_studios": FakeResult([TextContent(text=studios)])})
     assert await s.select("b2") == "b2"
     assert await s.select("Forge.rbxlx") == "a1"
+
+
+async def test_select_retries_when_the_first_list_is_empty(monkeypatch):
+    monkeypatch.setattr(st, "SELECT_RETRY_SECONDS", 0)
+    replies = iter(['{"studios":[]}', '{"studios":[]}', '{"studios":[{"id":"s1","name":"Forge.rbxlx"}]}'])
+    s = _fake_studio({"list_roblox_studios": lambda a: FakeResult([TextContent(text=next(replies))])})
+    assert await s.select("Forge") == "s1"
