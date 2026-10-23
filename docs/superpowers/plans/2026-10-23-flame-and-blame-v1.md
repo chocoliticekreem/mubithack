@@ -177,6 +177,18 @@ Load: Dev A ≈ 1.25 + 6.5 + integration lead + video. Dev B ≈ 7.75 + 5.0. Dev
 
 ## Task 0: Kickoff contracts (Dev A, Arvin · K0 · ~1.25 h · Fri 20:30 → merged by ~21:45)
 
+> **Done on `main` (Fri 23 Oct, committed straight to `main` in small commits, no PR).** Adjustments to the steps below:
+> MapService keeps `main`'s "rediscover builders on every BuildAll" and `GetSpawnCFrame` also matches a pad's `Helmet`
+> attr until G2.2 adds `Slot`. TEAM.md's G3 owner is a placeholder (`_Dev C (add your name)_`). Plus the **v1.5
+> contracts** (03 §10 "v1.5 additions"): LobbyService/LobbyController/LobbyConfig, MissionCatalog (+ spec),
+> MissionService:StartMission/EndMission + MissionStarted/MissionEnded, MapService:BuildInstance/DestroyInstance,
+> HeatService/HeatConfig, `Shared/Ragdoll`, FirstPerson/PhysicsFxController, PhysicsConfig, ToolService.HoseRecoil,
+> HazardService/HazardController/HazardConfig, FinaleService, AtmosphereService:ApplyLocation/ApplyMission. So
+> Step 12 now expects **13 services** (`[Boot] server: 13 services`), **11 controllers**, `sync.py check` = 56 files,
+> and remotes `Hazard/Fx, Hazard/Zapped, Lobby/Board, Lobby/Choose, Lobby/Launch, Mission/Alarm, Mission/Results,
+> Rescue/Drop, Shared/Notify, Shared/Ragdoll, Tool/Spray`. The "no Lib.Map.Locations" warning no longer appears
+> (Station/Town builders are on `main`). AtmosphereService's `_selftest` is `main`'s (boolean only).
+
 Everything in G1/G2/G3 waits for this PR to merge. (GF.1 and GF.2 don't: they touch only `forge/`.) `main` already has the first half of the kickoff (PR #1): bootstraps, `Shared/{Net,Signal,Config,Names,Types}`, MapConfig, a partial MapService and MapKit. This task finishes it.
 
 **Files:**
