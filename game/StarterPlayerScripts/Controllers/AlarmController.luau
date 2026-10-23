@@ -5,8 +5,10 @@
 -- Attachments), the bulbs pulse, and a local ColorCorrection "AlarmCC" pulses white <-> red at 1 Hz.
 -- Triggers:
 --   * Mission/Alarm (S->C squad: missionId, title) -> runs for GameConfig.AlarmSeconds
---   * Lobby/Board (S->C all: squads) -> when a squad turns "Launching", the lamps fire as the launch
---     countdown (LobbyConfig.LaunchCountdown) hits 3, for everyone in the station
+--   * Lobby/Countdown (S->C squad: padId, seconds, title) -> lamps fire when it hits
+--     LobbyConfig.AlarmFromSeconds (3) and run to launch
+--   * Lobby/Board (S->C all: squads) -> when a squad turns "Launching" (LobbyConfig.FullCountdownSeconds
+--     left), everyone else in the station sees the lamps too as that countdown hits 3
 -- Public (for other controllers): AlarmController:Run(seconds: number)
 -- Nothing here affects gameplay; everything is restored afterwards.
 local CollectionService = game:GetService("CollectionService")
@@ -156,6 +158,18 @@ function AlarmController:Start()
 		end
 	end)
 	task.spawn(function()
+		local ok, Countdown = pcall(Net.event, "Lobby", "Countdown")
+		if ok then
+			(Countdown :: RemoteEvent).OnClientEvent:Connect(function(_padId: any, seconds: any, _title: any)
+				local s = tonumber(seconds)
+				local from = tonumber(LobbyConfig.AlarmFromSeconds) or 3
+				if s and s > 0 and s <= from then
+					AlarmController:Run(s + 0.5)
+				end
+			end)
+		end
+	end)
+	task.spawn(function()
 		local ok, Board = pcall(Net.event, "Lobby", "Board")
 		if not ok then
 			return
@@ -172,7 +186,7 @@ function AlarmController:Start()
 				if s.state == "Launching" and not seenLaunch[key] then
 					seenLaunch[key] = true
 					-- the station lights go off as the countdown hits 3
-					local countdown = tonumber(LobbyConfig.LaunchCountdown) or 5
+					local countdown = tonumber(LobbyConfig.FullCountdownSeconds) or tonumber(LobbyConfig.LaunchCountdown) or 5
 					task.delay(math.max(0, countdown - 3), function()
 						AlarmController:Run(3.5)
 					end)
