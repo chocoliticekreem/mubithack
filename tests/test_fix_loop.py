@@ -4,6 +4,8 @@ verifier -> keep or roll back."""
 from __future__ import annotations
 
 import json
+
+import pytest
 from pathlib import Path
 
 from forge import improve as imp
@@ -149,3 +151,54 @@ async def test_edit_human_files_lets_the_fixer_change_them(settings):
     cycle, _, _ = await _fix_cycle(settings, llm, edit_human=True)
     assert cycle["code_fixes"][0]["status"] == "kept"
     assert (game / FIRE_FILE).read_text().strip() == "return {fire = 2}"
+
+
+# ---------------------------------------------------------------- found in the first live run
+
+
+async def test_unit_spec_files_are_never_picked_to_fix(settings):
+    game = _seeded_game(settings)
+    spec = game / "tests" / "hoseservice.spec.luau"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("-- HoseService never cools fire HoseService HoseService\nreturn {}\n")
+    assert imp.candidate_file(settings, game, HOSE) == HOSE_FILE
+
+
+async def test_unusable_fixer_reply_is_a_failed_attempt_not_a_crash(settings):
+    game = _seeded_game(settings)
+    llm = FakeLLM({"auditor": [audit_reply([HOSE])],
+                   "fixer": ["no code", "still no code", "```luau\nreturn {hose = 2}\n```"],
+                   "verifier": [json.dumps({"verdict": "fixed", "evidence": "e"})]})
+    cycle, synced, _ = await _fix_cycle(settings, llm)
+    fx = cycle["code_fixes"][0]
+    assert [t["status"] for t in fx["attempts"]] == ["fixer_error", "fixed"] and fx["status"] == "kept"
+    assert "could not be used" in [c.user for c in llm.calls if c.role == "fixer"][2]
+    assert (game / HOSE_FILE).read_text().strip() == "return {hose = 2}"
+
+
+async def test_two_unusable_replies_restore_without_touching_studio(settings):
+    game = _seeded_game(settings)
+    llm = FakeLLM({"auditor": [audit_reply([HOSE])], "fixer": ["no code"] * 4})
+    cycle, synced, _ = await _fix_cycle(settings, llm)
+    assert cycle["code_fixes"][0]["status"] == "rolled_back"
+    assert (game / HOSE_FILE).read_text() == "return {hose = 1}\n" and synced == []
+
+
+async def test_error_mid_replay_restores_the_file(settings):
+    game = _seeded_game(settings)
+    calls = {"n": 0}
+
+    async def flaky(settings_, goal, players, steps, *, llm, harness):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("Studio dropped")
+        return {"goal": goal, "counters": {}}
+
+    async def resync(root):
+        pass
+
+    llm = _fix_llm([HOSE], ["return {hose = 2}"], [])
+    with pytest.raises(RuntimeError, match="Studio dropped"):
+        await run_cycle(settings, "fab", llm=llm, harness=FakeHarness(), playtest=flaky, faults=[],
+                        goal="play", rounds=1, fix=True, resync=resync, log=lambda _: None)
+    assert (game / HOSE_FILE).read_text() == "return {hose = 1}\n"
