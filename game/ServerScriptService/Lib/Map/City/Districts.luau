@@ -73,6 +73,7 @@ export type CityPlan = {
 	sites: { Site },
 	graph: RoadGraph.Graph,
 	river: { Rect },
+	lake: Rect?, -- Mill Pond (part of river), nil when cfg.MillPond is unset
 	bridges: { { x0: number, z0: number, x1: number, z1: number, alongX: boolean } },
 	signposts: { Signpost },
 	bounds: { minX: number, maxX: number, minZ: number, maxZ: number },
@@ -785,8 +786,18 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 	local rz = dam.z + cfg.DamRiverZ
 	local river: { Rect } = {
 		{ x0 = rx - rw, z0 = rz - rw, x1 = dam.x - cfg.CoreHalf + 2, z1 = rz + rw }, -- west out of the dam
-		{ x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }, -- south to the edge
 	}
+	-- Mill Pond: the creek widens into a lake in the east greenbelt (cfg.MillPond, world rect)
+	local lake: Rect? = nil
+	local mp = cfg.MillPond
+	if mp and mp.x0 < rx - rw and mp.x1 > rx + rw and mp.z0 > rz + rw and mp.z1 < cfg.Bounds.maxZ then
+		lake = { x0 = mp.x0, z0 = mp.z0, x1 = mp.x1, z1 = mp.z1 }
+		table.insert(river, { x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = mp.z0 }) -- down to the pond
+		table.insert(river, lake :: Rect)
+		table.insert(river, { x0 = rx - rw, z0 = mp.z1, x1 = rx + rw, z1 = cfg.Bounds.maxZ }) -- on south
+	else
+		table.insert(river, { x0 = rx - rw, z0 = rz + rw, x1 = rx + rw, z1 = cfg.Bounds.maxZ }) -- south to the edge
+	end
 	-- no band lots in the water
 	for i = #bandLots, 1, -1 do
 		local l = bandLots[i].lot
@@ -879,6 +890,7 @@ function Districts.planCity(cfg: any, available: { [string]: boolean }, catalog:
 		sites = sites,
 		graph = g,
 		river = river,
+		lake = lake,
 		bridges = bridges,
 		signposts = signposts,
 		bounds = cfg.Bounds,

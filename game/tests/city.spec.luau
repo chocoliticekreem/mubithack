@@ -25,6 +25,7 @@ local cfg = {
 	RiverWidth = 24,
 	RiverInset = 80,
 	DamRiverZ = 168,
+	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
 	StationDriveway = { x = 20, z = 175 },
 	SitesPerSuburbBlock = 2,
 	KindMissions = {
@@ -264,6 +265,17 @@ end)
 
 Spec.test("creek: carved out of the ground; every road crossing it is a bridge", function()
 	Spec.truthy(#plan.river >= 2, "creek segments")
+	Spec.truthy(plan.lake ~= nil, "Mill Pond")
+	for _, e in g.edges do
+		if e.info.drawn then
+			local a, b = g.nodes[e.a], g.nodes[e.b]
+			local lk = plan.lake
+			local hw = e.info.width / 2
+			local ox = math.min(lk.x1, math.max(a.x, b.x) + hw) - math.max(lk.x0, math.min(a.x, b.x) - hw)
+			local oz = math.min(lk.z1, math.max(a.z, b.z) + hw) - math.max(lk.z0, math.min(a.z, b.z) - hw)
+			Spec.truthy(not (ox > 0 and oz > 0), `road {e.a}-{e.b} through the pond`)
+		end
+	end
 	Spec.truthy(#plan.bridges >= 5, `bridges {#plan.bridges}`)
 	local ground = Districts.subtractRects({ x0 = -1500, z0 = -1500, x1 = 1500, z1 = 1500 }, plan.river)
 	local area = 0

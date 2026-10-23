@@ -53,6 +53,9 @@ return Config.define({
 	DamRiverZ = 168, -- DamBuilder's river centre, local z (Z 160..176)
 	SpillwayOffset = 60, -- procedural dam only (no DamBuilder): spillway x offset
 	RiverDepth = 6,
+	-- Mill Pond: the creek widens into a lake in the east greenbelt between the Elm Ave avenue (x 450)
+	-- and Pine Ridge (x 590), south of the Forest gate street (world rect; nil = no lake)
+	MillPond = { x0 = 488, z0 = 110, x1 = 580, z1 = 330 },
 
 	-- Station (hub core)
 	StationOrigin = CFrame.new(0, 0, 132), -- kerb (local Z 68) on the hub loop's inner edge, z = 200

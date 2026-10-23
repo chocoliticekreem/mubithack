@@ -43,6 +43,7 @@ local RoadGraph = require(CityDir:WaitForChild("RoadGraph") :: ModuleScript) :: 
 local Districts = require(CityDir:WaitForChild("Districts") :: ModuleScript) :: any
 local SK = require(CityDir:WaitForChild("SiteKit") :: ModuleScript) :: any
 local BlockFiller = require(CityDir:WaitForChild("BlockFiller") :: ModuleScript) :: any
+local Greenbelt = require(CityDir:WaitForChild("Greenbelt") :: ModuleScript) :: any
 
 local CityBuilder = {}
 CityBuilder.Id = "City"
@@ -899,6 +900,21 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	signposts(ctx, roads, g)
 	roads.Parent = model
 	sections.Roads = roads
+
+	-- the open ground between the neighbourhoods: Mill Pond, pocket parks, verges, outskirts fields
+	local gok, gres = pcall(Greenbelt.build, {
+		cfg = cfg,
+		plan = plan,
+		rng = rng,
+		clear = function(p: Vector3, r: number): boolean
+			return clear(ctx, p, r)
+		end,
+	}, model)
+	if gok then
+		sections.Greenbelt = gres
+	else
+		warn(`[CityBuilder] greenbelt failed: {gres}`)
+	end
 
 	-- sites lookup by lot
 	local siteByLot: { [any]: any } = {}
