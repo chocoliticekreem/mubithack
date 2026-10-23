@@ -364,6 +364,8 @@ Districts.CorridorStyle = {
 Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School = 1, Apartment = 1 }
 -- a whole corridor run becomes one big site (a second school campus etc.), far from the station
 Districts.CorridorBigSites = { Town = "school", School = "school", Storage = "apartment" }
+-- a whole corridor run becomes one big scenery landmark (not a site)
+Districts.CorridorFeature = { Station = "cityhall" }
 
 export type Corridor = {
 	district: string,
@@ -460,7 +462,7 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 				end
 			end
 			-- one run becomes a single big site: the longest run furthest from the hub
-			local big = Districts.CorridorBigSites[d.id]
+			local big = Districts.CorridorBigSites[d.id] or Districts.CorridorFeature[d.id]
 			local bigRun: Corridor? = nil
 			if big then
 				local best = -math.huge
@@ -486,7 +488,7 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 							w = len,
 							d = l.d,
 							face = l.face,
-							site = true,
+							site = Districts.CorridorBigSites[d.id] ~= nil,
 						},
 					}
 				end

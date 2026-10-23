@@ -1108,6 +1108,47 @@ function Scenery.carpark(ctx: any, parent: Instance, F: CFrame, maxW: number, ma
 	end
 end
 
+-- Blazeville City Hall: columned portico, a domed roof, a flag and a paved forecourt (~25 parts).
+function Scenery.cityhall(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local m = Instance.new("Model")
+	m.Name = "CityHall"
+	m:SetAttribute("DisplayName", "Blazeville City Hall")
+	local stone = Color3.fromHex("#E8E1D3")
+	local w = math.min(maxW - 40, 100)
+	local d = math.min(maxD - 30, 44)
+	local z0 = math.max(16, maxD - d - 6) -- building front
+	SK.part(m, "Forecourt", F * CF(0, GY + 0.04, z0 / 2), V(math.min(maxW - 4, w + 60), 0.1, z0), Color3.fromHex("#D9CBB8"), { cast = false })
+	SK.part(m, "Plinth", F * CF(0, GY + 1, z0 + d / 2 - 4), V(w + 8, 2, d + 10), stone)
+	SK.wedge(m, "Steps", F * CF(0, GY + 1, z0 - 11), V(w * 0.6, 2, 4) , stone)
+	SK.part(m, "Body", F * CF(0, GY + 2 + 14, z0 + d / 2), V(w, 28, d), stone)
+	SK.part(m, "Cornice", F * CF(0, GY + 2 + 28.75, z0 + d / 2), V(w + 2, 1.5, d + 2), C.Trim)
+	-- portico: columns + pediment
+	local pw = w * 0.55
+	for k = 0, 5 do
+		local x = -pw / 2 + k * pw / 5
+		SK.cyl(m, "Column", F * CF(x, GY + 2 + 11, z0 - 5), 22, 2.4, C.Trim)
+	end
+	SK.part(m, "Entablature", F * CF(0, GY + 2 + 23, z0 - 4), V(pw + 4, 2, 9), stone)
+	local ped = F * CF(0, GY + 2 + 26.5, z0 - 4)
+	SK.wedge(m, "Pediment", ped * CF(-pw / 4 - 1, 0, 0) * ANG(0, math.rad(90), 0), V(9, 5, pw / 2 + 2), stone)
+	SK.wedge(m, "Pediment", ped * CF(pw / 4 + 1, 0, 0) * ANG(0, math.rad(-90), 0), V(9, 5, pw / 2 + 2), stone)
+	local sign = SK.part(m, "Sign", F * CF(0, GY + 2 + 23, z0 - 8.6), V(pw - 4, 1.6, 0.3), stone)
+	SK.sign(sign, "BLAZEVILLE CITY HALL", Enum.NormalId.Front, Color3.fromHex("#3D5A80"))
+	-- drum + dome + golden finial
+	local top = F * CF(0, GY + 2 + 29.5, z0 + d / 2)
+	SK.cyl(m, "Drum", top * CF(0, 4, 0), 8, 26, stone)
+	SK.ball(m, "Dome", top * CF(0, 8, 0), 26, Color3.fromHex("#6FA08A"))
+	SK.cyl(m, "Finial", top * CF(0, 23, 0), 6, 1, Color3.fromHex("#E9C46A"), { neon = true, collide = false })
+	-- flagpole + flag, two trees on the forecourt
+	SK.cyl(m, "Flagpole", F * CF(w / 2 + 12, GY + 16, z0 * 0.5), 32, 0.6, C.Trim)
+	SK.part(m, "Flag", F * CF(w / 2 + 15, GY + 29.5, z0 * 0.5), V(6, 3.6, 0.2), C.Red)
+	m.Parent = parent
+	for _, s in { -1, 1 } do
+		BlockFiller.tree(parent, F * CF(s * (w / 2 + 2), GY, z0 * 0.4), rng, 1.3)
+	end
+end
+
 -- A loose clump of pines (woods filler, ~9 parts).
 function Scenery.copse(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
