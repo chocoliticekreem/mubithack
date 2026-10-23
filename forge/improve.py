@@ -271,7 +271,8 @@ def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | N
 async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
                    llm: LLM, harness, playtest: Playtest, resync: Resync, goal: str, players=None,
                    steps: int = 15, max_fixes: int = 3, session_id: str, edit_human: bool = False,
-                   retries: int = 1, log: Callable[[str], None] = print) -> list[dict]:
+                   retries: int = 1, investigate_first: bool = True,
+                   log: Callable[[str], None] = print) -> list[dict]:
     """Fix real anomalies in code, one at a time: fixer -> compile -> resync -> replay -> verifier.
 
     The game folder is versioned (forge/versions.py): the state before the first fix is a version,
@@ -299,15 +300,24 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                + "\n".join(json.dumps(d) for d in before[-2:]))[:4000]
     results: list[dict] = []
     for a in [x for x in anomalies if x["severity"] in FIX_SEVERITIES][:max(0, max_fixes)]:
-        rel = candidate_file(settings, root, a)
+        found = None
+        studio = getattr(harness, "studio", None)
+        if investigate_first and studio is not None:
+            await harness.ensure_ready()
+            found = await investigate(settings, slug, a, llm=llm, studio=studio, session_id=session_id, log=log)
+        concl = (found or {}).get("conclusion") or {}
+        rel = concl.get("file") or candidate_file(settings, root, a)
         if rel is None:
-            results.append({"anomaly": a["title"], "status": "no_file"})
+            results.append({"anomaly": a["title"], "status": "no_file", "investigation": found})
             log(f"[fix] {a['title']}: no matching file")
             continue
         old = (root / rel).read_text(encoding="utf-8")
         problem = (f"Playtest anomaly ({a['kind']}, {a['severity']}, system {a['system']}): {a['title']}\n"
                    f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
-        rec: dict = {"anomaly": a["title"], "path": rel, "attempts": []}
+        if concl:
+            problem += (f"\n\n## Root cause (from experiments in the running game)\n{concl.get('root_cause', '')}\n"
+                        f"Evidence: {concl.get('evidence', '')}\nFix hint: {concl.get('fix_hint', '')}")
+        rec: dict = {"anomaly": a["title"], "path": rel, "attempts": [], "investigation": found}
         if rel in protected:
             new = await asyncio.to_thread(roles.fix_file, llm, rel, old, problem, context,
                                           read_lessons(settings), session_id=session_id)
@@ -368,6 +378,94 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             log(f"[fix] {a['title']}: no attempt verified, {rel} restored")
         results.append({**rec, "status": status})
     return results
+
+
+# ---------------------------------------------------------------- investigator (root cause before a fix)
+
+INVESTIGATE_STEPS = 8
+PROBE_TIMEOUT = 45.0
+PROBE_RESULT_CHARS = 1500
+READ_CHARS = 7000
+
+
+def file_index(game_dir: Path, limit: int = 12_000) -> str:
+    """Every Studio-synced Luau file with its first comment line: the investigator's map of the game."""
+    rows = []
+    for p in sorted(game_dir.rglob("*.luau")):
+        rel = p.relative_to(game_dir).as_posix()
+        if rel.startswith(NOT_IN_STUDIO) or "/." in rel:
+            continue
+        head = ""
+        for ln in p.read_text(encoding="utf-8", errors="replace").splitlines()[:6]:
+            if ln.strip().startswith("--") and not ln.strip().startswith("--!"):
+                head = ln.strip().lstrip("-").strip()[:110]
+                break
+        rows.append(f"{rel}" + (f"  -- {head}" if head else ""))
+    text = "\n".join(rows)
+    return text if len(text) <= limit else text[:limit] + "\n...[more files]"
+
+
+def investigate_message(anomaly: dict, index: str, steps: list[dict], verified: str | None) -> str:
+    parts = ["## Anomaly\n" + json.dumps(anomaly, ensure_ascii=False), "## Game files\n" + index]
+    if steps:
+        parts.append("## Steps so far\n" + "\n\n".join(
+            f"{i + 1}. {json.dumps(s['action'], ensure_ascii=False)[:1500]}\nResult: {s['result']}"
+            for i, s in enumerate(steps)))
+    if verified:
+        parts.append("## Verified outcome\n" + verified)
+    parts.append("Reply with ONE action as a JSON object.")
+    return "\n\n".join(parts)
+
+
+async def investigate(settings: Settings, slug: str, anomaly: dict, *, llm: LLM, studio, session_id: str,
+                      verified: str | None = None, max_steps: int = INVESTIGATE_STEPS,
+                      log: Callable[[str], None] = print) -> dict:
+    """Find an anomaly's root cause with probes in the live playtest and code reads (Mubit task
+    `investigator`). Returns {"conclusion": {...} | None, "steps": [...], "request_ids": [...]}."""
+    root = RunStore(settings, slug).game_dir
+    index = file_index(root)
+    steps: list[dict] = []
+    rids: list[str] = []
+    for n in range(max(1, max_steps)):
+        last = n == max_steps - 1
+        msg = investigate_message(anomaly, index, steps, verified)
+        if last:
+            msg += "\nThis is your last step: conclude now."
+        try:
+            act, res = await asyncio.to_thread(llm.complete_json, "investigator", msg, session_id=session_id,
+                                               required=["action"], max_tokens=2048)
+        except LLMError as e:
+            log(f"[investigator] unusable reply: {str(e)[:100]}")
+            break
+        rids.append(res.request_id)
+        kind = str(act.get("action", "")).lower()
+        if kind == "conclude":
+            path = str(act.get("file", "")).strip().lstrip("/")
+            act["file"] = path if (root / path).is_file() and not path.startswith(NOT_IN_STUDIO) else None
+            log(f"[investigator] root cause: {str(act.get('root_cause', ''))[:160]} -> {act['file']} {res.request_id}")
+            return {"conclusion": act, "steps": steps, "request_ids": rids}
+        if kind == "read":
+            path = str(act.get("path", "")).strip().lstrip("/")
+            target = root / path
+            if ".." in path.split("/") or not target.is_file():
+                result = f"no such file: {path}"
+            else:
+                src = target.read_text(encoding="utf-8", errors="replace")
+                result = src if len(src) <= READ_CHARS else src[:READ_CHARS] + f"\n...[{len(src) - READ_CHARS} more chars]"
+            log(f"[investigator] read {path}")
+        elif kind == "probe":
+            dm = "Client" if str(act.get("datamodel", "Server")).lower() == "client" else "Server"
+            try:
+                out = await asyncio.wait_for(studio.execute_luau(str(act.get("code", "")), dm), PROBE_TIMEOUT)
+                result = str(out)
+            except Exception as e:  # noqa: BLE001 - a failing probe is a result the investigator can use
+                result = f"probe error: {type(e).__name__}: {e}"
+            result = result[:PROBE_RESULT_CHARS]
+            log(f"[investigator] probe ({dm}): {str(act.get('why', ''))[:100]} -> {result[:120]}")
+        else:
+            result = f"unknown action {kind!r}: use read, probe or conclude"
+        steps.append({"action": act, "result": result})
+    return {"conclusion": None, "steps": steps, "request_ids": rids}
 
 
 def pending_report_anomalies(store: ImproveStore) -> list[dict]:
