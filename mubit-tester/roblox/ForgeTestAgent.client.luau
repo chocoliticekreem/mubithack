@@ -278,7 +278,13 @@ local function findPrompt(args, root: BasePart): ProximityPrompt?
 		if inst:IsA("ProximityPrompt") then
 			return inst
 		end
-		for _, scope in { inst, inst.Parent } do
+		-- the part itself, then its parent (a prompt on a sibling) - but never a whole Workspace,
+		-- so interact on a player's character (revive, co-carry) can't pick a random prompt
+		local scopes = { inst }
+		if inst:IsA("BasePart") and inst.Parent and inst.Parent ~= workspace then
+			table.insert(scopes, inst.Parent)
+		end
+		for _, scope in scopes do
 			if scope then
 				for _, d in scope:GetDescendants() do
 					if d:IsA("ProximityPrompt") and d.Enabled then
@@ -595,4 +601,23 @@ task.spawn(function()
 		end
 		task.wait(2)
 	end
+end)
+
+-- The lobby countdown only exists on clients (Net.Lobby.Countdown, S->C: padId, seconds (-1 =
+-- cancel), title), so forward it to the harness, which logs `countdown` events and shows the
+-- remaining seconds in `squads`.
+task.spawn(function()
+	local net = ReplicatedStorage:WaitForChild("Net", 30)
+	local lobby = net and net:WaitForChild("Lobby", 30)
+	local countdown = lobby and lobby:WaitForChild("Countdown", 30)
+	if not (countdown and countdown:IsA("RemoteEvent")) then
+		return
+	end
+	(countdown :: RemoteEvent).OnClientEvent:Connect(function(padId: any, seconds: any, title: any)
+		task.spawn(pcall, remote.InvokeServer, remote, "ForgeTest", "event", "countdown", {
+			padId = padId,
+			seconds = seconds,
+			title = if type(title) == "string" then title else nil,
+		})
+	end)
 end)

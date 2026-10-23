@@ -1,0 +1,24 @@
+{
+  "name": "coop_panda",
+  "description": "Co-op carry: two players in one mission instance both hold the panda's prompt at the same time; the panda becomes Carried and both players are carrying it.",
+  "requires": ["players>=2", "RescueService", "MissionService.StartMission"],
+  "steps": [
+    {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "p"},
+    {"label": "start a mission for both", "call": {"cmd": "mission_start", "args": {"players": ["$p.0.userId", "$p.1.userId"], "wait": 15}}, "save": "m"},
+    {"label": "a panda spawned", "wait_until": {"cmd": "query", "args": {"tag": "Rescuable", "instanceId": "$m.instanceId", "where": {"Kind": "Panda"}, "limit": 1}, "path": "result", "op": "len>=", "value": 1, "timeout": 20}, "save": "panda"},
+    {"label": "both next to the panda", "parallel": [
+      {"call": {"cmd": "teleport", "args": {"userId": "$p.0.userId", "path": "$panda.0.path", "offset": [2, 0, 0]}}},
+      {"call": {"cmd": "teleport", "args": {"userId": "$p.1.userId", "path": "$panda.0.path", "offset": [-2, 0, 0]}}}
+    ]},
+    {"wait": 0.5},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "both hold the prompt", "parallel": [
+      {"act": {"player": "$p.0.userId", "action": "interact", "args": {"path": "$panda.0.path"}}, "allow_fail": true},
+      {"act": {"player": "$p.1.userId", "action": "interact", "args": {"path": "$panda.0.path"}}, "allow_fail": true}
+    ]},
+    {"label": "panda carried", "wait_until": {"cmd": "query", "args": {"tag": "Rescuable", "instanceId": "$m.instanceId", "where": {"Kind": "Panda"}, "limit": 1}, "path": "result.0.attrs.RescueState", "op": "==", "value": "Carried", "timeout": 5}},
+    {"label": "both players carrying", "soft": true, "wait_until": {"cmd": "players", "args": {"userIds": ["$p.0.userId", "$p.1.userId"]}, "path": "result.*.carrying", "op": "truthy", "timeout": 5}},
+    {"label": "two prompt triggers logged", "soft": true, "assert": {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["prompt_triggered"]}, "path": "result.events", "op": "len>=", "value": 2}},
+    {"label": "end mission", "soft": true, "call": {"cmd": "mission_end", "args": {"instanceId": "$m.instanceId"}}}
+  ]
+}

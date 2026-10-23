@@ -1,0 +1,31 @@
+{
+  "name": "lobby_countdown",
+  "description": "Two players step onto squad pad 1: they form one squad, the launch countdown runs down (or the harness launches if nobody does), and both land in the same mission instance.",
+  "requires": ["players>=2", "LobbyService", "tag:SquadPad"],
+  "steps": [
+    {"label": "lobby mode on", "soft": true, "call": {"cmd": "config", "args": {"module": "LobbyConfig", "key": "UseLobby", "value": true}}},
+    {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "p"},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "both onto pad 1", "parallel": [
+      {"call": {"cmd": "queue", "args": {"userId": "$p.0.userId", "pad": 1}}},
+      {"call": {"cmd": "queue", "args": {"userId": "$p.1.userId", "pad": 1}}}
+    ]},
+    {"label": "player 1 in a squad", "wait_until": {"cmd": "players", "path": "result.0.squadId", "op": "truthy", "timeout": 10}, "save": "sq"},
+    {"label": "same squad", "assert": {"cmd": "players", "path": "result.1.squadId", "op": "==", "value": "$sq.0.squadId"}},
+    {"label": "squad has both", "assert": {"cmd": "squads", "args": {"squadId": "$sq.0.squadId"}, "path": "result.squads.0.members", "op": "len>=", "value": 2}},
+    {"label": "joined_pad logged", "assert": {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["joined_pad"]}, "path": "result.events", "op": "len>=", "value": 2}},
+    {"label": "countdown running", "soft": true, "wait_until": {"timeout": 8, "any": [
+      {"cmd": "squads", "args": {"squadId": "$sq.0.squadId"}, "path": "result.squads.0.countdown", "op": ">", "value": 0},
+      {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["countdown"]}, "path": "result.events", "op": "len>=", "value": 1}
+    ]}},
+    {"label": "countdown starts at 15 or less", "soft": true, "assert": {"cmd": "squads", "args": {"squadId": "$sq.0.squadId"}, "path": "result.squads.0.countdown", "op": "<=", "value": 15}},
+    {"label": "countdown ticks down", "soft": true, "wait_until": {"cmd": "squads", "args": {"squadId": "$sq.0.squadId"}, "path": "result.squads.0.countdown", "op": "decreased", "timeout": 4}},
+    {"label": "launch if nobody did", "unless": {"cmd": "players", "path": "result.0.instanceId", "op": "truthy"},
+     "call": {"cmd": "launch", "args": {"squadId": "$sq.0.squadId", "wait": 20}}},
+    {"label": "player 1 in an instance", "wait_until": {"cmd": "players", "path": "result.0.instanceId", "op": "truthy", "timeout": 30}, "save": "inst"},
+    {"label": "same instance", "wait_until": {"cmd": "players", "path": "result.1.instanceId", "op": "==", "value": "$inst.0.instanceId", "timeout": 10}},
+    {"label": "instance lists both", "assert": {"cmd": "instances", "args": {"instanceId": "$inst.0.instanceId"}, "path": "result.0.players", "op": "len>=", "value": 2}},
+    {"label": "launched logged", "assert": {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["launched", "entered_instance", "mission_started"]}, "path": "result.events", "op": "len>=", "value": 1}},
+    {"label": "end mission", "soft": true, "call": {"cmd": "mission_end", "args": {"instanceId": "$inst.0.instanceId"}}}
+  ]
+}

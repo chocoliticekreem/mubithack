@@ -1,7 +1,7 @@
 {
   "name": "mubit-tester",
   "displayName": "Mubit Tester",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mubit-powered Roblox game tester: drives every player in a Studio playtest, scripted scenarios, and multiplayer AI playtesters whose LLM calls route through Mubit so corrections become model updates.",
   "author": { "name": "mubithack team" },
   "repository": "https://github.com/chocoliticekreem/mubithack",

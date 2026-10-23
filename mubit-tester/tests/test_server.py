@@ -99,6 +99,7 @@ CONTRACT_TOOLS = [
     "status", "studios", "play_start", "play_stop", "multiplayer_start", "sync", "preview",
     "players", "observe", "query", "inspect", "counters", "events", "errors", "console", "screenshot",
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
+    "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
     "playtest", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 ]
@@ -172,9 +173,10 @@ async def test_other_tools(fake_play, capsys):
 def _fake_ai(calls: list) -> types.ModuleType:
     ai = types.ModuleType("mubit_tester.ai")
 
-    async def multi_playtest(settings, goal, players=None, steps=20, roles=None, *, llm=None, studio=None):
+    async def multi_playtest(settings, goal, players=None, steps=20, roles=None, *, llm=None, studio=None,
+                             harness=None, mode="free", squads=1):
         print("AI tick")
-        calls.append(("multi", goal, players, steps, roles, studio))
+        calls.append(("multi", goal, players, steps, roles, studio, harness, mode, squads))
         return {**FAKE_REPORT, "goal": goal, "players": [{"name": "Player1", "role": (roles or ["?"])[0]}]}
 
     async def explore(settings, minutes=3, players=None, *, llm=None, studio=None):
@@ -200,6 +202,12 @@ async def test_ai_tools_use_tester_ai(monkeypatch, fake_studio, capsys):
     md = _text(await ms.mcp.call_tool("playtest", {"goal": "put out House2", "players": 2, "roles": ["nozzle", "rescuer"]}))
     assert "**Players:** Player1 (roles: nozzle)" in md
     assert calls[-1][:5] == ("multi", "put out House2", 2, 20, ["nozzle", "rescuer"]) and calls[-1][5] is fake_studio
+    assert calls[-1][6].studio is fake_studio and calls[-1][7:] == ("free", 1)
+    await ms.mcp.call_tool("playtest", {"goal": "co-op", "mode": "squads", "squads": 2})
+    assert calls[-1][7:] == ("squads", 2)
+    from mcp.server.mcpserver.exceptions import ToolError
+    with pytest.raises(ToolError, match="mode must be"):
+        await ms.mcp.call_tool("playtest", {"goal": "x", "mode": "chaos"})
     md = _text(await ms.mcp.call_tool("playtest_correct", {"run_id": "r1", "step": 3, "note": "spray", "player": "2"}))
     assert calls[-1] == ("correct", "r1", 3, "spray", "2") and "(player 2)" in md
     md = _text(await ms.mcp.call_tool("suggest_fix", {"run_id": "r1", "bug": 1}))
@@ -252,7 +260,7 @@ async def test_harness_error_and_arg_checks(fake_studio):
     from mcp.server.mcpserver.exceptions import ToolError
     with pytest.raises(ToolError, match="unknown command inspect"):
         await ms.mcp.call_tool("inspect", {"path": "Workspace.Nope"})
-    with pytest.raises(ToolError, match="pos or path"):
+    with pytest.raises(ToolError, match="pos, path or to"):
         await ms.mcp.call_tool("teleport", {"player": "1"})
     with pytest.raises(ToolError, match="nearest Flammable"):
         await ms.mcp.call_tool("extinguish", {})
@@ -281,24 +289,98 @@ async def test_multiplayer_start_falls_back_to_instructions(fake_studio):
     assert "already running" in _text(await ms.mcp.call_tool("multiplayer_start", {"players": 2}))
 
 
-async def test_multiplayer_start_selects_server_window(fake_studio, monkeypatch):
+def _multi_windows(fake_studio, monkeypatch, n_clients=2, joined=2):
+    """Fake Studio where starting a multiplayer test spawns a Server window and client windows."""
     monkeypatch.setattr(ms, "MULTIPLAYER_POLL", 0.01)
+    monkeypatch.setattr(ms, "MULTIPLAYER_WAIT", 1.0)
+    monkeypatch.setattr(ms, "MULTIPLAYER_JOIN_WAIT", 0.1)
     fake_studio.playing = False
-    seen = {"n": 0}
+    seen = {"n": 0, "codes": [], "ran_on": []}
 
     async def execute_luau(code, datamodel="Edit", timeout=None):
-        return "started"
+        seen["codes"].append((code, datamodel))
+        seen["ran_on"].append(fake_studio.studio_id)
+        if "ExecuteMultiplayerTestAsync" in code:
+            return "started"
+        if "AddPlayers" in code:
+            return "added"
+        return json.dumps({"ok": True, "result": {"version": "2", "players": joined}})
 
     async def list_studios():
         seen["n"] += 1
         base = [{"id": "edit-1", "name": "Forge.rbxlx"}]
-        return base + ([{"id": "srv-9", "name": "Server - Forge"}] if seen["n"] > 2 else [])
+        if seen["n"] > 2:
+            base += [{"id": "srv-9", "name": "Server - Forge"}]
+            base += [{"id": f"cl-{i}", "name": f"Client{i} - Forge"} for i in range(1, n_clients + 1)]
+        return base
 
     async def call(tool, **args):
-        return json.dumps({"datamodels": ["Server"] if args.get("studio_id") == "srv-9" else ["Edit"]})
+        sid = args.get("studio_id")
+        dms = ["Server"] if sid == "srv-9" else ["Client"] if str(sid).startswith("cl-") else ["Edit"]
+        return json.dumps({"datamodels": dms})
     fake_studio.execute_luau, fake_studio.list_studios, fake_studio.call = execute_luau, list_studios, call
+    return seen
+
+
+async def test_multiplayer_start_selects_server_window(fake_studio, monkeypatch):
+    seen = _multi_windows(fake_studio, monkeypatch)
     md = _text(await ms.mcp.call_tool("multiplayer_start", {"players": 2}))
-    assert "srv-9" in md and ms.STATE["studio_id"] == "srv-9"
+    assert "srv-9" in md and ms.STATE["studio_id"] == "srv-9" and ms.STATE["mode"] == "server"
+    assert ms.STATE["clients"] == ["cl-1", "cl-2"]
+    assert "2/2 player(s) joined" in md and "| client | `cl-2` |" in md
+    start = next(c for c, _ in seen["codes"] if "ExecuteMultiplayerTestAsync" in c)
+    assert "ExecuteMultiplayerTestAsync(2, " in start and seen["codes"][0][1] == "Edit"
+    # the ping that counted players ran in the server window's Server datamodel
+    assert seen["ran_on"][-1] == "srv-9" and seen["codes"][-1][1] == "Server"
+
+
+async def test_multiplayer_start_reports_slow_joins_and_adds_players(fake_studio, monkeypatch):
+    seen = _multi_windows(fake_studio, monkeypatch, n_clients=1, joined=1)
+    md = _text(await ms.mcp.call_tool("multiplayer_start", {"players": 3}))
+    assert "1/3 player(s) joined" in md and "Not everyone joined" in md
+    md = _text(await ms.mcp.call_tool("multiplayer_start", {"players": 2, "add": True}))
+    assert "AddPlayers(2)" in md
+    assert any("AddPlayers(2)" in c and dm == "Server" for c, dm in seen["codes"])
+
+
+async def test_multiplayer_start_reports_immediate_error(fake_studio):
+    fake_studio.playing = False
+
+    async def execute_luau(code, datamodel="Edit", timeout=None):
+        return "error: a test session is already running"
+    fake_studio.execute_luau = execute_luau
+    md = _text(await ms.mcp.call_tool("multiplayer_start", {"players": 2}))
+    assert "already running" in md and "Clients and Servers" in md and "Team Test" in md
+
+
+async def test_harness_calls_route_to_server_window_then_client_relay(fake_studio, monkeypatch):
+    """A Server-DM call that fails on the selected window moves to the window that has a Server
+    datamodel; with no server window at all (Team Test) it relays through a client."""
+    from forge.studio import StudioError
+    windows = {"edit-1": ["Edit"], "srv-9": ["Server"], "cl-1": ["Client"]}
+    ran: list = []
+
+    async def list_studios():
+        return [{"id": k, "name": k} for k in windows]
+
+    async def call(tool, **args):
+        return json.dumps({"datamodels": windows[args["studio_id"]]})
+
+    async def execute_luau(code, datamodel="Edit", timeout=None):
+        ran.append((fake_studio.studio_id, datamodel, "InvokeServer" in code))
+        if datamodel not in windows[fake_studio.studio_id]:
+            raise StudioError(f"no {datamodel} datamodel")
+        return json.dumps({"ok": True, "result": [{"userId": 1, "name": "Friend1", "helmet": 1}]})
+    fake_studio.execute_luau, fake_studio.list_studios, fake_studio.call = execute_luau, list_studios, call
+    fake_studio.studio_id = "edit-1"
+    md = _text(await ms.mcp.call_tool("players", {}))
+    assert "Friend1" in md and ms.STATE["studio_id"] == "srv-9" and ms.STATE["mode"] == "server"
+    assert ran[-1] == ("srv-9", "Server", False)
+    # Team Test: the server window is gone, only a client remains -> relay
+    del windows["srv-9"]
+    fake_studio.studio_id = "edit-1"
+    md = _text(await ms.mcp.call_tool("players", {}))
+    assert "Friend1" in md and ms.STATE["mode"] == "client" and ran[-1] == ("cl-1", "Client", True)
 
 
 async def test_studios_select(fake_studio):
@@ -336,7 +418,7 @@ async def test_stdio_server_lists_and_calls_tools(tmp_path):
     boot = tmp_path / "boot.py"
     boot.write_text(textwrap.dedent(f'''
         import sys, types, json
-        sys.path.insert(0, {str(REPO)!r})
+        sys.path[:0] = [{str(REPO / "mubit-tester")!r}, {str(REPO)!r}]  # this checkout, not an installed copy
         mod = types.ModuleType("mubit_tester.play")
         exec({FAKE_PLAY_SRC!r}, mod.__dict__)
         mod.REPORT = json.loads({__import__("json").dumps(FAKE_REPORT)!r})
@@ -376,6 +458,7 @@ def test_cli_test_mirrors_every_tool():
     for name in CONTRACT_TOOLS:
         req = {"observe": ["1"], "inspect": ["W.X"], "act": ["1", "jump"], "act_all": ["jump"], "teleport": ["1"],
                "set_attr": ["W.X", "Water", "5"], "config": ["Hose", "Range"], "scenario_run": ["smoke"],
+               "queue": ["1"], "mission_end": ["M1"],
                "playtest": ["goal"], "playtest_correct": ["r", "2", "note"], "suggest_fix": ["r"],
                "report": ["r"]}.get(name, [])
         a = p.parse_args(["test", name, *req])

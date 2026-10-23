@@ -1,0 +1,38 @@
+{
+  "name": "squad_parallel",
+  "description": "Two squads on two pads launch (different missions when two are enabled) and run at the same time; each instance is isolated: a fire lit in A is invisible from B (query, observe, events).",
+  "requires": ["players>=2", "LobbyService", "MissionService.StartMission", "tag:SquadPad",
+    {"cmd": "caps", "path": "result.catalog", "op": "len>=", "value": 1, "reason": "MissionCatalog has no enabled mission"}],
+  "steps": [
+    {"label": "lobby mode on", "soft": true, "call": {"cmd": "config", "args": {"module": "LobbyConfig", "key": "UseLobby", "value": true}}},
+    {"label": "catalog", "call": {"cmd": "caps"}, "save": "caps"},
+    {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "p"},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "squad A on pad 1, squad B on pad 2", "parallel": [
+      {"call": {"cmd": "queue", "args": {"userId": "$p.0.userId", "pad": 1}}},
+      {"call": {"cmd": "queue", "args": {"userId": "$p.1.userId", "pad": 2}}}
+    ]},
+    {"label": "A has a squad", "wait_until": {"cmd": "players", "path": "result.0.squadId", "op": "truthy", "timeout": 10}, "save": "sq"},
+    {"label": "B has its own squad", "wait_until": {"cmd": "players", "path": "result.1.squadId", "op": "truthy", "timeout": 10}},
+    {"label": "squads differ", "assert": {"cmd": "players", "path": "result.1.squadId", "op": "!=", "value": "$sq.0.squadId"}},
+    {"label": "launch both at once", "parallel": [
+      {"call": {"cmd": "launch", "args": {"pad": 1, "missionId": "$caps.catalog.0", "wait": 20}}},
+      {"call": {"cmd": "launch", "args": {"pad": 2, "missionId": "$caps.catalog.-1", "wait": 20}}}
+    ]},
+    {"label": "A in an instance", "wait_until": {"cmd": "players", "path": "result.0.instanceId", "op": "truthy", "timeout": 30}, "save": "ia"},
+    {"label": "B in an instance", "wait_until": {"cmd": "players", "path": "result.1.instanceId", "op": "truthy", "timeout": 30}, "save": "ib"},
+    {"label": "different instances", "assert": {"cmd": "players", "path": "result.1.instanceId", "op": "!=", "value": "$ia.0.instanceId"}},
+    {"label": "both running", "assert": {"cmd": "instances", "path": "result", "op": "len>=", "value": 2}},
+    {"label": "neither in results", "assert": {"cmd": "instances", "path": "result.*.state", "op": "!=", "value": "Results"}},
+    {"label": "different missions", "soft": true, "assert": {"cmd": "instances", "args": {"instanceId": "$ib.1.instanceId"}, "path": "result.0.missionId", "op": "!=", "value": "$caps.catalog.0"}},
+    {"label": "fire in A", "call": {"cmd": "ignite", "args": {"near": "$p.0.userId", "radius": 400, "instanceId": "$ia.0.instanceId"}}, "save": "fire"},
+    {"label": "A sees its fire", "wait_until": {"cmd": "query", "args": {"tag": "Burning", "instanceId": "$ia.0.instanceId", "limit": 200}, "path": "result", "op": "contains", "value": {"path": "$fire.path"}, "timeout": 3}},
+    {"label": "B's query can't see it", "assert": {"cmd": "query", "args": {"tag": "Burning", "instanceId": "$ib.1.instanceId", "limit": 200}, "path": "result", "op": "!contains", "value": {"path": "$fire.path"}}},
+    {"label": "B's player can't see it", "assert": {"cmd": "observe", "args": {"userId": "$p.1.userId", "radius": 2000, "max": 50}, "path": "result.things", "op": "!contains", "value": {"path": "$fire.path"}}},
+    {"label": "B's events don't mention A's player", "assert": {"cmd": "events", "args": {"since": "$t0.now", "instanceId": "$ib.1.instanceId", "strict": true}, "path": "result.events", "op": "!contains", "value": "$p.0.name"}},
+    {"label": "end both", "soft": true, "parallel": [
+      {"call": {"cmd": "mission_end", "args": {"instanceId": "$ia.0.instanceId"}}},
+      {"call": {"cmd": "mission_end", "args": {"instanceId": "$ib.1.instanceId"}}}
+    ]}
+  ]
+}

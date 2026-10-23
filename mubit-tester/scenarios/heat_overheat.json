@@ -1,0 +1,27 @@
+{
+  "name": "heat_overheat",
+  "description": "Heat: player A stands in a fire, Heat rises to 100 (overheated) and A goes Downed; teammate B walks over, holds the revive prompt on A and A gets back up.",
+  "requires": ["players>=2", "HeatService"],
+  "steps": [
+    {"label": "players spawned", "wait_until": {"cmd": "players", "path": "result.*.health", "op": ">", "value": 0, "timeout": 20}, "save": "p"},
+    {"label": "start a mission for both", "soft": true, "call": {"cmd": "mission_start", "args": {"players": ["$p.0.userId", "$p.1.userId"], "wait": 15}}, "save": "m"},
+    {"label": "light a fire near A", "call": {"cmd": "ignite", "args": {"near": "$p.0.userId", "radius": 400}}, "save": "fire"},
+    {"label": "A into the fire", "call": {"cmd": "teleport", "args": {"userId": "$p.0.userId", "path": "$fire.path"}}},
+    {"label": "baseline", "call": {"cmd": "players", "args": {"userIds": ["$p.0.userId"]}}, "save": "h0"},
+    {"label": "mark events", "call": {"cmd": "events"}, "save": "t0"},
+    {"label": "Heat rises", "wait_until": {"cmd": "players", "args": {"userIds": ["$p.0.userId"]}, "path": "result.0.heat", "op": "increased", "from": "$h0.0.heat", "timeout": 10}},
+    {"label": "overheated", "wait_until": {"timeout": 45, "interval": 1, "any": [
+      {"cmd": "players", "args": {"userIds": ["$p.0.userId"]}, "path": "result.0.heat", "op": ">=", "value": 100},
+      {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["overheated"]}, "path": "result.events", "op": "len>=", "value": 1}
+    ]}},
+    {"require": ["SquadService"], "label": "downed/revive implemented?"},
+    {"label": "A downed", "wait_until": {"cmd": "players", "args": {"userIds": ["$p.0.userId"]}, "path": "result.0.downed", "op": "truthy", "timeout": 10}},
+    {"label": "put the fire out", "soft": true, "call": {"cmd": "extinguish", "args": {"all": true}}},
+    {"label": "B next to A", "call": {"cmd": "teleport", "args": {"userId": "$p.1.userId", "to": "$p.0.userId", "offset": [3, 0, 0]}}},
+    {"wait": 0.5},
+    {"label": "B revives A", "act": {"player": "$p.1.userId", "action": "interact", "args": {"target_player": "$p.0.userId"}}},
+    {"label": "A back up", "wait_until": {"cmd": "players", "args": {"userIds": ["$p.0.userId"]}, "path": "result.0.downed", "op": "falsy", "timeout": 15}},
+    {"label": "revived logged", "soft": true, "assert": {"cmd": "events", "args": {"since": "$t0.now", "kinds": ["revived"]}, "path": "result.events", "op": "len>=", "value": 1}},
+    {"label": "end mission", "soft": true, "call": {"cmd": "mission_end", "args": {"player": "$p.0.userId"}}}
+  ]
+}
