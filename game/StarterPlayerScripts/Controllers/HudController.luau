@@ -852,6 +852,7 @@ end
 -- per-frame refresh -------------------------------------------------------------------------
 
 local lastTick = -1
+local wasInRound = false
 local heatAlarmAt = 0
 local wasDowned = false
 
@@ -866,6 +867,11 @@ local function refresh(t: number)
 	local from = myPos()
 
 	u.timerPill.Visible = inRound
+	if inRound ~= wasInRound then
+		-- level-up / tier-up cards wait for the end of the call: mid-fire they landed on the heat warning
+		wasInRound = inRound
+		HudLayout.setBusy("OnCall", inRound)
+	end
 	local pulse = u.timerPill:FindFirstChild("Pulse") :: UIScale?
 	if state == "Alarm" then
 		u.timer.Text = "ALARM"

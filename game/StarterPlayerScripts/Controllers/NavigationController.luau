@@ -548,7 +548,8 @@ local function updateEdge(pos: Vector3?, distance: number)
 	local k = 1 / math.sqrt((dx / rx) ^ 2 + (dy / ry) ^ 2)
 	e.root.Visible = true
 	-- off the HUD panels on that edge (guide card, gauges, chips): slide in toward the centre
-	local ex, ey = HudLayout.clear(cx + dx * k, cy + dy * k, 38, "NavEdge", HudLayout.Prio.Nav)
+	-- 48: the circle plus the distance label hanging under it
+	local ex, ey = HudLayout.clear(cx + dx * k, cy + dy * k, 48, "NavEdge", HudLayout.Prio.Nav)
 	e.root.Position = UDim2.fromOffset(ex, ey)
 	local pivot = e.root:FindFirstChild("Pivot") :: Frame?
 	if pivot then
