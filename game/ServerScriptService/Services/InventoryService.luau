@@ -23,7 +23,7 @@
 --          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string)
 --          kinds: "grab", "drop", "throw", "bonk", "fumble", "supply", "snap", "stow"
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
---   (attr Item), TruckRefill (the reel: nozzle), Hydrant (supply line), Truck (attrs OwnerUserId, Water,
+--   (attr Item), TruckRefill (the reel: nozzle), Hydrant ([E] hose off it, infinite water; [R] supply line to a truck = infinite tank), Truck (attrs OwnerUserId, Water,
 --   TankSize), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
@@ -36,7 +36,7 @@
 -- Counters: inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,
 --   inv_hose_stowed, inv_supply_lines, inv_supply_snaps, inv_props_carried, inv_restocks
 -- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),
---   _fumble(player), _reel(player, reel?), _hydrant(player, hydrant)
+--   _fumble(player), _reel(player, reel?), _hydrant(player, hydrant), _hydrantHose(player, hydrant)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -1211,9 +1211,44 @@ local function onHydrant(player: Player, hydrant: BasePart)
 	rope.Parent = hydrant
 	supplies[hydrant] = { hydrant = hydrant, truck = truck, rope = rope, a0 = a0, a1 = a1, by = player }
 	truck:SetAttribute("SupplyLine", true)
+	-- a hydrant is infinite water: the truck tops up at once and stays full while hooked up
+	truck:SetAttribute(Names.Attr.Water, truck:GetAttribute(Names.Attr.TankSize) or Cfg.TruckTankSize)
+	mirrorTank(truck)
 	Telemetry.count("inv_supply_lines")
 	fx("supply", hydrant.Position, "")
-	Popup.show(player, "Supply line on! Filling the truck", "good", player)
+	Popup.show(player, "Supply line on! Infinite water", "good", player)
+end
+
+-- [E] on a hydrant: a hose line straight off it (infinite water); again to put it back
+local function onHydrantHose(player: Player, hydrant: BasePart)
+	local ps = stateOf(player)
+	syncHeld(player, ps)
+	if not Net.near(player, hydrant.Position, 14) then
+		return
+	end
+	local hand = ps.hand
+	if hand and hand.id == "Hose" and hand.data.reel == hydrant then
+		ps.hand = nil
+		apply(player, ps)
+		fx("stow", hydrant.Position, "Hose")
+		say(player, ps, "Hose back on the hydrant")
+		return
+	end
+	local holder = reelHolder[hydrant]
+	if holder and holder ~= player and holder.Parent then
+		say(player, ps, `{holder.DisplayName} has this hydrant!`)
+		return
+	end
+	local lying = reelLoose[hydrant]
+	ensureTank(hydrant)
+	if giveHeld(player, { id = "Hose", data = { reel = hydrant } }) then
+		if lying then
+			removeLoose(lying)
+		end
+		Telemetry.count("inv_hose_hydrant")
+		fx("grab", hydrant.Position, "Hose")
+		say(player, ps, "Hooked to the hydrant: infinite water!", "good")
+	end
 end
 
 local function hookHydrant(inst: Instance)
@@ -1230,10 +1265,27 @@ local function hookHydrant(inst: Instance)
 		return
 	end
 	promptHooked[p] = true
-	p.ActionText = "Supply line"
+	p.ActionText = "Supply line to truck"
+	p.KeyboardKeyCode = Enum.KeyCode.R
+	p.GamepadKeyCode = Enum.KeyCode.ButtonY
 	p:SetAttribute("InvHydrant", true)
 	p.Triggered:Connect(function(player: Player)
 		onHydrant(player, hydrant)
+	end)
+	local hose = Instance.new("ProximityPrompt")
+	hose.Name = "HydrantHose"
+	hose.ActionText = "Grab Hose"
+	hose.ObjectText = "Hydrant (infinite water)"
+	hose.KeyboardKeyCode = Enum.KeyCode.E
+	hose.HoldDuration = 0
+	hose.MaxActivationDistance = 10
+	hose.RequiresLineOfSight = false
+	hose.UIOffset = Vector2.new(0, 80)
+	hose:SetAttribute("InvHydrantHose", true)
+	hose.Parent = hydrant
+	promptHooked[hose] = true
+	hose.Triggered:Connect(function(player: Player)
+		onHydrantHose(player, hydrant)
 	end)
 end
 
@@ -1283,6 +1335,12 @@ local function onWaterUsed(player: Player, litres: number)
 	end
 	local tank = tankOf(reel)
 	ensureTank(tank)
+	if reel:HasTag(Names.Tag.Hydrant) or tank:GetAttribute("SupplyLine") == true then
+		-- straight off a hydrant (or a truck hooked up to one): never runs dry
+		tank:SetAttribute(Names.Attr.Water, tank:GetAttribute(Names.Attr.TankSize))
+		mirrorTank(tank)
+		return
+	end
 	local water = (tank:GetAttribute(Names.Attr.Water) :: number?) or 0
 	local left = ItemDefs.drawWater(water, litres)
 	tank:SetAttribute(Names.Attr.Water, left)
@@ -1613,6 +1671,10 @@ function InventoryService:_reel(player: Player, reel: BasePart?): boolean
 	end
 	onReel(player, r)
 	return InventoryService:GetHand(player) == "Hose"
+end
+
+function InventoryService:_hydrantHose(player: Player, hydrant: BasePart)
+	onHydrantHose(player, hydrant)
 end
 
 function InventoryService:_hydrant(player: Player, hydrant: BasePart)
