@@ -2757,7 +2757,7 @@ local function waitAlive(p: any, timeout: number): (Model?, Humanoid?, BasePart?
 	return nil, nil, nil
 end
 
--- teleport_stage {userId, stage}: stand the player on top of the checkpoint tagged Stage = stage, so a tester
+-- teleport_stage {userId, stage, set_stage?}: stand the player on top of the checkpoint tagged Stage = stage, so a tester
 -- can start anywhere on a long course instead of walking it from stage 1.
 local function teleportStage(args)
 	local p = playerArg(args)
@@ -2775,6 +2775,19 @@ local function teleportStage(args)
 		table.sort(have)
 		error(string.format("no checkpoint with Stage %s (%d parts tagged %s%s)", tostring(args.stage), count,
 			OBBY_CHECKPOINT, if #have > 0 then string.format(", stages %s..%s", tostring(have[1]), tostring(have[#have])) else ""), 0)
+	end
+	-- A teleport is a test fixture ("a save at stage N"): set the player's progress to match where they will
+	-- stand. Obbies only count the next checkpoint by design, so without this Stage stays behind and testers
+	-- filed "far checkpoints don't update Stage" as a bug, which a fixer then "fixed" into a stage-skip exploit.
+	if args.set_stage ~= false then
+		local kit = game:GetService("ReplicatedStorage"):FindFirstChild("Kit")
+		local mod = kit and kit:FindFirstChild("ObbyKit")
+		if mod and mod:IsA("ModuleScript") then
+			local okReq, ObbyKit = pcall(require, mod)
+			if okReq and type(ObbyKit) == "table" and type(ObbyKit.setStage) == "function" then
+				pcall(ObbyKit.setStage, p, stage)
+			end
+		end
 	end
 	local old = p.Character
 	local oldHum = old and old:FindFirstChildOfClass("Humanoid")
