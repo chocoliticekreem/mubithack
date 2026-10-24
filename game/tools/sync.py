@@ -14,13 +14,23 @@ Mapping (same as Script Sync):
   Roots: ServerScriptService, ReplicatedStorage, StarterPlayerScripts (StarterPlayer.StarterPlayerScripts),
   ServerStorage, StarterGui, Workspace (only those present on disk).
 
-Library: check(root), write_manifest(root), serve_in_thread(root, port), pull_luau(port, prune=True).
+Incremental: each manifest entry carries the file's content `hash` and byte `size`. Every synced
+script in Studio keeps ForgeHash/ForgeLen attributes, so a pull skips each file whose hash and length
+already match, and fetches only the changed ones. With pull_luau(manifest=..., inline=...) the
+manifest and the changed sources travel inside the execute_luau call itself: one MCP round trip and
+no HTTP at all. Files that weren't inlined but did change are still fetched over HTTP.
+
+Library: check(root), write_manifest(root), manifest_entries(root), serve_in_thread(root, port),
+pull_luau(port, prune=True, manifest=None, inline=None), changed_paths(entries, pushed),
+inline_plan(root, entries, pushed, budget), long_string(text).
 """
 from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +48,8 @@ ROOTS = [
     "Workspace",
 ]
 TAG = "ForgeManaged"
+# Bytes of changed source sent inside one execute_luau call; the rest goes over HTTP.
+INLINE_BUDGET = 1_500_000
 
 
 # ---------------------------------------------------------------------------- files / mapping
@@ -68,18 +80,31 @@ def classify(fname: str) -> tuple[str, str]:
     return fname[: -len(".luau")], "ModuleScript"
 
 
+def file_hash(data: bytes) -> str:
+    """Short content hash of a file's bytes (what the ForgeHash attribute holds in Studio)."""
+    return hashlib.sha1(data).hexdigest()[:16]
+
+
+def _text(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
 def manifest_entries(root: Path) -> list[dict]:
     root = Path(root)
     entries = []
     for p in iter_files(root):
         rel = p.relative_to(root).parts
         name, cls = classify(rel[-1])
+        data = p.read_bytes()
         entries.append({
             "service": rel[0],
             "dirs": list(rel[1:-1]),
             "name": name,
             "class": cls,
             "path": "/".join(rel),
+            "hash": file_hash(data),
+            # length of the Source string Studio will hold; a hand edit in Studio changes it
+            "size": len(_text(data).encode("utf-8")),
         })
     return entries
 
@@ -90,6 +115,40 @@ def write_manifest(root: Path) -> Path:
     out = root / "tools" / "manifest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest_entries(root), indent=1) + "\n")
+    return out
+
+
+def hashes(entries: list[dict]) -> dict[str, str]:
+    """{path: hash} of a manifest."""
+    return {e["path"]: str(e.get("hash", "")) for e in entries}
+
+
+def changed_paths(entries: list[dict], pushed: dict[str, str] | None) -> dict[str, list[str]]:
+    """Compare a manifest with the {path: hash} last pushed -> {"changed", "added", "removed"}.
+    With no record of a push (None or {}) every file counts as added."""
+    pushed = pushed or {}
+    now = hashes(entries)
+    return {
+        "changed": sorted(p for p, h in now.items() if p in pushed and pushed[p] != h),
+        "added": sorted(p for p in now if p not in pushed),
+        "removed": sorted(p for p in pushed if p not in now),
+    }
+
+
+def inline_plan(root: Path, entries: list[dict], pushed: dict[str, str] | None,
+                budget: int = INLINE_BUDGET) -> dict[str, str]:
+    """Sources to send inside the execute_luau call: changed and added files, smallest first, up to
+    `budget` bytes in total. Files left over are fetched over HTTP by the pull script."""
+    d = changed_paths(entries, pushed)
+    want = set(d["changed"]) | set(d["added"])
+    sizes = {e["path"]: int(e.get("size", 0)) for e in entries if e["path"] in want}
+    out: dict[str, str] = {}
+    used = 0
+    for path in sorted(sizes, key=lambda p: (sizes[p], p)):
+        if used + sizes[path] > budget:
+            break
+        out[path] = _text((Path(root) / path).read_bytes())
+        used += sizes[path]
     return out
 
 
@@ -152,14 +211,31 @@ def serve_in_thread(root: Path, port: int) -> ThreadingHTTPServer:
 
 # ---------------------------------------------------------------------------- pull (Luau)
 
+def long_string(text: str) -> str:
+    """`text` as a Luau long-bracket literal ([==[...]==]) whose level never occurs inside it."""
+    level = 0
+    while True:
+        close = "]" + "=" * level + "]"
+        # the closer must not occur inside the text, nor start inside its tail ("…]" + "]]")
+        if (text + close).find(close) == len(text):
+            break
+        level += 1
+    eq = "=" * level
+    # a newline right after the opening bracket is dropped by Luau, so always add one
+    return f"[{eq}[\n{text}]{eq}]"
+
+
 _PULL_TEMPLATE = r'''-- GENERATED by game/tools/sync.py pull_luau(port=__PORT__, prune=__PRUNE__). Do not edit by hand.
 -- Run via Studio MCP execute_luau (Edit datamodel) while `sync.py serve` is running.
+-- Skips every script whose ForgeHash/ForgeLen attributes match the manifest; fetches only changed files.
 local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
 local BASE = "http://127.0.0.1:__PORT__/"
 local PRUNE = __PRUNE__
 local TAG = "ForgeManaged"
 local ROOTS = { "ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts", "ServerStorage", "StarterGui", "Workspace" }
+local MANIFEST_JSON: string? = __MANIFEST__
+local INLINE_JSON: string? = __INLINE__
 
 local function rootOf(service: string): Instance?
 	if service == "StarterPlayerScripts" then
@@ -204,8 +280,9 @@ end
 local was = HttpService.HttpEnabled
 HttpService.HttpEnabled = true
 local ok, result = pcall(function()
-	local manifest = HttpService:JSONDecode(fetch("tools/manifest.json"))
-	local n, changed, pruned = 0, {}, {}
+	local manifest = HttpService:JSONDecode(if MANIFEST_JSON then MANIFEST_JSON else fetch("tools/manifest.json"))
+	local inline = if INLINE_JSON then HttpService:JSONDecode(INLINE_JSON) else {}
+	local n, skipped, fetched, changed, pruned = 0, 0, 0, {}, {}
 	local keep: { [Instance]: boolean } = {}
 	for _, e in manifest do
 		local parent = rootOf(e.service)
@@ -221,27 +298,40 @@ local ok, result = pcall(function()
 			end
 			parent = f
 		end
-		local src = fetch(e.path)
 		local inst = findScript(parent, e.name)
 		if inst and inst.ClassName ~= e.class then
 			inst:Destroy()
 			inst = nil
 		end
-		local created = false
-		if not inst then
-			inst = Instance.new(e.class)
-			inst.Name = e.name
-			created = true
-		end
-		if (inst :: any).Source ~= src then
-			(inst :: any).Source = src
-			table.insert(changed, e.path)
+		if inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
+			and inst:GetAttribute("ForgeLen") == e.size and #(inst :: any).Source == e.size then
+			skipped += 1
+		else
+			local src = inline[e.path]
+			if src == nil then
+				src = fetch(e.path)
+				fetched += 1
+			end
+			local created = false
+			if not inst then
+				inst = Instance.new(e.class)
+				inst.Name = e.name
+				created = true
+			end
+			if (inst :: any).Source ~= src then
+				(inst :: any).Source = src
+				table.insert(changed, e.path)
+			end
+			if e.hash then
+				inst:SetAttribute("ForgeHash", e.hash)
+				inst:SetAttribute("ForgeLen", #src)
+			end
+			if created then
+				inst.Parent = parent
+			end
 		end
 		CollectionService:AddTag(inst, TAG)
-		if created then
-			inst.Parent = parent
-		end
-		keep[inst] = true
+		keep[inst :: Instance] = true
 		n += 1
 	end
 	if PRUNE then
@@ -269,16 +359,25 @@ local ok, result = pcall(function()
 	if #pruned > 0 then
 		msg ..= "; pruned: " .. table.concat(pruned, ", ")
 	end
-	return msg
+	return msg .. "; skipped " .. skipped .. ", fetched " .. fetched
 end)
 HttpService.HttpEnabled = was
 return (if ok then "OK " else "ERROR ") .. tostring(result)
 '''
 
 
-def pull_luau(port: int = DEFAULT_PORT, prune: bool = True) -> str:
-    """Luau source for execute_luau (Edit DM) that pulls ROOT from serve_in_thread(ROOT, port)."""
-    return _PULL_TEMPLATE.replace("__PORT__", str(int(port))).replace("__PRUNE__", "true" if prune else "false")
+def pull_luau(port: int = DEFAULT_PORT, prune: bool = True, manifest: list[dict] | None = None,
+              inline: dict[str, str] | None = None) -> str:
+    """Luau source for execute_luau (Edit DM) that pulls ROOT from serve_in_thread(ROOT, port).
+
+    manifest: send the manifest inside the script instead of fetching tools/manifest.json.
+    inline: {path: source} sent inside the script; those files are never fetched over HTTP.
+    """
+    man = long_string(json.dumps(manifest, separators=(",", ":"))) if manifest is not None else "nil"
+    inl = long_string(json.dumps(inline, separators=(",", ":"))) if inline else "nil"
+    src = _PULL_TEMPLATE.replace("__PORT__", str(int(port))).replace("__PRUNE__", "true" if prune else "false")
+    # one pass, so placeholder words inside the inserted sources are never replaced
+    return re.sub(r"__MANIFEST__|__INLINE__", lambda m: man if m.group(0) == "__MANIFEST__" else inl, src)
 
 
 # ---------------------------------------------------------------------------- CLI

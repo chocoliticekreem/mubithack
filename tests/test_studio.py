@@ -201,6 +201,176 @@ async def test_a_brief_studio_dropout_is_retried(monkeypatch):
     assert await s.execute_luau("return 1") == "ok"
 
 
+def _studios(*names):
+    body = ",".join(f'{{"id":"id-{n}","name":"{n}.rbxlx"}}' for n in names)
+    return FakeResult([TextContent(text=f'{{"studios":[{body}]}}')])
+
+
+async def test_select_prefers_an_exact_name_over_a_prefix():
+    s = _fake_studio({"list_roblox_studios": _studios("Forge-agents-21", "Forge-agents-2", "Forge-agents-22")})
+    assert await s.select("Forge-agents-2") == "id-Forge-agents-2"
+    assert await s.select("forge-agents-21.rbxlx") == "id-Forge-agents-21"
+    assert await s.select("agents-22") == "id-Forge-agents-22"
+
+
+def _sync_studio(tmp_path, pulls):
+    def execute(args):
+        pulls.append(args["code"])
+        return FakeResult([TextContent(text="OK 2 files, changed: x; skipped 0, fetched 0")])
+    s = _fake_studio({
+        "get_studio_state": FakeResult([TextContent(text='{"datamodels":["Edit"]}')]),
+        "execute_luau": execute,
+    })
+    s.studio_id = "s1"
+    return s
+
+
+def _game(tmp_path):
+    root = tmp_path / "game"
+    (root / "ReplicatedStorage").mkdir(parents=True)
+    (root / "ServerScriptService").mkdir()
+    (root / "ReplicatedStorage" / "Config.luau").write_text("return { A = 1 }\n")
+    (root / "ServerScriptService" / "Main.server.luau").write_text("print('main')\n")
+    return root
+
+
+async def test_incremental_sync_inlines_only_changed_files(tmp_path):
+    root = _game(tmp_path)
+    pulls: list[str] = []
+    s = _sync_studio(tmp_path, pulls)
+    try:
+        await s.sync(root, 0)
+        assert "return { A = 1 }" in pulls[-1] and "print('main')" in pulls[-1]  # cold: everything inline
+        assert "local INLINE_JSON: string? = nil" not in pulls[-1]
+        assert s.pushed(root) is not None and len(s.pushed(root)) == 2
+
+        await s.sync(root, 0)  # nothing changed: manifest only, no sources
+        assert "local INLINE_JSON: string? = nil" in pulls[-1]
+        assert "local MANIFEST_JSON: string? = nil" not in pulls[-1]
+
+        (root / "ReplicatedStorage" / "Config.luau").write_text("return { A = 2 }\n")
+        await s.sync(root, 0)
+        assert "return { A = 2 }" in pulls[-1] and "print('main')" not in pulls[-1]
+        assert len(s._servers) == 1  # one long-lived file server, not one per sync
+
+        await s.sync(root, 0, incremental=False)  # the original path: manifest + files over HTTP
+        assert "local MANIFEST_JSON: string? = nil" in pulls[-1]
+    finally:
+        await s.__aexit__(None, None, None)
+
+
+async def test_failed_sync_forgets_what_was_pushed(tmp_path):
+    root = _game(tmp_path)
+    s = _fake_studio({
+        "get_studio_state": FakeResult([TextContent(text='{"datamodels":["Edit"]}')]),
+        "execute_luau": FakeResult([TextContent(text="ERROR HttpService is not allowed")]),
+    })
+    s.studio_id = "s1"
+    try:
+        assert (await s.sync(root, 0)).startswith("ERROR")
+        assert s.pushed(root) is None
+    finally:
+        await s.__aexit__(None, None, None)
+
+
+async def test_sync_falls_back_to_a_free_port_when_taken(tmp_path):
+    import socket
+    root = _game(tmp_path)
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    taken = blocker.getsockname()[1]
+    pulls: list[str] = []
+    s = _sync_studio(tmp_path, pulls)
+    try:
+        await s.sync(root, taken)
+        (port,) = s._servers
+        assert port != taken and f"127.0.0.1:{port}/" in pulls[-1]
+    finally:
+        blocker.close()
+        await s.__aexit__(None, None, None)
+
+
+def test_module_state_vars():
+    src = "local M = {}\nlocal cache = {}\nlocal count = 0\nlocal CONST = { a = 1 }\n" \
+          "local function f() local inner = {} end\nreturn M\n"
+    assert st.module_state_vars(src) == ["cache", "count"]
+    assert st.module_state_vars("local M = {}\nfunction M.f() end\nreturn M\n") == []
+
+
+def test_hot_reload_plan():
+    entries = [
+        {"path": "ServerScriptService/Logic.luau", "service": "ServerScriptService", "class": "ModuleScript"},
+        {"path": "ServerScriptService/Stateful.luau", "service": "ServerScriptService", "class": "ModuleScript"},
+        {"path": "ServerScriptService/Main.server.luau", "service": "ServerScriptService", "class": "Script"},
+        {"path": "ReplicatedStorage/Shared.luau", "service": "ReplicatedStorage", "class": "ModuleScript"},
+        {"path": "ServerStorage/New.luau", "service": "ServerStorage", "class": "ModuleScript"},
+    ]
+    sources = {"ServerScriptService/Logic.luau": "local M = {}\nreturn M\n",
+               "ServerScriptService/Stateful.luau": "local M = {}\nlocal plots = {}\nreturn M\n"}
+    plan = st.hot_reload_plan(entries, [e["path"] for e in entries] + ["ServerScriptService/Gone.luau"],
+                              sources, added=["ServerStorage/New.luau"])
+    assert [e["path"] for e in plan["reload"]] == ["ServerScriptService/Logic.luau"]
+    why = dict(plan["restart"])
+    assert set(why) == {"ServerScriptService/Stateful.luau", "ServerScriptService/Main.server.luau",
+                        "ReplicatedStorage/Shared.luau", "ServerStorage/New.luau", "ServerScriptService/Gone.luau"}
+    assert "plots" in why["ServerScriptService/Stateful.luau"]
+
+
+async def test_hot_reload_sends_only_reloadable_modules(tmp_path):
+    root = tmp_path / "game"
+    (root / "ServerScriptService").mkdir(parents=True)
+    logic = root / "ServerScriptService" / "Logic.luau"
+    logic.write_text("local M = {}\nfunction M.f() return 1 end\nreturn M\n")
+    pulls: list[str] = []
+    s = _sync_studio(tmp_path, pulls)
+    try:
+        assert (await s.hot_reload(root))["restart"]  # nothing synced yet
+        await s.sync(root, 0)
+        logic.write_text("local M = {}\nfunction M.f() return 2 end\nreturn M\n")
+        s._session.replies["execute_luau"] = lambda a: (pulls.append(a["code"]), FakeResult(
+            [TextContent(text='{"ServerScriptService/Logic.luau":"reloaded 1"}')]))[1]
+        res = await s.hot_reload(root)
+        assert res["restart"] == [] and res["reloaded"] == {"ServerScriptService/Logic.luau": "reloaded 1"}
+        assert "return 2" in pulls[-1] and s._session.calls[-1][1]["datamodel_type"] == "Server"
+        (root / "ServerScriptService" / "Main.server.luau").write_text("print(1)\n")
+        res = await s.hot_reload(root)
+        assert res["reloaded"] == {} and res["restart"]
+    finally:
+        await s.__aexit__(None, None, None)
+
+
+async def test_wait_ready_parses_and_never_raises(monkeypatch):
+    s = _fake_studio({"execute_luau": FakeResult([TextContent(text='{"ready":true,"reason":"ServerBooted"}')])})
+    s.studio_id = "s1"
+    assert (await s.wait_ready(5))["ready"] is True
+    assert s._session.calls[-1][1]["datamodel_type"] == "Server"
+    s._session.replies["execute_luau"] = FakeResult([TextContent(text="no server")], is_error=True)
+    res = await s.wait_ready(1)
+    assert res["ready"] is False and "no server" in res["error"]
+
+
+async def test_transport_loss_reconnects_once(monkeypatch):
+    import anyio
+    calls = {"n": 0}
+
+    def flaky(args):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise anyio.ClosedResourceError()
+        return FakeResult([TextContent(text="ok")])
+    s = _fake_studio({"execute_luau": flaky})
+    s.studio_id = "s1"
+    s._stack = object()  # pretend we own a connection
+
+    async def fake_reconnect():
+        s.reconnects += 1
+    monkeypatch.setattr(s, "reconnect", fake_reconnect)
+    assert await s.execute_luau("return 1") == "ok"
+    assert s.reconnects == 1
+    assert [t for t, _ in s.timings] == ["execute_luau", "execute_luau"]
+
+
 async def test_a_real_error_is_not_retried(monkeypatch):
     monkeypatch.setattr(st, "DROPOUT_WAIT_SECONDS", 0)
     s = _fake_studio({

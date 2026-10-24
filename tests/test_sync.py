@@ -82,7 +82,7 @@ def test_manifest_mapping(tmp_path):
     }
     assert entries["ServerScriptService/Main.server.luau"] == {
         "service": "ServerScriptService", "dirs": [], "name": "Main", "class": "Script",
-        "path": "ServerScriptService/Main.server.luau",
+        "path": "ServerScriptService/Main.server.luau", "hash": sync.file_hash(b""), "size": 0,
     }
     nested = entries["ServerScriptService/Services/Round/RoundService.luau"]
     assert nested["dirs"] == ["Services", "Round"]
@@ -144,4 +144,72 @@ def test_checked_in_pull_luau_is_current():
 ])
 def test_runtime_luau_compiles(rel):
     r = _compile(GAME / rel)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ---------------------------------------------------------------------------- incremental sync
+
+def test_manifest_hash_tracks_content(tmp_path):
+    p = _write(tmp_path, "ReplicatedStorage/A.luau", "return 1\n")
+    h1 = sync.manifest_entries(tmp_path)[0]["hash"]
+    p.write_text("return 2\n")
+    e = sync.manifest_entries(tmp_path)[0]
+    assert e["hash"] != h1 and e["hash"] == sync.file_hash(b"return 2\n")
+    p.write_text("return 'é'\n")  # size is the UTF-8 byte length Studio's #Source reports
+    assert sync.manifest_entries(tmp_path)[0]["size"] == len("return 'é'\n".encode())
+
+
+def test_changed_paths():
+    entries = [{"path": "a", "hash": "1"}, {"path": "b", "hash": "2"}, {"path": "c", "hash": "3"}]
+    assert sync.changed_paths(entries, {"a": "1", "b": "X", "gone": "9"}) == {
+        "changed": ["b"], "added": ["c"], "removed": ["gone"]}
+    assert sync.changed_paths(entries, None) == {"changed": [], "added": ["a", "b", "c"], "removed": []}
+    assert sync.changed_paths(entries, sync.hashes(entries)) == {"changed": [], "added": [], "removed": []}
+
+
+def test_inline_plan_sends_only_changes_within_budget(tmp_path):
+    _write(tmp_path, "ReplicatedStorage/Small.luau", "return 1\n")
+    _write(tmp_path, "ReplicatedStorage/Big.luau", "return '" + "x" * 500 + "'\n")
+    _write(tmp_path, "ServerScriptService/Same.server.luau", "print(1)\n")
+    entries = sync.manifest_entries(tmp_path)
+    # nothing pushed yet: everything that fits, smallest first
+    assert set(sync.inline_plan(tmp_path, entries, None)) == {e["path"] for e in entries}
+    assert set(sync.inline_plan(tmp_path, entries, None, budget=20)) == {
+        "ReplicatedStorage/Small.luau", "ServerScriptService/Same.server.luau"}
+    pushed = sync.hashes(entries)
+    assert sync.inline_plan(tmp_path, entries, pushed) == {}
+    _write(tmp_path, "ReplicatedStorage/Small.luau", "return 2\n")
+    entries = sync.manifest_entries(tmp_path)
+    assert sync.inline_plan(tmp_path, entries, pushed) == {"ReplicatedStorage/Small.luau": "return 2\n"}
+
+
+@pytest.mark.skipif(shutil.which("luau") is None, reason="luau not installed")
+@pytest.mark.parametrize("text", ["plain", "a]]b", "x]=]y]==]z", "", "trailing]", "a]]=", "\nleading newline"])
+def test_long_string_round_trips_through_luau(tmp_path, text):
+    p = tmp_path / "s.luau"
+    p.write_text(f"local s = {sync.long_string(text)}\nprint(#s .. ':' .. s)\n")
+    r = subprocess.run(["luau", str(p)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == f"{len(text.encode())}:{text}\n"
+
+
+def test_pull_luau_inline_manifest(tmp_path):
+    _write(tmp_path, "ReplicatedStorage/A.luau", "-- __MANIFEST__ __INLINE__ ]]\nreturn 1\n")
+    entries = sync.manifest_entries(tmp_path)
+    src = sync.pull_luau(4321, manifest=entries, inline={"ReplicatedStorage/A.luau": "-- __INLINE__\nreturn 1\n"})
+    assert "local MANIFEST_JSON: string? = nil" not in src
+    assert "local INLINE_JSON: string? = nil" not in src
+    assert src.count("__INLINE__") == 1  # only the one inside the embedded source
+    plain = sync.pull_luau(4321)
+    assert "local MANIFEST_JSON: string? = nil" in plain and "local INLINE_JSON: string? = nil" in plain
+    assert 'GetAttribute("ForgeHash") == e.hash' in plain
+
+
+@needs_luau
+def test_pull_luau_with_inline_compiles(tmp_path):
+    _write(tmp_path, "ReplicatedStorage/A.luau", "local s = [[x]] return s\n")
+    entries = sync.manifest_entries(tmp_path)
+    p = tmp_path / "pull.luau"
+    p.write_text(sync.pull_luau(1, manifest=entries, inline=sync.inline_plan(tmp_path, entries, None)))
+    r = _compile(p)
     assert r.returncode == 0, r.stdout + r.stderr
