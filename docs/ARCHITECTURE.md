@@ -353,6 +353,16 @@ def list_reports(settings) -> list[dict]
 async def correct_step(settings, run_id: str, step: int, note: str, *, llm=None) -> dict
     # {run_id, step, before, after, request_id}; a new call in the playtester's Mubit task
 
+# mubit_tester/protocol.py  (QA protocol, docs/TESTER.md; `forge qa`; roles test_planner, step_judge, visual_judge)
+async def qa_test(settings, focus: str | None = None, *, game_dir=None, slug=None, max_steps=12, player=None,
+                  llm=None, studio=None, harness=None, studio_name=None, max_investigations=3,
+                  key_images=4, stop=True) -> dict
+    # report (kind "protocol"): {run_id, test_dir, understand, plan, steps: [{n, action, checks, verdict,
+    #   investigation?, final, screenshot}], acceptance: [{n, text, status}], bugs: [{id, title, severity,
+    #   category, repro, expected, actual, root_cause, screenshots, fix_target}], visual, goal_met, timings}
+async def correct(settings, run_id, step: int, note: str, *, llm=None) -> dict   # 0 plan, n judge, -1 visual
+def complete_json_images(llm, role, user, images, *, session_id, required, max_tokens=2048) -> (dict, LLMResult, int)
+
 # forge/mcp_server.py  (MCPServer "forge", stdio, `forge server`; shipped as the forge plugin: forge-plugin/)
 setup(mubit_api_key=None, install_luau=False, open_place=False) -> str   # guided first run
 doctor() -> str
