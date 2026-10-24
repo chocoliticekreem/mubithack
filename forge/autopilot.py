@@ -1454,6 +1454,8 @@ async def _studio_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Pat
         return m, console, results
     finally:
         ap.broker.release(holder)
+        from forge import headless as hl
+        hl.record("measure", "studio", time.monotonic() - deadline + 1800, slug=ap.slug, note=tag)
 
 
 async def _safe_stop(st: Any) -> None:
