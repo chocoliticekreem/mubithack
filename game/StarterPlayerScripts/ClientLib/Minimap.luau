@@ -455,6 +455,24 @@ function Minimap.new()
 	mapBtn.Activated:Connect(function()
 		self:toggleBig()
 	end)
+	-- the whole minimap is a button too: click / tap anywhere on it to open the big map
+	local mapHit = Instance.new("TextButton")
+	mapHit.Name = "OpenBigMap"
+	mapHit.Size = UDim2.fromScale(1, 1)
+	mapHit.BackgroundTransparency = 1
+	mapHit.Text = ""
+	mapHit.AutoButtonColor = false
+	mapHit.ZIndex = 31
+	mapHit.Parent = root
+	mapHit.Activated:Connect(function()
+		self:toggleBig(true)
+	end)
+	mapHit.MouseEnter:Connect(function()
+		s1.Color = Palette.UiWarn
+	end)
+	mapHit.MouseLeave:Connect(function()
+		s1.Color = Palette.UiInk
+	end)
 
 	-- big map ----------------------------------------------------------------------------------
 	local big = UiKit.screen("NavBigMap", 40)
