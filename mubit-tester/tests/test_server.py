@@ -102,7 +102,7 @@ CONTRACT_TOOLS = [
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports", "swarm",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 ]
 
 

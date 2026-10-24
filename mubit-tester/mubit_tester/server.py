@@ -7,7 +7,7 @@ World:   players, observe, query, inspect, counters, events, errors, console, sc
 Control: act, act_all, teleport, ignite, extinguish, set_attr, config, reset, round.
 Squads:  squads, instances, queue, launch, mission_start, mission_end (lobby, pads, mission instances).
 Testing: scenario_run, scenario_list.
-AI:      playtest, qa_test, explore, swarm, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
+AI:      playtest, qa_test, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
 
 Extensions: other modules add tools with `register(mcp)` (see `EXTENSIONS` / `load_extensions`),
 e.g. `mubit_tester.studio_bridge.register(mcp)` for the Studio plugin bridge. They may use the
@@ -37,7 +37,6 @@ from __future__ import annotations
 import builtins
 import contextlib
 import importlib
-import inspect as _inspect
 import io
 import json
 import os
@@ -1621,7 +1620,7 @@ TOOL_NAMES = (
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports", "swarm",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 )
 
 load_extensions()

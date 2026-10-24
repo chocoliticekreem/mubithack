@@ -626,6 +626,7 @@ async def _run_tester(tester: dict, *, harness, llm, sem: asyncio.Semaphore, cam
     uid = tester["userId"]
     ev_seen = len(shared.events)
     tester["steps"] = 0
+    say = report.get("_progress")
     for n in range(1, max_steps + 1):
         if time.monotonic() >= deadline:
             break
@@ -696,13 +697,26 @@ async def _run_tester(tester: dict, *, harness, llm, sem: asyncio.Semaphore, cam
             if shot:
                 bug["shot"] = shot
             report["bug_reports"].append(bug)
+            if say:
+                await _say(say, f"{tester['name']} ({tester['label']}) found: {bug['title']}")
         report["steps"].append(step)
         if lane:
             lane.step(step, bug, (run_dir / shot) if (shot and run_dir) else None)
         tester["steps"] = n
+    if say:
+        await _say(say, f"{tester['name']} ({tester['label']}) finished after {tester.get('steps', 0)} steps")
     if lane:
         mine = [b["title"] for b in report["bug_reports"] if b.get("tester") == tester["name"]]
         lane.finish(f"{tester.get('steps', 0)} steps, {len(mine)} bug(s)" + (": " + "; ".join(mine)[:200] if mine else ""))
+
+
+async def _say(say, msg: str) -> None:
+    try:
+        res = say(msg)
+        if asyncio.iscoroutine(res):
+            await res
+    except Exception:  # noqa: BLE001 - progress is best effort
+        pass
 
 
 async def _spawn_bots(harness, testers: list[dict], near: Any) -> None:
@@ -732,7 +746,8 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
                     pool: int = DEFAULT_POOL, max_steps: int = DEFAULT_MAX_STEPS, llm=None, studio=None,
                     harness=None, studio_name: str | None = None, screenshots: bool = True,
                     shot_every: int = SHOT_EVERY, triage: bool = True, stop_play: bool = True,
-                    keep_bots: bool = False, slug: str | None = None, lanes: bool = True) -> dict:
+                    keep_bots: bool = False, slug: str | None = None, lanes: bool = True,
+                    goal: str | None = None, progress=None) -> dict:
     """Run `players` persona testers at once for `minutes`; returns the swarm report."""
     from mubit_tester import ai
 
@@ -744,7 +759,9 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
         llm = llm_mod.make_llm(settings, log_path=run_dir / "calls.jsonl")
     session_id = "swarm-" + run_id
     game = ai.game_context(settings)
-    goal = f"Swarm test: {players} persona testers for {minutes:g} min"
+    if goal:
+        game = {**game, "session_goal": goal}
+    goal = f"Swarm test: {players} persona testers for {minutes:g} min" + (f" toward: {goal}" if goal else "")
     report: dict = {
         "run_id": run_id, "kind": "swarm", "agent_role": TESTER_ROLE, "session_id": session_id, "goal": goal,
         "studio": None, "started": play._now_iso(), "ended": None, "minutes": minutes, "pool": pool,
@@ -755,6 +772,7 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
     report["slug"] = slug
     lanes_root = Path(settings.runs_dir) / slug / "tests"
     play._save_report(settings, report)
+    report["_progress"] = progress
     shared = _Shared()
     stop = asyncio.Event()
     camera: SwarmCamera | None = None
@@ -834,6 +852,7 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
                     await studio.stop()
                 except Exception as e:  # noqa: BLE001
                     report["errors"].append(f"stop play: {_clip(str(e), 200)}")
+    report.pop("_progress", None)
     report["soak"] = shared.soak
     report["shots"] = camera.shots if camera else []
     report["events"] = ai._compact_events(shared.events)[-50:]
