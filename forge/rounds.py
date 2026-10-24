@@ -13,6 +13,7 @@ No LLM calls here.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -233,3 +234,78 @@ def round_line(prev: dict | None, rec: dict) -> str:
     if rec.get("taught"):
         tail.append("taught the fixer: " + "; ".join(rec["taught"][:2]))
     return "; ".join([head] + tail)
+
+
+# ---------------------------------------------------------------- dead ends, carried from build to build
+# The reflector rewrites runs/lessons.md each round, so what one build could never fix lives in its own file:
+# runs/dead_ends.json, one entry per game (its latest rounds). The next build's director and designer read it,
+# and the reflector (a Mubit task) reflects on it with each round's summary.
+
+DEAD_ENDS_FILE = "dead_ends.json"
+DEAD_ENDS_KEEP = 8  # builds remembered
+DEAD_ENDS_LINES = 12  # lines in the block a new build reads
+CHURN_ROUNDS = 3  # a file fixed this many rounds while the score stays flat is a dead end
+
+
+def dead_ends(iterations: list[dict], spec: dict) -> list[str]:
+    """Plain lines on what this build's rounds could not fix, from state.json iterations (newest last)."""
+    its = [it for it in iterations if isinstance(it, dict)]
+    if not its:
+        return []
+    acc = its[-1].get("acceptance") or {}
+    unemitted = list(acc.get("unemitted") or [])
+    out = [f'"{c}" was promised in acceptance but nothing ever counted it ({len(its)} rounds): only promise '
+           "counters the kit or a game script really bumps" for c in unemitted]
+    out += [f'"{c}" stayed 0 through {len(its)} rounds of fixes: design it so a normal playtest triggers it'
+            for c in acc.get("missing") or [] if c not in unemitted]
+    churn: dict[str, int] = {}
+    for it in its:
+        for path in (it.get("fixed") or {}):
+            churn[path] = churn.get(path, 0) + 1
+    scores = [it["score"] for it in its if isinstance(it.get("score"), (int, float))]
+    stuck = [p for p, n in sorted(churn.items(), key=lambda x: -x[1]) if n >= CHURN_ROUNDS]
+    if stuck and scores and max(scores) - min(scores) <= 1:
+        out.append(f"{', '.join(_short(p) for p in stuck[:3])} were rewritten {churn[stuck[0]]} rounds while the "
+                   f"score stayed {_fmt_score(min(scores))}-{_fmt_score(max(scores))}: plan that system simpler "
+                   "from the start")
+    blocked = its[-1].get("blocked_issues") or []
+    if blocked:
+        files = sorted({_short(str(b.get("path", ""))) for b in blocked if isinstance(b, dict)})
+        out.append(f"{len(blocked)} critic issues were on read-only kit files ({', '.join(files[:3])}): ask for "
+                   "those behaviours from game-owned scripts instead")
+    return out[:6]
+
+
+def read_dead_ends(runs_dir: Path) -> list[dict]:
+    try:
+        data = json.loads((Path(runs_dir) / DEAD_ENDS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
+
+
+def record_dead_ends(runs_dir: Path, slug: str, spec: dict, iterations: list[dict]) -> list[str]:
+    """Replace this game's entry with its current dead ends (none: the entry goes). Returns its lines."""
+    lines = dead_ends(iterations, spec)
+    keep = [e for e in read_dead_ends(runs_dir) if e.get("slug") != slug]
+    if lines:
+        keep.append({"slug": slug, "title": str(spec.get("title") or slug), "genre": str(spec.get("genre") or ""),
+                     "rounds": len([it for it in iterations if isinstance(it, dict)]), "lines": lines})
+    path = Path(runs_dir) / DEAD_ENDS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(keep[-DEAD_ENDS_KEEP:], indent=1), encoding="utf-8")
+    return lines
+
+
+def dead_ends_block(runs_dir: Path, exclude: str | None = None) -> str:
+    """The block a new build's director and designer read (newest builds first); "" when there is none."""
+    rows = []
+    for e in reversed(read_dead_ends(runs_dir)):
+        if e.get("slug") == exclude:
+            continue
+        who = e.get("title") or e.get("slug")
+        rows += [f"- {who}{f' ({g})' if (g := e.get('genre')) else ''}: {line}" for line in e.get("lines") or []]
+    if not rows:
+        return ""
+    return ("\n\n## Dead ends from earlier builds (Forge could not fix these in their improvement rounds; "
+            "design around them)\n" + "\n".join(rows[:DEAD_ENDS_LINES]) + "\n")
