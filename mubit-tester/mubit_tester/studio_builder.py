@@ -11,6 +11,8 @@ from pathlib import Path
 from forge import levels, sync
 from forge.loop import UI, new_game, run_game, correct
 from forge.memory import RunStore, unique_slug
+from forge.progress import Progress
+from forge.studio import extract_json
 from mubit_tester.harness import _long_bracket
 
 
@@ -23,6 +25,12 @@ DOING = {'director': 'the game design', 'designer': 'the game plan', 'level_desi
          'reflector': 'saving lessons'}
 PROGRESS_KEYS = ('pct', 'phase', 'step', 'items', 'eta_s')
 POLL_S = 1.0
+# a make_game job's % : build 0-70, install 70-75, improvement rounds 75-99, ready 100
+BUILD_PCT, INSTALL_PCT, ROUNDS_PCT = 70, 75, 99
+STANDARD_SCORE = 7
+MAX_ROUNDS = 5
+HARNESS = re.compile(r'Forge(Test|Probe|TestAgent|Telemetry)\b')
+ROUND_EXPECTED_S = 240.0
 
 
 class BuildProgress(UI):
@@ -219,72 +227,254 @@ async def revise_draft(settings, slug, emit, *, path=None, note=None, llm=None):
     return result
 
 
-def draft_install_code(settings, slug):
-    root = draft_store(settings, slug).game_dir.resolve()
+INSTALL_PRELUDE = r'''
+local files=game:GetService("HttpService"):JSONDecode(__FILES__)
+local function rootFor(service)
+    if service=="StarterPlayerScripts" then
+        local sp=game:GetService("StarterPlayer")
+        return sp:FindFirstChildOfClass("StarterPlayerScripts") or sp:FindFirstChild("StarterPlayerScripts")
+    end
+    local ok,svc=pcall(game.GetService,game,service)
+    return ok and svc or nil
+end
+-- the same lookups as the sync pull script, so this sees exactly the scripts it will write
+local function target(f)
+    local parent=rootFor(f.service)
+    for _,name in f.dirs do
+        if not parent then return nil end
+        local found=nil
+        for _,c in parent:GetChildren() do
+            if c.Name==name and not c:IsA("LuaSourceContainer") then found=c break end
+        end
+        parent=found
+    end
+    if not parent then return nil end
+    for _,c in parent:GetChildren() do
+        if c.Name==f.name and c:IsA("LuaSourceContainer") then return c end
+    end
+    return nil
+end
+local function ours(inst)
+    return inst:GetAttribute("MuMakeGenerated") or inst:GetAttribute("MubitTesterManaged")
+end
+'''
+# MuMakePreflight: the sync overwrites same-named scripts and prunes ForgeManaged ones, so stop before
+# either would touch a script MuMake did not add.
+PREFLIGHT_LUAU = INSTALL_PRELUDE + r'''-- MuMakePreflight
+local Http=game:GetService("HttpService")
+for _,f in files do
+    local t=target(f)
+    if t and not ours(t) then
+        return Http:JSONEncode({ok=false,error="Keep your existing script: "..f.path..". Use an empty local game for this draft."})
+    end
+end
+for _,inst in game:GetService("CollectionService"):GetTagged("ForgeManaged") do
+    if inst:IsA("LuaSourceContainer") and not ours(inst) then
+        return Http:JSONEncode({ok=false,error="This place has scripts synced from another project ("..inst:GetFullName().."). Use an empty local game for this draft."})
+    end
+end
+return Http:JSONEncode({ok=true})
+'''
+MARK_LUAU = INSTALL_PRELUDE + r'''-- MuMakeMark
+local project=__PROJECT__
+local n=0
+for _,f in files do
+    local t=target(f)
+    if t then
+        t:SetAttribute("MuMakeGenerated",true)
+        t:SetAttribute("MuMakeProject",project)
+        n+=1
+    end
+end
+game:GetService("CoreGui"):SetAttribute("MuMakeLoadedGame",__SLUG__)
+return n
+'''
+
+
+def _changed_count(out):
+    found = re.search(r'changed: ([^;]*)', out)
+    if not found or found[1].strip() == 'none':
+        return 0
+    return len([p for p in found[1].split(', ') if p.strip()])
+
+
+async def install_draft(studio, settings, slug, *, place_id=0):
+    """Put a draft into the bound Studio window through forge's chunked sync (Studio.sync): the manifest
+    and small changed files travel inline, the rest is fetched from a local file server, so a big game never
+    hits Studio's 200,000-character limit on one command. Returns {"files", "changed", "summary"}."""
+    if place_id:
+        raise ValueError("Add a draft to an unpublished local game, using the normal sync workflow for published games.")
+    store = draft_store(settings, slug)
+    root = store.game_dir.resolve()
     if not root.is_relative_to(settings.runs_dir.resolve()) or not root.is_dir():
         raise ValueError('This game draft is no longer available')
-    # Use the same path mapping as the existing file-to-Studio sync tool.
-    entries = sync._load().manifest_entries(root)
+    if (await studio.state()).get('playing'):
+        raise ValueError('A playtest is already running. Stop it in Studio first.')
+    if await asyncio.to_thread(sync.check, root):
+        raise ValueError('The draft code has errors. Keep it out of Studio until they are fixed.')
+    entries = sync.manifest_entries(root)
     if not entries:
         raise ValueError('The draft contains no game scripts')
-    for entry in entries:
-        path = (root / entry['path']).resolve()
-        if not path.is_relative_to(root):
-            raise ValueError('A draft script points outside its game folder')
-        entry['source'] = path.read_text()
-    payload = _long_bracket(json.dumps(entries))
-    project = _long_bracket(str(draft_store(settings, slug).load_spec().get('mumake_project', slug)))
-    return f'''
-local files=game:GetService("HttpService"):JSONDecode({payload})
-local project={project}
-local editor=game:GetService("ScriptEditorService")
-local history=game:GetService("ChangeHistoryService")
-local function rootFor(f)
-    if f.service=="StarterPlayerScripts" then return game:GetService("StarterPlayer"):WaitForChild("StarterPlayerScripts") end
-    return game:GetService(f.service)
-end
--- Check every destination before changing any scripts or folders.
-for _,f in files do
-    local parent=rootFor(f)
-    for _,name in f.dirs do
-        parent=parent and parent:FindFirstChild(name)
-        if parent and not parent:IsA("Folder") then error("Existing object blocks draft folder: "..f.path) end
-    end
-    local target=parent and parent:FindFirstChild(f.name)
-    if target then
-        if target.ClassName~=f.class then error("Existing object blocks draft script: "..f.path) end
-        local ownDraft=target:GetAttribute("MuMakeGenerated") and target:GetAttribute("MuMakeProject")==project
-        if not ownDraft and editor:GetEditorSource(target)~=f.source then
-            error("Keep your existing script: "..f.path..". Use an empty local game for this draft.")
-        end
-    end
-end
-local recording
-if not history:IsRecordingInProgress() then
-    recording=history:TryBeginRecording("MuMakeDraft","Add MuMake game draft")
-    if not recording then error("Finish the current Studio operation and try again") end
-end
-local ok,err=pcall(function()
-    for _,f in files do
-        local parent=rootFor(f)
-        for _,name in f.dirs do
-            local child=parent:FindFirstChild(name)
-            if not child then child=Instance.new("Folder") child.Name=name child.Parent=parent end
-            parent=child
-        end
-        local target=parent:FindFirstChild(f.name)
-        local created=target==nil
-        if not target then target=Instance.new(f.class) target.Name=f.name target.Parent=parent end
-        if editor:GetEditorSource(target)~=f.source then editor:UpdateSourceAsync(target,function() return f.source end) end
-        -- Identical existing scripts stay under their original ownership.
-        if created then
-            target:SetAttribute("MuMakeGenerated",true)
-            target:SetAttribute("MuMakeProject",project)
-        end
-    end
-end)
-if recording then history:FinishRecording(recording,ok and Enum.FinishRecordingOperation.Commit or Enum.FinishRecordingOperation.Cancel) end
-if not ok then error(err) end
-game:GetService("CoreGui"):SetAttribute("MuMakeLoadedGame",{_long_bracket(slug)})
-return "Added "..#files.." draft scripts. Press Play in Studio to try the game."
-'''
+    files = _long_bracket(json.dumps([{k: e[k] for k in ('service', 'dirs', 'name', 'path')} for e in entries]))
+    check = extract_json(await studio.execute_luau(PREFLIGHT_LUAU.replace('__FILES__', files, 1)))
+    if not isinstance(check, dict) or not check.get('ok'):
+        raise ValueError((check or {}).get('error') if isinstance(check, dict) else 'Studio did not check the draft')
+    out = str(await studio.sync(root))
+    if not out.startswith('OK'):
+        raise ValueError(f'Studio could not add the draft: {out[:300]}')
+    project = str(store.load_spec().get('mumake_project', slug))
+    await studio.execute_luau(MARK_LUAU.replace('__FILES__', files, 1)
+                              .replace('__PROJECT__', _long_bracket(project), 1)
+                              .replace('__SLUG__', _long_bracket(slug), 1))
+    return {'files': len(entries), 'changed': _changed_count(out), 'summary': out}
+
+
+def build_share(on_progress):
+    """The build's own 0-100 progress as the first BUILD_PCT of a make_game job."""
+    if on_progress is None:
+        return None
+
+    def relay(summary):
+        pct = summary.get('pct')
+        # the build's ETA ends at the build, not at ready
+        on_progress({**summary, 'eta_s': None,
+                     'pct': int(pct * BUILD_PCT / 100) if isinstance(pct, (int, float)) else pct})
+    return relay
+
+
+def _n(count, word):
+    return f'{count} {word}{"" if count == 1 else "s"}'
+
+
+def standard(settings, slug, draft):
+    """Is the latest iteration up to standard: critic score >= STANDARD_SCORE, 0 errors, playtest actually ran?"""
+    its = RunStore(settings, slug).load_state().get('iterations') or []
+    last = its[-1] if its else {}
+    # Forge's own test harness is not the game: its errors never block a game from being ready
+    errors = len([e for e in last.get('errors') or [] if not HARNESS.search(str(e))])
+    score = last.get('score')
+    out = {'ready': False, 'score': score, 'errors': errors, 'fixes': int(last.get('fixes') or 0)}
+    if not draft.get('ready'):
+        out['reason'] = (draft.get('errors') or ['the draft is incomplete'])[0]
+    elif not last:
+        out['reason'] = 'no playtest has run yet'
+    elif last.get('engine') not in {'headless', 'studio'} or 'playtest' in (last.get('failed_steps') or []):
+        out['reason'] = 'the last round could not playtest the game'
+    elif score is None:
+        out['reason'] = 'the critic did not score the last round'
+    elif errors:
+        out['reason'] = f'{_n(errors, "error")} in the last playtest'
+    elif score < STANDARD_SCORE:
+        out['reason'] = f'score {score:g}/10, needs {STANDARD_SCORE}'
+    else:
+        out.update(ready=True, reason=f'score {score:g}/10 with 0 errors')
+    return out
+
+
+class RoundProgress(BuildProgress):
+    """forge's lines during an improvement round; each one also becomes the round's progress step."""
+
+    def __init__(self, emit, step):
+        super().__init__(emit)
+        self._step = step
+
+    def emit(self, message, ok=None):
+        super().emit(message, ok)
+        self._step(message)
+
+    def line(self, tag, label, ok=None, detail=''):
+        if tag != 'done':  # "target reached" is not "finishing your first draft"
+            super().line(tag, label, ok, detail)
+
+
+async def finish_draft(settings, draft, emit, *, install, on_progress=None, llm=None, rounds=MAX_ROUNDS):
+    """After the build: install into Studio, then up to `rounds` improvement rounds (headless playtest, critic,
+    fix), re-installing after each so the window shows the game changing, until standard() is met.
+    `install(slug)` puts the draft into Studio and returns {"files", "changed"}, or raises to say why not."""
+    slug = draft['slug']
+    store = RunStore(settings, slug)
+    ui = BuildProgress(emit)
+    ui.slug = slug
+    feed = ProgressFeed(settings, ui, None, emit, on_progress)
+    try:
+        started = json.loads((store.dir / 'progress.json').read_text()).get('started')
+    except (OSError, ValueError, AttributeError):
+        started = None
+    with Progress(store.dir / 'progress.json', slug, 'improve') as prog:
+        prog.bands.update(install=(BUILD_PCT, INSTALL_PCT), improve=(INSTALL_PCT, ROUNDS_PCT))
+        if isinstance(started, (int, float)):
+            prog.state['started'] = started  # the ETA counts from the start of the build
+        watch = asyncio.create_task(feed.run())
+        try:
+            return await _finish(settings, draft, emit, install, prog, feed, llm, rounds)
+        finally:
+            watch.cancel()
+
+
+async def _finish(settings, draft, emit, install, prog, feed, llm, rounds):
+    slug = draft['slug']
+    studio = {'in': False, 'current': False, 'problem': None}
+
+    def say(text, ok=None):
+        prog.event(text, ok)
+        feed.poll()
+
+    async def put(done_text):
+        try:
+            res = await install(slug)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - not installing never stops the rounds
+            studio.update(current=False, problem=str(error) or type(error).__name__)
+            say(f"Not {'updated' if studio['in'] else 'installed'} in Studio: {studio['problem']}"[:300], False)
+            return
+        studio.update(**{'in': True, 'current': True, 'problem': None})
+        say(done_text(res), True)
+
+    prog.phase('install', 'Installing in Studio')
+    feed.poll()
+    await put(lambda r: f"Installed in Studio: {_n(r['files'], 'script')}")
+    status = standard(settings, slug, draft)
+    prog.phase('improve', 'Checking the first playtest', items=('improvement rounds', rounds),
+               expected_s=ROUND_EXPECTED_S)
+    feed.poll()
+    done, failure = 0, None
+    while not status['ready'] and done < rounds:
+        prefix = f'Round {done + 1} of {rounds}'
+        prog.step(f'{prefix}: playtesting, reviewing and fixing')
+        feed.poll()
+        try:
+            await run_game(slug, iterations=1, use_studio=False, settings=settings, llm=llm,
+                           ui=RoundProgress(emit, lambda m, p=prefix: prog.step(f'{p}: {m}')))
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a failed round ends the rounds, not the job
+            failure = f'{prefix} could not finish: {type(error).__name__}: {error}'[:300]
+            say(failure, False)
+            break
+        done += 1
+        draft = await describe_draft(settings, slug)
+        status = standard(settings, slug, draft)
+        score = f"{status['score']:g}/10" if status['score'] is not None else 'not scored'
+        say(f"{prefix}: score {score}, {_n(status['errors'], 'error')}, fixed {_n(status['fixes'], 'problem')}",
+            True if status['ready'] else None)
+        prog.item_done()
+        prog.step(f'{prefix}: updating Studio')
+        feed.poll()
+        await put(lambda r, p=prefix: f"{p} in Studio: {_n(r['changed'], 'script')} changed")
+    after = f"after {_n(done, 'round')}" if done else 'on the first playtest'
+    reason = status['reason'] if status['ready'] or not failure else failure
+    ready = status['ready'] and studio['current']
+    if status['ready'] and not studio['current']:
+        reason = f"up to standard, but Studio does not have this version: {studio['problem']}"
+    if ready:
+        final = f"Ready: score {status['score']:g}/10 {after}"
+    else:
+        final = f"Not ready {after}: {reason}"
+    prog.done(final[:300], ready)
+    feed.poll()
+    result = dict(draft)
+    result.update(in_studio=studio['in'], studio_current=studio['current'],
+                  standard={'ready': ready, 'reason': reason, 'score': status['score'],
+                            'errors': status['errors'], 'rounds': done})
+    return result

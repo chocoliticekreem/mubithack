@@ -58,12 +58,28 @@ def present_job(job):
               'passed': 'Finished', 'failed': 'Needs a look'}.get(state, 'In progress')
     summary = ''
     checks, issues, actions = [], [], []
-    if operation in DRAFT_OPERATIONS:
+    standard = result.get('standard') if isinstance(result.get('standard'), dict) else None
+    if operation in DRAFT_OPERATIONS and standard and state == 'passed':
+        rounds = int(standard.get('rounds') or 0)
+        played = 'MuMake played and reviewed it' + (
+            f", then ran {rounds} improvement round{'' if rounds == 1 else 's'}" if rounds else '') + '.'
+        pitch = str(result.get('pitch') or '')
+        if standard.get('ready'):
+            status = 'Your game is in Studio and ready'
+            summary = f"{pitch}\n{played} Result: {standard.get('reason')}. Press Play in Studio to try it."
+        elif result.get('in_studio'):
+            status = 'In Studio, not up to standard yet'
+            summary = f"{pitch}\n{played} Not ready: {standard.get('reason')}. Press Play to try it, or run another round."
+        else:
+            status = 'Saved, but not in Studio yet'
+            summary = f"{pitch}\n{played} Not ready: {standard.get('reason')}."
+    elif operation in DRAFT_OPERATIONS:
         if state == 'passed' and result.get('ready'):
             status = 'Your first draft is ready' if operation == 'make_game' else 'Your saved draft is ready'
             summary = str(result.get('pitch') or '') + '\nReview it below, then add it to Studio to try it. It has not been played yet.'
         elif state == 'failed':
-            status, summary = 'The draft needs more work', 'The code is saved, but some parts could not finish. It has not been added to Studio.'
+            status, summary = 'The draft needs more work', 'The code is saved, but some parts could not finish. ' + (
+                'An earlier working version is in Studio.' if result.get('in_studio') else 'It has not been added to Studio.')
     elif operation == 'load_game' and state == 'passed':
         status, summary = 'Added to Studio', 'Press Play in Studio to try your draft. You can undo adding its scripts. It has not been playtested by MuMake yet.'
     elif operation == 'scenario':
@@ -130,7 +146,7 @@ def present_job(job):
             summary = 'MuMake could not finish trying your game. Try again, or open technical details to find out why.'
     if state == 'cancelled':
         status = 'Stopped'
-        summary = 'You stopped this build. Any partial draft stays saved and has not been added to Studio.' if operation in DRAFT_OPERATIONS else 'You stopped this check. Anything it did not finish is still unchecked.'
+        summary = 'You stopped this build. Any partial draft stays saved; Studio keeps whatever was already added.' if operation in DRAFT_OPERATIONS else 'You stopped this check. Anything it did not finish is still unchecked.'
     if state == 'interrupted':
         status = 'Interrupted'
         summary = 'MuMake restarted before this finished. Check Studio has stopped playing before trying again.'

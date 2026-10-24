@@ -48,8 +48,9 @@ ROOTS = [
     "Workspace",
 ]
 TAG = "ForgeManaged"
-# Bytes of changed source sent inside one execute_luau call; the rest goes over HTTP.
-INLINE_BUDGET = 1_500_000
+# Bytes of changed source sent inside one execute_luau call; the rest goes over HTTP. Studio refuses a
+# command whose source is 200,000 characters or more, and JSON escaping grows the sources, so stay well under.
+INLINE_BUDGET = 120_000
 
 
 # ---------------------------------------------------------------------------- files / mapping

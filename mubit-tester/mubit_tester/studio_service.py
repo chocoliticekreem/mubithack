@@ -328,10 +328,19 @@ class Companion:
                 if operation in DRAFT_OPERATIONS | {"load_game", "read_game_file"}:
                     if state.get("playing") and operation not in {'open_game', 'read_game_file'}:
                         raise ValueError("A playtest is already running. Stop it in Studio first.")
-                    from mubit_tester.studio_builder import build_draft, describe_draft, revise_draft, draft_install_code
+                    from mubit_tester.studio_builder import (build_draft, build_share, describe_draft, finish_draft,
+                                                         install_draft, revise_draft)
                     if operation == "make_game":
-                        job["result"] = await build_draft(self.settings, args["idea"], lambda m, ok=None: self.emit(job, m, ok),
-                                                          on_progress=lambda p: self.set_progress(job, p))
+                        emit = lambda m, ok=None: self.emit(job, m, ok)  # noqa: E731
+                        progress = lambda p: self.set_progress(job, p)  # noqa: E731
+                        draft = await build_draft(self.settings, args["idea"], emit, on_progress=build_share(progress))
+
+                        async def install(slug):
+                            installed = await install_draft(studio, self.settings, slug, place_id=identity.get("placeId"))
+                            if job["marker"] in self.sessions:
+                                self.sessions[job["marker"]]["game_slug"] = slug
+                            return installed
+                        job["result"] = await finish_draft(self.settings, draft, emit, install=install, on_progress=progress)
                     elif operation == 'open_game':
                         job['result'] = await describe_draft(self.settings, args['slug'])
                     elif operation in {'iterate_game', 'correct_game'}:
@@ -351,16 +360,11 @@ class Companion:
                             raise ValueError('The script must stay inside the game')
                         job['result'] = {'path': path, 'source': target.read_text()[:24000]}
                     else:
-                        if identity.get("placeId"):
-                            raise ValueError("Add a draft to an unpublished local game, using the normal sync workflow for published games.")
-                        from forge import sync
                         draft = self.jobs[args["source_job"]]["result"]
-                        game_root = self.settings.runs_dir / draft["slug"] / "game"
-                        errors = await asyncio.to_thread(sync.check, game_root)
-                        if errors:
-                            raise ValueError("The draft code has errors. Keep it out of Studio until they are fixed.")
                         self.emit(job, "Adding your draft to this Studio window…")
-                        job["result"] = {"summary": await studio.execute_luau(draft_install_code(self.settings, draft["slug"])),
+                        installed = await install_draft(studio, self.settings, draft["slug"], place_id=identity.get("placeId"))
+                        self.emit(job, f"Installed in Studio: {installed['files']} scripts", True)
+                        job["result"] = {"summary": f"Added {installed['files']} draft scripts. Press Play in Studio to try the game.",
                                          "slug": draft["slug"], "title": draft["title"], "runtime_checked": False}
                         self.sessions[job['marker']]['game_slug'] = draft['slug']
                     self.games_checked = 0.
