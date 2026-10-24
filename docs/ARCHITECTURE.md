@@ -148,6 +148,13 @@ forge/                 Python package (uv), entry point `forge`
                        confidence, evidence[refs], job{kind fix|feature|visual, request, path?}}
   orchestrator.py      `forge orchestrate`: Orchestrator(settings, slug, Options, *, llm, runner, broker, queue,
                        keeper, slots).run() -> {before, after, rounds, stop_reason, budget, queue}
+  evidence.py          one EvidenceStore per autopilot round (items with citable ids + metric series), collectors
+                       (ForgeProbe measurements, history, tests, swarm, checks, calls, ForgeBridge) and the statistical
+                       pre-filter (z-scores, diffs vs the previous version, flat/untouched counters, leaks, stuck, ttfr)
+  autopilot.py         `forge autopilot`: Autopilot(settings, target, AutoOptions, *, llm, runner, measurer, broker,
+                       slots, keeper, maker, clock).run() -> {slug, stop_reason, budget, rounds}; advise(); correct()
+  prompts/anomaly_detector.md  Mubit task: pre-filter candidates + evidence -> anomalies {title, kind, severity, impact,
+                       confidence, evidence[refs], job{kind fix|feature|polish|asset|test, request, path?}}, noise[]
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
   prompts/auditor.md, prompts/verifier.md, prompts/triage.md   Mubit tasks: anomaly detection,
                        fix verification, tester-report triage (improve.file_report)
@@ -247,7 +254,8 @@ Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, .
 (test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
 `triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`, `gap_finder`
-(ranked gaps, forge/gaps.py), `code_judge` (ranked code improvements vs the reference game, forge/compare.py).
+(ranked gaps, forge/gaps.py), `code_judge` (ranked code improvements vs the reference game, forge/compare.py),
+`anomaly_detector` (forge/autopilot.py registers it, like swarm.py its roles).
 
 Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
 `FORGE_FUN_CRITIC=0` skips the fun critic; tests default both off in the root conftest.py):
@@ -484,6 +492,10 @@ forge checks <slug> [--plan [--max N]] [--run [--headless-first]] [--studio S]  
 forge orchestrate <slug> --goal G [--studio P1,P2 | --no-studio] [--workers 4] [--max-calls 300] [--minutes 120]
                   [--rounds 3] [--per-round 4] [--min-rank 2] [--no-checks] [--no-fix-cycle]   # team lead loop
 forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json]  # ranked gap list
+forge autopilot <idea|slug> [--studio P] [--max-calls 250] [--minutes 120] [--rounds 4] [--per-round 3]
+                [--target 8] [--qa-steps 4] [--swarm-players 2] [--swarm-minutes 1] [--no-critic] [--status]
+forge autopilot [<slug>] --correct <id> "<note>"     # correction call in the task that made the finding
+forge autopilot --advise [--root game] [--name N] [--evidence DIR ...]   # read-only report, no edits
 forge queue <slug>                                   # orchestrator jobs, leases, budget
 forge reflect <slug> [--llm]                         # reflection since the last one -> runs/<slug>/reflection/<n>.md
 forge reflect --all                                  # every game summed -> runs/reflection.md
@@ -578,6 +590,50 @@ def correct_gaps(settings, slug, note, *, llm, goal="", reject=None, session_id=
 MCP (forge server): `orchestrate(slug, goal, max_calls, minutes, rounds, workers, per_round, studio,
 use_studio)` (job), `gaps(slug, find, correct, reject, goal)` (job when find/correct, else the latest list),
 `orchestrator(slug)` (queue view). Claude Code skill: `.claude/skills/forge-orchestrate/SKILL.md`.
+
+### Autopilot (forge/autopilot.py, forge/evidence.py)
+```
+make     idea -> loop.new_game (director, compile-only; runs/autopilot-index.json maps idea -> slug, so a rerun
+         resumes) -> GameVersions snapshot -> checks.boot_offline; a script erroring at boot -> loop.correct
+round r  (every phase writes autopilot/rounds/<r>/<phase>.json atomically; a rerun skips written phases)
+observe  current measurement (first round: measure "baseline" and commit it) -> EvidenceStore:
+         evidence.history (iterations + fix cycles) + kept autopilot measurements + this one, tests/swarm since
+         its t0 (until a rolled-back measurement), checks, calls.jsonl health, ForgeBridge events of our place,
+         critic/fun, declared counters (ForgeTelemetry.count("x") + spec first_60s) -> prefilter() candidates
+detect   anomaly_detector (detector_message: goal, spec, pre-filter, evidence, outcomes of earlier findings,
+         rejected ids, previous list, correction) -> parse_anomalies (unknown refs dropped, rank halved);
+         failure -> from_prefilter(). gap_finder with the autopilot evidence inserted first and, when gap jobs
+         were rolled back, that outcome as its correction -> orchestrator/gaps/<n>.json
+decide   candidates(anomalies, gaps): merged when titles are similar (Jaccard >= .5) or the fix file matches;
+         score = impact x confidence x (0.5 without evidence) x (1.25 corroborated: stat:* evidence or both
+         detectors); decide(): per_round, min_rank, max 2 tries per id, developer-rejected ids, one test per
+         round, COST per kind (fix 4, feature 28, visual 22, test 0) against calls left - verify reserve
+act      baseline tag (snapshot) + checks/results.json backup; builds -> Orchestrator workers on JobQueue(autopilot/)
+         (fix + path -> forge correct; feature / visual(polish, asset) -> forge feature -n 1 --polish N) + a verify
+         (compile) job; test decisions become the focus of the next QA run. A resumed round recovers its jobs.
+verify   changed files since the baseline? -> measure "after" (studio_measure: compile, headless boot, checks
+         headless-first + Studio, Run.playtest probe + census + screenshot, qa_test(focus), run_swarm, bridge,
+         critic + fun_critique) -> gate(before, after): rolled_back on compile errors, more boot errors, new
+         runtime errors (numbers normalised), a passing check failing, a core counter dying, critic/fun -1,
+         physics flags +2 -> GameVersions.restore(baseline) + checks backup restored; else kept -> snapshot +
+         commit(): iteration record (report.json, critique.json, screenshot.png, state.json iteration with
+         source "autopilot") + fun/latest.json, so forge done / gaps / dashboard read it
+learn    per decision {round, id, source, request_id, outcome kept|rolled_back|failed|no_change|tested|skipped,
+         why} -> learn.jsonl; rounds.json row (evidence counts, anomalies, gaps, decisions + reasons + outcome,
+         kept/rolled back, scores before/after, what_improved, why) + journal.md
+stop     forge done ready and critic, fun >= target | budget (calls under runs/<slug>/ - calls_base; minutes
+         summed over sessions) | --rounds | nothing picked and nothing changed
+```
+Files (runs/<slug>/autopilot/): state.json, status.json (dashboard: game["autopilot"] = dashboard.autopilot_view),
+rounds/<r>/{observe,detect,decide,act,verify,learn}.json + evidence.json + prefilter.json + measure-<tag>.json +
+<tag>/screenshot.png, rounds.json, journal.md, learn.jsonl, corrections.jsonl (role, kind correction|outcome,
+request_id: forge ledger counts them), rejected.json, queue.json, calls.jsonl; runs/autopilot-<slug>.log.
+`correct(settings, slug, id, note)`: anomaly -> anomaly_detector call with the previous list + CORRECTION_MARK;
+gap -> gaps.correct_gaps(reject=[gap]); the id -> rejected.json. `advise(settings, root, *, llm, name, goal,
+extra_dirs)`: read-only over evidence/<name>*, runs/<name>*, games/<name>/reports/*.md and the source ->
+runs/autopilot-advise/<name>/<stamp>/{report.md, report.json, evidence.json}. MCP: `autopilot(target, advise,
+root, goal, max_calls, minutes, rounds, per_round, studio, use_studio, swarm_players, qa_steps, correct_id,
+note)` (job). Skill: `.claude/skills/forge-autopilot/SKILL.md`.
 
 ### checks.py + scenarios.py (executable checks and the scenario designer)
 A check is `runs/<slug>/checks/<id>.luau`: header `-- check: <title>` / `-- covers: <acceptance item
