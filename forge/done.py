@@ -17,6 +17,8 @@
 Seeded games (human code) have no fun critique or director script; for them fun/first60 are n/a.
 
 A part with no record yet is not met: unknown is never "ready".
+readiness(..., compare=True) (what `forge done` prints) adds r["compare"]: the forge/compare.py category
+scores against the reference game. Informational only: it is not a part and never blocks.
 """
 
 from __future__ import annotations
@@ -192,16 +194,24 @@ def _first60(run: Path, spec: dict, seeded: bool) -> dict:
                       + (": missing " + ", ".join(failed[:5]) if failed else "")}
 
 
-def readiness(settings: Settings, slug: str) -> dict:
+def readiness(settings: Settings, slug: str, *, compare: bool = False) -> dict:
     store = RunStore(settings, slug)
     spec = _read(store.spec_path) or {}
     state = _read(store.state_path) or {}
     seeded = bool(spec.get("base_files"))
     parts = [_checks(store.dir), _features(store.dir, spec), _open(store.dir), _critic(state, seeded),
              _fun(store.dir, seeded), *_polish(store.dir, store.game_dir), _first60(store.dir, spec, seeded)]
-    return {"slug": slug, "ready": all(p["ok"] for p in parts), "parts": parts}
+    r = {"slug": slug, "ready": all(p["ok"] for p in parts), "parts": parts}
+    if compare:
+        from forge.compare import done_summary
+        r["compare"] = done_summary(settings, slug)
+    return r
 
 
 def render(r: dict) -> str:
     head = f"{r['slug']}: " + ("READY" if r["ready"] else "not ready yet")
-    return "\n".join([head] + [f"  [{'x' if p['ok'] else ' '}] {p['part']:<9} {p['detail']}" for p in r["parts"]])
+    lines = [head] + [f"  [{'x' if p['ok'] else ' '}] {p['part']:<9} {p['detail']}" for p in r["parts"]]
+    if r.get("compare"):
+        from forge.compare import done_line
+        lines.append(done_line(r["compare"]))
+    return "\n".join(lines)

@@ -103,7 +103,23 @@ forge/                 Python package (uv), entry point `forge`
                        (latest checks/results.json, dropped ignored),
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
                        fun critic >= 8, visuals (<= 15% default-grey parts), hud (a ScreenGui), sounds (>= 1),
-                       first60 (every director beat's counter reached its min); census from the playtest, else source
+                       first60 (every director beat's counter reached its min); census from the playtest, else source;
+                       readiness(..., compare=True) (what `forge done` prints) adds r["compare"] = compare.done_summary:
+                       the compare categories vs game/, informational (an "[i] compare" line, never a part, never blocks)
+  compare.py           `forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]`: is the code as good as our
+                       best human code yet? compare(game_dir, ref_dir, *, spec, run_dir, name, ref_name) -> report, static
+                       and deterministic (gaps.game_sources, GameAssets kit excluded, comments stripped): categories
+                       architecture, robustness, data, ui, juice, content, observability, each 0-10 RELATIVE to the
+                       reference (game/ = 10 vs itself) from presence / shares / kind coverage / per-1k-line densities
+                       (never raw size); content uses the genre bar (gaps.CHECKLISTS + an obby list, lessons_library
+                       targets). report {game, reference, genre, size, overall, verdict, categories[{id, score, metrics[{id,
+                       kind, score, game, reference, evidence[file:line], misses, ref}], evidence, gaps (top 3: "reference
+                       does X" + pointer file:line to copy, kit/lessons for genre mechanics)}], gaps, llm?};
+                       saved runs/<slug>/compare/<n>.json + .md (a folder outside runs/: runs/compare/<name>/, read only);
+                       --llm: judge(llm, report, session_id) = ONE `code_judge` call (static report + weakest areas'
+                       code side by side with the reference's) -> {summary, verdict, improvements[{rank, title,
+                       category, impact, effort, why, how, files, new_files, reference}]} (files/pointers validated)
+  prompts/code_judge.md  Mubit task: static comparison + excerpts -> ranked improvements (JSON)
   director.py          quality brain 1 (`forge direct "<idea>" [--compare]`): genre_lessons(text) (forge/lessons_library),
                        direct(llm, idea, lessons, *, session_id) -> design doc (Mubit task `director`),
                        design_from_doc(llm, idea, doc, lessons, *, session_id) -> spec (frozen designer, doc in the user
@@ -229,7 +245,7 @@ Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, .
 (test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
 `triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`, `gap_finder`
-(ranked gaps, forge/gaps.py).
+(ranked gaps, forge/gaps.py), `code_judge` (ranked code improvements vs the reference game, forge/compare.py).
 
 Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
 `FORGE_FUN_CRITIC=0` skips the fun critic; tests default both off in the root conftest.py):
@@ -453,6 +469,8 @@ forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json
 forge queue <slug>                                   # orchestrator jobs, leases, budget
 forge reflect <slug> [--llm]                         # reflection since the last one -> runs/<slug>/reflection/<n>.md
 forge reflect --all                                  # every game summed -> runs/reflection.md
+forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]  # code vs the reference game: 0-10 per
+                                                     # category, evidence, gaps with reference files to copy
 ```
 
 ### Reflection (forge/reflect.py)
