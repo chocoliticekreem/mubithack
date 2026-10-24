@@ -67,6 +67,17 @@ def place_key(name: str | None) -> str:
     return re.sub(r"\.(rbxlx|rbxl)$", "", s)
 
 
+def place_allowed(name: str | None, places: set[str] | list[str] | tuple[str, ...]) -> bool:
+    """Exact place keys, or prefixes ending in '*' ('forge*' allows Forge and every Forge-agents-N)."""
+    key = place_key(name)
+    for p in places:
+        if p.endswith("*") and key.startswith(p[:-1]):
+            return True
+        if p == key:
+            return True
+    return False
+
+
 def _clip(v: Any) -> Any:
     if isinstance(v, str):
         return v if len(v) <= MAX_FIELD else v[:MAX_FIELD] + "…"
@@ -150,7 +161,7 @@ class Bridge:
     def hello(self, place: str, dm: str, session: str, version: int = PROTOCOL) -> dict:
         if dm not in DATAMODELS:
             raise BridgeError(f"bad datamodel {dm!r}")
-        bound = place_key(place) in self.places
+        bound = place_allowed(place, self.places)
         reply = {"protocol": PROTOCOL, "bound": bound, "poll_wait": self.poll_wait}
         if not bound:
             return reply
