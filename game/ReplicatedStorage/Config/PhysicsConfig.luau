@@ -52,6 +52,9 @@ return Config.define({
 	OwnerRadius = 45, -- nearest player within this owns the prop's physics (smooth pushing)
 	ServerHoldSeconds = 1.2, -- after a server fling the server keeps ownership this long
 	FallResetDepth = 60, -- studs below home: put it back home on sleep
+	TidySeconds = 30, -- a knocked-over prop goes back home after lying this long with nobody near
+	TidyStationSeconds = 12, -- the same at the fire station / lobby (keeps it neat)
+	TidyClearRadius = 30, -- studs: nobody this close to the prop or its home spot when it's tidied
 	TickHz = 4, -- wake/sleep/ownership scan rate
 	TruckHz = 15, -- truck plough scan rate
 
