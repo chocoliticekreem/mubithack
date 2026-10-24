@@ -223,7 +223,8 @@ local function build()
 
 	-- lobby button: the last section of the top-bar box (ClientLib/TopBox), after level + pass
 	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
-	local slot = TopBox.section("Store", 3, 64) :: Frame
+	local hasKeys = game:GetService("UserInputService").KeyboardEnabled
+	local slot = TopBox.section("Store", 3, if hasKeys then 92 else 64) :: Frame
 	local b = Instance.new("TextButton")
 	b.Name = "StoreChip"
 	b.AnchorPoint = Vector2.new(0, 0.5)
@@ -233,7 +234,7 @@ local function build()
 	b.Font = UiKit.Header
 	b.TextSize = 16
 	b.TextColor3 = Palette.UiCream
-	b.Text = "STORE"
+	b.Text = if hasKeys then `[{Cfg.StoreKey.Name}] STORE` else "STORE"
 	b.AutoButtonColor = true
 	b.Parent = slot
 	UiKit.corner(b, 8)

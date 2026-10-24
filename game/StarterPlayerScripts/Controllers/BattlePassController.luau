@@ -780,7 +780,7 @@ local function build()
 	-- HUD pip: the "Pass" section of the top-bar box (ClientLib/TopBox), next to level + XP. Click it
 	-- (lobby) to open the pass. Pixel-sized like the rest of the box.
 	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
-	local pip = TopBox.section("Pass", 2, 128) :: Frame
+	local pip = TopBox.section("Pass", 2, 150) :: Frame
 	pip.Name = "PassPip"
 	pip.Visible = false
 	local circle = frame(pip, "Tier", UDim2.fromOffset(32, 32), UDim2.new(0, 0, 0.5, -16), GOLD, 16)
@@ -789,9 +789,11 @@ local function build()
 	local pt = text(circle, "N", "0", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 18, Palette.UiInk, false)
 	pt.ZIndex = 4
 	ui.pipTier = pt
-	local cap = text(pip, "Cap", "PASS", UDim2.fromOffset(40, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
+	-- keyboard players see the hotkey ([P] PASS); touch players just tap the box
+	local passKey = if game:GetService("UserInputService").KeyboardEnabled then `[{Cfg.UiToggleKey.Name}] ` else ""
+	local cap = text(pip, "Cap", passKey .. "PASS", UDim2.fromOffset(62, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
 	cap.TextXAlignment = Enum.TextXAlignment.Left
-	local pxt = text(pip, "Xp", "", UDim2.new(1, -78, 0, 15), UDim2.new(0, 78, 0.5, -15), UiKit.Body, 12, Palette.UiInk, false)
+	local pxt = text(pip, "Xp", "", UDim2.new(1, -100, 0, 15), UDim2.new(0, 100, 0.5, -15), UiKit.Body, 12, Palette.UiInk, false)
 	pxt.TextXAlignment = Enum.TextXAlignment.Right
 	ui.pipText = pxt
 	local bar = frame(pip, "Bar", UDim2.new(1, -38, 0, 9), UDim2.new(0, 38, 0.5, 3), Palette.UiPanelDark, 5)
