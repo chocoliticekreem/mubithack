@@ -230,4 +230,17 @@ Districts.Storage = function(model: Model, origin: CFrame, root: Model, rng: Ran
 	Depot.district(model, origin, root, rng)
 end
 
+---------------------------------------------------------------------------------------------------
+-- City Zoo (Interiors/Zoo) and Mill Creek Dam (Interiors/Dam)
+---------------------------------------------------------------------------------------------------
+Districts.Zoo = function(model: Model, origin: CFrame, root: Model, rng: Random)
+	local Zoo = require(script.Parent:WaitForChild("Zoo") :: ModuleScript) :: any
+	Zoo.district(model, origin, root, rng)
+end
+
+Districts.Dam = function(model: Model, origin: CFrame, root: Model, rng: Random)
+	local DamRoom = require(script.Parent:WaitForChild("Dam") :: ModuleScript) :: any
+	DamRoom.district(model, origin, root, rng)
+end
+
 return Districts

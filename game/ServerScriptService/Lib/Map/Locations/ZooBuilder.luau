@@ -1022,6 +1022,7 @@ end
 
 function ZooBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	O = origin
+	model:SetAttribute("InteriorOrigin", origin) -- Lib/Map/Interiors/Zoo dresses the panda house + gift shop per run
 	local mapDir = script.Parent.Parent
 	PropKit = tryRequire(mapDir:FindFirstChild("Props"), "PropKit")
 	model:SetAttribute("DisplayName", "City Zoo")

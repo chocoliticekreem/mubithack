@@ -767,6 +767,7 @@ end
 
 function DamBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	O = origin
+	model:SetAttribute("InteriorOrigin", origin) -- Lib/Map/Interiors/Dam builds the dam control house per run
 	local mapDir = script.Parent.Parent
 	PropKit = tryRequire(mapDir:FindFirstChild("Props"), "PropKit")
 	model:SetAttribute("DisplayName", "Mill Creek Dam")
