@@ -747,6 +747,14 @@ function InventoryController:Start()
 
 	ProximityPromptService.PromptShown:Connect(showPrompt)
 	ProximityPromptService.PromptHidden:Connect(hidePrompt)
+	-- switching to touch mid-game (an iPad's keyboard comes off): the stickers go, TapUseController's bubble takes over
+	InputHints.onChanged(function()
+		if InputHints.isTouch() then
+			for prompt in shown do
+				hidePrompt(prompt)
+			end
+		end
+	end)
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
 		local s = shown[prompt]
 		local panel = s and s.gui:FindFirstChild("Panel")

@@ -51,6 +51,7 @@ local FireCfg = require(ConfigDir:WaitForChild("FirstFireConfig") :: ModuleScrip
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local OnboardingController = {}
 OnboardingController.Priority = 120
@@ -1176,7 +1177,8 @@ local function placeArrow(g: Guide?, t: number)
 		bb.Adornee = p
 	end
 	bb.StudsOffsetWorldSpace = Vector3.new(0, p.Size.Y / 2 + Cfg.ArrowHeight + math.sin(t * 5) * Cfg.ArrowBob, 0)
-	ui.arrowLabel.Text = if g then g.head else ""
+	-- phones: the card up top already says it; the world arrow alone points (no second giant headline)
+	ui.arrowLabel.Text = if g and not Calm.small() then g.head else ""
 	bb.Enabled = true
 	local model = g and g.model
 	if model and model:IsDescendantOf(workspace) then
