@@ -267,7 +267,7 @@ local Presets: { [string]: Preset } = {
 		Lighting = {
 			ClockTime = 11.5,
 			GeographicLatitude = 25,
-			Brightness = 3.0,
+			Brightness = 2.6,
 			ExposureCompensation = 0,
 			Ambient = hex("5A5A50"),
 			OutdoorAmbient = hex("A0A090"),
@@ -306,6 +306,89 @@ local Overlays = {
 	},
 }
 
+-- Map variety (MapService / Lib/Map/City/MapVariant): every server rolls a time of day and a weather
+-- (Workspace attrs MapSky, MapWeather). GraphicsController blends them on top of the preset:
+--   Sky[MapSky]          absolute values, only over SkyPresets (the open city + lobby look); the
+--                        art-directed mission presets (DuskSuburb, NightStreet...) keep their own time.
+--   Weather[MapWeather]  relative mods (PostFx.applyMods: mul / add) over EVERY preset, so fog or an
+--                        overcast sky never turns a night mission grey. Rain also gets WeatherController's
+--                        rain streaks round the camera (outdoors only).
+local Sky = {
+	Golden = {}, -- StationGolden as written
+	Noon = {
+		Lighting = {
+			ClockTime = 13.2,
+			Brightness = 2.6,
+			ExposureCompensation = -0.1, -- noon sun on white sidewalks blew out at 0
+			Ambient = hex("4A4A55"),
+			OutdoorAmbient = hex("8C95A3"),
+			ColorShift_Top = hex("FFF6E8"),
+			ColorShift_Bottom = hex("5A6A80"),
+		},
+		Atmosphere = { Density = 0.18, Offset = 0.2, Color = hex("C7D6E6"), Decay = hex("8A9BB0"), Glare = 0.15, Haze = 0.9 },
+		Clouds = { Color = hex("FFFFFF") },
+		ColorCorrection = { TintColor = hex("FFFFFF"), Saturation = 0.12, Contrast = 0.08 },
+		SunRays = { Intensity = 0.04 },
+	},
+	Sunset = {
+		Lighting = {
+			ClockTime = 18.15,
+			Brightness = 1.9,
+			ExposureCompensation = 0.15,
+			Ambient = hex("3E2C36"),
+			OutdoorAmbient = hex("8A5E6A"),
+			ColorShift_Top = hex("FF9450"),
+			ColorShift_Bottom = hex("3A4A7A"),
+		},
+		Atmosphere = { Density = 0.24, Offset = 0.12, Color = hex("F2955E"), Decay = hex("6A3A58"), Glare = 0.8, Haze = 1.5 },
+		Clouds = { Color = hex("F4A27A"), Cover = 0.55 },
+		ColorCorrection = { TintColor = hex("FFE6D2"), Saturation = 0.2 },
+		SunRays = { Intensity = 0.14 },
+	},
+	-- playable night: a bright moonlit ambient; street lamps and fires bloom
+	Night = {
+		Lighting = {
+			ClockTime = 21,
+			Brightness = 1.0,
+			ExposureCompensation = 0.35,
+			Ambient = hex("2C3352"),
+			OutdoorAmbient = hex("4A5A86"),
+			ColorShift_Top = hex("8FA6FF"),
+			ColorShift_Bottom = hex("101830"),
+		},
+		Atmosphere = { Density = 0.22, Offset = 0.1, Color = hex("33466E"), Decay = hex("0F1A36"), Glare = 0, Haze = 0.5 },
+		Sky = { StarCount = 3000, MoonAngularSize = 11 },
+		Clouds = { Color = hex("3E4870"), Cover = 0.35 },
+		ColorCorrection = { TintColor = hex("DDE5FF"), Saturation = 0.05, Brightness = 0.03 },
+		Bloom = { Intensity = 0.9, Threshold = 1.2 },
+		SunRays = { Intensity = 0 },
+	},
+}
+
+local Weather = {
+	Clear = {},
+	Overcast = {
+		Lighting = { mul = { Brightness = 0.75 } },
+		Atmosphere = { add = { Density = 0.05, Haze = 0.5 }, mul = { Glare = 0.2 } },
+		Clouds = { add = { Cover = 0.35, Density = 0.25 } },
+		ColorCorrection = { add = { Saturation = -0.12, Contrast = -0.02 } },
+		SunRays = { mul = { Intensity = 0.2 } },
+	},
+	Fog = {
+		Atmosphere = { add = { Density = 0.2, Haze = 1.3 }, mul = { Glare = 0.3, Offset = 0.3 } },
+		Clouds = { add = { Cover = 0.2 } },
+		ColorCorrection = { add = { Saturation = -0.08 } },
+		SunRays = { mul = { Intensity = 0.3 } },
+	},
+	Rain = {
+		Lighting = { mul = { Brightness = 0.65 }, add = { EnvironmentSpecularScale = 0.35 } },
+		Atmosphere = { add = { Density = 0.1, Haze = 0.9 }, mul = { Glare = 0 } },
+		Clouds = { add = { Cover = 0.45, Density = 0.35 } },
+		ColorCorrection = { add = { Saturation = -0.15, Contrast = 0.02 } },
+		SunRays = { mul = { Intensity = 0 } },
+	},
+}
+
 return Config.define({
 	Default = "StationGolden", -- server-side preset at boot (the lobby look; clients refine per location)
 	-- Location -> preset. Keys are LocationIds (MissionCatalog `locationId`, Workspace.Map children).
@@ -331,6 +414,12 @@ return Config.define({
 	LightingStyle = "Realistic",
 	Presets = Presets,
 	Overlays = Overlays,
+	Sky = Sky,
+	Weather = Weather,
+	SkyPresets = { StationGolden = true } :: { [string]: boolean }, -- presets the map's time of day replaces
+	SkyResponse = 1.2, -- per-second smoothing of the sky / weather overlay weights
+	-- WeatherController rain streaks: a sheet of emitters above the camera (client only, not map parts)
+	Rain = { Rate = 700, Speed = 60, Area = 100, Height = 32, Lifetime = 1.0, Size = 0.5, Color = hex("C9D8EE"), Transparency = 0.45 },
 
 	-- GraphicsController (client) ------------------------------------------------------------------
 	TweenSeconds = 2.5, -- blend time when the player's preset changes (teleport into a mission)

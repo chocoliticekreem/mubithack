@@ -15,6 +15,8 @@
 --          "indoors" (doc's smoke-filled room, no hand-placed zones needed).
 --   Heat:  Player attr Heat (HeatService) above HeatFrom -> warm tint. Off by default
 --          (AtmosphereConfig.HeatOverlay): FirstPersonController already grades heat.
+-- Map variety: Workspace attrs MapSky / MapWeather (MapService) -> AtmosphereConfig.Sky (absolute, over
+--   SkyPresets only) and AtmosphereConfig.Weather (relative mods, every preset), blended in at SkyResponse.
 -- Material pass: SmoothPlastic parts in the player's current location get a real Enum.Material from
 --   the part attr MaterialHint or AtmosphereConfig.MaterialPass.Rules (by name). Chunked per frame.
 --
@@ -35,6 +37,7 @@ local RunService = game:GetService("RunService")
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AtmosphereConfig") :: ModuleScript) :: any
 local AvLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("AvLogic") :: ModuleScript)
+local PostFx = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("PostFx") :: ModuleScript) :: any
 
 local GraphicsController = {}
 GraphicsController.Priority = 20
@@ -65,6 +68,8 @@ local state = {
 	smokeTarget = 0,
 	heat = 0,
 	heatTarget = 0,
+	sky = 0, -- map time-of-day overlay weight (AtmosphereConfig.Sky[Workspace.MapSky], SkyPresets only)
+	weather = 0, -- map weather mods weight (AtmosphereConfig.Weather[Workspace.MapWeather])
 	locationId = nil :: string?,
 	locationModel = nil :: Instance?,
 	forced = nil :: string?,
@@ -454,11 +459,28 @@ local function step(dt: number)
 		state.dirty = true
 	end
 	state.smoke, state.heat = ns, nh
+	-- map variety: time of day over the open-city presets, weather over every preset
+	local sr = math.min(1, dt * (Cfg.SkyResponse or 1.2))
+	local skyT = if (Cfg.SkyPresets or {})[state.presetName or ""] then 1 else 0
+	local nsky = state.sky + (skyT - state.sky) * sr
+	local nw = state.weather + (1 - state.weather) * sr
+	if math.abs(nsky - state.sky) > 0.001 or math.abs(nw - state.weather) > 0.001 then
+		state.dirty = true
+	end
+	state.sky, state.weather = nsky, nw
 	if not state.dirty then
 		return
 	end
 	state.dirty = false
 	local values = composeBase()
+	local skyName = workspace:GetAttribute("MapSky")
+	if type(skyName) == "string" and Cfg.Sky then
+		applyOverlay(values, Cfg.Sky[skyName], state.sky)
+	end
+	local weatherName = workspace:GetAttribute("MapWeather")
+	if type(weatherName) == "string" and Cfg.Weather then
+		PostFx.applyMods(values, Cfg.Weather[weatherName], state.weather)
+	end
 	applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Smoke, state.smoke)
 	if Cfg.HeatOverlay then
 		applyOverlay(values, Cfg.Overlays and Cfg.Overlays.Heat, state.heat)
@@ -500,6 +522,11 @@ function GraphicsController:Start()
 	Lighting:GetAttributeChangedSignal("AtmospherePreset"):Connect(function()
 		state.dirty = true
 	end)
+	for _, a in { "MapSky", "MapWeather" } do
+		workspace:GetAttributeChangedSignal(a):Connect(function()
+			state.dirty = true
+		end)
+	end
 
 	local loc, model = resolveLocation()
 	state.locationId, state.locationModel = loc, model

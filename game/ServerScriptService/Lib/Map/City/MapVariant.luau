@@ -96,13 +96,17 @@ end
 ---------------------------------------------------------------------------------------------------
 -- seasonal recolour
 ---------------------------------------------------------------------------------------------------
-local FOLIAGE = { "Canopy", "Leaves", "Leaf", "Crown", "Bush", "Hedge", "Shrub", "Foliage", "Topiary", "GrassTuft", "Ivy" }
-local EVERGREEN = { "Pine", "Fir", "Spruce", "Conifer" }
-local GROUND = { "Grass", "Lawn", "ParkLawn", "GrassPatch", "Verge", "Meadow" }
+-- name fragments (plain substring match: "FrontLawn", "Hedgerow", "PineNeedles" all count)
+local FOLIAGE = { "Canopy", "Leaves", "Leaf", "Crown", "Bush", "Hedge", "Shrub", "Foliage", "Topiary", "Tuft", "Ivy" }
+local EVERGREEN = { "Pine", "Fir", "Spruce", "Conifer", "Needles" }
+local GROUND = {
+	"Grass", "Lawn", "Meadow", "Pasture", "Valley", "Plateau", "Ground", "Verge", "Median", "Pitch", "Hill",
+	"Tier", "Field",
+}
 
-local function hasPrefix(name: string, list: { string }): boolean
+local function hasAny(name: string, list: { string }): boolean
 	for _, p in list do
-		if string.sub(name, 1, #p) == p then
+		if string.find(name, p, 1, true) then
 			return true
 		end
 	end
@@ -119,15 +123,15 @@ function MapVariant.role(name: string, material: string, sx: number, sy: number,
 	if not greenish(r, g, b) then
 		return nil
 	end
-	if hasPrefix(name, EVERGREEN) then
+	if hasAny(name, EVERGREEN) then
 		return "evergreen"
 	end
 	local grassy = material == "Grass" or material == "LeafyGrass"
 	local flat = sy <= 0.3 * math.min(sx, sz)
-	if hasPrefix(name, GROUND) and (flat or grassy) then
+	if hasAny(name, GROUND) and (flat or grassy) then
 		return "ground"
 	end
-	if hasPrefix(name, FOLIAGE) then
+	if hasAny(name, FOLIAGE) then
 		return "foliage"
 	end
 	if grassy then
