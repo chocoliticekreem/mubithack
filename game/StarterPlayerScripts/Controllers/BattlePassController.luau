@@ -323,7 +323,17 @@ local function xpPopup(amount: number, reason: string)
 	local holder = Instance.new("Frame")
 	holder.BackgroundTransparency = 1
 	holder.Size = UDim2.fromOffset(260, 48)
-	holder.Position = UDim2.fromOffset(abs.X / k + 4, abs.Y / k + pip.AbsoluteSize.Y / k + 4)
+	local y = abs.Y / k + pip.AbsoluteSize.Y / k + 4
+	-- the top-centre tutorial card (OnboardingController) sits right under the pip: drop below it and
+	-- its buttons instead of printing over "PUT OUT THE FIRE!"
+	local pg = player:FindFirstChild("PlayerGui")
+	local ob = pg and pg:FindFirstChild("Onboarding")
+	local obCard = ob and ob:FindFirstChild("Card")
+	if obCard and obCard:IsA("GuiObject") and obCard.Visible and (ob :: ScreenGui).Enabled then
+		local below = (obCard.AbsolutePosition.Y + obCard.AbsoluteSize.Y - layer.AbsolutePosition.Y) / k + 56
+		y = math.max(y, below)
+	end
+	holder.Position = UDim2.fromOffset(abs.X / k + 4, y)
 	holder.ZIndex = 20
 	holder.Parent = layer
 	local main = text(holder, "Main", `+{amount} PASS XP`, UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), UiKit.Header, 28, Palette.UiShock, true)

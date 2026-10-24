@@ -18,6 +18,14 @@
 --   * First fire (brand-new players, Services/FirstFireService + Config/FirstFireConfig): while Player attr
 --     FirstFire is "burning", a PUT OUT THE FIRE! card + arrow on the training fire (the camera turns to
 --     face it once); then a FIRE OUT! +XP card until the auto-queued first call lands.
+--     On the pad for the auto-queued first call: YOUR FIRST CALL card with GO NOW (Lobby/Launch) and
+--     NOT YET (Onboarding/SkipCall: off the pad, the board -> pad tutorial at your own pace).
+--   * After the first call, still out at the scene (dispatch doesn't teleport you home): GREAT JOB card
+--     with BACK TO STATION (Lobby/BackToStation) and an arrow home, for this session's newbies.
+--   * SKIP TUTORIAL under every tutorial card (Onboarding/Skip -> settings.onboarded).
+--   * Handshake: Onboarding/Ready once every controller has started (their OnClientEvent handlers are
+--     connected); the server holds the training fire until then. Onboarding/Seen("firecard") when the
+--     PUT OUT THE FIRE card is actually on screen (the "Saw Fire Card" funnel step).
 -- Public: OnboardingController:Replay(), :IsActive(): boolean
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -63,6 +71,9 @@ local RED = Palette.UiRed
 
 type Guide = { kind: string, part: BasePart?, model: Instance?, head: string, sub: string, chip: string, subTouch: string?, subPad: string? }
 
+-- cards that belong to the tutorial (SKIP TUTORIAL shows under them)
+local SKIPPABLE = { firstfire = true, firstfiredone = true, gear = true, board = true, pad = true, wait = true }
+
 local state = {
 	flow = Flow.new(),
 	tutorial = false, -- tutorial running
@@ -75,6 +86,11 @@ local state = {
 	driveHintUntil = 0,
 	missionSince = 0, -- os.clock() when InstanceId was set (the HUD's ALARM banner owns the screen first)
 	helpOpen = false,
+	callTitle = "", -- Lobby/Countdown title of the pad you're on
+	callEndsAt = 0, -- os.clock() when that countdown hits 0 (0 = no countdown)
+	seenFireCard = false,
+	wasOnCall = false, -- had an InstanceId this session
+	missionEnded = false, -- ...and it's over (InstanceId back to "")
 }
 
 local ui: { [string]: any } = {}
@@ -592,8 +608,58 @@ local function buildHud()
 	local scale = Instance.new("UIScale")
 	scale.Parent = card
 	ui.card, ui.chip, ui.chipText, ui.head, ui.sub, ui.cardScale = card, chip, chipText, head, sub, scale
+
+	-- buttons hanging under the card: GO NOW / NOT YET (first call), SKIP TUTORIAL (any tutorial card).
+	-- Big, thumb-sized and away from the screen edges (the touch stick / jump button live there).
+	local actions = Instance.new("Frame")
+	actions.Name = "Actions"
+	actions.AnchorPoint = Vector2.new(0.5, 0)
+	actions.Position = UDim2.new(0.5, 0, 1, 8)
+	actions.Size = UDim2.new(1, 0, 0, 44)
+	actions.BackgroundTransparency = 1
+	actions.Parent = card
+	local al = Instance.new("UIListLayout")
+	al.FillDirection = Enum.FillDirection.Horizontal
+	al.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	al.Padding = UDim.new(0, 12)
+	al.SortOrder = Enum.SortOrder.LayoutOrder
+	al.Parent = actions
+	local function actionButton(name: string, label: string, color: Color3, order: number, w: number, h: number): TextButton
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.LayoutOrder = order
+		b.Size = UDim2.fromOffset(w, h)
+		b.BackgroundColor3 = color
+		b.Font = Enum.Font.LuckiestGuy
+		b.TextColor3 = CREAM
+		b.TextScaled = true
+		b.Text = label
+		b.AutoButtonColor = true
+		b.Visible = false
+		b.Parent = actions
+		corner(b, 10)
+		stroke(b, 3)
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 6)
+		pad.PaddingBottom = UDim.new(0, 6)
+		pad.PaddingLeft = UDim.new(0, 10)
+		pad.PaddingRight = UDim.new(0, 10)
+		pad.Parent = b
+		return b
+	end
+	ui.go = actionButton("GoNow", FireCfg.CallGo or "GO NOW!", Color3.fromHex("#3B6E4A"), 1, 170, 44)
+	ui.wait = actionButton("NotYet", FireCfg.CallWait or "NOT YET", Palette.UiPanelDark, 2, 150, 44)
+	ui.skip = actionButton("Skip", FireCfg.SkipLabel or "SKIP TUTORIAL", Palette.UiPanelDark, 3, 150, 30)
+	ui.home = actionButton("Home", FireCfg.AwayButton or "BACK TO STATION", RED, 4, 220, 44)
+	ui.skip.BackgroundTransparency = 0.25
+	ui.actions = actions
 	-- top-centre stack (ClientLib/HudLayout): under the mission timer when there is one
-	HudLayout.add("TopCentre", card, 20)
+	-- its height includes the button row hanging under it, so toasts / banners stack below the buttons
+	HudLayout.add("TopCentre", card, 20, function(): number
+		local a = ui.actions
+		local any = a and (ui.go.Visible or ui.skip.Visible or ui.home.Visible)
+		return card.Size.Y.Offset + (if any then 52 else 0)
+	end)
 	HudLayout.reserve(card)
 
 	-- edge arrow (target off screen): its own full-bleed, unscaled gui so positions are viewport pixels.
@@ -783,7 +849,7 @@ end
 
 local function burningPart(m: Model): BasePart?
 	local best: BasePart? = nil
-	for _, d in m:GetChildren() do
+	for _, d in m:GetDescendants() do -- each fuel item sits in its own sub-model (FirstFireService)
 		if d:IsA("BasePart") and d:HasTag(Names.Tag.Burning) then
 			if not best or d.Position.Y > best.Position.Y then
 				best = d
@@ -810,7 +876,20 @@ local function firstFireGuide(): Guide?
 			model = m,
 			head = FireCfg.FireCard.head,
 			sub = fill(FireCfg.FireCard.sub, { click = click }),
+			subTouch = FireCfg.FireCard.subTouch,
+			subPad = FireCfg.FireCard.subPad,
 			chip = "FIRE!",
+		}
+	elseif card == "call" then
+		local secs = if state.callEndsAt > 0 then math.max(0, math.ceil(state.callEndsAt - os.clock())) else 0
+		local title = if state.callTitle ~= "" then string.upper(state.callTitle) else "A REAL FIRE"
+		return {
+			kind = "firstcall",
+			part = nil,
+			model = nil,
+			head = fill(FireCfg.CallCard.head, { title = title }),
+			sub = fill(FireCfg.CallCard.sub, { secs = if secs > 0 then `{secs}` else "a moment" }),
+			chip = if secs > 0 then `{secs}` else "GO!",
 		}
 	elseif card == "done" then
 		return {
@@ -825,8 +904,24 @@ local function firstFireGuide(): Guide?
 	return nil
 end
 
+local shoulderOn = false
+local function setShoulder(on: boolean)
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not hum then
+		return
+	end
+	if on then
+		shoulderOn = true
+		hum.CameraOffset = FireCfg.ShoulderOffset or Vector3.new(2, 2.8, 0)
+	elseif shoulderOn then
+		shoulderOn = false
+		hum.CameraOffset = Vector3.zero
+	end
+end
+
 -- Turn the camera to the training fire once, as soon as FirstFireService has put you at the door.
 local function faceFirstFire()
+	setShoulder(true)
 	local t0 = os.clock()
 	while os.clock() - t0 < 6 do
 		if player:GetAttribute(FireCfg.PhaseAttr) ~= "burning" then
@@ -840,7 +935,10 @@ local function faceFirstFire()
 			local flat = (target - r.Position) * Vector3.new(1, 0, 1)
 			if flat.Magnitude > 0.1 then
 				local zoom = FireCfg.CameraZoom or 12
-				local eye = r.Position - flat.Unit * zoom + Vector3.new(0, zoom * 0.6, 0) -- over your helmet
+				-- straight behind you (the extinguisher sprays along the camera's look), but over your
+				-- shoulder: Humanoid.CameraOffset slides the camera sideways so your own body doesn't hide
+				-- the fire you're aiming at. Put back once the fire is out (setShoulder(false)).
+				local eye = r.Position - flat.Unit * zoom + Vector3.new(0, zoom * 0.5, 0)
 				cam.CFrame = CFrame.lookAt(eye, target)
 				-- the classic camera keeps its own zoom: force it out for a moment (same trick as
 				-- FirstPersonController's lobby step-out), then hand the wheel back
@@ -921,6 +1019,22 @@ local function currentGuide(): Guide?
 			chip = if hint == "drive" then "GO!" else "CALL!",
 		}
 	end
+	-- the first call is over but you're still out at the scene (dispatch calls don't teleport you
+	-- home): say what's next and offer the shortcut, instead of a silent truck in a parking lot
+	if state.missionEnded and player:GetAttribute(FireCfg.PhaseAttr) ~= nil then
+		local b = board()
+		local r = root()
+		if b and r and (b.Position - r.Position).Magnitude > (FireCfg.AwayStuds or 220) then
+			return {
+				kind = "away",
+				part = b,
+				model = nil,
+				head = FireCfg.AwayCard.head,
+				sub = FireCfg.AwayCard.sub,
+				chip = "NEXT",
+			}
+		end
+	end
 	local ff = firstFireGuide()
 	if ff then
 		return ff
@@ -963,15 +1077,69 @@ local function currentGuide(): Guide?
 	}
 end
 
+local function remote(name: string): RemoteEvent?
+	local ok, r = pcall(Net.event, "Onboarding", name)
+	return if ok then r else nil
+end
+
+local actionsKey = ""
+local function setActions(g: Guide?)
+	local kind = g and g.kind or ""
+	local call = kind == "firstcall"
+	local skip = SKIPPABLE[kind] == true and not inMission()
+	local home = kind == "away"
+	local key = `{call}{skip}{home}`
+	if key == actionsKey then
+		return
+	end
+	actionsKey = key
+	ui.go.Visible = call
+	ui.wait.Visible = call
+	ui.skip.Visible = skip
+	ui.home.Visible = home
+	HudLayout.flush() -- the card's stack height changed (button row on / off)
+end
+
+-- the top-centre card must not run into the left column (mission guide card, 14 + 350 design units)
+-- on narrow screens (4:3 tablets, a portrait-ish window): shrink it to the room between the columns
+local lastWidth = 0
+local function fitCard()
+	local gui = ui.gui :: ScreenGui
+	local s = HudLayout.scaleOf(gui)
+	local w = gui.AbsoluteSize.X / math.max(0.01, s)
+	local room = if inMission() then w - 2 * (14 + 350 + 10) else w - 40
+	local width = math.clamp(math.floor(room), 330, 520)
+	if width ~= lastWidth then
+		lastWidth = width
+		ui.card.Size = UDim2.fromOffset(width, 78)
+	end
+end
+
 local function showCard(g: Guide?)
 	local card: Frame = ui.card
+	setActions(g)
 	if not g then
 		if card.Visible then
 			card.Visible = false
 		end
 		return
 	end
-	local key = g.kind .. "|" .. g.head .. "|" .. g.sub
+	fitCard()
+	if g.kind == "firstfire" and not state.seenFireCard then
+		state.seenFireCard = true
+		local r = remote("Seen")
+		if r then
+			r:FireServer("firecard")
+		end
+	end
+	-- the first-call card ticks every second: update its text in place, don't re-pop it
+	local key = g.kind .. "|" .. g.head .. (if g.kind == "firstcall" then "" else "|" .. g.sub)
+	if g.kind == "firstcall" and key == state.guideKey then
+		if ui.sub.Text ~= g.sub then
+			InputHints.setPick(ui.sub, g.sub)
+		end
+		ui.chipText.Text = g.chip
+	end
 	if key ~= state.guideKey then
 		state.guideKey = key
 		ui.head.Text = g.head
@@ -1009,7 +1177,9 @@ local function placeArrow(g: Guide?, t: number)
 		if hl.Parent ~= workspace.CurrentCamera then
 			hl.Parent = workspace.CurrentCamera
 		end
-		hl.FillTransparency = 0.7 + 0.15 * math.sin(t * 4)
+		-- the training fire: outline only (an always-on-top fill painted over the flames, so the
+		-- "fire" read as a yellow box)
+		hl.FillTransparency = if g and g.kind == "firstfire" then 1 else 0.7 + 0.15 * math.sin(t * 4)
 		hl.Enabled = true
 	else
 		hl.Enabled = false
@@ -1172,6 +1342,35 @@ function OnboardingController:Start()
 	ui.replay.Activated:Connect(function()
 		OnboardingController:Replay()
 	end)
+	ui.go.Activated:Connect(function()
+		pcall(function()
+			Net.event("Lobby", "Launch"):FireServer()
+		end)
+		UiKit.pop(ui.go, 0.2)
+	end)
+	ui.wait.Activated:Connect(function()
+		local r = remote("SkipCall")
+		if r then
+			r:FireServer()
+		end
+		state.callEndsAt = 0
+		state.guideKey = ""
+	end)
+	ui.home.Activated:Connect(function()
+		pcall(function()
+			Net.event("Lobby", "BackToStation"):FireServer()
+		end)
+		UiKit.pop(ui.home, 0.2)
+	end)
+	ui.skip.Activated:Connect(function()
+		local r = remote("Skip")
+		if r then
+			r:FireServer()
+		end
+		state.tutorial = false
+		state.flow.done = true
+		state.guideKey = ""
+	end)
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
 		if processed or input.KeyCode.Name ~= Cfg.HelpKey then
 			return
@@ -1195,8 +1394,15 @@ function OnboardingController:Start()
 	end)
 	-- countdown hit 0 (squad launched) = the tutorial worked
 	pcall(function()
-		Net.event("Lobby", "Countdown").OnClientEvent:Connect(function(_pad: any, seconds: any)
+		Net.event("Lobby", "Countdown").OnClientEvent:Connect(function(_pad: any, seconds: any, title: any)
+			if type(seconds) == "number" and seconds > 0 then
+				state.callEndsAt = os.clock() + seconds
+				state.callTitle = if type(title) == "string" then title else state.callTitle
+			elseif seconds == -1 then
+				state.callEndsAt = 0
+			end
 			if seconds == 0 then
+				state.callEndsAt = 0
 				finishTutorial()
 			end
 		end)
@@ -1205,6 +1411,11 @@ function OnboardingController:Start()
 		state.driveHintUntil = 0
 		state.guideKey = ""
 		state.missionSince = os.clock()
+		if inMission() then
+			state.wasOnCall = true
+		elseif state.wasOnCall then
+			state.missionEnded = true
+		end
 		if inMission() then
 			finishTutorial()
 			if state.helpOpen then
@@ -1218,17 +1429,40 @@ function OnboardingController:Start()
 		state.guideKey = ""
 		if player:GetAttribute(FireCfg.PhaseAttr) == "burning" then
 			task.spawn(faceFirstFire)
+		else
+			setShoulder(false)
 		end
 	end)
 	if player:GetAttribute(FireCfg.PhaseAttr) == "burning" then
 		task.spawn(faceFirstFire)
 	end
+	-- respawned while it still burns: FirstFireService puts you back at the door; face it again
+	player.CharacterAdded:Connect(function()
+		shoulderOn = false
+		if player:GetAttribute(FireCfg.PhaseAttr) == "burning" then
+			task.delay((FireCfg.StandDelay or 0.6) + 0.3, faceFirstFire)
+		end
+	end)
 	local pg = player:WaitForChild("PlayerGui")
 	pg.ChildAdded:Connect(watchClutter)
 	for _, c in pg:GetChildren() do
 		watchClutter(c)
 	end
 	setLobbyClutter()
+
+	-- handshake: Main.client started every controller in this same frame (each Start runs until its
+	-- first yield), so after one more frame their OnClientEvent handlers are connected
+	task.spawn(function()
+		task.wait()
+		-- and only once the server has finished booting (every service declared its remotes)
+		while workspace:GetAttribute("ServerBooted") ~= true do
+			task.wait(0.2)
+		end
+		local r = remote("Ready")
+		if r then
+			r:FireServer()
+		end
+	end)
 
 	if player.Character then
 		task.spawn(onLobbyReady)

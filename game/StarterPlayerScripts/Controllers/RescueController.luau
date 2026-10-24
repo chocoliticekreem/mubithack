@@ -377,6 +377,18 @@ function RescueController:Start()
 	local highlight: Highlight? = nil
 	local chargeStart: number? = nil
 	local bound = false
+	-- touch buttons: keep an action bound while its button is held (see InventoryController: unbinding
+	-- mid-press makes the button's End hit an unbound action); refresh() again on release
+	local held: { [string]: boolean } = {}
+	local refresh: () -> ()
+	local function track(name: string, state: Enum.UserInputState)
+		if state == Enum.UserInputState.Begin then
+			held[name] = true
+		elseif held[name] and (state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel) then
+			held[name] = nil
+			task.defer(refresh)
+		end
+	end
 
 	local function charge(): number
 		if not chargeStart then
@@ -385,14 +397,16 @@ function RescueController:Start()
 		return math.clamp((os.clock() - chargeStart) / RescueConfig.ThrowChargeTime, 0, 1)
 	end
 
-	local function onDrop(_name: string, state: Enum.UserInputState, _input: InputObject): Enum.ContextActionResult
+	local function onDrop(name: string, state: Enum.UserInputState, _input: InputObject): Enum.ContextActionResult
+		track(name, state)
 		if state == Enum.UserInputState.Begin and carryingId() ~= "" then
 			Drop:FireServer()
 		end
 		return Enum.ContextActionResult.Sink
 	end
 
-	local function onThrow(_name: string, state: Enum.UserInputState, _input: InputObject): Enum.ContextActionResult
+	local function onThrow(name: string, state: Enum.UserInputState, _input: InputObject): Enum.ContextActionResult
+		track(name, state)
 		if carryingId() == "" then
 			chargeStart = nil
 			return Enum.ContextActionResult.Pass
@@ -411,7 +425,7 @@ function RescueController:Start()
 		return Enum.ContextActionResult.Sink
 	end
 
-	local function refresh()
+	function refresh()
 		local id = carryingId()
 		local on = id ~= ""
 		slot.Visible = on
@@ -421,7 +435,7 @@ function RescueController:Start()
 			ContextActionService:SetTitle("RescueDrop", "DROP")
 			ContextActionService:SetTitle("RescueThrow", "YEET")
 			bound = true
-		elseif not on and bound then
+		elseif not on and bound and not held.RescueDrop and not held.RescueThrow then
 			ContextActionService:UnbindAction("RescueDrop")
 			ContextActionService:UnbindAction("RescueThrow")
 			bound = false
