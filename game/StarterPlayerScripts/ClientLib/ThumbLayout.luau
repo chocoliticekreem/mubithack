@@ -16,7 +16,11 @@ local Players = game:GetService("Players")
 
 local ThumbLayout = {}
 
-export type Slot = "primary" | "above" | "upleft" | "left"
+export type Slot = "primary" | "above" | "upleft" | "left" | "upfar" | "leftfar"
+
+-- when a wanted slot is taken by another bound button (e.g. SPRAY still bound while driving), the
+-- button takes the first free slot in this order, so two buttons never share a spot
+local ORDER: { Slot } = { "primary", "above", "upleft", "left", "upfar", "leftfar" }
 
 local placed: { [string]: Slot } = {}
 local hooked = false
@@ -56,8 +60,13 @@ local function slotRect(slot: Slot): (Vector2, number)
 		return Vector2.new(jc.X, jc.Y - (j / 2 + gap + small / 2)), small
 	elseif slot == "upleft" then
 		return Vector2.new(primary.X + big * 0.05, primary.Y - (big / 2 + gap + small / 2)), small
-	else
+	elseif slot == "left" then
 		return Vector2.new(primary.X - (big / 2 + gap + small / 2), primary.Y + big * 0.15), small
+	elseif slot == "upfar" then
+		-- over "left", level with "upleft"
+		return Vector2.new(primary.X - (big / 2 + gap + small / 2), primary.Y - (big / 2 + gap + small / 2)), small
+	else -- "leftfar": left of "left"
+		return Vector2.new(primary.X - (big / 2 + gap + small * 1.5 + gap), primary.Y + big * 0.15), small
 	end
 end
 
@@ -102,7 +111,27 @@ local function reapply()
 	end
 end
 
-function ThumbLayout.place(action: string, slot: Slot)
+local function bound(action: string): boolean
+	return ContextActionService:GetBoundActionInfo(action) ~= nil
+		and next(ContextActionService:GetBoundActionInfo(action)) ~= nil
+end
+
+function ThumbLayout.place(action: string, want: Slot)
+	local taken: { [Slot]: boolean } = {}
+	for other, s in placed do
+		if other ~= action and bound(other) then
+			taken[s] = true
+		end
+	end
+	local slot = want
+	if taken[slot] then
+		for _, s in ORDER do
+			if not taken[s] then
+				slot = s
+				break
+			end
+		end
+	end
 	placed[action] = slot
 	apply(action, slot)
 	-- Roblox can build / move the frame a frame later: apply again once it has settled
