@@ -1472,19 +1472,21 @@ end
 local function geyser(hydrant: BasePart)
 	local a = Instance.new("Attachment")
 	a.Name = "InvGeyser"
-	a.Position = Vector3.new(0, hydrant.Size.Y / 2, 0)
 	a.Parent = hydrant
+	-- world-up, whatever way the hydrant part is rotated (MapKit's body is a cylinder on its side)
+	local size = hydrant.Size
+	a.WorldCFrame = CFrame.new(hydrant.Position + Vector3.new(0, math.max(size.X, size.Y, size.Z) / 2 + 0.5, 0))
 	local e = Instance.new("ParticleEmitter")
 	e.Name = "Geyser"
 	e.Texture = "rbxasset://textures/particles/smoke_main.dds"
-	e.Color = ColorSequence.new(Color3.fromRGB(190, 230, 255), Color3.fromRGB(110, 180, 255))
+	e.Color = ColorSequence.new(Color3.fromRGB(150, 210, 255), Color3.fromRGB(70, 150, 255))
 	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
-	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 3.5) })
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 5.5) })
 	e.Lifetime = NumberRange.new(1.2, 1.8)
-	e.Rate = 160
+	e.Rate = 260
 	e.Speed = NumberRange.new(38, 52)
 	e.SpreadAngle = Vector2.new(9, 9)
-	e.Acceleration = Vector3.new(0, -workspace.Gravity * 0.35, 0)
+	e.Acceleration = Vector3.new(0, -workspace.Gravity * 0.2, 0)
 	e.EmissionDirection = Enum.NormalId.Top
 	e.LightEmission = 0.2
 	e.Parent = a
@@ -1831,7 +1833,8 @@ local function supplyTick(hydrant: BasePart, s: Supply, dt: number, now: number)
 		s.warned = nil
 	end
 	local taut = dist >= s.rope.Length - Cfg.SupplyTautSlack
-	s.strain = ItemDefs.supplyStrain(s.strain, pushing and taut, dt, Cfg.SupplyStrainDecay)
+	-- still on the throttle but bounced back off the line: hold the strain (the next tug adds to it)
+	s.strain = ItemDefs.supplyStrain(s.strain, pushing and taut, dt, if pushing then 0 else Cfg.SupplyStrainDecay)
 	if s.strain >= Cfg.SupplyRipStrain then
 		ripSupply(hydrant, s, driver)
 		return

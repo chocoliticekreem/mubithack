@@ -41,9 +41,9 @@ return Config.define({
 	SupplyRate = 40, -- litres per second into the truck tank
 	SupplyTickHz = 10,
 	SupplyIntakeReach = 10, -- the [R] intake prompt on each side of a truck
-	SupplyTautSlack = 2.5, -- within this of full length the line counts as taut
+	SupplyTautSlack = 4, -- within this of full length the line counts as taut
 	SupplyRipStrain = 2.2, -- seconds of driving against a taut line before it RIPS off the hydrant
-	SupplyStrainDecay = 1.5, -- strain bleeds off this fast (per s) once you stop pulling
+	SupplyStrainDecay = 1.5, -- strain bleeds off this fast (per s) once you let off the throttle
 	SupplyWarnSeconds = 2.5, -- the driver's "STILL HOOKED UP" banner repeats this often while pushing
 	SupplyGeyserSeconds = 4, -- a ripped line leaves the hydrant geysering this long
 	SupplyColor = Color3.fromHex("#F2C230"),
