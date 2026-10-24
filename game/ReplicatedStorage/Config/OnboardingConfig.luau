@@ -11,11 +11,11 @@ return Config.define({
 	Tagline = "Save the day. Blame your friends.",
 	TitleSeconds = 2.2, -- first join (returning players get a short 1.6 s version); short: the training fire is waiting
 	ReturningTitleSeconds = 1.6,
-	-- tutorial copy: head = header, sub = small line under it ({rack} {bay} {enter} {siren} {horn} are filled in).
+	-- tutorial copy: head = header, sub = small line under it ({bay} {enter} {siren} {horn} are filled in).
 	-- Key hints ("press E") are rewritten for touch / gamepad by ClientLib/InputHints; subTouch / subPad
 	-- replace a line whole where that rewrite isn't enough.
 	Steps = {
-		gear = { head = "GRAB YOUR GEAR", sub = "Your rack is #{rack} in the locker room. Walk up and press E." },
+		gear = { head = "GRAB YOUR GEAR", sub = "The big red LOCKER in the locker room. Walk up and press E.", subTouch = "The big red LOCKER in the locker room. Walk up and tap it!" },
 		board = { head = "CHECK THE MISSION BOARD", sub = "Out front by the bays. Press E to pick a call." },
 		pad = { head = "STEP ON A GLOWING PAD", sub = "Bring friends! Everyone on the pad rolls out together." },
 		wait = { head = "ROLLING OUT SOON", sub = "Stay on the pad: at 0 you start IN your fire truck. Leader can hit GO NOW." },

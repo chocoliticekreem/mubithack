@@ -20,6 +20,8 @@
 --   ProfileSchema.equip(p, slot, id): boolean
 --   ProfileSchema.unlockGear(p, ids): { string }            -- newly unlocked gear ids (v3)
 --   ProfileSchema.setLoadout(p, ids): boolean               -- locker picks (GearService validates ids)
+--   ProfileSchema.setEquipped(p, eq): boolean              -- the LOCKER loadout { hand, back, face } ("" = empty);
+--                                                           GearService restores it on spawn / rejoin
 --   ProfileSchema.setSetting(p, key, value): boolean
 --   ProfileSchema.guideSeen(p, missionId): boolean          -- v4: first-time mission guide done
 --   ProfileSchema.markGuideSeen(p, missionId): boolean      -- true = newly marked
@@ -52,7 +54,7 @@ export type Profile = {
 		equipped: { helmet: string, hose: string },
 	},
 	settings: { [string]: any },
-	gear: { unlocked: { [string]: boolean }, loadout: { string } }, -- v3: locker (Lib/Items/Progression)
+	gear: { unlocked: { [string]: boolean }, loadout: { string }, equipped: Equipped }, -- v3: locker (Lib/Items/Progression); equipped: filled by reconcile
 	guides: { seen: { [string]: boolean } }, -- v4: MissionCatalog ids whose first-time guide ran (MissionGuideService)
 	donations: Donations, -- v5: Robux donated through developer products (MonetizationService)
 	pass: PassData, -- v6: battle pass (BattlePassService, ReplicatedStorage/Lib/BattlePass/PassRules)
@@ -60,6 +62,8 @@ export type Profile = {
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
+-- the station LOCKER loadout (GearService): item ids, "" = empty. Restored on every spawn and rejoin.
+export type Equipped = { hand: string, back: string, face: string }
 -- receipts = the newest MaxReceipts PurchaseIds already applied (oldest first), so a re-sent receipt
 -- is never counted twice even if the global purchase ledger write failed.
 export type Donations = { robux: number, count: number, receipts: { string } }
@@ -152,7 +156,7 @@ function ProfileSchema.default(now: number): Profile
 			equipped = { helmet = ProfileSchema.DefaultCosmetics.helmet, hose = ProfileSchema.DefaultCosmetics.hose },
 		},
 		settings = settings,
-		gear = { unlocked = {}, loadout = {} },
+		gear = { unlocked = {}, loadout = {}, equipped = { hand = "", back = "", face = "" } },
 		guides = { seen = {} },
 		donations = { robux = 0, count = 0, receipts = {} },
 		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
@@ -361,6 +365,15 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		end
 	end
 	p.gear.loadout = loadout
+	local eq = if type(p.gear.equipped) == "table" then p.gear.equipped else {}
+	local cleanEq = { hand = "", back = "", face = "" }
+	for slot in cleanEq do
+		local id = eq[slot]
+		if type(id) == "string" and #id <= 40 then
+			cleanEq[slot] = id
+		end
+	end
+	p.gear.equipped = cleanEq :: any
 
 	fillMap(p, "guides")
 	fillMap(p.guides, "seen")
@@ -646,6 +659,22 @@ function ProfileSchema.setLoadout(p: Profile, ids: any): boolean
 		end
 	end
 	p.gear.loadout = out
+	return true
+end
+
+-- The LOCKER loadout: { hand, back, face } item ids (nil / "" = empty). GearService validates the ids.
+function ProfileSchema.setEquipped(p: Profile, eq: any): boolean
+	if type(eq) ~= "table" then
+		return false
+	end
+	local out = { hand = "", back = "", face = "" }
+	for slot in out do
+		local id = eq[slot]
+		if type(id) == "string" and #id <= 40 then
+			out[slot] = id
+		end
+	end
+	p.gear.equipped = out :: any
 	return true
 end
 

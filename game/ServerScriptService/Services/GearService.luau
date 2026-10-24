@@ -1,11 +1,19 @@
 --!strict
--- GearService [owner: Gear]. Gear progression and the "different ways in":
+-- GearService [owner: Gear]. Gear progression, the station LOCKER and the "different ways in":
 --   * PROGRESSION: levels unlock gear (Lib/Items/Progression: Lv1 Rusty Axe + Hose + Ladder, Lv2 Gas Mask, Lv3
 --     Halligan, Lv4 Fire Axe, Lv6 Thermal Cam, Lv8 Sledgehammer, Lv10 Golden Axe, Lv12 Rescue
---     Saw). Unlocks + the locker loadout persist in the profile (ProfileSchema v3 `gear`). A level-up
---     tells the client what it unlocked (Gear/Unlocked). Your station GearRack (rack Helmet = your
---     Helmet) hangs your loadout on three pegs that restock, and has a LOCKER prompt (R) that opens
---     GearController's loadout picker.
+--     Saw). Unlocks persist in the profile (ProfileSchema v3 `gear`). A level-up tells the client what it
+--     unlocked (Gear/Unlocked).
+--   * THE LOCKER: one big shared cabinet in the station locker room (part tagged StationLocker, built by
+--     StationBuilder). Its "Open Locker" prompt (E / tap, attr GearLocker) opens GearController's menu:
+--     picture cards for every item. The menu only ASKS (Gear/Locker); the server checks you're at the
+--     locker, the unlock level (locked cards say "Reach Level N!"), the hose rule (it lives on the truck)
+--     and a cooldown, then sets your slots with InventoryService:Equip (hand + back 2-slot model, the
+--     mask on your face). No 3D grabbing, no per-player racks.
+--   * SAVED LOADOUT: what you have on is remembered in profile gear.equipped { hand, back, face }: a
+--     locker take sets it exactly, anything you pick up elsewhere updates its slot, an emptied slot (a
+--     throw, a death spill) keeps the old pick. Every spawn / rejoin fills your EMPTY slots from it, so you
+--     rarely need the locker at all (the first-fire extinguisher is never replaced).
 --   * TOOLS (plain Tools from ItemProps; their Activated is hooked here): Halligan / Crowbar pry a
 --     locked door open quietly (ToolService:PryDoor), Sledgehammer smashes Window panes and weak wall
 --     chunks into new doorways, Rescue Saw cuts doors/walls fast, Ladder stands a climbable truss
@@ -16,21 +24,26 @@
 --     ROOF HATCH on every IncidentSite roof (open + drop into the top floor; quicker with a pry bar).
 --
 -- Public API:
---   GearService:GetLoadout(player): { string }
---   GearService:SetLoadout(player, ids): boolean        -- validated by Progression.sanitizeLoadout
+--   GearService:GetEquipped(player): { hand: string?, back: string?, face: string? }   -- saved loadout
 --   GearService:LevelOf(player): number
--- Remotes: Gear/SetLoadout (C->S: { id }, 2/s), Gear/Unlocked (S->C owner: level, { id }),
+-- Remotes: Gear/Locker (C->S: "take", id, "hand"|"back" | "swap" | "off", slot; 6/s),
+--          Gear/LockerResult (S->C owner: ok: boolean, message: string),
+--          Gear/Unlocked (S->C owner: level, { id }),
 --          Gear/Fx (S->C all: kind "pry"|"smash"|"breach"|"kick"|"kickfail"|"saw"|"ladder"|"climb"|"hatch", pos)
--- Writes: Player attrs GearLoadout ("Axe,OxygenTank,..."), GearBusy ("" | "Prying" | "Cutting");
---   rack peg parts (folder "LoadoutPegs" in each GearRack folder) with attrs Item, Owner; "GearLocker"
---   prompts; "KickPoint" Attachments + prompts on Door parts; "ClimbPoint" prompts on broken Windows;
---   "RoofHatch" parts on IncidentSite roofs; workspace.PlacedLadders (TrussParts, attr OwnerUserId).
+-- Writes: ReplicatedStorage.LockerIcons (display Models by item id, for the menu cards); Player attrs
+--   GearLevel, GearEquipped ("hand,back,face" saved ids), GearBusy ("" | "Prying" | "Cutting");
+--   the "LockerPrompt" on each StationLocker; "KickPoint" Attachments + prompts on Door parts;
+--   "ClimbPoint" prompts on broken Windows; "RoofHatch" parts on IncidentSite roofs;
+--   workspace.PlacedLadders (TrussParts, attr OwnerUserId).
 -- Reads (nil-guarded): DataService (GetProfile/Update/ProfileLoaded/LevelUp), InventoryService
---   (Give/TakeHand), ToolService (PryDoor/HitDoor/PushDoor), StructureService (BreakWindow/Breach).
+--   (Give/TakeHand/Equip/GetHand/GetBack/GetFace/Changed), ToolService (PryDoor/HitDoor/PushDoor),
+--   StructureService (BreakWindow/Breach).
 -- Counters: gear_pries, gear_kicks, gear_kick_fails, gear_windows_smashed, gear_breaches, gear_saw_cuts,
---   gear_ladders, gear_climbs, gear_hatch_drops, gear_unlocks, gear_loadouts_saved, gear_peg_grabs
+--   gear_ladders, gear_climbs, gear_hatch_drops, gear_unlocks, gear_locker_opens, gear_locker_takes,
+--   gear_loadout_restored
 -- Test hooks (DevHook only): _selftest(), _use(player, id?), _kick(player, door?, force?),
---   _setLevel(player, level), _state(player), _climb(player, window), _hatch(player, hatch?)
+--   _setLevel(player, level), _state(player), _climb(player, window), _hatch(player, hatch?),
+--   _locker(player, action, id?, slot?) (skips the walk + cooldown), _restore(player)
 
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
@@ -47,7 +60,6 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigFolder:WaitForChild("GearConfig") :: ModuleScript) :: any
 local ToolConfig = require(ConfigFolder:WaitForChild("ToolConfig") :: ModuleScript) :: any
-local InvCfg = require(ConfigFolder:WaitForChild("InventoryConfig") :: ModuleScript) :: any
 local DataConfig = require(ConfigFolder:WaitForChild("DataConfig") :: ModuleScript) :: any
 local Items = ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items")
 local ItemDefs = require(Items:WaitForChild("ItemDefs") :: ModuleScript) :: any
@@ -60,24 +72,25 @@ local GearService = {}
 GearService.Priority = 60
 
 local SITE_TAG = "IncidentSite"
-local TAG_RACK = "GearRack"
+local TAG_LOCKER = Cfg.LockerTag or "StationLocker"
 local AXES = { Axe = true, FireAxe = true, GoldenAxe = true }
 local ROOFY = { "^Roof", "^Ceiling", "^Gable", "^Ridge", "^Parapet" }
 
 type PState = {
 	level: number,
-	loadout: { string },
 	busy: boolean,
+	lastLocker: number,
 	lastUse: number,
 	lastKick: number,
 	lastSay: number,
 }
-type Peg = { part: BasePart, prompt: ProximityPrompt, display: Model?, id: string?, stocked: boolean }
-type Rack = { board: BasePart, pegs: { Peg }, sig: string }
 
 local services: { [string]: any } = {}
 local states: { [Player]: PState } = {}
-local racks: { [BasePart]: Rack } = {}
+local lockers: { [BasePart]: boolean } = {}
+local saved: { [Player]: { hand: string?, back: string?, face: string? } } = {} -- the locker loadout (profile gear.equipped)
+local profileReady: { [Player]: boolean } = {}
+local pendingSave: { [Player]: boolean } = {}
 local kickTries: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any
 local wallHits: { [BasePart]: number } = setmetatable({}, { __mode = "k" }) :: any
 local hookedTools: { [Tool]: boolean } = setmetatable({}, { __mode = "k" }) :: any
@@ -112,7 +125,7 @@ end
 local function stateOf(player: Player): PState
 	local s = states[player]
 	if not s then
-		s = { level = 1, loadout = Progression.defaultLoadout(1), busy = false, lastUse = 0, lastKick = 0, lastSay = 0 }
+		s = { level = 1, busy = false, lastLocker = 0, lastUse = 0, lastKick = 0, lastSay = 0 }
 		states[player] = s
 	end
 	return s :: PState
@@ -947,196 +960,236 @@ buildHatch = function(site: Model)
 	end)
 end
 
--- racks: loadout pegs and the locker --------------------------------------------------------------
-local function rackOwner(board: BasePart): Player?
-	local helmet = board:GetAttribute(Names.Attr.Helmet) or board:GetAttribute(Names.Attr.Slot)
-	if helmet == nil then
-		return nil
-	end
-	for _, p in Players:GetPlayers() do
-		if p:GetAttribute(Names.Attr.Helmet) == helmet then
-			return p
-		end
-	end
-	return nil
+-- the LOCKER: one shared cabinet, a menu (GearController), server-checked takes -----------------------
+type Eq = { hand: string?, back: string?, face: string? }
+
+local function currentEq(player: Player): Eq
+	return {
+		hand = call("InventoryService", "GetHand", player),
+		back = call("InventoryService", "GetBack", player),
+		face = call("InventoryService", "GetFace", player),
+	}
 end
 
-local function setPeg(peg: Peg, id: string?)
-	if peg.display then
-		peg.display:Destroy()
-		peg.display = nil
-	end
-	peg.id = id
-	peg.stocked = id ~= nil
-	peg.part:SetAttribute("Item", id or "")
-	peg.prompt.Enabled = id ~= nil
-	if not id then
-		return
-	end
-	local def = ItemDefs.get(id)
-	peg.prompt.ActionText = `Grab {if def then def.name else id}`
-	local m = ItemProps.build(id, "display", 0.62)
-	m.Name = "InvDisplay" -- InventoryController highlights it when the prompt shows
-	m:PivotTo(peg.part.CFrame)
-	local w = Instance.new("WeldConstraint")
-	w.Part0 = peg.part
-	w.Part1 = m.PrimaryPart
-	w.Parent = m
-	m.Parent = peg.part
-	peg.display = m
-end
-
-local function onPeg(player: Player, rack: Rack, peg: Peg)
-	if not peg.stocked or not peg.id then
-		return
-	end
-	local owner = rackOwner(rack.board)
-	if owner and owner ~= player then
-		say(player, `That's {owner.DisplayName}'s locker! Use your own`)
-		return
-	end
-	if not Net.near(player, peg.part.Position, Cfg.LockerDistance + 4) then
-		return
-	end
-	local id = peg.id
-	if not Progression.isUnlocked(id, stateOf(player).level) then
-		say(player, `Unlocks at Lv {Progression.unlockLevel(id)}`)
-		return
-	end
-	if not call("InventoryService", "Give", player, id) then
-		return
-	end
-	Telemetry.count("gear_peg_grabs")
-	peg.stocked = false
-	peg.prompt.Enabled = false
-	if peg.display then
-		for _, p in peg.display:GetDescendants() do
-			if p:IsA("BasePart") then
-				p.LocalTransparencyModifier = 0
-				p:SetAttribute("PegT", p.Transparency)
-				p.Transparency = 1
+local function nearLocker(player: Player): boolean
+	for _, inst in CollectionService:GetTagged(TAG_LOCKER) do
+		if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) then
+			local reach = Cfg.LockerDistance + math.max(inst.Size.X, inst.Size.Z) / 2 + 4
+			if Net.near(player, inst.Position, reach) then
+				return true
 			end
 		end
 	end
-	task.delay(Cfg.PegRestockSeconds, function()
-		if peg.id ~= id or not peg.part.Parent then
-			return
-		end
-		peg.stocked = true
-		peg.prompt.Enabled = true
-		if peg.display then
-			for _, p in peg.display:GetDescendants() do
-				if p:IsA("BasePart") then
-					p.Transparency = tonumber(p:GetAttribute("PegT")) or 0
-				end
-			end
+	return false
+end
+
+-- The saved loadout follows what you have on: a lockerable item in a slot is remembered there; an empty
+-- slot keeps the old pick (you threw your axe, you still respawn with it). Only the locker empties a slot.
+local function persist(player: Player)
+	local eq = saved[player] or {}
+	player:SetAttribute("GearEquipped", `{eq.hand or ""},{eq.back or ""},{eq.face or ""}`)
+	call("DataService", "Update", player, function(p: any)
+		if type(p.gear) == "table" then
+			Schema.setEquipped(p, { hand = eq.hand or "", back = eq.back or "", face = eq.face or "" })
 		end
 	end)
 end
 
-local function loadoutFor(board: BasePart): ({ string }, Player?)
-	local owner = rackOwner(board)
-	if owner then
-		return stateOf(owner).loadout, owner
+local function remember(player: Player)
+	if not profileReady[player] then
+		return
 	end
-	return Progression.defaultLoadout(1), nil
+	local cur = currentEq(player)
+	local keep = Progression.sanitizeEquipped(cur, stateOf(player).level)
+	local eq: Eq = table.clone(saved[player] or {})
+	local changed = false
+	for _, slot in { "hand", "back", "face" } do
+		local id = (keep :: any)[slot]
+		if id and (eq :: any)[slot] ~= id then
+			(eq :: any)[slot] = id
+			changed = true
+		end
+	end
+	-- one item can't be saved in two slots (an axe moved from the back to the hand)
+	if eq.hand and eq.hand == eq.back then
+		if keep.hand == eq.hand then
+			eq.back = keep.back
+		else
+			eq.hand = keep.hand
+		end
+		changed = true
+	end
+	if changed then
+		saved[player] = eq
+		persist(player)
+	end
 end
 
-local function refreshRack(rack: Rack)
-	local list, owner = loadoutFor(rack.board)
-	local sig = `{if owner then owner.UserId else 0}:{table.concat(list, ",")}`
-	if sig == rack.sig then
+local function queueRemember(player: Player)
+	if pendingSave[player] then
 		return
 	end
-	rack.sig = sig
-	for i, peg in rack.pegs do
-		peg.part:SetAttribute("Owner", if owner then owner.UserId else 0)
-		setPeg(peg, list[i])
-	end
+	pendingSave[player] = true
+	task.delay(0.6, function()
+		pendingSave[player] = nil
+		if player.Parent then
+			remember(player)
+		end
+	end)
 end
 
-local function hookRack(inst: Instance)
-	if not inst:IsA("BasePart") or racks[inst] or not inst:IsDescendantOf(workspace) then
+-- Spawn / rejoin: the empty slots get your saved picks back.
+local function restore(player: Player): boolean
+	if not profileReady[player] or not player.Character or downed(player) then
+		return false
+	end
+	local want = Progression.sanitizeEquipped(saved[player], stateOf(player).level)
+	local cur = currentEq(player)
+	local target: Eq = { hand = cur.hand, back = cur.back, face = cur.face }
+	local used: { [string]: boolean } = {}
+	for _, id in { cur.hand, cur.back, cur.face } do
+		if id then
+			used[id] = true
+		end
+	end
+	local changed = false
+	for _, slot in { "hand", "back", "face" } do
+		local id = (want :: any)[slot]
+		if (target :: any)[slot] == nil and id and not used[id] then
+			(target :: any)[slot] = id
+			used[id] = true
+			changed = true
+		end
+	end
+	if not changed then
+		return false
+	end
+	local ok = call("InventoryService", "Equip", player, target)
+	if ok then
+		Telemetry.count("gear_loadout_restored")
+	end
+	return ok == true
+end
+
+local REFUSED = {
+	busy = "Your hands are busy!",
+	hose = "Put the hose back on the truck first!",
+	["not backable"] = "That won't fit on your back. Tap it for your hand!",
+	truck = "The hose lives on your fire truck!",
+	empty = "Nothing to swap yet!",
+}
+
+-- action: "take" (id, slot "hand" | "back"), "swap", "off" (slot). Returns (ok, message for the menu).
+local function lockerAction(player: Player, action: any, id: any, slot: any, skipNear: boolean?): (boolean, string)
+	if type(action) ~= "string" then
+		return false, ""
+	end
+	local s = stateOf(player)
+	local now = os.clock()
+	if now - s.lastLocker < Cfg.LockerCooldown then
+		return false, "Whoa, one at a time!"
+	end
+	s.lastLocker = now
+	if downed(player) or not player.Character then
+		return false, "You're down! Get back up first"
+	end
+	if not skipNear and not nearLocker(player) then
+		return false, "Walk up to the LOCKER first"
+	end
+	local cur = currentEq(player)
+	local ok: boolean, new: Eq, why: string? = false, cur, nil
+	local said = ""
+	if action == "take" then
+		if type(id) ~= "string" or not ItemDefs.get(id) then
+			return false, ""
+		end
+		local def = ItemDefs.get(id)
+		local name = if def then def.name else id
+		local st = Progression.lockerState(id, s.level)
+		if st == "locked" then
+			return false, `{name}: {Progression.lockReason(id)}`
+		elseif st == "truck" then
+			return false, REFUSED.truck
+		end
+		local want = if slot == "back" then "back" else "hand"
+		ok, new, why = Progression.lockerTake(cur, id, want)
+		local where = Progression.slotFor(id, want)
+		said = if where == "face" then `{name} on your face!` elseif where == "back" then `{name} on your back!` else `{name} in your hand!`
+	elseif action == "swap" then
+		ok, new, why = Progression.lockerSwap(cur)
+		said = "Swapped!"
+	elseif action == "off" then
+		if slot ~= "hand" and slot ~= "back" and slot ~= "face" then
+			return false, ""
+		end
+		ok, new = Progression.lockerOff(cur, slot)
+		said = "Put away!"
+	else
+		return false, ""
+	end
+	if not ok then
+		return false, REFUSED[why or ""] or ""
+	end
+	local done, reason = call("InventoryService", "Equip", player, new)
+	if done ~= true then
+		return false, REFUSED[reason or ""] or "Can't do that right now"
+	end
+	-- the menu is the one place that empties a saved slot
+	saved[player] = Progression.sanitizeEquipped(new, s.level)
+	persist(player)
+	Telemetry.count("gear_locker_takes")
+	return true, said
+end
+
+local function hookLocker(inst: Instance)
+	if not inst:IsA("BasePart") or lockers[inst] or not inst:IsDescendantOf(workspace) then
 		return
 	end
-	local board = inst :: BasePart
-	-- only the station's numbered racks (they carry a Slot/Helmet); truck compartments use another tag
-	if board:GetAttribute(Names.Attr.Slot) == nil and board:GetAttribute(Names.Attr.Helmet) == nil then
-		return
-	end
-	local rack: Rack = { board = board, pegs = {}, sig = "" }
-	racks[board] = rack
-	local holder = Instance.new("Folder")
-	holder.Name = "LoadoutPegs"
-	holder.Parent = board.Parent or board
-	for i = 1, Progression.LoadoutSize do
-		local x = (i - (Progression.LoadoutSize + 1) / 2) * 2.1
-		local part = Instance.new("Part")
-		part.Name = `Peg{i}`
-		part.Size = Vector3.new(1.4, 1.4, 1.4)
-		part.Transparency = 1
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanQuery = false
-		part.CanTouch = false
-		part.CFrame = board.CFrame * CFrame.new(x, -0.9, -(board.Size.Z / 2 + 1.9))
-		part:SetAttribute("LoadoutPeg", i)
-		part.Parent = holder
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "InvPrompt"
-		prompt.ActionText = "Grab"
-		prompt.ObjectText = "Your locker"
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = InvCfg.GrabDistance
-		prompt.RequiresLineOfSight = false
-		prompt.Style = Enum.ProximityPromptStyle.Custom
-		prompt:SetAttribute("InvPrompt", true) -- InventoryController draws the chunky sticker
-		prompt.Parent = part
-		local peg: Peg = { part = part, prompt = prompt, display = nil, id = nil, stocked = false }
-		table.insert(rack.pegs, peg)
-		prompt.Triggered:Connect(function(player: Player)
-			onPeg(player, rack, peg)
-		end)
-	end
-	-- the locker: R opens GearController's loadout picker (client-side; it sends Gear/SetLoadout)
+	local body = inst :: BasePart
+	lockers[body] = true
+	-- the prompt sits on the front (-X) face, at chest height
 	local att = Instance.new("Attachment")
 	att.Name = "LockerPoint"
-	att.Position = Vector3.new(0, 2.2, -(board.Size.Z / 2 + 0.4))
-	att.Parent = board
-	local locker = Instance.new("ProximityPrompt")
-	locker.Name = "LockerPrompt"
-	locker.ActionText = "Open Locker"
-	locker.ObjectText = "Pick your loadout"
-	locker.KeyboardKeyCode = Enum.KeyCode.R
-	locker.GamepadKeyCode = Enum.KeyCode.ButtonY
-	locker.HoldDuration = 0
-	locker.MaxActivationDistance = Cfg.LockerDistance
-	locker.RequiresLineOfSight = false
-	locker:SetAttribute("GearLocker", true)
-	locker.Parent = att
-	-- a little "LOCKER" sign over the rack
-	local sign = Instance.new("SurfaceGui")
-	sign.Name = "LockerSign"
-	sign.Face = Enum.NormalId.Front
-	sign.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	sign.PixelsPerStud = 40
-	local label = Instance.new("TextLabel")
-	label.Name = "Text"
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1, 0, 0.12, 0)
-	label.Position = UDim2.new(0, 0, 0.02, 0)
-	label.Font = Enum.Font.LuckiestGuy
-	label.TextScaled = true
-	label.TextColor3 = Color3.fromHex("#FFF1D6")
-	label.Text = "LOCKER [R]"
-	-- each client shows it for its own input (ClientLib/InputHints): phones tap the prompt, no [R]
-	label:SetAttribute("HintText", "LOCKER [R]")
-	label:SetAttribute("HintTouch", "LOCKER")
-	label:SetAttribute("HintGamepad", "LOCKER")
-	label:AddTag("InputHint")
-	label.Parent = sign
-	sign.Parent = board
-	refreshRack(rack)
+	att.Position = Vector3.new(-(body.Size.X / 2 + 0.6), -1, 0)
+	att.Parent = body
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "LockerPrompt"
+	prompt.ActionText = "Open Locker"
+	prompt.ObjectText = "LOCKER"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = Cfg.LockerDistance
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("GearLocker", true) -- GearController opens the menu
+	prompt.Parent = att
+	prompt.Triggered:Connect(function()
+		Telemetry.count("gear_locker_opens")
+	end)
+end
+
+-- Little display models the menu cards draw in ViewportFrames (ItemProps lives on the server).
+local function publishIcons()
+	local folder = ReplicatedStorage:FindFirstChild("LockerIcons")
+	if folder then
+		folder:Destroy()
+	end
+	local f = Instance.new("Folder")
+	f.Name = "LockerIcons"
+	for _, id in Progression.lockerItems() do
+		local ok, m = pcall(ItemProps.build, id, "display", 1)
+		if ok and m then
+			m.Name = id
+			for _, p in m:GetDescendants() do
+				if p:IsA("BasePart") then
+					p.Anchored = true
+				end
+			end
+			m:PivotTo(CFrame.new())
+			m.Parent = f
+		end
+	end
+	f.Parent = ReplicatedStorage
 end
 
 -- progression ------------------------------------------------------------------------------------
@@ -1146,28 +1199,31 @@ local function levelFromAttr(player: Player): number
 end
 
 local function publish(player: Player)
-	local s = stateOf(player)
-	player:SetAttribute("GearLoadout", table.concat(s.loadout, ","))
-	player:SetAttribute("GearLevel", s.level)
+	player:SetAttribute("GearLevel", stateOf(player).level)
 end
 
 local function onProfile(player: Player)
 	local s = stateOf(player)
 	local profile = call("DataService", "GetProfile", player)
 	s.level = if type(profile) == "table" and type(profile.level) == "number" then profile.level else levelFromAttr(player)
-	local saved = if type(profile) == "table" and type(profile.gear) == "table" then profile.gear.loadout else nil
-	local loadout = Progression.sanitizeLoadout(saved, s.level)
-	if #loadout == 0 then
-		loadout = Progression.defaultLoadout(s.level)
-	end
-	s.loadout = loadout
+	local raw = if type(profile) == "table" and type(profile.gear) == "table" then profile.gear.equipped else nil
+	saved[player] = Progression.sanitizeEquipped(raw, s.level)
 	call("DataService", "Update", player, function(p: any)
 		if type(p.gear) == "table" then
 			Schema.unlockGear(p, Progression.unlockedAt(p.level))
-			Schema.setLoadout(p, loadout)
 		end
 	end)
+	profileReady[player] = true
+	local eq = saved[player] or {}
+	player:SetAttribute("GearEquipped", `{eq.hand or ""},{eq.back or ""},{eq.face or ""}`)
 	publish(player)
+	-- rejoin: your saved picks come back on (empty slots only; the tutorial's extinguisher stays)
+	task.delay(0.5, function()
+		if player.Parent and player.Character then
+			restore(player)
+		end
+		queueRemember(player) -- a brand-new player's first kit becomes their loadout
+	end)
 end
 
 local function onLevelUp(player: Player, level: number)
@@ -1186,14 +1242,6 @@ local function onLevelUp(player: Player, level: number)
 			end
 		end)
 		Telemetry.count("gear_unlocks", #new)
-		-- a fresh unlock goes straight onto an empty peg of your rack
-		if #s.loadout < Progression.LoadoutSize then
-			local list = table.clone(s.loadout)
-			for _, id in new do
-				table.insert(list, id)
-			end
-			s.loadout = Progression.sanitizeLoadout(list, level)
-		end
 	end
 	if UnlockedRemote then
 		UnlockedRemote:FireClient(player, level, new)
@@ -1229,19 +1277,20 @@ local function hookPlayer(player: Player)
 		for _, c in char:GetChildren() do
 			hookTool(player, c)
 		end
+		-- respawn: your saved locker picks come back (after InventoryService has set up the new body)
+		task.delay(Cfg.RestoreDelay, function()
+			if player.Character == char and char.Parent then
+				restore(player)
+			end
+		end)
 	end
 	player.CharacterAdded:Connect(onChar)
 	if player.Character then
 		task.spawn(onChar, player.Character)
 	end
-	player:GetAttributeChangedSignal(Names.Attr.Helmet):Connect(function()
-		for _, rack in racks do
-			refreshRack(rack)
-		end
-	end)
 	-- no DataService (or it already loaded): fall back to the Level attr
 	task.delay(2, function()
-		if player.Parent and player:GetAttribute("GearLoadout") == nil then
+		if player.Parent and not profileReady[player] then
 			onProfile(player)
 		end
 	end)
@@ -1250,12 +1299,13 @@ end
 function GearService:Start()
 	FxRemote = Net.event("Gear", "Fx")
 	UnlockedRemote = Net.event("Gear", "Unlocked")
-	local SetR = Net.event("Gear", "SetLoadout")
-	Net.onServer(SetR, { rate = 2, burst = 2 }, function(player: Player, ids: any)
-		if type(ids) == "table" and #ids <= 12 then
-			GearService:SetLoadout(player, ids)
-		end
+	local LockerR = Net.event("Gear", "Locker")
+	local ResultR = Net.event("Gear", "LockerResult")
+	Net.onServer(LockerR, { rate = 6, burst = 4 }, function(player: Player, action: any, id: any, slot: any)
+		local ok, msg = lockerAction(player, action, id, slot, false)
+		ResultR:FireClient(player, ok, msg)
 	end)
+	publishIcons()
 
 	local Data = services.DataService
 	if Data then
@@ -1266,6 +1316,10 @@ function GearService:Start()
 			Data.LevelUp:Connect(onLevelUp)
 		end
 	end
+	local Inv = services.InventoryService
+	if Inv and Inv.Changed then
+		Inv.Changed:Connect(queueRemember)
+	end
 
 	Players.PlayerAdded:Connect(hookPlayer)
 	for _, p in Players:GetPlayers() do
@@ -1273,67 +1327,44 @@ function GearService:Start()
 	end
 	Players.PlayerRemoving:Connect(function(player: Player)
 		states[player] = nil
-		for _, rack in racks do
-			refreshRack(rack)
-		end
+		saved[player] = nil
+		profileReady[player] = nil
+		pendingSave[player] = nil
 	end)
 
-	watchTag(TAG_RACK, hookRack)
+	watchTag(TAG_LOCKER, hookLocker)
 	watchTag(Names.Tag.Door, hookDoor)
 	watchTag(Names.Tag.Window, hookWindow)
 	watchTag(SITE_TAG, hookSite)
-
-	-- racks follow owners (Helmet attrs) and loadouts; cheap: 4 racks
-	task.spawn(function()
-		while true do
-			task.wait(2)
-			for board, rack in racks do
-				if board.Parent then
-					refreshRack(rack)
-				else
-					racks[board] = nil
-				end
-			end
-		end
-	end)
 end
 
 function GearService:LevelOf(player: Player): number
 	return stateOf(player).level
 end
 
-function GearService:GetLoadout(player: Player): { string }
-	return table.clone(stateOf(player).loadout)
-end
-
-function GearService:SetLoadout(player: Player, ids: { any }): boolean
-	local s = stateOf(player)
-	local list = Progression.sanitizeLoadout(ids, s.level)
-	s.loadout = list
-	call("DataService", "Update", player, function(p: any)
-		if type(p.gear) == "table" then
-			Schema.setLoadout(p, list)
-		end
-	end)
-	publish(player)
-	for _, rack in racks do
-		refreshRack(rack)
-	end
-	Telemetry.count("gear_loadouts_saved")
-	Popup.show(player, "Loadout saved! Your rack is restocked", "good", player)
-	return true
+-- The saved locker loadout { hand, back, face } (restored on spawn / rejoin).
+function GearService:GetEquipped(player: Player): { hand: string?, back: string?, face: string? }
+	return table.clone(saved[player] or {})
 end
 
 -- test hooks ---------------------------------------------------------------------------------------
 function GearService:_state(player: Player): { [string]: any }
 	local s = stateOf(player)
-	return { level = s.level, loadout = s.loadout, busy = s.busy, racks = (function()
-		local n = 0
-		for _ in racks do
-			n += 1
-		end
-		return n
-	end)(), ladders = #ladders }
+	local n = 0
+	for _ in lockers do
+		n += 1
+	end
+	return { level = s.level, saved = saved[player] or {}, ready = profileReady[player] == true, busy = s.busy, lockers = n, ladders = #ladders }
+end
+
+-- the menu's request, without the walk to the locker (and without the cooldown)
+function GearService:_locker(player: Player, action: string, id: string?, slot: string?): (boolean, string)
+	stateOf(player).lastLocker = 0
+	return lockerAction(player, action, id, slot, true)
+end
+
+function GearService:_restore(player: Player): boolean
+	return restore(player)
 end
 
 function GearService:_setLevel(player: Player, level: number)
@@ -1393,7 +1424,7 @@ function GearService:_hatch(player: Player, hatch: BasePart?): boolean
 end
 
 function GearService:_selftest(): (boolean, string)
-	for _, r in { "Fx", "Unlocked", "SetLoadout" } do
+	for _, r in { "Fx", "Unlocked", "Locker", "LockerResult" } do
 		local net = ReplicatedStorage:FindFirstChild("Net")
 		local ns = net and net:FindFirstChild("Gear")
 		if not (ns and ns:FindFirstChild(r)) then

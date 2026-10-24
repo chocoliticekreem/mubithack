@@ -357,7 +357,7 @@ return {
 				{
 					id = "pry",
 					head = "GET A PRY TOOL",
-					sub = "Halligan or crowbar from your locker, or just your axe. In your HAND.",
+					sub = "Halligan or crowbar from the big red LOCKER, or just your axe. In your HAND.",
 					done = { kind = "hand", items = { "Halligan", "Crowbar", "Axe", "FireAxe", "GoldenAxe" } },
 					maxSeconds = 45,
 				},
@@ -382,7 +382,7 @@ return {
 				{
 					id = "ladder",
 					head = "BRING A LADDER",
-					sub = "Pick it in your locker (R), hold it, face the trunk and click.",
+					sub = "Take it from the big red LOCKER (E), hold it, face the trunk and click.",
 					target = { kind = "named", name = "CatTree" },
 					done = { kind = "ladder" },
 					maxSeconds = 90,

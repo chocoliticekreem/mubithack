@@ -483,7 +483,7 @@ local Missions = {
 		guide = {
 			headline = "The drivers are pinned. Pry the doors, then carry them out.",
 			steps = {
-				"Hold a pry tool in your hand: the Halligan or crowbar from the station rack, or your axe.",
+				"Hold a pry tool in your hand: the Halligan or crowbar from the station LOCKER, or your axe.",
 				"Walk up to a crumpled car's door and hold E to pry it off.",
 				"With the door gone you can pick the driver up and carry them to the truck.",
 				"Hose down the burning cars at the other end of the lay-by.",

@@ -4,7 +4,7 @@
 -- Copy + tuning: Config/OnboardingConfig. Step logic: Lib/Onboarding/OnboardingFlow (spec-tested).
 --   * Title card ("FLAME AND BLAME / Station 67") on the first spawn of the session; short for returning
 --     players (Player attr Onboarded = true, written by OnboardingService from the DataService profile).
---   * Tutorial (first join only, or replayed from Help): GRAB YOUR GEAR (your numbered GearRack, done
+--   * Tutorial (first join only, or replayed from Help): GRAB YOUR GEAR (the big red StationLocker, done
 --     on its prompt or once InvHand is set) -> CHECK THE MISSION BOARD (prompt / picker / look at it up close)
 --     -> STEP ON A GLOWING PAD (SquadId ~= "") -> ROLLING OUT (countdown). Launch = done
 --     (Onboarding/Done -> settings.onboarded). Each step: a card at the top centre, a bouncing arrow
@@ -60,7 +60,7 @@ OnboardingController.Priority = 120
 local player = Players.LocalPlayer
 local Tag = Names.Tag :: any
 local Attr = Names.Attr :: any
-local GEAR_RACK_TAG: string = Tag.GearRack or "GearRack"
+local LOCKER_TAG: string = GearConfig.LockerTag or "StationLocker"
 local PAD_TAG: string = Tag.SquadPad or "SquadPad"
 local BOARD_TAG: string = Tag.MissionBoard or "MissionBoard"
 local TRUCK_TAG: string = Tag.Truck or "Truck"
@@ -135,19 +135,14 @@ local function firstPart(inst: Instance?): BasePart?
 	return inst:FindFirstChildWhichIsA("BasePart", true)
 end
 
-local function myRack(): BasePart?
-	local want = helmet()
-	local any: BasePart? = nil
-	for _, r in CollectionService:GetTagged(GEAR_RACK_TAG) do
+-- the one big shared LOCKER in the station (GearService / GearController's menu)
+local function theLocker(): BasePart?
+	for _, r in CollectionService:GetTagged(LOCKER_TAG) do
 		if r:IsA("BasePart") and r:IsDescendantOf(workspace) then
-			local slot = r:GetAttribute(Attr.Slot or "Slot") or r:GetAttribute(Attr.Helmet)
-			if slot == want then
-				return r
-			end
-			any = any or r
+			return r
 		end
 	end
-	return any
+	return nil
 end
 
 local function board(): BasePart?
@@ -470,8 +465,7 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpHeader(list, nx(), "YOUR 3 SLOTS (bottom of the screen)")
 	slotPicture(list, nx())
 	helpHeader(list, nx(), "GRAB STUFF")
-	helpRow(list, nx(), { "E" }, "Grab gear off your station rack, a truck locker, or anything lying on the ground.")
-	helpRow(list, nx(), { "R" }, "At your rack: open your LOCKER and pick what hangs on it.")
+	helpRow(list, nx(), { "E" }, "At the big red LOCKER in the station: tap a picture to hold it. Also grabs truck lockers and anything on the ground.")
 	helpRow(list, nx(), { "1", "2" }, "Swap your hand and your back (the oxygen tank lives there).")
 	helpRow(list, nx(), { "G" }, "Drop what you're holding (carry first, then your hand).")
 	helpRow(list, nx(), { "hold Q" }, "Wind up and THROW it. Release to let go. It bonks people.")
@@ -1077,10 +1071,10 @@ local function currentGuide(): Guide?
 		return nil
 	end
 	local s = Cfg.Steps[step]
-	local vars = { rack = string.format("%02d", helmet()) }
+	local vars: { [string]: string } = {}
 	local part: BasePart?, model: Instance? = nil, nil
 	if step == "gear" then
-		part = myRack()
+		part = theLocker()
 		model = part
 	elseif step == "board" then
 		part = board()
@@ -1096,6 +1090,7 @@ local function currentGuide(): Guide?
 		model = model,
 		head = s.head,
 		sub = fill(s.sub, vars),
+		subTouch = s.subTouch and fill(s.subTouch, vars),
 		chip = if idx > 0 then `{idx}/{#Flow.Steps}` else "GO!",
 	}
 end
@@ -1413,7 +1408,7 @@ function OnboardingController:Start()
 		local p = prompt.Parent :: Instance
 		if p:HasTag(BOARD_TAG) or (p.Parent and p.Parent:HasTag(BOARD_TAG)) then
 			state.boardSeen = true
-		elseif p:HasTag(GEAR_RACK_TAG) or (p.Parent and p.Parent:HasTag(GEAR_RACK_TAG)) then
+		elseif prompt:GetAttribute("GearLocker") == true then
 			state.gearGrabbed = true
 		end
 	end)

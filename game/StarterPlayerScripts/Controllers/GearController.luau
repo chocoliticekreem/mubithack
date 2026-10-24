@@ -5,8 +5,12 @@
 --     breathing loop; your own InvFace model is hidden while the camera is in your head.
 --   * THERMAL CAMERA (InvHand == "ThermalCam"): trapped people glow orange through walls, cold tint +
 --     a "THERMAL" readout.
---   * LOCKER: the rack's "Open Locker" prompt (attr GearLocker) opens a loadout picker: every gear card,
---     locked ones say "Unlocks at Lv N"; pick up to Progression.LoadoutSize, SAVE -> Gear/SetLoadout.
+--   * LOCKER: the big shared locker's "Open Locker" prompt (attr GearLocker; E, or tap it) opens one
+--     kid-sized menu: IN HAND / SWAP / ON BACK on the left, a picture card per item (a ViewportFrame of
+--     ReplicatedStorage.LockerIcons) on the right, a big CLOSE. Tap a card = hold it, its BACK chip = put
+--     it on your back, tap the worn mask = take it off, tap a slot = put it away. Locked cards show a
+--     padlock and "Reach Level N!", the hose says it lives on the truck. Every tap only asks the server
+--     (Gear/Locker); Gear/LockerResult comes back as a one-line toast. Walk away and it closes.
 --   * LEVEL UP: Gear/Unlocked -> a "NEW GEAR!" banner listing what the level unlocked (or the next one).
 --   * Busy bar for prying / cutting (attrs GearBusy, GearBusyUntil); roof hatch prompts hold shorter
 --     while you hold a pry bar; Gear/Fx dust puffs.
@@ -53,7 +57,10 @@ local function attr(name: string): any
 end
 
 local function level(): number
-	local l = attr("Level")
+	local l = attr("GearLevel") -- GearService's level (what the server unlocks by), else DataService's
+	if type(l) ~= "number" then
+		l = attr("Level")
+	end
 	return if type(l) == "number" then l else 1
 end
 
@@ -324,157 +331,393 @@ local function busyTick()
 	fill.Size = UDim2.fromScale(math.clamp(1 - left / total, 0, 1), 1)
 end
 
--- locker -------------------------------------------------------------------------------------------
+-- locker menu ----------------------------------------------------------------------------------------
+-- One big friendly menu (design units, UiKit scales it; HudLayout.modal shrinks it to fit a phone):
+-- YOU (hand / swap / back) on the left, picture cards on the right, a big CLOSE. Tapping only asks the
+-- server (Gear/Locker); the slots and cards redraw from the Inv* attrs it writes back.
+local PANEL_W, PANEL_H = 1180, 640
+local LEFT_W = 250
+local CARD = 160
+local GREEN = Color3.fromHex("#2E9E44")
+
+local lockerConns: { RBXScriptConnection } = {}
+local lockerToast: TextLabel? = nil
+local lockerToastAt = 0
+
 local function closeLocker()
+	for _, c in lockerConns do
+		c:Disconnect()
+	end
+	table.clear(lockerConns)
+	lockerToast = nil
 	if lockerGui then
 		lockerGui:Destroy()
 		lockerGui = nil
 	end
 end
 
-local function currentLoadout(): { string }
-	local raw = attr("GearLoadout")
-	local out: { string } = {}
-	if type(raw) == "string" then
-		for id in string.gmatch(raw, "[^,]+") do
-			table.insert(out, id)
+local function slotOf(name: string): string?
+	local v = attr(name)
+	return if type(v) == "string" and v ~= "" then v else nil
+end
+
+local function ask(action: string, id: string?, slot: string?)
+	pcall(function()
+		Net.event("Gear", "Locker"):FireServer(action, id, slot)
+	end)
+end
+
+local function toast(text: string, good: boolean)
+	local t = lockerToast
+	if not t or text == "" then
+		return
+	end
+	t.Text = text
+	t.TextColor3 = if good then GREEN else Palette.UiRed
+	t.Visible = true
+	lockerToastAt = os.clock()
+	local at = lockerToastAt
+	UiKit.punch(t, 0.08)
+	task.delay(2.2, function()
+		if lockerToastAt == at and t.Parent then
+			t.Visible = false
+		end
+	end)
+end
+
+-- A ViewportFrame with the item's little model (ReplicatedStorage.LockerIcons, published by GearService).
+local function itemView(parent: GuiObject, id: string?, size: UDim2, pos: UDim2): ViewportFrame
+	local vp = Instance.new("ViewportFrame")
+	vp.Name = "Picture"
+	vp.BackgroundTransparency = 1
+	vp.Size = size
+	vp.Position = pos
+	vp.Ambient = Color3.fromRGB(190, 190, 190)
+	vp.LightColor = Color3.fromRGB(255, 244, 220)
+	vp.LightDirection = Vector3.new(-1, -1.4, -1)
+	vp.ZIndex = parent.ZIndex + 1
+	vp.Parent = parent
+	local icons = ReplicatedStorage:FindFirstChild("LockerIcons")
+	local src = id and icons and icons:FindFirstChild(id)
+	if src and src:IsA("Model") then
+		local m = src:Clone()
+		m.Parent = vp
+		local cf, ext = m:GetBoundingBox()
+		local cam = Instance.new("Camera")
+		cam.FieldOfView = 30
+		local big = math.max(ext.X, ext.Y, ext.Z)
+		local dist = big / (2 * math.tan(math.rad(15))) * 1.05 + ext.Magnitude * 0.25
+		local dir = Vector3.new(0.55, 0.4, 1).Unit
+		cam.CFrame = CFrame.lookAt(cf.Position + dir * dist, cf.Position)
+		cam.Parent = vp
+		vp.CurrentCamera = cam
+	elseif id then
+		-- no model yet: the hotbar's chunky colour swatch
+		local def = ItemDefs.get(id)
+		local sw = Instance.new("Frame")
+		sw.BackgroundColor3 = Color3.fromHex(def and def.color or "#888888")
+		sw.AnchorPoint = Vector2.new(0.5, 0.5)
+		sw.Position = UDim2.fromScale(0.5, 0.5)
+		sw.Size = UDim2.fromScale(0.6, 0.8)
+		sw.ZIndex = vp.ZIndex
+		sw.Parent = parent
+		UiKit.corner(sw, 12)
+		UiKit.label(sw, "Short", def and def.short or id, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+			font = UiKit.Header,
+			textSize = 22,
+			color = Palette.UiCream,
+			stroke = true,
+		}).ZIndex = vp.ZIndex + 1
+	end
+	return vp
+end
+
+local function nearestLocker(): BasePart?
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return nil
+	end
+	local best: BasePart?, bestD = nil, math.huge
+	for _, p in CollectionService:GetTagged(Cfg.LockerTag or "StationLocker") do
+		if p:IsA("BasePart") and p:IsDescendantOf(workspace) then
+			local d = (p.Position - root.Position).Magnitude
+			if d < bestD then
+				best, bestD = p, d
+			end
 		end
 	end
-	return out
+	return best
 end
 
 local function openLocker()
 	closeLocker()
-	local lvl = level()
-	local picks = currentLoadout()
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 	local gui = UiKit.screen("GearLocker", 30)
 	lockerGui = gui
-	local panel = UiKit.panel(gui, "Locker", UDim2.fromOffset(820, 560), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
-	-- a modal: dims the HUD under it, above every HUD gui; click outside closes
-	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	local panel = UiKit.panel(gui, "Locker", UDim2.fromOffset(PANEL_W, PANEL_H), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	panel:SetAttribute("Menu", true)
+	local edge = panel:FindFirstChildOfClass("UIStroke")
+	if edge then
+		edge.Thickness = 5
+	end
+	-- a modal: dims the HUD under it, above every HUD gui; tapping the dim area closes it
 	HudLayout.modal(panel, { onDismiss = closeLocker })
-	UiKit.label(panel, "Title", "LOCKER", UDim2.new(1, 0, 0, 52), UDim2.fromOffset(0, 8), { font = UiKit.Header, textSize = 46, color = Palette.UiRed, stroke = true })
-	local sub = UiKit.label(panel, "Sub", "", UDim2.new(1, -40, 0, 26), UDim2.fromOffset(20, 58), { textSize = 20 })
-	local grid = Instance.new("Frame")
+
+	UiKit.label(panel, "Title", "LOCKER", UDim2.fromOffset(330, 64), UDim2.fromOffset(24, 12), {
+		font = UiKit.Header,
+		textSize = 60,
+		color = Palette.UiRed,
+		stroke = true,
+		align = Enum.TextXAlignment.Left,
+	})
+	UiKit.label(panel, "Sub", InputHints.pick("Click a picture to hold it!", "Tap a picture to hold it!", "Pick a picture to hold it!"), UDim2.fromOffset(460, 30), UDim2.fromOffset(300, 34), {
+		textSize = 26,
+		align = Enum.TextXAlignment.Left,
+	})
+	local t = UiKit.label(panel, "Toast", "", UDim2.fromOffset(520, 30), UDim2.new(0.5, -170, 0, 74), { font = UiKit.Header, textSize = 26 })
+	t.Visible = false
+	t.ZIndex = 30
+	lockerToast = t
+
+	local close = UiKit.button(panel, "Close", "CLOSE", UDim2.fromOffset(210, 72), UDim2.new(1, -130, 0, 50), Palette.UiRed)
+	close.TextSize = 38
+	close.Modal = true -- frees the mouse even in first person
+	UiKit.onTap(close, closeLocker)
+
+	-- YOU: hand, swap, back -------------------------------------------------------------------------
+	local you = Instance.new("Frame")
+	you.Name = "You"
+	you.BackgroundTransparency = 1
+	you.Position = UDim2.fromOffset(24, 110)
+	you.Size = UDim2.fromOffset(LEFT_W, PANEL_H - 130)
+	you.Parent = panel
+
+	local function slotTile(name: string, title: string, y: number, h: number): (TextButton, Frame)
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.Text = ""
+		b.AutoButtonColor = true
+		b.BackgroundColor3 = Color3.fromHex("#FFFDF6")
+		b.Position = UDim2.fromOffset(0, y)
+		b.Size = UDim2.fromOffset(LEFT_W, h)
+		b.ZIndex = 21
+		b.Parent = you
+		UiKit.corner(b, 18)
+		UiKit.stroke(b, 4)
+		UiKit.label(b, "Title", title, UDim2.new(1, 0, 0, 34), UDim2.fromOffset(0, 4), {
+			font = UiKit.Header,
+			textSize = 30,
+			color = Palette.UiInk,
+		}).ZIndex = 23
+		local holder = Instance.new("Frame")
+		holder.Name = "Holder"
+		holder.BackgroundTransparency = 1
+		holder.Position = UDim2.fromOffset(10, 38)
+		holder.Size = UDim2.new(1, -20, 1, -48)
+		holder.ZIndex = 22
+		holder.Parent = b
+		return b, holder
+	end
+	local handBtn, handHolder = slotTile("Hand", "IN HAND", 0, 210)
+	local swap = UiKit.button(you, "Swap", "SWAP", UDim2.fromOffset(LEFT_W, 60), UDim2.fromOffset(LEFT_W / 2, 210 + 12 + 30), Palette.UiWarn)
+	swap.ZIndex = 24
+	local backBtn, backHolder = slotTile("Back", "ON BACK", 210 + 12 + 60 + 12, 200)
+	UiKit.onTap(handBtn, function()
+		if slotOf("InvHand") then
+			ask("off", nil, "hand")
+		end
+	end)
+	UiKit.onTap(backBtn, function()
+		if slotOf("InvBack") then
+			ask("off", nil, "back")
+		end
+	end)
+	UiKit.onTap(swap, function()
+		ask("swap")
+	end)
+
+	-- cards --------------------------------------------------------------------------------------------
+	local grid = Instance.new("ScrollingFrame")
 	grid.Name = "Grid"
 	grid.BackgroundTransparency = 1
-	grid.Position = UDim2.fromOffset(20, 92)
-	grid.Size = UDim2.new(1, -40, 1, -170)
+	grid.BorderSizePixel = 0
+	grid.Position = UDim2.fromOffset(24 + LEFT_W + 24, 110)
+	grid.Size = UDim2.fromOffset(PANEL_W - LEFT_W - 72, PANEL_H - 126)
+	grid.ScrollBarThickness = 10
+	grid.ScrollingDirection = Enum.ScrollingDirection.Y
+	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	grid.CanvasSize = UDim2.new()
+	grid.ZIndex = 21
 	grid.Parent = panel
 	local layout = Instance.new("UIGridLayout")
-	layout.CellSize = UDim2.fromOffset(148, 104)
-	layout.CellPadding = UDim2.fromOffset(9, 9)
+	layout.CellSize = UDim2.fromOffset(CARD, CARD)
+	layout.CellPadding = UDim2.fromOffset(10, 10)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = grid
-	local cards: { [string]: TextButton } = {}
 
-	local function refresh()
-		sub.Text = `Lv {lvl}  -  pick {Progression.LoadoutSize} for your rack ({#picks}/{Progression.LoadoutSize})`
-		for id, card in cards do
-			local picked = table.find(picks, id) ~= nil
-			local open = Progression.isUnlocked(id, lvl)
-			local stroke = card:FindFirstChild("Edge") :: UIStroke?
-			if stroke then
-				stroke.Color = if picked then Palette.UiGood else Palette.UiInk
-				stroke.Thickness = if picked then 5 else 3
+	type Card = { btn: TextButton, ribbon: TextLabel, lock: Frame, lockText: TextLabel, back: TextButton? }
+	local cards: { [string]: Card } = {}
+
+	local function tapCard(id: string, slot: string)
+		local st = Progression.lockerState(id, level())
+		local card = cards[id]
+		if st == "locked" then
+			if card then
+				UiKit.shake(card.btn, 0.25, 6)
 			end
-			card.BackgroundColor3 = if not open then Color3.fromHex("#B9B1A6") elseif picked then Color3.fromHex("#E7F7D9") else Palette.UiCream
-			local tag = card:FindFirstChild("Tag") :: TextLabel?
-			if tag then
-				local def = ItemDefs.get(id)
-				tag.Text = if not open
-					then `Unlocks at Lv {Progression.unlockLevel(id)}`
-					elseif not Progression.lockable(id) then "On your truck"
-					elseif picked then "ON RACK"
-					else InputHints.format(def and def.blurb or "")
-				tag.TextColor3 = if not open then Palette.UiRed elseif picked then Color3.fromHex("#2E7D32") else Palette.UiInk
+			local def = ItemDefs.get(id)
+			toast(`{def and def.name or id}: {Progression.lockReason(id)}`, false)
+			return
+		elseif st == "truck" then
+			if card then
+				UiKit.shake(card.btn, 0.2, 4)
 			end
+			toast(InputHints.pick("The hose lives on your fire truck! (T at the truck)", "The hose lives on your fire truck!"), false)
+			return
 		end
+		if card then
+			UiKit.punch(card.btn, 0.12)
+		end
+		local def = ItemDefs.get(id)
+		if def and def.wear == "face" and slotOf("InvFace") == id then
+			ask("off", nil, "face") -- tap the mask you're wearing: take it off
+			return
+		end
+		ask("take", id, slot)
 	end
 
-	for i, id in ItemDefs.GearOrder do
+	for i, id in Progression.lockerItems() do
 		local def = ItemDefs.get(id)
-		local card = Instance.new("TextButton")
-		card.Name = id
-		card.LayoutOrder = i
-		card.Text = ""
-		card.AutoButtonColor = true
-		card.BackgroundColor3 = Palette.UiCream
-		card.Parent = grid
-		UiKit.corner(card, 12)
-		local edge = UiKit.stroke(card, 3)
-		edge.Name = "Edge"
-		local swatch = Instance.new("Frame")
-		swatch.Name = "Swatch"
-		swatch.BackgroundColor3 = Color3.fromHex(def and def.color or "#888888")
-		swatch.Position = UDim2.fromOffset(8, 8)
-		swatch.Size = UDim2.fromOffset(40, 40)
-		swatch.Parent = card
-		UiKit.corner(swatch, 10)
-		UiKit.label(swatch, "Short", def and def.short or id, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+		local b = Instance.new("TextButton")
+		b.Name = id
+		b.LayoutOrder = i
+		b.Text = ""
+		b.AutoButtonColor = true
+		b.BackgroundColor3 = Palette.UiCream
+		b.ZIndex = 22
+		b.Parent = grid
+		UiKit.corner(b, 18)
+		local stroke = UiKit.stroke(b, 4)
+		stroke.Name = "Edge"
+		itemView(b, id, UDim2.new(1, -12, 0, 104), UDim2.fromOffset(6, 6))
+		UiKit.label(b, "Name", def and def.name or id, UDim2.new(1, -8, 0, 44), UDim2.new(0, 4, 1, -48), {
 			font = UiKit.Header,
-			textSize = 13,
+			textSize = 24,
+			scaled = false,
+		}).ZIndex = 24
+		local ribbon = UiKit.label(b, "Ribbon", "", UDim2.fromOffset(100, 28), UDim2.fromOffset(6, 6), {
+			font = UiKit.Header,
+			textSize = 18,
 			color = Palette.UiCream,
 			stroke = true,
 		})
-		UiKit.label(card, "Name", def and def.name or id, UDim2.new(1, -58, 0, 40), UDim2.fromOffset(54, 8), {
+		ribbon.BackgroundTransparency = 0
+		ribbon.BackgroundColor3 = GREEN
+		ribbon.ZIndex = 27
+		ribbon.Visible = false
+		UiKit.corner(ribbon, 10)
+		-- locked: a dark cover, a padlock and what unlocks it
+		local lock = Instance.new("Frame")
+		lock.Name = "Lock"
+		lock.BackgroundColor3 = Color3.fromHex("#1A1210")
+		lock.BackgroundTransparency = 0.35
+		lock.Size = UDim2.fromScale(1, 1)
+		lock.ZIndex = 28
+		lock.Visible = false
+		lock.Parent = b
+		UiKit.corner(lock, 18)
+		UiKit.label(lock, "Padlock", "🔒", UDim2.new(1, 0, 0, 70), UDim2.fromOffset(0, 10), { textSize = 56 }).ZIndex = 29
+		local lockText = UiKit.label(lock, "Why", "", UDim2.new(1, -10, 0, 60), UDim2.new(0, 5, 1, -66), {
 			font = UiKit.Header,
-			textSize = 18,
-			align = Enum.TextXAlignment.Left,
+			textSize = 22,
+			color = Palette.UiWarn,
+			stroke = true,
 		})
-		local tag = UiKit.label(card, "Tag", "", UDim2.new(1, -12, 0, 46), UDim2.fromOffset(6, 52), { textSize = 13 })
-		tag.Name = "Tag"
-		if not Progression.isUnlocked(id, lvl) then
-			local lock = UiKit.label(card, "Lock", "LOCKED", UDim2.fromOffset(70, 18), UDim2.new(1, -76, 0, 4), {
+		lockText.ZIndex = 29
+		local backB: TextButton? = nil
+		if def and def.backable and not def.tethered and def.wear == nil then
+			local bb = Instance.new("TextButton")
+			bb.Name = "ToBack"
+			bb.Text = "BACK"
+			bb.Font = UiKit.Header
+			bb.TextSize = 18
+			bb.TextColor3 = Palette.UiCream
+			bb.BackgroundColor3 = Color3.fromHex("#4F6B8A")
+			bb.AnchorPoint = Vector2.new(1, 0)
+			bb.Position = UDim2.new(1, -6, 0, 6)
+			bb.Size = UDim2.fromOffset(62, 34)
+			bb.ZIndex = 27
+			bb.Parent = b
+			UiKit.corner(bb, 10)
+			UiKit.stroke(bb, 3)
+			UiKit.onTap(bb, function()
+				tapCard(id, "back")
+			end)
+			backB = bb
+		end
+		cards[id] = { btn = b, ribbon = ribbon, lock = lock, lockText = lockText, back = backB }
+		UiKit.onTap(b, function()
+			tapCard(id, "hand")
+		end)
+	end
+
+	local shown: { [Frame]: string } = {}
+	local function showIn(holder: Frame, id: string?, emptyText: string)
+		if shown[holder] == (id or "") then
+			return
+		end
+		shown[holder] = id or ""
+		holder:ClearAllChildren()
+		if id then
+			itemView(holder, id, UDim2.new(1, 0, 1, -30), UDim2.fromOffset(0, 0))
+			local def = ItemDefs.get(id)
+			UiKit.label(holder, "Name", def and def.name or id, UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 1, -30), {
 				font = UiKit.Header,
-				textSize = 13,
-				color = Palette.UiRed,
-			})
-			lock.Rotation = 8
+				textSize = 24,
+			}).ZIndex = 24
+		else
+			UiKit.label(holder, "Empty", emptyText, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), {
+				textSize = 22,
+				color = Color3.fromHex("#8A7F72"),
+			}).ZIndex = 24
 		end
-		cards[id] = card
-		card.Activated:Connect(function()
-			if not Progression.isUnlocked(id, lvl) then
-				UiKit.shake(card, 0.25, 6)
-				return
-			end
-			if not Progression.lockable(id) then
-				UiKit.shake(card, 0.2, 4)
-				return
-			end
-			local at = table.find(picks, id)
-			if at then
-				table.remove(picks, at)
-			elseif #picks < Progression.LoadoutSize then
-				table.insert(picks, id)
-			else
-				table.remove(picks, 1)
-				table.insert(picks, id)
-			end
-			UiKit.punch(card, 0.15)
-			refresh()
-		end)
 	end
-	local nextId, nextAt = Progression.nextUnlock(lvl)
-	if nextId then
-		local def = ItemDefs.get(nextId)
-		UiKit.label(panel, "Next", `Next unlock: {def and def.name or nextId} at Lv {nextAt}`, UDim2.new(0.5, 0, 0, 30), UDim2.new(0, 20, 1, -62), {
-			textSize = 18,
-			align = Enum.TextXAlignment.Left,
-		})
-	end
-	local save = UiKit.button(panel, "Save", "SAVE", UDim2.fromOffset(170, 54), UDim2.new(1, -110, 1, -44), Palette.UiGood)
-	save.Modal = true -- frees the mouse even in first person
-	save.Activated:Connect(function()
-		local ok = pcall(function()
-			Net.event("Gear", "SetLoadout"):FireServer(picks)
-		end)
-		if ok then
-			closeLocker()
+
+	local function refresh()
+		if not gui.Parent then
+			return
 		end
-	end)
-	local close = UiKit.button(panel, "Close", "X", UDim2.fromOffset(48, 48), UDim2.new(1, -30, 0, 30), Palette.UiRed)
-	close.Activated:Connect(closeLocker)
+		local lvl = level()
+		local hand, back, face = slotOf("InvHand"), slotOf("InvBack"), slotOf("InvFace")
+		showIn(handHolder, hand, "Empty hands")
+		showIn(backHolder, back, "Nothing on your back")
+		swap.Visible = hand ~= nil or back ~= nil
+		for id, c in cards do
+			local st = Progression.lockerState(id, lvl)
+			local on = if id == hand then "IN HAND" elseif id == back then "ON BACK" elseif id == face then "ON FACE" else nil
+			c.ribbon.Visible = on ~= nil
+			c.ribbon.Text = on or ""
+			local edge = c.btn:FindFirstChild("Edge") :: UIStroke?
+			if edge then
+				edge.Color = if on then GREEN else Palette.UiInk
+				edge.Thickness = if on then 6 else 4
+			end
+			c.btn.BackgroundColor3 = if on then Color3.fromHex("#E3F6DA") else Palette.UiCream
+			c.lock.Visible = st ~= "open"
+			c.lockText.Text = if st == "truck" then "On your truck!" else Progression.lockReason(id)
+			local padlock = c.lock:FindFirstChild("Padlock") :: TextLabel?
+			if padlock then
+				padlock.Text = if st == "truck" then "🚒" else "🔒"
+			end
+			if c.back then
+				c.back.Visible = st == "open" and id ~= back
+			end
+		end
+	end
+	for _, a in { "InvHand", "InvBack", "InvFace", "GearLevel", "Level" } do
+		table.insert(lockerConns, player:GetAttributeChangedSignal(a):Connect(refresh))
+	end
 	refresh()
 	UiKit.pop(panel, 0.25)
 end
@@ -500,7 +743,7 @@ local function unlockBanner(lvl: number, ids: { string }): ScreenGui
 		})
 	end
 	local nextId, nextAt = Progression.nextUnlock(lvl)
-	local foot = if #ids > 0 then InputHints.pick("Pick it at your rack: LOCKER [R]", "Pick it at your rack: tap Open Locker") elseif nextId then `Next unlock: {(ItemDefs.get(nextId) or {}).name or nextId} at Lv {nextAt}` else "You've unlocked everything!"
+	local foot = if #ids > 0 then "Get it at the big red LOCKER!" elseif nextId then `Next unlock: {(ItemDefs.get(nextId) or {}).name or nextId} at Lv {nextAt}` else "You've unlocked everything!"
 	UiKit.label(panel, "Foot", foot, UDim2.new(1, -20, 0, 26), UDim2.new(0, 10, 1, -34), { textSize = 18, color = Palette.UiCream })
 	UiKit.pop(panel, 0.3)
 	task.delay(if #ids > 0 then 6 else 3.5, function()
@@ -591,6 +834,16 @@ function GearController:Start()
 			openLocker()
 		end
 	end)
+	task.spawn(function()
+		local ok, res = pcall(Net.event, "Gear", "LockerResult")
+		if ok and res then
+			res.OnClientEvent:Connect(function(good: any, msg: any)
+				if type(msg) == "string" then
+					toast(msg, good == true)
+				end
+			end)
+		end
+	end)
 	ProximityPromptService.PromptShown:Connect(function(prompt: ProximityPrompt)
 		if prompt:GetAttribute("GearHatch") then
 			local hand = attr("InvHand")
@@ -618,18 +871,12 @@ function GearController:Start()
 			if thermalOn then
 				thermalTick()
 			end
-			-- walked away from the rack: close the locker
+			-- walked away from the locker (or got teleported off to a call): close the menu
 			if lockerGui then
 				local char = player.Character
 				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-				local near = false
-				for _, board in CollectionService:GetTagged("GearRack") do
-					if board:IsA("BasePart") and root and (board.Position - root.Position).Magnitude < Cfg.LockerDistance + 8 then
-						near = true
-						break
-					end
-				end
-				if not near then
+				local lk = nearestLocker()
+				if not root or not lk or (lk.Position - root.Position).Magnitude > Cfg.LockerCloseDistance then
 					closeLocker()
 				end
 			end
@@ -643,6 +890,10 @@ end
 -- test hooks (ForgeTestAgent / manual): open the locker, fake a level-up banner
 function GearController:_openLocker()
 	openLocker()
+end
+
+function GearController:_closeLocker()
+	closeLocker()
 end
 
 function GearController:_banner(lvl: number, ids: { string })

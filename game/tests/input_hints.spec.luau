@@ -50,11 +50,11 @@ end)
 
 Spec.test("no raw key token survives in the shipped hint copy", function()
 	local lines = {
-		"Your rack is #01 in the locker room. Walk up and press E.",
+		"The big red LOCKER in the locker room. Walk up and press E.",
 		"Stand by any side of your truck, press T. Or E on a hydrant. It's a leash.",
 		"The city below is toast. Carry folks up (E).",
 		"Both of you press E on the panda.",
-		"Pick it in your locker (R), hold it, face the trunk and click.",
+		"Take it from the big red LOCKER (E), hold it, face the trunk and click.",
 		"Hold E on each red valve wheel before the tanker timer hits zero.",
 		"YOWCH! Hot handle. Feel the door first! (T)",
 		"@_@  Crawl to a teammate! Oxygen (E) or SLAP (F)  5s",
