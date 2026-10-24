@@ -96,6 +96,7 @@ type Npc = {
 	moveDur: number,
 	moving: boolean,
 	pivotDirty: boolean,
+	floorOk: boolean, -- it had a floor under it last tick (so a missing one = the floor collapsed)
 	boxed: boolean,
 	hideSpot: Vector3?,
 	hidden: boolean,
@@ -811,6 +812,7 @@ local function spawnOne(kind: string, feet: CFrame, pose: string, scope: string)
 		moveDur = 0,
 		moving = false,
 		pivotDirty = false,
+		floorOk = false,
 		boxed = false,
 		hideSpot = nil,
 		hidden = false,
@@ -1175,6 +1177,20 @@ end
 local function brain(npc: Npc, fires: { Fire }, dt: number)
 	local now = os.clock()
 	local dist, level, firePos = nearestFire(fires, npc.root.Position)
+	-- the floor under it went away (a collapse): let physics drop it instead of leaving it floating
+	-- (it then lands, collides and plants like a dropped NPC)
+	if not npc.moving then
+		local feet = npc.lastGood.Position
+		local has = floorAt(feet, feet.Y) ~= nil
+		if not has and npc.floorOk then
+			npc.floorOk = false
+			launch(npc, Vector3.new(0, -2, 0), Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * 3)
+			voice(npc, "flying", true)
+			Telemetry.count("npcs_floor_gone")
+			return dist, level
+		end
+		npc.floorOk = has
+	end
 	if npc.state ~= "Trapped" then
 		return dist, level
 	end
