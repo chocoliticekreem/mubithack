@@ -22,6 +22,7 @@ Never edit these ideas. Changing one makes older results incomparable, so add a 
 .venv/bin/forge bench --ideas tycoon,obby -n 2        # real: every call goes through Mubit, compile-only
 .venv/bin/forge bench --studio Forge-agents-29 -n 2   # real, plus a Studio playtest in that window
 .venv/bin/forge bench --studio Forge-agents-29 --improve 1   # plus fix cycles (AI testers -> auditor -> fixer)
+.venv/bin/forge bench --studio Forge-agents-29 --checks 8    # plus the scenario designer: plan 8 executable checks, run them live
 .venv/bin/forge bench --compare A B                   # B - A per idea and in total (A, B = path, stamp, latest, prev)
 .venv/bin/forge bench --list                          # the suite and the saved results
 ```
@@ -58,10 +59,11 @@ Baselines we want to keep go in `evidence/bench/`.
 | fixes (compile / critic) | `iterations/<n>/record.json` `fixes` | lower |
 | compile errors left | last iteration, after its fixes | lower |
 | critic first -> final | `record.json` score per iteration (0-10) | higher |
-| fun | critic `fun` (or `scores.fun`) if the critic reports it. Today's critic folds fun into `score`, so this is `-` | higher |
+| fun | the fun critic (#113, `forge/fun.py`): iteration record `fun.score` (mean of fun, juice, clarity, visuals), or `fun/latest.json`. Runs before #113 show `-` | higher |
 | checks passed / total | `checks/results.json` (executable acceptance checks) when a check run happened | higher |
 | acceptance criteria | number of spec `acceptance` items (context for checks) | - |
-| done parts | `forge done` readiness: checks, features, open, critic (x/4, READY when all pass) | higher |
+| done parts / share | `forge done` readiness parts passed (x/N, READY when all pass). #113 raised the bar from 4 parts to 9, so compare the share across that change, not the count | higher |
+| checks s | `--checks`: scenarist plan + resync + live run + check review | lower |
 | corrections | human corrections in `state.json` (bench makes none, so a non-zero value means someone stepped in) | lower |
 
 LLM latency varies a lot between runs (gateway load, retries), so compare wall times over at least 2
@@ -91,3 +93,16 @@ What this shows about where we started:
   never ran.
 - **Not ready:** `forge done` is 1/4 (no checks, no fix cycle, critic below 8). The bench build path
   doesn't plan or run executable checks or fix cycles yet.
+
+### Baseline with Studio: main `a1b0fef`, tycoon, 1 iteration, `--checks 8` (`evidence/bench/20261024T025420Z.*`)
+
+| idea | wall s | design | build | iterate | playtest | checks s | LLM calls | tokens in/out | 1st-try compile | fixes | critic | checks | done |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|---|---|
+| tycoon (Cube Cash Tycoon) | 411 | 17 | 105 | 121 | 17 | 169 | 13 | 88,882 / 51,249 | 100% | 3 | 7 | 8/8 | 2/4 |
+
+- With a real playtest the critic gives 7/10 (compile-only gives 5): 0 errors, and the counters show
+  the map built and cubes spawned and got collected. Screenshot: `evidence/bench/20261024T025420Z-tycoon.png`.
+- The scenario designer planned 8 checks and 5 passed on the first run. The reviewer judged the other 3
+  to be check bugs (cube payouts landing during the check), rewrote them, and all 3 passed on the re-run.
+- Checks are the slowest stage (169 s), mostly play sessions starting and stopping.
+- (This run tested checks against the pre-fix code. Bench now resyncs before running checks.)

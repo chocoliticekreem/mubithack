@@ -1,0 +1,135 @@
+{
+ "schema": 1,
+ "stamp": "20261024T025420Z",
+ "label": "studio baseline main a1b0fef",
+ "mode": "real",
+ "studio": "Forge-agents-29",
+ "model": "claude-sonnet-5-5",
+ "iterations": 1,
+ "improve": 0,
+ "checks": 8,
+ "lessons": "starter",
+ "git": {
+  "sha": "b9468c7",
+  "branch": "bench/studio-checks",
+  "subject": "bench: --checks N plans and runs executable checks live (Studio mode)"
+ },
+ "ideas": [
+  {
+   "id": "tycoon",
+   "idea": "A tiny tycoon: a dropper spawns cubes, a conveyor carries them to a collector that pays cash, and players buy a second dropper and a faster conveyor with that cash.",
+   "slug": "a-tiny-tycoon-a-dropper-spawns",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 104.77,
+    "compile_fix": 0.11,
+    "playtest": 16.58,
+    "iterate": 120.52,
+    "checks": 168.98,
+    "design": 16.61
+   },
+   "compile_first": {
+    "modules": 4,
+    "written": 4,
+    "failing": [],
+    "pass_rate": 1.0
+   },
+   "overhead_s": 0.08,
+   "wall_s": 410.89,
+   "llm": {
+    "calls": 13,
+    "input_tokens": 88882,
+    "output_tokens": 51249,
+    "latency_s": 308.6,
+    "by_role": {
+     "check_reviewer": 1,
+     "coder": 4,
+     "critic": 2,
+     "designer": 1,
+     "fixer": 3,
+     "reflector": 1,
+     "scenarist": 1
+    },
+    "request_ids": [
+     "mreq_01a16bd4b55a7a01b91dd7c769682d75",
+     "mreq_01a16bd4e79273219327a14b914dbcdc",
+     "mreq_01a16bd5100a7a71992ba04b1367ce2a",
+     "mreq_01a16bd58c367c20945dd73d493e58ca",
+     "mreq_01a16bd5f58670f1a47a22166438f52b",
+     "mreq_01a16bd6c3267e52ad53d60a1ebaed9a",
+     "mreq_01a16bd6f918724382bb3a91709e7b61",
+     "mreq_01a16bd710bb7910929c6a9eca6408b3",
+     "mreq_01a16bd76ed37db1a52d1d65ffd952dc",
+     "mreq_01a16bd7dd7a7c12a18c961ef5799556",
+     "mreq_01a16bd83b6d7a6385da4afdcfc34765",
+     "mreq_01a16bd8582172d1993af5ab980579f6",
+     "mreq_01a16bd9c22577428033378a1d242034"
+    ]
+   },
+   "title": "Cube Cash Tycoon",
+   "modules": 4,
+   "iterations": 1,
+   "fixes": {
+    "compile": 0,
+    "critic": 3,
+    "total": 3
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 7,
+    "checks": 8,
+    "passed": 8
+   },
+   "critic": {
+    "scores": [
+     7.0
+    ],
+    "first": 7.0,
+    "final": 7.0,
+    "best": 7.0
+   },
+   "fun": {
+    "scores": [],
+    "final": null
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 2,
+    "of": 4,
+    "parts": {
+     "checks": true,
+     "features": true,
+     "open": false,
+     "critic": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T025420Z/tycoon/a-tiny-tycoon-a-dropper-spawns"
+  }
+ ],
+ "totals": {
+  "ideas": 1,
+  "built": 1,
+  "wall_s": 410.9,
+  "llm_calls": 13,
+  "input_tokens": 88882,
+  "output_tokens": 51249,
+  "first_try_pass_rate": 1.0,
+  "fixes": 3,
+  "compile_errors_left": 0,
+  "critic_final": 7.0,
+  "fun_final": null,
+  "checks_passed": 8,
+  "checks": 8,
+  "done_parts": 2,
+  "done_of": 4,
+  "ready": 0,
+  "corrections": 0
+ }
+}
