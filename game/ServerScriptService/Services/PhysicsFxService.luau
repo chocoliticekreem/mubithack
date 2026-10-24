@@ -90,7 +90,12 @@ type Prop = {
 	owner: Player?,
 	tuned: boolean,
 	indoor: boolean, -- inside a building (BuildingId ancestor): only direct hits wake it, never proximity
+	station: boolean, -- part of the fire station / lobby: tidied up fast
+	movedAt: number?, -- os.clock() it fell asleep away from home (nil = at home)
 }
+
+-- props asleep away from home (tidy-up candidates)
+local displaced: { [Prop]: true } = {}
 
 local services: { [string]: any } = {}
 local props: { [Instance]: Prop } = {} -- by prop root instance (Model/Folder/part)
@@ -286,6 +291,7 @@ local function unregister(prop: Prop)
 		return
 	end
 	props[prop.inst] = nil
+	displaced[prop] = nil
 	for _, p in prop.parts do
 		if byPart[p] == prop then
 			byPart[p] = nil
@@ -335,6 +341,12 @@ function PhysicsFxService:Register(inst: Instance): boolean
 		owner = nil,
 		tuned = false,
 		indoor = insideBuilding(inst),
+		station = (function(): boolean
+			local map = workspace:FindFirstChild("Map")
+			local st = map and map:FindFirstChild("Station")
+			return st ~= nil and inst:IsDescendantOf(st)
+		end)(),
+		movedAt = nil,
 	}
 	props[inst] = prop
 	for _, p in parts do
@@ -434,6 +446,10 @@ sleepProp = function(prop: Prop)
 	end
 	grid:insert(prop, r.Position.X, r.Position.Z)
 	count("props_slept")
+	-- knocked out of place: remember when, so the tidy-up can put it back once nobody's around
+	local off = (r.Position - prop.home.Position).Magnitude > 1 or r.CFrame.UpVector:Dot(prop.home.UpVector) < 0.97
+	prop.movedAt = if off then os.clock() else nil
+	displaced[prop] = if off then true else nil
 end
 
 local function setOwner(prop: Prop, player: Player?)
@@ -540,6 +556,28 @@ local function tick(dt: number)
 	end
 	for _, p in toSleep do
 		sleepProp(p)
+	end
+	-- tidy up: a prop left lying away from home (often half inside a wall, a table or another prop)
+	-- goes back once nobody is near it, fast at the station so the lobby never turns into a pile
+	for p in displaced do
+		if p.awake or not p.root.Parent then
+			displaced[p] = nil
+			continue
+		end
+		local wait = if p.station then (Cfg.TidyStationSeconds or 12) else (Cfg.TidySeconds or 30)
+		if p.movedAt and now - p.movedAt >= wait then
+			local _, d = nearest(list, p.root.Position)
+			local _, dh = nearest(list, p.home.Position)
+			local clear = Cfg.TidyClearRadius or 30
+			if d > clear and dh > clear then
+				grid:remove(p)
+				p.root.CFrame = p.home -- welded: the whole prop moves with its root
+				grid:insert(p, p.home.Position.X, p.home.Position.Z)
+				p.movedAt = nil
+				displaced[p] = nil
+				count("props_tidied")
+			end
+		end
 	end
 end
 
