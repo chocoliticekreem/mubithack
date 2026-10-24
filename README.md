@@ -33,6 +33,8 @@ project, or the marketplace's own copy) and creates the Python environment with 
 
 ## How it works
 
+Agents should start with the [game production guide](docs/GAME_PRODUCTION_GUIDE.md): Mubit-only AI routing, game-family priorities, Roblox foundations, feature and level contracts, testing, readiness, and separate evaluation of game quality and model learning. It applies to both chat/MCP and native Studio workflows, and distinguishes required practice from capabilities already enforced by the software.
+
 ```
 BUILD    idea → designer → spec → coder → Luau → compile check → fixer
               → sync into Studio → playtest → critic → fixer → reflector (lessons) → next iteration

@@ -1,5 +1,7 @@
 # MuMake in Roblox Studio
 
+Both MuMake and agent-driven workflows follow the [game production guide](GAME_PRODUCTION_GUIDE.md). Use its applicable genre/capability requirements and evidence rules; the native panel's current draft-ready state does not establish whole-game or release readiness. All AI work must use Mubit. The guide is an agent reference and is not automatically injected into model calls by the native UI.
+
 This repo has two Studio plugins in `studio-plugin/`: **MuMake** (below), a guided creator panel with its own companion, and **ForgeBridge** ([jump](#forgebridge-the-studio-plugin-bridge)), a live event stream and fast command channel between Studio and Forge / the mubit-tester MCP.
 
 MuMake is a native Studio dock panel backed by the existing Python game builder and tester. The panel reuses the builder's design and coding loop and the tester's scenarios, AI players, explorer, judge, corrections and fix suggestions. It does not introduce new AI prompts or bypass Mubit.
