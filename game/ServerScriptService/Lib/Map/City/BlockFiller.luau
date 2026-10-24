@@ -15,6 +15,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SK = require(script.Parent:WaitForChild("SiteKit") :: ModuleScript) :: any
+local SchoolPlan = require(script.Parent.Parent:WaitForChild("Interiors"):WaitForChild("Plan") :: ModuleScript) :: any
 local MapKit = require(script.Parent.Parent:WaitForChild("MapKit") :: ModuleScript)
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
 
@@ -664,32 +665,33 @@ function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numb
 			return evenly(dd, 2, "window")
 		end,
 	})
-	-- classrooms: desk rows, a chem lab with a gas tank
-	local fires = 0
-	for s = 1, 2 do
-		local y = floors[s]
-		for k = -2, 2 do
-			local desk = box(site, "Desk", F * CF(k * w * 0.16, y, d * 0.55), V(6, 2.6, 3), C.Wood, true)
-			if k ~= 0 and fires < 8 then -- a fire start in every classroom on both floors
-				fires += 1
-				SK.fireStart(site, `F{fires}`, desk.CFrame * CF(0, 2, 0))
-			end
-		end
-		box(site, "Lockers", F * CF(0, y, d - 1.5), V(20, 7, 1.6), Color3.fromHex("#3D5A80"))
+	-- rooms, corridor and furniture come from Interiors/Plan.school and are built when a run binds the
+	-- site (Interiors/School via MapService:BindSite); the markers and the chem-lab gas tank sit where
+	-- that plan puts each room's hero piece, so the idle school stays a cheap shell
+	site:SetAttribute("Interior", "school")
+	site:SetAttribute("InteriorFrame", F)
+	site:SetAttribute("InteriorW", w)
+	site:SetAttribute("InteriorD", d)
+	site:SetAttribute("InteriorH", 12)
+	site:SetAttribute("InteriorStoreys", 2)
+	site:SetAttribute("InteriorFloorY", floors[1])
+	local plan = SchoolPlan.school(w, d, 2)
+	for _, f in plan.fires do
+		SK.fireStart(site, f.id, F * CF(f.x, floors[f.floor] + 2.5, f.z))
 	end
-	local tank = SK.part(site, "GasTank", F * CF(w * 0.4, floors[1] + 2.5, d * 0.8), V(5, 2.2, 2.2), Color3.fromHex("#E9C46A"), {
+	for _, r in plan.rescues do
+		local face = if r.x < 0 then ANG(0, -math.pi / 2, 0) else ANG(0, math.pi / 2, 0)
+		SK.rescue(site, r.id, "Civilian", F * CF(r.x, floors[r.floor], r.z) * face, r.pose or "stand", r.variant)
+	end
+	local gt = plan.gasTank
+	local tank = SK.part(site, "GasTank", F * CF(gt.x, floors[gt.floor] + 1.2, gt.z) * ANG(0, math.pi / 2, 0), V(4, 2.2, 2.2), Color3.fromHex("#E9C46A"), {
 		shape = Enum.PartType.Cylinder,
 	})
 	SK.hazard(tank, "explosion")
-	-- kids + teacher
-	for k = 1, 8 do
-		local s = if k <= 4 then 1 else 2
-		SK.rescue(site, `R{k}`, "Civilian", F * CF(((k - 1) % 4 - 1.5) * w * 0.18, floors[s], d * 0.35), if k % 3 == 0 then "sitting" else "stand", "Kid")
+	-- the locker block along the back wall (Interiors draws its doors)
+	for s = 1, 2 do
+		box(site, "Lockers", F * CF(0, floors[s], d - 1.5), V(20, 7, 1.6), Color3.fromHex("#3D5A80"))
 	end
-	SK.rescue(site, "R9", "Civilian", F * CF(w * 0.3, floors[2], d * 0.7), "stand", "Teacher")
-	-- spares (empty at dispatch): escalation finds kids hiding at the far ends upstairs
-	SK.rescue(site, "R10", "Civilian", F * CF(-w * 0.42, floors[2], d * 0.3), "sitting", "Kid")
-	SK.rescue(site, "R11", "Civilian", F * CF(w * 0.42, floors[2], d * 0.3), "sitting", "Kid")
 	-- bell tower, sign, flag
 	SK.part(site, "BellTower", F * CF(0, floors.top + 6, d * 0.5), V(10, 12, 10), C.Trim)
 	SK.wedge(site, "BellRoof1", F * CF(0, floors.top + 14, d * 0.5 - 2.6), V(11, 4, 5.5), C.Red)

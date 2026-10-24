@@ -25,6 +25,8 @@
 --   Reset = swap in a clone of the site snapshotted in the background after the build (or on first
 --   bind/rebuild); a site no run has touched since it was built/swapped is reused in place (no swap).
 --   DestroyInstance(runId) on a bound site rebuilds the site instead of destroying it.
+--   BindSite furnishes the bound site first (Lib/Map/Interiors/Furnish.site: rooms, furniture, Flammable
+--   clutter), then fires InstanceBuilt; the pristine copy is bare, so the idle city carries no interiors.
 -- Signals: LocationBuilt(model: Model, locationId: string)
 --          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5 (+ v2 BindSite)
 -- Writes: Workspace.Map.<Id> (attr LocationId), Workspace attr MapReady, counter map_build_ms;
@@ -505,6 +507,25 @@ local function swapSite(siteId: string): Model?
 	return fresh
 end
 
+-- Interiors/Furnish, required on first use (nil when it isn't there).
+local furnishMod: any = nil
+local function furnisher(): any?
+	if furnishMod == nil then
+		furnishMod = false
+		local lib = ServerScriptService:FindFirstChild("Lib")
+		local mod = lib and lib:FindFirstChild("Map") and lib.Map:FindFirstChild("Interiors") and lib.Map.Interiors:FindFirstChild("Furnish")
+		if mod and mod:IsA("ModuleScript") then
+			local ok, m = pcall(require, mod)
+			if ok and type(m) == "table" and type(m.site) == "function" then
+				furnishMod = m
+			else
+				warn(`[MapService] Interiors/Furnish unavailable: {m}`)
+			end
+		end
+	end
+	return if furnishMod then furnishMod else nil
+end
+
 function MapService:RebuildSite(siteId: string): Model?
 	local site = swapSite(siteId)
 	if site then
@@ -523,6 +544,15 @@ function MapService:BindSite(siteId: string, runId: string): Model?
 	site:SetAttribute(Names.Attr.InstanceId, runId)
 	site:SetAttribute("Busy", true)
 	siteRuns[runId] = site
+	-- the run's interior (Lib/Map/Interiors/Furnish): built now, before InstanceBuilt, so FireService
+	-- indexes the furniture; the pristine snapshot stays bare, so RebuildSite clears it again
+	local furnish = furnisher()
+	if furnish then
+		local ok, err = pcall(furnish.site, site)
+		if not ok then
+			warn(`[MapService] furnishing {siteId} failed: {err}`)
+		end
+	end
 	local loc = site:GetAttribute(Names.Attr.LocationId)
 	local cursor: Instance? = site.Parent
 	while type(loc) ~= "string" and cursor and cursor ~= workspace do
