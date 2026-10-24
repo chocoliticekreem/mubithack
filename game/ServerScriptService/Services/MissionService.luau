@@ -11,7 +11,10 @@
 --   MissionService:EndRound(reason: Types.EndReason)                   -- v1: ends every running mission
 --   MissionService:GetState(): Types.RoundState                        -- summary of the newest run
 -- v1.5 (parallel squads; each mission runs in its own MapService instance):
---   MissionService:StartMission(squad: { Player }, missionId: string, seconds: number?): string?  -- instanceId
+--   MissionService:StartMission(squad: { Player }, missionId: string, seconds: number?, opts: StartOpts?): string?
+--     -- instanceId. opts (v2 dispatch radio): siteId = that exact site, origin = measure distance/travel
+--     -- from there (the caller's truck), noFallback = no v1.5 instance when no site is free (nil instead)
+--   MissionService:FreeSites(): { { siteId, types, pos, address } }  -- IncidentSites nobody is working
 --   MissionService:EndMission(instanceId: string, reason: Types.EndReason)
 --   MissionService:GetMission(instanceId: string): Types.MissionRun?
 --   MissionService:GetMissions(): { Types.MissionRun }
@@ -964,7 +967,7 @@ local function onDoneDispatch(run: Live)
 			table.insert(away, p)
 		end
 	end
-	notify(away, "Call closed. Drive back to the station!", "info")
+	notify(away, "Call closed! Back on patrol: DISPATCH has more calls, or head back to the station.", "info")
 	safe("StowHose", function()
 		local Inv = services.InventoryService
 		if Inv and type(Inv.StowHose) == "function" then
@@ -1293,6 +1296,14 @@ function MissionService:Start()
 			pcall(Net.notify, player, "Finish the call first!", "bad")
 			return
 		end
+		-- the DISPATCH radio's BACK TO STATION: your truck (with you in it) comes home too
+		local Dispatch = services.DispatchService
+		if Dispatch and type(Dispatch.GoHome) == "function" then
+			local ok = pcall(Dispatch.GoHome, Dispatch, player)
+			if ok then
+				return
+			end
+		end
 		local Lobby = services.LobbyService
 		if Lobby and type(Lobby.ReturnToLobby) == "function" then
 			Lobby:ReturnToLobby({ player })
@@ -1434,10 +1445,25 @@ local function allSites(): { Model }
 end
 
 -- The nearest free IncidentSite for the mission (MissionFlow.pickSite), or nil.
-local function chooseSite(missionId: string): (Model?, string?)
+-- from: measure from here instead of the station (a dispatch radio call taken out in the city).
+-- want: that exact site (the one the radio offered), if it is still free and hosts the mission.
+local function chooseSite(missionId: string, from: Vector3?, want: string?): (Model?, string?)
+	if want then
+		for _, site in allSites() do
+			if siteIdOf(site) == want then
+				local types = site:GetAttribute(SITE.MissionTypes)
+				local free = site:GetAttribute(SITE.Busy) ~= true and claimed[want] == nil
+				if free and MissionFlow.siteSupports(if type(types) == "string" then types else nil, missionId) then
+					return site, want
+				end
+				return nil, nil
+			end
+		end
+		return nil, nil
+	end
 	-- GameConfig.NearDispatch: calls that go to the NEAREST free site (the gas station by the hub)
 	local near = if type(GameConfig.NearDispatch) == "table" then GameConfig.NearDispatch else {}
-	local origin = stationPos()
+	local origin = from or stationPos()
 	local infos: { MissionFlow.SiteInfo } = {}
 	local byId: { [string]: Model } = {}
 	for _, site in allSites() do
@@ -1475,8 +1501,11 @@ local function friendlyAddress(siteId: string): string
 	return `{(h % 89) + 2} {STREETS[(h // 89) % #STREETS + 1]}`
 end
 
-local function startDispatch(players: { Player }, def: any, seconds: number?): string?
-	local site, siteId = chooseSite(def.id)
+export type StartOpts = { siteId: string?, origin: Vector3?, noFallback: boolean? }
+
+local function startDispatch(players: { Player }, def: any, seconds: number?, opts: StartOpts?): string?
+	local o: StartOpts = opts or {}
+	local site, siteId = chooseSite(def.id, o.origin, o.siteId)
 	if not (site and siteId) then
 		return nil
 	end
@@ -1497,7 +1526,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?): s
 	model:SetAttribute(SITE.Busy, true)
 	model:SetAttribute(Names.Attr.InstanceId, id)
 
-	local origin = stationPos()
+	local origin = o.origin or stationPos()
 	local dist = if origin then (sitePos(model) - origin).Magnitude else 0
 	local travel = MissionFlow.travelAllowance(dist, {
 		speed = GameConfig.TravelSpeed,
@@ -1605,7 +1634,7 @@ end
 
 -- public API -----------------------------------------------------------------------------------------
 
-function MissionService:StartMission(squad: { Player }, missionId: string, seconds: number?): string?
+function MissionService:StartMission(squad: { Player }, missionId: string, seconds: number?, opts: StartOpts?): string?
 	if not started then
 		warn("[MissionService] StartMission before Start")
 		return nil
@@ -1630,11 +1659,14 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 		return nil
 	end
 	if GameConfig.UseInstances ~= true then
-		local id = startDispatch(players, def, seconds)
+		local id = startDispatch(players, def, seconds, opts)
 		if id then
 			return id
 		end
 		count("dispatch_no_site")
+		if opts and opts.noFallback then
+			return nil -- the caller (DispatchService) tells the player the call is taken
+		end
 		if GameConfig.InstanceFallback ~= true then
 			notify(players, `No free {def.call or def.title} call right now. Try another mission!`, "bad")
 			return nil
@@ -1707,6 +1739,28 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 	count("missions_started")
 	print(`[MissionService] {id} started: {def.id} at {def.locationId} for {#players} player(s)`)
 	return id
+end
+
+-- v2: every IncidentSite nobody is working right now (DispatchService builds radio calls from these).
+function MissionService:FreeSites(): { { siteId: string, types: string, pos: Vector3, address: string } }
+	local out = {}
+	local seen: { [string]: boolean } = {}
+	for _, site in allSites() do
+		local sid = siteIdOf(site)
+		if seen[sid] or site:GetAttribute(SITE.Busy) == true or claimed[sid] ~= nil then
+			continue
+		end
+		seen[sid] = true
+		local types = site:GetAttribute(SITE.MissionTypes)
+		local addr = site:GetAttribute(SITE.Address)
+		table.insert(out, {
+			siteId = sid,
+			types = if type(types) == "string" then types else "",
+			pos = sitePos(site),
+			address = if type(addr) == "string" and addr ~= "" then addr else friendlyAddress(sid),
+		})
+	end
+	return out
 end
 
 function MissionService:EndMission(instanceId: string, reason: Types.EndReason)
