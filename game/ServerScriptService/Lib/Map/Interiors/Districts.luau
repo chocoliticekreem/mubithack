@@ -222,4 +222,12 @@ function Districts.Farm(model: Model, origin: CFrame, root: Model, rng: Random)
 	bput(toolBoard, 15, BY, 3, W)
 end
 
+---------------------------------------------------------------------------------------------------
+-- Stor-Mor self storage: Interiors/Depot (warehouse yard, guard booth, office CCTV desk)
+---------------------------------------------------------------------------------------------------
+Districts.Storage = function(model: Model, origin: CFrame, root: Model, rng: Random)
+	local Depot = require(script.Parent:WaitForChild("Depot") :: ModuleScript) :: any
+	Depot.district(model, origin, root, rng)
+end
+
 return Districts

@@ -363,7 +363,7 @@ function Furnish.site(site: Model): (number, number)
 end
 
 -- Layout modules register themselves here (Interiors/School, ...).
-for _, name in { "School", "Home", "Club", "Office" } do
+for _, name in { "School", "Home", "Club", "Office", "Depot" } do
 	local mod = script.Parent:FindFirstChild(name)
 	if mod and mod:IsA("ModuleScript") then
 		local ok, layout = pcall(require, mod)
