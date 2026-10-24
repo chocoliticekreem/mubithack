@@ -595,6 +595,17 @@ local function toast(npc: Npc, culprit: Player?)
 	notifySquad(npc, text, if guilty then "blame" else "bad")
 end
 
+-- Fire can't hurt anyone until the squad is on scene: while the run is still "Dispatched" (trucks
+-- on the road) the people inside wait it out, otherwise they're toast before anyone arrives.
+local function onScene(npc: Npc): boolean
+	if npc.scope == "" then
+		return true
+	end
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(npc.scope)
+	return not (run and run:GetAttribute("RoundState") == "Dispatched")
+end
+
 local function hurt(npc: Npc, amount: number, culprit: Player?)
 	if amount <= 0 then
 		return
@@ -735,7 +746,7 @@ local function tickCarried(npc: Npc, fires: { Fire }, dt: number)
 		say(npc, "carried") -- keeps screaming / meowing while dangling
 	end
 	local dist, level = nearestFire(fires, npc.root.Position)
-	hurt(npc, Rules.fireDamage(dist, level, dt, RescueConfig) * RescueConfig.CarriedFireMult, npc.carriers[1])
+	hurt(npc, if onScene(npc) then Rules.fireDamage(dist, level, dt, RescueConfig) * RescueConfig.CarriedFireMult else 0, npc.carriers[1])
 end
 
 local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
@@ -786,7 +797,7 @@ local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
 		say(npc, if pose == "lying" then "downed" else "idle")
 	end
 	local dist, level = nearestFire(fires, npc.root.Position)
-	hurt(npc, Rules.fireDamage(dist, level, dt, RescueConfig), Rules.culprit(npc, now, RescueConfig.BlameWindow))
+	hurt(npc, if onScene(npc) then Rules.fireDamage(dist, level, dt, RescueConfig) else 0, Rules.culprit(npc, now, RescueConfig.BlameWindow))
 end
 
 local function tickIdle(npc: Npc, fires: { Fire }, dt: number)
@@ -816,7 +827,7 @@ local function tickIdle(npc: Npc, fires: { Fire }, dt: number)
 			end
 		end
 	end
-	hurt(npc, Rules.fireDamage(dist, level, dt, RescueConfig), Rules.culprit(npc, os.clock(), RescueConfig.BlameWindow))
+	hurt(npc, if onScene(npc) then Rules.fireDamage(dist, level, dt, RescueConfig) else 0, Rules.culprit(npc, os.clock(), RescueConfig.BlameWindow))
 end
 
 local function tick(dt: number)
