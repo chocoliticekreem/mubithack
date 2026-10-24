@@ -37,7 +37,9 @@
 --        Lib/Tools/HoseLine (attach/detach/getPressure; optional, owned by another lane)
 -- Counters: water_used, refills, doors_broken, hose_teammate_hits, hose_knockdowns, axe_swings,
 --           axe_teammate_hits, puddles, foam_used, hose_rockets
--- Test hooks (DevHook only): _spray(player, aim), _swing(player), _doorPrompt(player, door), _selftest()
+-- Foam: at most one puff per 0.85 / SprayHz s per player (server-side, on top of the remote's rate limit).
+-- Test hooks (DevHook only): _spray(player, aim), _swing(player), _doorPrompt(player, door), _selftest(),
+--   _resetFoamLimit(player)
 
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
@@ -80,6 +82,7 @@ type DoorState = {
 
 local services: { [string]: any } = {}
 local lastSpray: { [Player]: number } = {}
+local lastFoam: { [Player]: number } = {} -- foam is rate-limited per player, whatever the client sends
 local lastSwing: { [Player]: number } = {}
 local sprayCount: { [Player]: number } = {}
 local rocketSince: { [Player]: number } = {}
@@ -520,11 +523,19 @@ local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vecto
 end
 
 local function sprayFoam(player: Player, head: BasePart, aim: Vector3)
-	local foam = (player:GetAttribute(ATTR_FOAM) :: number?) or 0
+	-- one can at a time and at most SprayHz puffs a second: swapping between two extinguishers (or
+	-- two clients' worth of input) can't stack sprays
+	local now = os.clock()
+	if now - (lastFoam[player] or 0) < 0.85 / math.max(1, ToolConfig.SprayHz) then
+		return
+	end
+	local size = (player:GetAttribute(ATTR_FOAM_SIZE) :: number?) or ToolConfig.FoamSize
+	local foam = math.clamp((player:GetAttribute(ATTR_FOAM) :: number?) or 0, 0, size)
 	local charges = math.min(foam, ToolConfig.FoamPerSpray)
 	if charges <= 0 then
 		return
 	end
+	lastFoam[player] = now
 	player:SetAttribute(ATTR_FOAM, foam - charges)
 	Telemetry.count("foam_used", charges)
 	markSpraying(player)
@@ -898,6 +909,7 @@ function ToolService:Start()
 	Players.PlayerRemoving:Connect(function(player: Player)
 		hoseLineCall("detach", player)
 		lastSpray[player] = nil
+		lastFoam[player] = nil
 		lastSwing[player] = nil
 		sprayCount[player] = nil
 		rocketSince[player] = nil
@@ -1015,6 +1027,11 @@ end
 -- test hooks -------------------------------------------------------------------------------
 function ToolService:_spray(player: Player, aim: Vector3)
 	sprayOnce(player, aim.Unit)
+end
+
+-- Foam rate-limit check for tests: clears the limiter so the next _spray goes through.
+function ToolService:_resetFoamLimit(player: Player)
+	lastFoam[player] = nil
 end
 
 function ToolService:_swing(player: Player)

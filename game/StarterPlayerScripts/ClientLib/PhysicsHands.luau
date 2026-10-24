@@ -81,6 +81,7 @@ type Hand = {
 	sp: Vec,
 	sv: Vec,
 	pressed: boolean,
+	by: number?, -- the button (1 LMB, 2 RMB/L2) that pressed this hand; its release lets go
 	reachT: number,
 	aimPart: BasePart?,
 	aimPos: Vector3?,
@@ -539,6 +540,7 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 		hand.palm.Anchored = true
 		hand.palm.CanCollide = false
 		hand.pressed = false
+		hand.by = nil
 		self:_release(hand, false)
 		return
 	end
@@ -600,8 +602,22 @@ function PhysicsHands._button(self: PhysicsHands, which: number, down: boolean)
 	if not self.active then
 		return
 	end
+	if not down then
+		-- release whichever hand THIS button pressed, even if a Tool arrived in the meantime. (A click
+		-- in the gap of a tool swap used to press the empty left hand; the release then went to the
+		-- new Tool and the hand kept grabbing for ever: the "dual-wield" glove stuck to a dropped
+		-- extinguisher.)
+		for _, hand in self.hands do
+			if hand.by == which then
+				hand.by = nil
+				hand.pressed = false
+				self:_release(hand, true)
+			end
+		end
+		return
+	end
 	local carrying = LocalPlayer:GetAttribute(Names.Attr.Carrying)
-	if down and type(carrying) == "string" and carrying ~= "" then
+	if type(carrying) == "string" and carrying ~= "" then
 		return -- arms are full (RescueService carry)
 	end
 	local item = self.item
@@ -614,10 +630,8 @@ function PhysicsHands._button(self: PhysicsHands, which: number, down: boolean)
 	else
 		hand = if which == 1 then self.hands.L else self.hands.R
 	end
-	hand.pressed = down
-	if not down then
-		self:_release(hand, true)
-	end
+	hand.pressed = true
+	hand.by = which
 end
 
 function PhysicsHands.BindInput(self: PhysicsHands)
@@ -660,6 +674,7 @@ function PhysicsHands.SetActive(self: PhysicsHands, on: boolean)
 	for _, hand in self.hands do
 		if not on then
 			hand.pressed = false
+			hand.by = nil
 			self:_release(hand, false)
 		end
 		hand.palm.Anchored = not on

@@ -54,6 +54,7 @@ ToolController.Priority = 60 -- after FirstPersonController (50) so its Shake ex
 local LocalPlayer = Players.LocalPlayer
 local controllers: { [string]: any } = {}
 local holding: string? = nil -- "hose" | "foam" while the trigger is held
+local holdingTool: Tool? = nil -- the exact Tool that was activated; a swapped-in copy never inherits it
 local streams: { [Player]: Stream } = {}
 local hookedTools: { [Tool]: true } = setmetatable({}, { __mode = "k" }) :: any
 local mover: LinearVelocity? = nil
@@ -147,6 +148,18 @@ local function blocked(player: Player): boolean
 	end
 	local char = player.Character
 	return char ~= nil and Ragdoll.isRagdolled(char)
+end
+
+-- The trigger only counts while the Tool that was pressed is still the one in your hand. (Swapping
+-- between two extinguishers used to leave `holding` = "foam" if the old Tool vanished without an
+-- Unequipped, and the next extinguisher then foamed on its own.)
+local function heldKind(): string?
+	local t = holdingTool
+	if holding and t and t.Parent ~= nil and t.Parent == LocalPlayer.Character then
+		return holding
+	end
+	holding, holdingTool = nil, nil
+	return nil
 end
 
 local function isFirstPerson(): boolean
@@ -473,7 +486,8 @@ local function render()
 		local tool, kind = toolOf(player)
 		local on = player:GetAttribute(Names.Attr.Spraying) == true
 		if player == LocalPlayer then
-			on = (holding ~= nil and kind == holding and (resource(player, kind :: string)) > 0 and not blocked(player))
+			local h = heldKind()
+			on = (h ~= nil and kind == h and (resource(player, kind :: string)) > 0 and not blocked(player))
 		end
 		local aim = aimOf(player)
 		if tool and kind and on and aim then
@@ -549,7 +563,7 @@ local function physicsStep(dt: number)
 	local m = ensureMover(root)
 	local _, kind = toolOf(LocalPlayer)
 	local cam = workspace.CurrentCamera
-	local spraying = holding == "hose" and kind == "hose" and (resource(LocalPlayer, "hose")) > 0 and not blocked(LocalPlayer)
+	local spraying = heldKind() == "hose" and kind == "hose" and (resource(LocalPlayer, "hose")) > 0 and not blocked(LocalPlayer)
 	local pressure = if spraying then pressureOf(LocalPlayer, "hose") else 0
 	local aim = if cam then cam.CFrame.LookVector else Vector3.new(0, 0, -1)
 
@@ -604,7 +618,7 @@ local function fovStep(dt: number)
 		fovWritten = nil
 		return
 	end
-	local active = holding ~= nil and toolOf(LocalPlayer) ~= nil and not blocked(LocalPlayer)
+	local active = heldKind() ~= nil and toolOf(LocalPlayer) ~= nil and not blocked(LocalPlayer)
 	local _, kind = toolOf(LocalPlayer)
 	local target = if active and kind then ToolConfig.SprayFovKick * pressureOf(LocalPlayer, kind) else 0
 	-- snap in (punch), ease out
@@ -646,24 +660,22 @@ local function hookTool(inst: Instance)
 	end
 	local kind = if name == "Hose" then "hose" else "foam"
 	tool.Activated:Connect(function()
-		holding = kind
+		holding, holdingTool = kind, tool
 		sprayStartedAt = os.clock()
 		shake(0.2 * pressureOf(LocalPlayer, kind), 0.2) -- the kick when the valve opens
 	end)
-	tool.Deactivated:Connect(function()
-		if holding == kind then
-			holding = nil
+	local function letGo()
+		if holdingTool == tool then
+			holding, holdingTool = nil, nil
 		end
-	end)
-	tool.Unequipped:Connect(function()
-		if holding == kind then
-			holding = nil
-		end
-	end)
+	end
+	tool.Deactivated:Connect(letGo)
+	tool.Unequipped:Connect(letGo)
+	tool.Destroying:Connect(letGo)
 end
 
 local function hookCharacter(char: Model)
-	holding = nil
+	holding, holdingTool = nil, nil
 	mover = nil
 	slideV = Vector3.zero
 	char.ChildAdded:Connect(hookTool)
@@ -759,7 +771,8 @@ function ToolController:Start()
 		task.wait(1 / ToolConfig.SprayHz)
 		local cam = workspace.CurrentCamera
 		local _, kind = toolOf(LocalPlayer)
-		if holding and cam and kind == holding and not blocked(LocalPlayer) then
+		local h = heldKind()
+		if h and cam and kind == h and not blocked(LocalPlayer) then
 			local left = resource(LocalPlayer, kind)
 			if left > 0 then
 				Spray:FireServer(cam.CFrame.LookVector)
