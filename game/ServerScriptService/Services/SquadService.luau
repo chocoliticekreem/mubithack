@@ -453,9 +453,9 @@ function SquadService:Start()
 	local Hazard = services.HazardService
 	if Hazard then
 		if Hazard.Zapped then
-			Hazard.Zapped:Connect(function(victim: Player, culprit: Player?)
-				SquadService:Down(victim, "electrocution", culprit)
-			end)
+			-- a zap no longer downs you outright: the first touch stuns, a second knocks you flat
+			-- (HazardService); only the heat it adds can overheat you (HeatService.Overheated above)
+			Hazard.Zapped:Connect(function(_victim: Player, _culprit: Player?) end)
 		end
 		if Hazard.Flung then
 			Hazard.Flung:Connect(function(victim: Player, hazardId: string)
