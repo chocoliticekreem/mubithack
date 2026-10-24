@@ -85,6 +85,7 @@ local state = {
 	guideKey = "", -- what the card/arrow currently show
 	driveHintUntil = 0,
 	missionSince = 0, -- os.clock() when InstanceId was set (the HUD's ALARM banner owns the screen first)
+	droveAt = 0, -- missionSince of the call you last drove on: no "get in" cards after you hop out mid-route
 	helpOpen = false,
 	callTitle = "", -- Lobby/Countdown title of the pad you're on
 	callEndsAt = 0, -- os.clock() when that countdown hits 0 (0 = no countdown)
@@ -984,6 +985,14 @@ local function currentGuide(): Guide?
 			doorOpen = doorOpen,
 			arrived = arrived,
 		})
+		if driving then
+			state.droveAt = state.missionSince
+		end
+		-- you already drove this call and hopped out (a hydrant, a shortcut on foot): the RUN TO BAY /
+		-- HOP IN cards would be stale nagging, the GPS still shows the way
+		if (hint == "door" or hint == "seat") and state.droveAt == state.missionSince then
+			return nil
+		end
 		if hint == "drive" then
 			if state.driveHintUntil == 0 then
 				state.driveHintUntil = os.clock() + Cfg.DriveHintSeconds
