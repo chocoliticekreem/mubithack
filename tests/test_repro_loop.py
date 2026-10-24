@@ -132,8 +132,8 @@ async def test_no_failing_check_means_unproven_and_no_fix(settings):
                                                    "Spraying lowers heat": lambda h: (True, "heat falls")}, game)
     fx = cycle["code_fixes"][0]
     assert fx["status"] == "unproven" and [a["status"] for a in fx["repro"]["attempts"]] == ["passed"]
-    retry = [c.user for c in llm.calls if c.role == "reproducer"][1]
-    assert "PASSED" in retry and f"-- check: {REPRO}" in retry
+    # a passing check ends it: no retry that could invent a stricter expectation just to fail
+    assert len([c for c in llm.calls if c.role == "reproducer"]) == 1
     assert "fixer" not in [c.role for c in llm.calls]
     assert ImproveStore(settings, "fab").was_unproven(HOSE)
     assert cycle["checks"]["unproven"] == [HOSE["title"]]
