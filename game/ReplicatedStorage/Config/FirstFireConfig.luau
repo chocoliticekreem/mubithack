@@ -29,7 +29,7 @@ return Config.define({
 	-- the first real call, straight after: auto-join a pad with this mission and cut the countdown
 	AutoQueue = true,
 	AutoQueueDelay = 3, -- s after the fire is out (the reward pop owns the screen first)
-	FirstCall = "gas_leak", -- GameConfig.NearDispatch: the QUICK STOP a short drive from the station
+	FirstCall = "house_fire", -- the plain core loop (spray fires, carry people out): gas_leak's valves + tanker countdown was too much for a first call
 	QueueCountdown = 12, -- s on the pad before it rolls: time to read the card and pick GO NOW / NOT YET
 	CelebrateSeconds = 3, -- the client's "FIRE OUT!" card
 	-- client copy
