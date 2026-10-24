@@ -232,7 +232,12 @@ def run_metrics(settings: Settings, slug: str) -> dict:
     fixes = [f for r in recs for f in r.get("fixes") or []]
     compile_fixes = sum(1 for f in fixes if f.get("kind") == "compile")
     scores = [_num(r.get("score")) for r in recs if _num(r.get("score")) is not None]
-    funs = [f for f in (_fun(r["_critique"]) for r in recs) if f is not None]
+    funs = [f for f in (_num((r.get("fun") or {}).get("score")) if isinstance(r.get("fun"), dict)
+                        else _fun(r["_critique"]) for r in recs) if f is not None]
+    latest_fun = _read(run_dir / "fun" / "latest.json")
+    if isinstance(latest_fun, dict) and _num(latest_fun.get("score")) is not None \
+            and (not funs or funs[-1] != _num(latest_fun.get("score"))):
+        funs.append(_num(latest_fun["score"]))
     last = recs[-1] if recs else {}
     left = last.get("compile_errors_after_fix") or last.get("compile_errors") or []
 
@@ -258,6 +263,7 @@ def run_metrics(settings: Settings, slug: str) -> dict:
         "fun": {"scores": funs, "final": funs[-1] if funs else None},
         "improve": {"cycles": len(improve), "open": (improve[-1].get("open") if improve else None)},
         "done": {"ready": r["ready"], "ok": sum(1 for p in r["parts"] if p["ok"]), "of": len(r["parts"]),
+                 "pct": round(sum(1 for p in r["parts"] if p["ok"]) / len(r["parts"]), 3) if r["parts"] else None,
                  "parts": {p["part"]: p["ok"] for p in r["parts"]}},
         "corrections": len(state.get("corrections") or []),
     }
@@ -297,6 +303,8 @@ async def _checks(settings: Settings, slug: str, max_checks: int, studio_name: s
     await asyncio.to_thread(plan_checks, settings, slug, llm=llm, max_checks=max_checks)
     async with Studio(settings) as studio:
         await studio.select(studio_name)
+        # the last iteration's fixes came after its playtest, so Studio still has the older code
+        await studio.sync(settings.runs_dir / slug / "game", settings.sync_port)
         await run_plan(studio, slug, settings=settings, llm=llm)
 
 
@@ -443,9 +451,9 @@ def render(result: dict) -> str:
         f"{result['iterations']} iteration(s), improve {result.get('improve', 0)}, checks {result.get('checks', 0)}, lessons {result.get('lessons')}, "
         f"git `{g.get('sha')}` on `{g.get('branch')}`",
         "",
-        "| idea | ok | wall s | design | build | iterate | compile/fix | playtest | improve | LLM calls | tokens in/out "
+        "| idea | ok | wall s | design | build | iterate | compile/fix | playtest | improve | checks s | LLM calls | tokens in/out "
         "| 1st-try compile | fixes c/k | left | critic first->final | fun | checks | done | corrections |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---:|---|---:|---|---|---:|",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---:|---|---:|---|---|---:|",
     ]
     for i in result["ideas"]:
         s = i.get("stages") or {}
@@ -457,7 +465,7 @@ def render(result: dict) -> str:
         lines.append(
             f"| {i['id']} | {'yes' if i.get('ok') else 'NO'} | {_f(i.get('wall_s'), '.0f')} "
             f"| {_f(s.get('design'), '.0f')} | {_f(s.get('build'), '.0f')} | {_f(s.get('iterate'), '.0f')} "
-            f"| {_f(s.get('compile_fix'), '.0f')} | {_f(s.get('playtest'), '.0f')} | {_f(s.get('improve'), '.0f')} "
+            f"| {_f(s.get('compile_fix'), '.0f')} | {_f(s.get('playtest'), '.0f')} | {_f(s.get('improve'), '.0f')} | {_f(s.get('checks'), '.0f')} "
             f"| {llm.get('calls', 0)} | {llm.get('input_tokens', 0)}/{llm.get('output_tokens', 0)} "
             f"| {_pct((i.get('compile_first') or {}).get('pass_rate'))} | {fx.get('compile', 0)}/{fx.get('critic', 0)} "
             f"| {i.get('compile_errors_left', '-')} | {_f(c.get('first'))} -> {_f(c.get('final'))} "
@@ -504,6 +512,8 @@ METRICS: list[tuple[str, Callable[[dict], Any], bool, str]] = [
     ("fun", lambda i: (i.get("fun") or {}).get("final"), True, "g"),
     ("checks passed", lambda i: (i.get("acceptance") or {}).get("passed"), True, "g"),
     ("done parts", lambda i: (i.get("done") or {}).get("ok"), True, "g"),
+    ("done share", lambda i: round(i["done"]["ok"] / i["done"]["of"], 3) if (i.get("done") or {}).get("of")
+     else None, True, ".2f"),
     ("corrections", lambda i: i.get("corrections"), False, "g"),
 ]
 
