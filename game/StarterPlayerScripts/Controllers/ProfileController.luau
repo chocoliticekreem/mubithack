@@ -14,6 +14,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local DataConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local ProfileController = {}
 ProfileController.Priority = 100
@@ -149,9 +150,9 @@ end
 
 local popupCount = 0
 
-local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number, y: number?)
+local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number, y: number?): Frame?
 	if not popupLayer then
-		return
+		return nil
 	end
 	popupCount += 1
 	local slot = popupCount % 4
@@ -190,6 +191,62 @@ local function popup(text: string, sub: string?, color: Color3, size: number, se
 	task.delay(seconds + 0.1, function()
 		holder:Destroy()
 	end)
+	return holder
+end
+
+-- Calm (phones / EFFECTS: CALM): a small "+50 XP" tick right under the level bar in the top box instead of
+-- a big number in the middle of the screen (where you aim the hose)
+local function tick(text: string)
+	local layer, p = popupLayer, panel
+	if not layer or not p or not p.Visible then
+		return
+	end
+	local sc = (gui :: ScreenGui):FindFirstChildOfClass("UIScale")
+	local s = if sc then sc.Scale else 1
+	local rel = p.AbsolutePosition - layer.AbsolutePosition
+	local holder = Instance.new("Frame")
+	holder.Name = "XpTick"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromOffset(120, 22)
+	holder.Position = UDim2.fromOffset((rel.X + 38 * s) / s, (rel.Y + p.AbsoluteSize.Y + 4) / s)
+	holder.Parent = layer
+	local l = label(holder, "Main", Enum.Font.FredokaOne, Palette.HelmetShield)
+	l.Size = UDim2.fromScale(1, 1)
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Text = text
+	local info = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	task.delay(0.9, function()
+		TweenService:Create(l, info, { TextTransparency = 1 }):Play()
+		local st = l:FindFirstChildOfClass("UIStroke")
+		if st then
+			TweenService:Create(st, info, { Transparency = 1 }):Play()
+		end
+	end)
+	task.delay(1.6, function()
+		holder:Destroy()
+	end)
+end
+
+-- XP lands in bursts (five fires out at once): one popup with the sum
+local xpPending, xpReason, xpToken = 0, "", 0
+local function xpGain(amount: number, reason: string?)
+	xpPending += amount
+	xpReason = reason or xpReason
+	xpToken += 1
+	local token = xpToken
+	task.delay(if Calm.on() then 1.0 else 0.6, function()
+		if token ~= xpToken or xpPending <= 0 then
+			return
+		end
+		local n = math.floor(xpPending)
+		xpPending = 0
+		if Calm.on() then
+			tick(`+{n} XP`)
+		else
+			popup(`+{n} XP`, if xpReason ~= "" then xpReason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
+		end
+		xpReason = ""
+	end)
 end
 
 -- LEVEL UP celebration: confetti burst from behind the banner, a gold screen-edge flash, the level badge
@@ -208,7 +265,7 @@ local function celebrate()
 	local layer = popupLayer :: Frame
 	local glow = Instance.new("Frame")
 	glow.BackgroundColor3 = Color3.fromRGB(255, 211, 90)
-	glow.BackgroundTransparency = 0.55
+	glow.BackgroundTransparency = Calm.alpha(0.55) -- calm: a faint glow, not a gold flash
 	glow.BorderSizePixel = 0
 	glow.Size = UDim2.fromScale(1, 1)
 	glow.ZIndex = 0
@@ -218,7 +275,7 @@ local function celebrate()
 		glow:Destroy()
 	end)
 	local rng = Random.new()
-	for i = 1, 28 do
+	for i = 1, if Calm.on() then 10 else 28 do
 		local c = Instance.new("Frame")
 		c.BorderSizePixel = 0
 		c.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -276,16 +333,22 @@ function ProfileController:Start()
 		if type(amount) ~= "number" or amount <= 0 then
 			return
 		end
-		popup(`+{math.floor(amount)} XP`, if type(reason) == "string" then reason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
+		xpGain(amount, if type(reason) == "string" then reason else nil)
 		if type(levelsGained) == "number" and levelsGained > 0 then
 			task.delay(0.5, function()
 				-- centre celebrations take turns (ClientLib/HudLayout): this, then NEW GEAR, then TIER UP,
 				-- and only once the results screen has closed
 				local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 				HudLayout.celebrate(function()
-					popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
+					local secs = Calm.seconds(tonumber(DataConfig.Ui.LevelUpSeconds) or 2, 1.8)
+					local card = popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, secs, 0.62)
 					celebrate()
-					return (tonumber(DataConfig.Ui.LevelUpSeconds) or 2) + 0.2
+					-- a tap anywhere hides it early (HudLayout.celebrate)
+					return secs + 0.2, function()
+						if card then
+							card:Destroy()
+						end
+					end
 				end)
 			end)
 		end

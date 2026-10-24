@@ -13,7 +13,11 @@
 --   WorldPopup.show(subject: Instance | Vector3, text: string, opts: Opts?): boolean
 --     subject = Player, character / NPC / prop Model, BasePart, Attachment or a world position.
 --     opts = { kind = "info"|"good"|"bad"|"blame"?, color: Color3?, big: boolean?, mine: boolean?,
---              seconds: number?, height: number? (studs above the subject's top, overrides HeadOffset) }
+--              seconds: number?, height: number? (studs above the subject's top, overrides HeadOffset),
+--              flavour: boolean? (pure juice: skipped when ClientLib/Calm is on) }
+--   Calm (phones / EFFECTS: CALM): at most CalmCap on screen, CalmTextSize px, others' pops only within
+--     CalmMaxDistance; everywhere: the same word shows once per WordCooldown (CalmWordCooldown when calm).
+--   WorldPopup.screenShown(text)       -- a screen toast said this; skip the same world popup for 3 s
 --   WorldPopup.start()                 -- listens to Shared/Popup + builds the setting button (idempotent;
 --                                         HudController:Start calls it)
 --   WorldPopup.getMode(): "Normal" | "Minimal" | "Off"
@@ -30,6 +34,7 @@ local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("Feedb
 local PopupLogic =
 	require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 local InputHints = require(script.Parent:WaitForChild("InputHints") :: ModuleScript)
+local Calm = require(script.Parent:WaitForChild("Calm") :: ModuleScript)
 
 local WorldPopup = {}
 
@@ -40,6 +45,7 @@ export type Opts = {
 	mine: boolean?,
 	seconds: number?,
 	height: number?,
+	flavour: boolean?, -- pure juice ("poof!", NPC honks): skipped on calm screens (ClientLib/Calm)
 }
 
 local LocalPlayer = Players.LocalPlayer
@@ -55,6 +61,10 @@ local live: { [number]: { gui: BillboardGui, anchor: Instance? } } = {}
 local keys: { [Instance]: string } = setmetatable({}, { __mode = "k" }) :: any
 local keySeq = 0
 local localMode: PopupLogic.Mode? = nil
+local wordAt: { [string]: number } = {} -- last time each word showed anywhere (per-word cooldown)
+local subjectAt: { [string]: number } = {} -- last time a popup showed over each subject key
+local screenAt: { [string]: number } = {} -- texts a screen toast just showed (WorldPopup.screenShown)
+local liveCount = 0
 local started = false
 
 local function logic(): PopupLogic.State
@@ -137,6 +147,7 @@ local function finish(id: number)
 	local rec = live[id]
 	live[id] = nil
 	if rec then
+		liveCount = math.max(0, liveCount - 1)
 		rec.gui:Destroy()
 		if rec.anchor then
 			rec.anchor:Destroy()
@@ -167,13 +178,40 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 		return false
 	end
 	local maxD = tonumber(Cfg.MaxDistance) or 60
-	if (cam.CFrame.Position - pos).Magnitude > maxD then
+	local calm = Calm.on()
+	local about = isMe or o.mine == true
+	if calm and o.flavour and not about then
+		return false
+	end
+	local dist = (cam.CFrame.Position - pos).Magnitude
+	if dist > maxD or (calm and not about and dist > (tonumber(Cfg.CalmMaxDistance) or 35)) then
+		return false
+	end
+	-- the same word anywhere (SPLASH! from five hoses) shows once per cooldown; calm: fewer on screen
+	local word = string.lower(string.gsub(text, "[%d%s%p]+", ""))
+	local now = os.clock()
+	local cool = tonumber(if calm then Cfg.CalmWordCooldown else Cfg.WordCooldown) or 0
+	if not about and wordAt[word] and now - wordAt[word] < cool then
+		return false
+	end
+	if calm and not about and liveCount >= (tonumber(Cfg.CalmCap) or 3) then
+		return false
+	end
+	-- the same line as a toast that just showed ("X is well done (steak)") is said once, on the toast
+	if screenAt[text] and now - screenAt[text] < 3 then
+		return false
+	end
+	-- calm: a burst over one head (WELL DONE! + blame + BONK! in the same frame) keeps the first one up
+	-- instead of replacing it every frame
+	if calm and subjectAt[key] and now - subjectAt[key] < 0.6 then
 		return false
 	end
 	local d = PopupLogic.admit(logic(), os.clock(), key, text, WorldPopup.getMode(), isMe or o.mine == true)
 	if not d.show then
 		return false
 	end
+	wordAt[word] = now
+	subjectAt[key] = now
 	for _, id in d.evict do
 		finish(id)
 	end
@@ -197,7 +235,7 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 	end
 
 	local secs = o.seconds or tonumber(Cfg.Seconds) or 1
-	local size = (tonumber(Cfg.TextSize) or 16) + (if o.big then 2 else 0)
+	local size = (tonumber(if calm then Cfg.CalmTextSize else Cfg.TextSize) or 16) + (if o.big then 2 else 0)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "WorldPopup"
 	gui.ResetOnSpawn = false
@@ -222,6 +260,7 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 	label.Parent = gui
 	gui.Parent = pg
 	live[d.id] = { gui = gui, anchor = anchor }
+	liveCount += 1
 
 	local outline = tonumber(Cfg.OutlineTransparency) or 0.45
 	TweenService:Create(label, TweenInfo.new(0.12), { TextTransparency = 0, TextStrokeTransparency = outline }):Play()
@@ -241,6 +280,11 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 		end
 	end)
 	return true
+end
+
+-- HudController calls this for every screen toast, so a world popup with the same text is skipped.
+function WorldPopup.screenShown(text: string)
+	screenAt[text] = os.clock()
 end
 
 -- A positional pop (Physics/Pop etc.) that lands on a player sticks to that player's head instead.
@@ -263,6 +307,7 @@ end
 -- settings ---------------------------------------------------------------------------------------------
 local LABEL: { [string]: string } = { Normal = "POP-UPS: NORMAL", Minimal = "POP-UPS: MINIMAL", Off = "POP-UPS: OFF" }
 local button: TextButton? = nil
+local effectsButton: TextButton? = nil
 local buttonGui: ScreenGui? = nil
 
 local function inLobby(): boolean
@@ -273,6 +318,9 @@ end
 local function refreshButton()
 	if button then
 		button.Text = LABEL[WorldPopup.getMode()]
+	end
+	if effectsButton then
+		effectsButton.Text = Calm.label()
 	end
 	if buttonGui then
 		buttonGui.Enabled = inLobby()
@@ -313,6 +361,25 @@ local function buildButton()
 		refreshButton()
 	end)
 	refreshButton()
+
+	-- EFFECTS: AUTO / CALM / FULL (ClientLib/Calm): shakes, flashes, FOV punches and popups. Auto = calm on
+	-- phones and touch. Saved as ProfileSchema setting "effects"; applied locally at once.
+	local fx = UiKit.button(sg, "Effects", Calm.label(), UDim2.fromOffset(250, 34), UDim2.fromOffset(16 + 125, 280), Color3.fromRGB(60, 70, 96))
+	fx.TextSize = 16
+	effectsButton = fx
+	fx.Activated:Connect(function()
+		local cur = tonumber(LocalPlayer:GetAttribute(Calm.Attr)) or 0
+		local nextMode = (cur + 1) % 3
+		LocalPlayer:SetAttribute(Calm.Attr, nextMode)
+		UiKit.pop(fx, 0.2)
+		task.spawn(function()
+			pcall(function()
+				Net.event("Data", "Setting"):FireServer("effects", nextMode)
+			end)
+		end)
+	end)
+	Calm.Changed.Event:Connect(refreshButton)
+	LocalPlayer:GetAttributeChangedSignal(Calm.Attr):Connect(refreshButton)
 end
 
 function WorldPopup.start()

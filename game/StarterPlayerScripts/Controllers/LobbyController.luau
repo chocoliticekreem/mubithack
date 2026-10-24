@@ -26,6 +26,7 @@ local LobbyConfig = require(ConfigDir:WaitForChild("LobbyConfig") :: ModuleScrip
 local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: { any }
 local LobbyQueue = require(ReplicatedStorage:WaitForChild("Lobby"):WaitForChild("LobbyQueue") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local LobbyController = {}
 LobbyController.Priority = 100
@@ -451,14 +452,16 @@ local function pop(text: string, color: Color3, from: number)
 	big.TextColor3 = color
 	big.TextTransparency = 0
 	big.Visible = true
-	ui.bigScale.Scale = from
-	TweenService:Create(ui.bigScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	-- calm (phones): a smaller number that barely bounces, so the countdown doesn't fill the screen
+	local base = if Calm.on() then 0.6 else 1
+	ui.bigScale.Scale = base * (if Calm.on() then math.min(from, 1.2) else from)
+	TweenService:Create(ui.bigScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = base }):Play()
 end
 
 local function pulse(color: Color3, alpha: number)
 	local f: Frame = ui.pulse
 	f.BackgroundColor3 = color
-	f.BackgroundTransparency = 1 - alpha
+	f.BackgroundTransparency = Calm.alpha(1 - alpha) -- calm: a faint pulse, not a full-screen flash
 	TweenService:Create(f, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
 end
 
@@ -508,7 +511,8 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		end)
 		return
 	end
-	ui.banner.Text = `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
+	-- calm: the squad strip already names the pad and the call
+	ui.banner.Text = if Calm.on() then `ROLLING OUT IN {seconds}` else `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
 	ui.banner.Visible = true
 	if seconds <= LobbyConfig.BigCountdownFrom then
 		local hot = seconds <= LobbyConfig.AlarmFromSeconds

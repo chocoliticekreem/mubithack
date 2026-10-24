@@ -480,7 +480,7 @@ local function openLocker()
 end
 
 -- level-up banner --------------------------------------------------------------------------------------
-local function unlockBanner(lvl: number, ids: { string })
+local function unlockBanner(lvl: number, ids: { string }): ScreenGui
 	local gui = UiKit.screen("GearUnlocked", 25)
 	local panel = UiKit.panel(gui, "Banner", UDim2.fromOffset(520, if #ids > 0 then 96 + 44 * #ids else 96), UDim2.new(0.5, 0, 0.3, 0), Vector2.new(0.5, 0))
 	panel.BackgroundColor3 = Palette.UiInk
@@ -511,6 +511,7 @@ local function unlockBanner(lvl: number, ids: { string })
 			gui:Destroy()
 		end
 	end)
+	return gui
 end
 
 -- fx -------------------------------------------------------------------------------------------------
@@ -566,8 +567,11 @@ function GearController:Start()
 					-- centre cards take turns and wait for the results screen to close (ClientLib/HudLayout)
 					local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 					HudLayout.celebrate(function()
-						unlockBanner(lvl, ids)
-						return if #ids > 0 then 6.5 else 4
+						local g = unlockBanner(lvl, ids)
+						-- tap anywhere / calm screens: HudLayout calls this to take it down early
+						return if #ids > 0 then 6.5 else 4, function()
+							g:Destroy()
+						end
 					end)
 				end
 			end)

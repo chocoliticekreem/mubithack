@@ -347,7 +347,7 @@ local function poof(origin: Vector3)
 		TweenService:Create(b, info, { Position = out, Size = Vector3.one * 1.8, Transparency = 1 }):Play()
 	end
 	-- the "poof!" itself is a small popup (ClientLib/WorldPopup: caps, dedupe, feedback setting)
-	WorldPopup.show(origin, ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)], { height = 1.5 })
+	WorldPopup.show(origin, ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)], { height = 1.5, flavour = true })
 	holder.Parent = workspace
 	task.delay(1.3, function()
 		holder:Destroy()

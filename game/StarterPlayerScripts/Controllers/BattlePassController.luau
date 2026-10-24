@@ -28,6 +28,7 @@ local PassRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Ba
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local BattlePassController = {}
 BattlePassController.Priority = 110
@@ -257,10 +258,10 @@ local function confetti(layer: Instance, origin: UDim2, n: number, spread: numbe
 	end
 end
 
-local function celebrateTier(tier: number, ids: { string })
+local function celebrateTier(tier: number, ids: { string }): Frame?
 	local layer = ui.fx :: Frame?
 	if not layer then
-		return
+		return nil
 	end
 	local audio = controllers.AudioController
 	if audio and type(audio.Stinger) == "function" then
@@ -296,13 +297,14 @@ local function celebrateTier(tier: number, ids: { string })
 		UDim2.new(1, -24, 0, 56), UDim2.fromOffset(12, 124), UiKit.Body, 19, Palette.UiCream, false)
 	sub.ZIndex = 32
 	UiKit.pop(card, 0.35)
-	confetti(layer, UDim2.fromScale(0.5, 0.52), 44, 0.32)
+	confetti(layer, UDim2.fromScale(0.5, 0.52), if Calm.on() then 12 else 44, 0.32)
 	task.delay(3.2, function()
 		UiKit.tween(card, 0.3, { Position = UDim2.fromScale(0.5, -0.3) }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 		task.delay(0.35, function()
 			card:Destroy()
 		end)
 	end)
+	return card
 end
 
 ---------------------------------------------------------------------------------- XP popups
@@ -359,15 +361,46 @@ local function xpPopup(amount: number, reason: string)
 	UiKit.punch(pip, 0.12)
 end
 
--- many fires out in a burst = one popup with the sum
+-- Calm (phones / EFFECTS: CALM): a small "+40 PASS" tick under the pip, no reason line, no punch
+local function xpTick(amount: number)
+	local pip = ui.pip :: Frame?
+	local layer = ui.fx :: Frame?
+	if not pip or not layer or not pip.Visible then
+		return
+	end
+	local scale = (ui.gui :: ScreenGui):FindFirstChildOfClass("UIScale")
+	local k = if scale then scale.Scale else 1
+	local abs = pip.AbsolutePosition - layer.AbsolutePosition
+	local l = text(layer, "PassTick", `+{amount} PASS`, UDim2.fromOffset(120, 22),
+		UDim2.fromOffset(abs.X / k + 4, (abs.Y + pip.AbsoluteSize.Y) / k + 4), UiKit.Body, 18, Palette.UiShock, true)
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.ZIndex = 21
+	task.delay(0.9, function()
+		UiKit.tween(l, 0.6, { TextTransparency = 1 })
+		local st = l:FindFirstChildOfClass("UIStroke")
+		if st then
+			UiKit.tween(st, 0.6, { Transparency = 1 })
+		end
+	end)
+	task.delay(1.6, function()
+		l:Destroy()
+	end)
+end
+
+-- many fires out in a burst = one popup with the sum (calm: a longer window, so a run of +5s is one tick)
 local function queuePopup(amount: number, reason: string)
 	pending += amount
 	pendingReason = reason
 	flushToken += 1
 	local token = flushToken
-	task.delay(0.35, function()
+	local calm = Calm.on()
+	task.delay(if calm then 1.0 else 0.35, function()
 		if token == flushToken and pending > 0 then
-			xpPopup(pending, pendingReason)
+			if Calm.on() then
+				xpTick(pending)
+			else
+				xpPopup(pending, pendingReason)
+			end
 			pending = 0
 		end
 	end)
@@ -1039,8 +1072,12 @@ function BattlePassController:Start()
 		if type(tiersGained) == "number" and tiersGained > 0 and type(tier) == "number" then
 			-- centre cards take turns and wait for the results screen to close (ClientLib/HudLayout)
 			HudLayout.celebrate(function()
-				celebrateTier(tier, if type(ids) == "table" then ids else {})
-				return 3.7
+				local card = celebrateTier(tier, if type(ids) == "table" then ids else {})
+				return 3.7, function()
+					if card then
+						card:Destroy()
+					end
+				end
 			end)
 		end
 	end)

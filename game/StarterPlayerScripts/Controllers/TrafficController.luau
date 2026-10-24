@@ -108,6 +108,7 @@ local function say(rec: Rec, text: string, seconds: number)
 		color = Color3.fromHex("#FFC531"),
 		height = rec.rootY + 2.5,
 		seconds = math.min(seconds, 1.4),
+		flavour = true, -- driver chatter: skipped on calm screens
 	})
 end
 

@@ -180,6 +180,7 @@ local function refresh(player: Player)
 	player:SetAttribute(A.HoseCosmetic, p.cosmetics.equipped.hose)
 	player:SetAttribute("GraphicsQuality", math.floor(tonumber(p.settings.graphicsQuality) or 0)) -- ShaderController
 	player:SetAttribute("Feedback", math.floor(tonumber(p.settings.feedback) or 0)) -- ClientLib/WorldPopup
+	player:SetAttribute("Effects", math.floor(tonumber(p.settings.effects) or 0)) -- ClientLib/Calm
 	player:SetAttribute(A.ProfileReady, true)
 end
 

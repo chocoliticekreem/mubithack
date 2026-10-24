@@ -35,6 +35,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript)
 local TruckDrive = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TruckDrive") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local VehicleController = {}
 VehicleController.Priority = 60
@@ -954,6 +955,10 @@ local function seatedTruck(): (Model?, BasePart?)
 	return nil, nil
 end
 
+local hintTruck: Model? = nil
+local hintSince = 0
+local HINT_CALM_SECONDS = 5
+
 local function updateSeated()
 	local truck, seat = seatedTruck()
 	local isDriver = seat ~= nil and seat.Name == "DriveSeat"
@@ -979,9 +984,14 @@ local function updateSeated()
 			ThumbLayout.place("TruckExit", "above")
 		end
 	end
+	if truck ~= hintTruck then
+		hintTruck = truck
+		hintSince = os.clock()
+	end
 	local hint = hintLabel
 	if hint then
-		hint.Visible = truck ~= nil
+		-- calm (phones): the on-screen buttons name themselves; the key bar shows for a few seconds, then goes
+		hint.Visible = truck ~= nil and not (Calm.on() and os.clock() - hintSince > HINT_CALM_SECONDS)
 		if isDriver then
 			-- touch: the buttons are the ContextAction titles bound above (OUT, SIREN, HONK, DRIFT)
 			hint.Text = InputHints.pick(
