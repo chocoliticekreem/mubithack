@@ -94,11 +94,11 @@ def _broker(tmp_path):
                   studio_slots=StudioSlots(root=tmp_path / "slots"))
 
 
-def _ap(settings, target, llm, measurer, tmp_path, runner=None, **opts):
+def _ap(settings, target, llm, measurer, tmp_path, runner=None, reproducer=None, **opts):
     o = apm.AutoOptions(use_studio=False, max_calls=opts.pop("max_calls", 200), minutes=opts.pop("minutes", 60),
                         rounds=opts.pop("rounds", 2), verify_reserve=0, **opts)
     return apm.Autopilot(settings, target, o, llm=llm, measurer=measurer, runner=runner,
-                         broker=_broker(tmp_path), log=lambda s: None)
+                         broker=_broker(tmp_path), log=lambda s: None, reproducer=reproducer)
 
 
 # ---------------------------------------------------------------- evidence store
@@ -293,6 +293,14 @@ def test_parse_anomalies_drops_unknown_evidence_and_bad_paths():
 # ---------------------------------------------------------------- the regression gate
 
 
+def _fixed_play(counters, moved, *, seed=apm.SMOKE_SEED, stages=(1, 20), **rec):
+    """A Measurement from a probe report whose smoke play was a fixed play (forge/smoke.py) that moved `moved`."""
+    smoke = {"seed": seed, "seeded": True, "engine": "headless", "stages": list(stages),
+             "steps": [{"what": "players", "ok": True}], "counters_delta": moved, **rec}
+    m = evm.measurement_from_probe({"counters": counters, "smoke": smoke}, label="x", studio=False)
+    return {k: v for k, v in m.items() if k != "label"}
+
+
 def test_gate_rolls_back_on_any_hard_regression():
     base = {"studio": True, "counters": {"coins_collected": 3, "map_built": 1}, "errors": [{"message": "e 1"}],
             "checks": {"pass": 2, "passing": ["a", "b"], "failing": []}, "critic": 6, "fun": 6,
@@ -303,20 +311,28 @@ def test_gate_rolls_back_on_any_hard_regression():
     assert any("critic score 6 -> 7" in x for x in g["improvements"])
     for bad, why in [({"compile_errors": [["x", "y"]]}, "luau-compile"),
                      ({"errors": [{"message": "e 9"}, {"message": "new boom"}]}, "new runtime errors"),
-                     ({"counters": {"coins_collected": 0, "map_built": 1}}, "stopped moving"),
                      ({"checks": {"pass": 1, "passing": ["a"], "failing": ["b"]}}, "checks that passed"),
-                     ({"critic": 4.5}, "critic score"), ({"critic": 3.5, "errors": []}, "critic score"),
                      ({"physics": {"flagged": [1, 2]}}, "physics")]:
         g = apm.gate(base, {**base, **bad})
         assert g["verdict"] == "rolled_back" and any(why in x for x in g["regressions"]), bad
-    # a counter the jobs added themselves is not proof: with a critic dip and nothing else, roll back
+    # a reproducing check the fix was for that still does not pass
+    g = apm.gate(base, good, must_pass=["c", "proves-the-bug"])
+    assert g["verdict"] == "rolled_back" and g["regressions"] == [f"{apm.STILL_FAILING}: proves-the-bug"]
+    # a counter of a fixed scripted play that moved before and not after (same seed, same stages)
+    played = _fixed_play({"checkpoint_reached": 2, "coins_collected": 3}, {"checkpoint_reached": 2, "coins_collected": 3})
+    g = apm.gate(played, _fixed_play({"coins_collected": 3}, {"coins_collected": 3}))
+    assert g["verdict"] == "rolled_back" and g["regressions"] == [f"{apm.DEAD_SCRIPTED}: checkpoint_reached"]
+    # soft (fix A): critic and fun scores and counters no fixed play moved never roll back alone
+    for soft, why in [({"critic": 4.5}, "critic score 6 -> 4.5"), ({"critic": 3.5, "errors": []}, "critic score"),
+                      ({"fun": 4}, "fun score 6 -> 4"),
+                      ({"counters": {"coins_collected": 0, "map_built": 1}}, "stopped moving: coins_collected")]:
+        g = apm.gate(base, {**base, **soft})
+        assert g["verdict"] == "kept" and g["regressions"] == [] and any(why in x for x in g["soft"]), soft
+    # a counter the jobs added themselves is not proof
     g = apm.gate(base, {**base, "critic": 5, "counters": {**base["counters"], "fix_applied": 1}})
-    assert g["verdict"] == "rolled_back" and "fix_applied" in g["notes"][0]
+    assert g["verdict"] == "kept" and g["soft"] == ["critic score 6 -> 5"] and "fix_applied" in g["notes"][0]
     g = apm.gate({**base, "declared": ["coins_bought"]}, {**base, "counters": {**base["counters"], "coins_bought": 2}})
     assert g["improvements"] == ["counters now moving: coins_bought"]
-    # a one-point critic dip with a measured gain (an error gone, a check passing) is LLM noise: kept
-    g = apm.gate(base, {**base, "errors": [], "critic": 5})
-    assert g["verdict"] == "kept" and any("soft dip" in x for x in g["improvements"])
     # a headless measurement is not compared with a Studio one on runtime errors
     assert apm.gate(base, {**base, "studio": False, "errors": [{"message": "new"}]})["verdict"] == "kept"
 
@@ -349,11 +365,13 @@ def test_loop_keeps_an_improvement_and_rolls_back_a_regression(tmp_path):
     assert len(runner.calls) == 2
     # measurement order: baseline, after round 1, after round 2 (round 2 reuses round 1's kept measurement)
     assert [(r, t) for r, t, _ in measurer.seen] == [(1, "baseline"), (1, "after"), (2, "after")]
-    # learning: round 2's detector call carried round 1's outcome; outcomes are logged
+    # learning: outcomes are logged as fix labels; the fix result never reaches the detector (fix C), and with no
+    # engine to reproduce on, round 1's finding has no detector label to report either
     det2 = [c for c in llm.calls if c.role == "anomaly_detector"][1]
-    assert apm.OUTCOME_MARK in det2.user and "kept" in det2.user
-    outs = [json.loads(ln)["outcome"] for ln in (run / "autopilot" / "learn.jsonl").read_text().splitlines()]
-    assert outs == ["kept", "rolled_back"]
+    assert apm.OUTCOME_MARK not in det2.user
+    recs = [json.loads(ln) for ln in (run / "autopilot" / "learn.jsonl").read_text().splitlines()]
+    assert [(e["outcome"], e["fix_label"], e["detector_label"]) for e in recs] == [
+        ("kept", "kept", None), ("rolled_back", "rolled_back", None)]
     # the kept version is an iteration record forge done / the dashboard read
     state = json.loads((run / "state.json").read_text())
     assert [it["score"] for it in state["iterations"]] == [6.0, 7.5]
@@ -371,7 +389,8 @@ def test_loop_keeps_an_improvement_and_rolls_back_a_regression(tmp_path):
     assert view["rounds"][0]["decisions"][0]["outcome"] == "kept"
 
 
-def test_a_rollback_is_fed_back_once_as_a_correction(tmp_path):
+def test_a_rolled_back_fix_is_not_fed_back_to_the_detector(tmp_path):
+    """Fix C: a fix result labels the fixer only. Before, round 1's rollback told the detector its finding was wrong."""
     s = _settings(tmp_path)
     run = _game(s)
     titles = iter(["Coins never collected", "Coins feel slow", "Coins look grey", "Coins spin"])
@@ -379,10 +398,11 @@ def test_a_rollback_is_fed_back_once_as_a_correction(tmp_path):
                if role == "anomaly_detector" else _gaps())
     measurer = _measure({(1, "after"): {"errors": [{"message": "Game: nil"}]}})
     _ap(s, "g", llm, measurer, tmp_path, runner=FakeRunner(run), rounds=3).run()
-    outs = [json.loads(ln) for ln in (run / "autopilot" / "corrections.jsonl").read_text().splitlines()]
-    assert [(o["role"], o["kind"], o["round"]) for o in outs] == [("anomaly_detector", "outcome", 2)]
+    assert not (run / "autopilot" / "corrections.jsonl").exists()
     dets = [c.user for c in llm.calls if c.role == "anomaly_detector"]
-    assert "rolled_back" in dets[1] and "rolled_back" in dets[2]  # the history stays in the message
+    assert len(dets) == 3 and not any("rolled_back" in d for d in dets)
+    recs = [json.loads(ln) for ln in (run / "autopilot" / "learn.jsonl").read_text().splitlines()]
+    assert recs[0]["outcome"] == recs[0]["fix_label"] == "rolled_back" and recs[0]["detector_label"] is None
 
 
 def test_resume_after_a_crash_redoes_only_the_unfinished_phase(tmp_path):

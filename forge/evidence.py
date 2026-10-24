@@ -18,6 +18,11 @@ anomaly detector and gap finder must cite:
 `Measurement` is the shape of one version's numbers (`measure` in autopilot.py writes it). The pre-filter
 compares the current measurement with the previous version and with the metric history (z-scores), so the
 LLM only sees what moved, what never moved and what got worse.
+
+Each counter of a Measurement is tagged with its source (`counter_sources`): a HARD_SOURCES counter comes from
+scripted play with no LLM that can be repeated like for like (`smoke`: forge/smoke.py with a fixed seed and fixed
+stage assignments on the headless engine; `journey`: a scripted player journey), so the regression gate may roll
+back on it. Every other counter (`playtest`: boot, idle play, an unseeded or Studio smoke play) is soft.
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ SETUP_RX = re.compile(r"(^|_)(built|loaded|indexed|registered|parts|sites|graph|
 BAD_EVENT_RX = re.compile(r"fail|error|lost|afk|crash|reject|denied|died|death|kick_fail|net_dropped|exploit|"
                           r"desync|timeout|over_budget|overrun|stuck", re.I)
 UNTOUCHED_SHOWN = 5    # more untouched counters than this are summarised in one candidate
+HARD_SOURCES = ("smoke", "journey")  # Measurement[<source>] = {counters, comparable, seed?, stages?}
 DECLARED_RX = re.compile(r"""(?:ForgeTelemetry|Telemetry)\s*[.:]\s*count\(\s*["']([A-Za-z0-9_]+)["']""")
 PASSIVE_ACTIONS = ("wait", "observe", "look", "report", "done", "idle", "screenshot")
 # what the LLM reads first when the evidence does not fit its budget
@@ -270,11 +276,39 @@ def measurement_from_probe(report: dict, *, label: str, version: str | None = No
         elif e:
             errs.append({"message": _clip(e, 300), "script": None})
     phys = report.get("physics") if isinstance(report.get("physics"), dict) else {}
-    return {"label": label, "version": version, "counters": dict(report.get("counters") or {}),
+    counters = dict(report.get("counters") or {})
+    smoke = scripted_smoke(report.get("smoke"))
+    moved = set(smoke["counters"]) if smoke and smoke["comparable"] else set()
+    return {"label": label, "version": version, "counters": counters,
+            "counter_sources": {k: "smoke" if k in moved else "playtest" for k in counters},
+            **({"smoke": smoke} if smoke else {}),
             "errors": errs, "warnings": [_clip(w, 300) for w in report.get("warnings") or []],
             "instances": report.get("instances"), "players": report.get("players"),
             "physics": {"flagged": list(phys.get("flagged") or []), "watched": phys.get("watched")},
             "census": report.get("census") or {}, **extra}
+
+
+def scripted_smoke(rec: Any) -> dict | None:
+    """A smoke play record (forge/smoke.py) -> the Measurement's `smoke`: {seed, stages, engine, counters (what the
+    scripted play moved), fixed, failed, comparable}. Fixed: like-for-like conditions (seeded, the headless engine,
+    nothing cut for budget). Failed: why a fixed play did not run (no player found, or it errored), else None.
+    Comparable: fixed and it ran. In Studio the same script on the same stages lands differently run to run (the
+    funfair obby's iterations 3 and 4: the bot on stage 60 reached 61, then fell); two headless plays of that game
+    moved exactly the same counters."""
+    if not isinstance(rec, dict) or rec.get("skipped"):
+        return None
+    steps = [s for s in rec.get("steps") or [] if isinstance(s, dict)]
+    ran = any(s.get("what") == "players" and s.get("ok") for s in steps)
+    fixed = (rec.get("seed") is not None and bool(rec.get("seeded")) and rec.get("engine") == "headless"
+             and not rec.get("cut"))
+    failed = None
+    if fixed and not ran:
+        failed = next((f"players: {s.get('detail')}" for s in steps if s.get("what") == "players"), "no player step")
+    elif fixed and rec.get("error"):
+        failed = f"error: {rec['error']}"
+    delta = {k: v for k, v in (rec.get("counters_delta") or {}).items() if _num(v) is not None}
+    return {"seed": rec.get("seed"), "stages": rec.get("stages"), "engine": rec.get("engine"), "counters": delta,
+            "fixed": fixed, "failed": _clip(failed, 300) if failed else None, "comparable": fixed and not failed}
 
 
 def add_measurement(st: EvidenceStore, m: dict, *, source: str) -> None:

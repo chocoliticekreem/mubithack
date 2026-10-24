@@ -1,0 +1,61 @@
+{
+ "verdict": "rolled_back",
+ "regressions": [
+  "core counters stopped moving: jump_pad_used"
+ ],
+ "improvements": [
+  "counters now moving: shop_nudge"
+ ],
+ "notes": [
+  "new counters (added this round, not counted as proof): first_buy_prompt, onboarding_hud_render"
+ ],
+ "changed": [
+  "ReplicatedStorage/GameAssets.luau",
+  "ReplicatedStorage/Levels/Zone10.luau",
+  "ReplicatedStorage/WigReachConfig.luau",
+  "ServerScriptService/Course.luau",
+  "ServerScriptService/Finale.luau",
+  "ServerScriptService/FirstBuy.luau",
+  "ServerScriptService/Lobby.luau",
+  "ServerScriptService/Onboarding.luau",
+  "ServerScriptService/Shop.luau",
+  "ServerScriptService/WigReach.luau",
+  "StarterPlayerScripts/Controllers/HudController.luau",
+  "StarterPlayerScripts/OnboardingGuide.luau"
+ ],
+ "before": {
+  "label": "ap1b",
+  "version": "v38",
+  "critic": 7.0,
+  "fun": 6.5,
+  "errors": 0,
+  "boot_errors": 0,
+  "checks": {
+   "pass": 13,
+   "fail": 0
+  },
+  "physics": 0,
+  "swarm_high": 0,
+  "ttfr_s": 15.3,
+  "screenshot": "runs/funfair-frenzy-an-amusement-park-obby-2/autopilot/rounds/1/baseline/screenshot.png",
+  "studio": true
+ },
+ "after": {
+  "label": "ap1a",
+  "version": "v44",
+  "critic": 7.0,
+  "fun": 6.2,
+  "errors": 0,
+  "boot_errors": 0,
+  "checks": {
+   "pass": 13,
+   "fail": 0
+  },
+  "physics": 0,
+  "swarm_high": 0,
+  "ttfr_s": 15.4,
+  "screenshot": "runs/funfair-frenzy-an-amusement-park-obby-2/autopilot/rounds/1/after/screenshot.png",
+  "studio": true
+ },
+ "restored_as": "v45"
+}
