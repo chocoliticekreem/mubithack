@@ -220,3 +220,27 @@ def test_dead_ends_carry_to_the_next_build_newest_first(tmp_path):
     assert [e["slug"] for e in rounds.read_dead_ends(tmp_path)] == ["park-a"]  # fixed since: its entry goes
     (tmp_path / rounds.DEAD_ENDS_FILE).write_text("not json")
     assert rounds.dead_ends_block(tmp_path) == ""
+
+
+def test_an_obby_critic_gets_the_recipe_and_the_studio_qa_bots(tmp_path):
+    obby = {"genre": "obby", "title": "Carnival Climb"}
+    assert rounds.guide_block({"genre": "tycoon", "title": "Pizza Plant"}, None) == ""
+    assert rounds.guide_block(obby, None).startswith("## What this genre needs first")
+    (tmp_path / rounds.QA_FILE).write_text(json.dumps({"round": 3, "attempts": 2, "bots": [
+        {"zone": "Front Gate Plaza", "stage": 1, "reached": False, "detail": "fell off the course after 2.9s"},
+        {"zone": "Sky Wheel", "stage": 41, "reached": True, "detail": "reached stage 42"}]}))
+    block = rounds.guide_block(obby, rounds.read_qa(tmp_path))
+    assert "## Studio QA bots, last install (real play in Studio, 2 attempt(s) each): 1/2 reached" in block
+    assert "- Front Gate Plaza stage 1: did NOT: fell off the course after 2.9s" in block
+    assert "- Sky Wheel stage 41: reached the next checkpoint" in block
+    (tmp_path / rounds.QA_FILE).write_text("{}")
+    assert rounds.read_qa(tmp_path) is None
+
+
+def test_an_obby_fixes_required_gameplay_before_polish():
+    obby = {"genre": "obby"}
+    issues = ["Confetti burst is too small on zone clear", "Touching lava at stage 8 does not kill the player",
+              "Gift balloon sound is quiet", "Players fall through the checkpoint at stage 31"]
+    ordered = sorted(issues, key=lambda t: not rounds.required_first(obby, t))
+    assert ordered[:2] == [issues[1], issues[3]]
+    assert not rounds.required_first({"genre": "tycoon"}, issues[1])

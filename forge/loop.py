@@ -875,6 +875,8 @@ class Run:
         blocked_before = (max(prior, key=lambda it: it.get("n", 0)).get("blocked_issues") or []) if prior else []
         history_text = rounds.critic_block(history, rec["acceptance"],
                                            rounds.read_only_list(self.base_files, RUNTIME_FILES), blocked_before)
+        if guide := rounds.guide_block(self.spec, rounds.read_qa(self.store.dir)):
+            history_text = (history_text + "\n\n" + guide).strip()
         critique: dict | None = None
         # the fun critic reads the same files and report, so it runs alongside the critic
         fun_task = asyncio.create_task(self.fun_pass(n, files, report))
@@ -1041,8 +1043,10 @@ class Run:
             return f"{i.get('problem', '')} {i.get('fix_hint', '')}"
 
         async def fix_one(path: str, issues: list[dict]) -> None:
-            # issues about an acceptance counter that does not fire yet go first: the score hinges on them
-            issues = sorted(issues, key=lambda i: not rounds.mentioned(text(i), missing))
+            # an obby's required gameplay first (production guide: recipe before polish), then issues about an
+            # acceptance counter that does not fire yet: the score hinges on them
+            issues = sorted(issues, key=lambda i: (not rounds.required_first(self.spec, text(i)),
+                                                   not rounds.mentioned(text(i), missing)))
             problem = "Playtest critique:\n" + "\n".join(
                 f"- {i.get('problem', '')}" + (f" (hint: {i['fix_hint']})" if i.get("fix_hint") else "")
                 for i in issues)

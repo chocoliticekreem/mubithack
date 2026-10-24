@@ -236,6 +236,61 @@ def round_line(prev: dict | None, rec: dict) -> str:
     return "; ".join([head] + tail)
 
 
+# ---------------------------------------------------------------- obby rounds, per docs/GAME_PRODUCTION_GUIDE.md
+# The guide's obby recipe (6): movement and recovery -> reachable course -> checkpoints -> completion -> variety,
+# and (10) no rounds on cosmetics while required gameplay is incomplete. A real run spent 21 fixes on gifts, FX
+# and sound while lava did not kill and QA bots fell at stages 1, 71 and 92.
+
+OBBY_RX = re.compile(r"\b(obby|obbies|platformer|parkour)\b", re.I)
+REQUIRED_RX = re.compile(r"checkpoint|respawn|kill|lava|hazard|\bfell\b|\bfall|\bdie|\bdied|death|reach|jump|"
+                         r"finish|stuck|spawn|course|stage \d", re.I)
+QA_FILE = "qa_latest.json"  # written by the MuMake companion's Studio QA bots (mubit_tester.studio_service)
+
+OBBY_RECIPE = (
+    "## What this genre needs first (production guide: obby recipe)\n"
+    "Judge and order work as: movement and recovery -> reachable course -> checkpoints and respawn -> falls and "
+    "hazards that kill -> finish -> the promised stage count; only then difficulty curve, distinct obstacles, "
+    "rewards, effects and sound. While any required item fails, put it first in your issues and do not let "
+    "cosmetic polish raise the score. A bot that fails once may be the bot: weigh repeated failures at the same "
+    "stage, not one fall.")
+
+
+def is_obby(spec: dict) -> bool:
+    """Generated specs often leave genre empty: a course laid out in zones (spec.levels) is an obby too."""
+    if (spec.get("levels") or {}).get("zones"):
+        return True
+    return bool(OBBY_RX.search(f"{spec.get('genre') or ''} {spec.get('title') or ''} {spec.get('pitch') or ''}"))
+
+
+def read_qa(run_dir: Path) -> dict | None:
+    try:
+        data = json.loads((Path(run_dir) / QA_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and isinstance(data.get("bots"), list) else None
+
+
+def guide_block(spec: dict, qa: dict | None) -> str:
+    """The obby recipe and the latest Studio QA bots' play, for the critic's user message ("" for other genres)."""
+    if not is_obby(spec):
+        return ""
+    parts = [OBBY_RECIPE]
+    bots = [b for b in (qa or {}).get("bots") or [] if isinstance(b, dict)]
+    if bots:
+        ok = sum(1 for b in bots if b.get("reached"))
+        rows = [f"- {b.get('zone', '?')} stage {b.get('stage', '?')}: "
+                + ("reached the next checkpoint" if b.get("reached") else f"did NOT: {str(b.get('detail', ''))[:160]}")
+                for b in bots]
+        parts.append(f"## Studio QA bots, last install (real play in Studio, {b0 if (b0 := qa.get('attempts')) else 1} "
+                     f"attempt(s) each): {ok}/{len(bots)} reached the next checkpoint\n" + "\n".join(rows))
+    return "\n\n".join(parts)
+
+
+def required_first(spec: dict, text: str) -> bool:
+    """Is this issue about the obby's required gameplay (the recipe's proof), not polish?"""
+    return is_obby(spec) and bool(REQUIRED_RX.search(text))
+
+
 # ---------------------------------------------------------------- dead ends, carried from build to build
 # The reflector rewrites runs/lessons.md each round, so what one build could never fix lives in its own file:
 # runs/dead_ends.json, one entry per game (its latest rounds). The next build's director and designer read it,
