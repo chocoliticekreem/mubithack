@@ -332,9 +332,10 @@ local function makePad(state: any, u: any, index: number, origin: CFrame, folder
 	part.CanTouch = false
 
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(160, 50)
-	gui.StudsOffset = Vector3.new(0, 3, 0)
-	gui.MaxDistance = 60
+	gui.Size = UDim2.fromScale(5, 1.6)
+	gui.StudsOffset = Vector3.new(0, 2.5, 0)
+	gui.MaxDistance = 35
+	gui.AlwaysOnTop = false
 	gui.LightInfluence = 0
 	gui.Adornee = part
 	gui.Enabled = false

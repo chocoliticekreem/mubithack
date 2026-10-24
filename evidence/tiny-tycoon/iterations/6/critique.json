@@ -1,0 +1,22 @@
+{
+  "score": 6,
+  "summary": "The playtest ran cleanly with no errors or warnings. The plaza, 6 themes and map were built, and a plot was auto-claimed and cubes started dropping (cubes_dropped 2). However, the run lasted only 6.4s, so the collect, cash, purchase and feedback parts of the loop never showed up in the counters.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "'cubes_collected' is missing from the counters, and so are 'upgrades_bought', 'dropper_bought' and 'conveyor_bought'. Two cubes dropped, but none was seen reaching the collector and adding Cash. The playtest ended at 6.4s, so the cause could be the short run or a broken collector path. With a 24-stud conveyor at speed 8 a cube needs about 3s plus spawn time, so this is borderline.",
+      "fix_hint": "Check that the collector Touched or region handler runs for cubes from the first drop. It should increment the Cash leaderstat, call ForgeTelemetry.count('cubes_collected'), and destroy the cube. Make sure the collector is positioned and sized so a cube cannot slide past it. Consider spawning the first cube immediately on claim, so the first collect happens within about 4s."
+    },
+    {
+      "path": "ReplicatedStorage/Upgrades.luau",
+      "problem": "The header comments and the data contradict the spec and Config. They say Dropper 2 = 25, Speed 1 = 50 and starterCash = 25, and describe Bronze as worth 5 cash. The spec requires the first purchase (Dropper 2) to cost 10, Config.STARTING_CASH is 10, and the cube value is 1. The shown portion is inconsistent, and the actual cost could not be verified.",
+      "fix_hint": "Make the file the single source of truth. Set Dropper2 cost to 10 and starterCash to 10, or remove the field and read Config.STARTING_CASH. Fix the stale comments and ore values so the first pad is affordable about 10s after claiming, and verify there are 10 upgrades with unique ids."
+    },
+    {
+      "path": "ServerScriptService/CashInService.luau",
+      "problem": "The census shows sounds_played 0, client_sounds_played 0 and bursts 0. No cash-in or purchase feedback (sound, sparkle) fired during the playtest. This is probably because no cube was collected, but it is unconfirmed.",
+      "fix_hint": "Make sure the collector flash, burst and Coin sound fire on every collect. Fire the PurchaseFx remote on purchase. Count 'juice_events' on each collect so the feedback is verifiable."
+    }
+  ],
+  "done": false
+}

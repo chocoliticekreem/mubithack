@@ -1,0 +1,73 @@
+{
+  "players": 1,
+  "physics": {
+    "flagged": [],
+    "watched": 2,
+    "loudest": []
+  },
+  "uptime": 6.4,
+  "errors": [],
+  "counters": {
+    "leaderboard_refresh": 2,
+    "themes_built": 6,
+    "plaza_built": 1,
+    "map_built": 1,
+    "plot_assigned": 1,
+    "juice_events": 1,
+    "data_loaded": 1,
+    "tutorial_steps": 1,
+    "cubes_dropped": 2,
+    "plots_claimed": 1,
+    "auto_claims": 1
+  },
+  "warnings": [],
+  "joins": 1,
+  "instances": 706,
+  "census": {
+    "source": "playtest",
+    "lights": 21,
+    "highlights": 0,
+    "grey": 0,
+    "lighting_effects": 4,
+    "bursts": 0,
+    "sounds": 6,
+    "sounds_played": 0,
+    "materials": {
+      "Wood": 9,
+      "Glass": 4,
+      "Neon": 49,
+      "Sand": 1,
+      "SmoothPlastic": 40,
+      "Limestone": 45,
+      "Marble": 3,
+      "Ice": 5,
+      "Grass": 46,
+      "Basalt": 5,
+      "Slate": 1,
+      "Metal": 16
+    },
+    "beams": 0,
+    "billboards": 19,
+    "colors": 53,
+    "particles": 7,
+    "parts": 224,
+    "client_particles": 7,
+    "buttons": 13,
+    "corners": 38,
+    "names": [
+      "ShopUi",
+      "TycoonHud",
+      "RebirthGui",
+      "RebirthFx",
+      "UpgradeFx",
+      "TutorialGuide"
+    ],
+    "client_sounds_played": 0,
+    "strokes": 54,
+    "gui_objects": 75,
+    "screen_guis": 6,
+    "text_labels": 36,
+    "client_sounds": 6
+  },
+  "compile_errors": []
+}

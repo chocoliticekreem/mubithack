@@ -1,0 +1,188 @@
+{
+  "run_id": "20261024-040649-bf8e",
+  "kind": "multi_playtest",
+  "agent_role": "player",
+  "session_id": "playtest-20261024-040649-bf8e",
+  "goal": "Play the game as a real player would: Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 seconds onto a conveyor. The conveyor carries cubes to a collector at the end, and the server adds each cube's value to the player's Cash leaderstat and destroys the cube. Two buy pads sit off to the side of the walking area: a second dropper for 25 cash and a faster conveyor for 5",
+  "studio": "c5b04411-e15d-46ab-adbd-941b8da022b6",
+  "started": "2026-10-24T04:06:49Z",
+  "ended": null,
+  "max_steps": 15,
+  "goal_met": null,
+  "summary": "",
+  "bugs": [],
+  "steps": [
+    {
+      "n": 1,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            0,
+            3.4,
+            13
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.LeaderboardStand.BackPanel",
+            "name": "BackPanel",
+            "dist": 21,
+            "label": "TOP TYCOONS | 1 | - | - | - | 2 | - | - | - | 3 | - | - | - | 4 | - | - | - | 5 ",
+            "touch": false,
+            "pos": [
+              19.9,
+              10,
+              13.9
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1023,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $5000",
+            "w": 176,
+            "gui": "RebirthGui"
+          }
+        ],
+        "hud": [
+          "REBIRTH $5000",
+          "Cash: 0",
+          "Ore: Bronze Slots: 1 Cash x1",
+          "SHOP",
+          "2/4",
+          "Watch your dropper make cash"
+        ],
+        "panels": [],
+        "world": {
+          "now": 1792814810
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "counters": {
+            "cashin_fx_sent": 1,
+            "bursts": 1,
+            "plaza_built": 1,
+            "themes_built": 6,
+            "tutorial_steps": 1,
+            "leaderboard_refresh": 1,
+            "map_built": 1,
+            "data_loaded": 1
+          }
+        }
+      },
+      "team": [],
+      "events": [],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.ShopButton"
+        },
+        "reason": "Open the SHOP panel to test its buttons.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.ShopButton\"} -> done=True clicked 'SHOP' (ShopUi.ShopButton): button fired; changed: {\"hud_gone\": [\"2/4\", \"Cash: 15\", \"Watch your dropper make cash\"], \"panels_opened\": [\"ShopUi.Panel 'SHOP'\"], \"buttons_new\": [\"Buy @ ShopUi.Panel.List.Card_dropper2.State\", \"Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_dropper3.State\",... | effect: {\"hud_gone\":[\"2/4\",\"Cash: 15\",\"Watch your dropper make cash\"],\"panels_opened\":[\"ShopUi.Panel 'SHOP'\"],\"buttons_new\":[\"Buy @ ShopUi.Panel.List.Card_dropper2.State\",\"Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_dropper3.State\",\"Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_speed1.State\",\"Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_tier_silver.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State\",\"X @ ShopUi.Panel.Close\"],\"hud_new\":[\"$1400\",\"$2200\",\"$25\",\"$250\",\"$4000\",\"$50\"]}",
+      "request_id": "mreq_01a16c17068c7ac3a877dee87dc9a9a9",
+      "latency_ms": 1621,
+      "step_ms": 3933
+    }
+  ],
+  "players": [
+    {
+      "userId": 2757580371,
+      "name": "retailtycoonlover21",
+      "helmet": null,
+      "role": "nozzle (fight fires)",
+      "can_press": true
+    }
+  ],
+  "probe": {},
+  "counters": {
+    "cashin_fx_sent": 1,
+    "bursts": 1,
+    "plaza_built": 1,
+    "themes_built": 6,
+    "tutorial_steps": 1,
+    "leaderboard_refresh": 1,
+    "map_built": 1,
+    "data_loaded": 1
+  },
+  "events": [],
+  "request_ids": [
+    "mreq_01a16c17068c7ac3a877dee87dc9a9a9"
+  ],
+  "bug_hints": [],
+  "corrections": [],
+  "errors": [],
+  "mode": "free",
+  "ready": {
+    "players": 1,
+    "agents": 1,
+    "version": "2",
+    "mapReady": false,
+    "clock": 3.055,
+    "studio": true,
+    "session": "5cb1cd44-7de4-47cc-b716-762463c1d424",
+    "time": 1792814810.0438
+  },
+  "ui_pressers": [
+    "retailtycoonlover21"
+  ],
+  "ui_surfaces": [
+    {
+      "name": "SHOP",
+      "gui": "ShopUi",
+      "actions": [],
+      "source": [
+        "live",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    },
+    {
+      "name": "REBIRTH $5000",
+      "gui": "RebirthGui",
+      "actions": [],
+      "source": [
+        "live",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    },
+    {
+      "name": "REBIRTH",
+      "gui": "",
+      "actions": [
+        "REBIRTH $"
+      ],
+      "source": [
+        "script",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 
 local GameAssets = require(ReplicatedStorage:WaitForChild("GameAssets"))
 local ForgeTelemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry"))
@@ -52,6 +53,35 @@ local function toPart(inst: any): BasePart?
 	return nil
 end
 
+-- Adds a Sky (if none), a SunRaysEffect and softer environment lighting.
+-- Runs after GameAssets.styleLighting.
+local function applySkyAndRays()
+	if not Lighting:FindFirstChildOfClass("Sky") then
+		local sky = Instance.new("Sky")
+		sky.Name = "ForgeSky"
+		sky.SunAngularSize = 14
+		sky.MoonAngularSize = 11
+		sky.StarCount = 3000
+		sky.CelestialBodiesShown = true
+		sky.Parent = Lighting
+	end
+
+	local rays = Lighting:FindFirstChildOfClass("SunRaysEffect")
+	if not rays then
+		local newRays = Instance.new("SunRaysEffect")
+		newRays.Name = "ForgeSunRays"
+		newRays.Intensity = 0.06
+		newRays.Spread = 0.6
+		newRays.Parent = Lighting
+	else
+		rays.Intensity = 0.06
+		rays.Spread = 0.6
+	end
+
+	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.EnvironmentSpecularScale = 0.5
+end
+
 function JuiceService.init()
 	if inited then
 		return
@@ -63,6 +93,11 @@ function JuiceService.init()
 	end)
 	if not ok then
 		warn("[JuiceService] styleLighting failed: " .. tostring(err))
+	end
+
+	local okSky, errSky = pcall(applySkyAndRays)
+	if not okSky then
+		warn("[JuiceService] sky setup failed: " .. tostring(errSky))
 	end
 
 	fxRemote = ensureRemote("JuiceFx")

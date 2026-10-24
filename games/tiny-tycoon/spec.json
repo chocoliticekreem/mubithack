@@ -1,8 +1,8 @@
 {
   "title": "Cube Cash Tycoon",
   "slug": "tiny-tycoon",
-  "pitch": "Watch cubes roll down your conveyor, cash in, and buy droppers and speed upgrades to grow your tiny factory!",
-  "core_loop": "Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 seconds onto a conveyor. The conveyor carries cubes to a collector at the end, and the server adds each cube's value to the player's Cash leaderstat and destroys the cube. Two buy pads sit off to the side of the walking area: a second dropper for 25 cash and a faster conveyor for 50 cash. Touching a pad with enough cash buys the upgrade once, so income climbs and the numbers go up.",
+  "pitch": "Claim a themed plot, watch ore roll down your conveyor into a glowing collector, and grow a tiny factory into a gold-and-diamond empire, then rebirth for a permanent multiplier.",
+  "core_loop": "Players spawn in a central plaza ringed by 6 themed plots (Candy, Lava, Ice, Jungle, Neon City, Desert) and claim one by walking onto its glowing CLAIM gate (auto-claim after a few seconds). Their dropper drops ore onto the conveyor; the collector pays cash with a cha-ching, sparkles and a floating +$N. Cash buys a data-driven upgrade tree (Droppers 2-4, Silver/Gold/Diamond ore, conveyor speed, cash multipliers) on owner-only glowing buy pads or in the SHOP panel; every purchase visibly grows the plot (dropper machines, chevrons, ore piles, a vault, a plot wall). At $5000 (doubling each time) the player can rebirth for a permanent x1.5, x2, ... multiplier. A first-60-seconds tutorial arrow and banner guide new players, a TOP TYCOONS board in the plaza ranks lifetime earnings, and progress saves with DataStore (in-memory fallback in Studio).",
   "modules": [
     {
       "path": "ReplicatedStorage/GameAssets.luau",

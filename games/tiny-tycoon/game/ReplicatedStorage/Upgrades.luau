@@ -3,24 +3,23 @@
 --
 -- This table is the SINGLE source of truth for upgrade prices. Shop cards, world pads, the
 -- server purchase check, the tutorial text and the HUD "Next:" hint must all read cost from here.
--- Dropper 2 = 10 and Speed 1 (Fast Belt) = 22, matching the design doc and the tutorial text
--- ("the pad costs $10"). The player starts with 0 cash (Config.STARTING_CASH must match), so the
--- first two collected cubes earn the first purchase.
+-- Dropper 2 = 10, Speed 1 (Fast Belt) = 20 and Dropper 3 = 40, so a purchase lands roughly
+-- every 8-10 s in the first minute. The player starts with 0 cash (Config.STARTING_CASH must
+-- match), so the first two collected cubes earn the first purchase.
 --
 -- BUDGET MATH
 --   The first cube (Bronze) is worth 5 cash. The player starts with 0 cash, so the first buy
---   (Dropper 2, 10 cash) is earned by the first two cubes (about 4-8 s after claiming a plot),
---   which fills the HUD goal bar before the pad turns green. After that, income is
---   5 cash/s (2 cubes per 2 s cycle x 5 cash), so every following purchase lands 4-24 s apart.
+--   (Dropper 2, 10 cash) is earned by the first two cubes, which fills the HUD goal bar before
+--   the pad turns green. After Dropper 2, income is 5 cash/s (2 cubes per 2 s cycle x 5 cash).
 --   Total cost of all 10 upgrades:
---     10 + 22 + 60 + 150 + 300 + 500 + 800 + 1300 + 2200 + 4000 = 9342 cash
+--     10 + 20 + 60 + 40 + 300 + 500 + 800 + 1300 + 2200 + 4000 = 9230 cash
 --   Income after each milestone (cubes per 2 s cycle x ore value x cash multiplier, per second),
 --   and the approximate wait for the NEXT purchase at that income:
 --     base                        1 x 5  x 1.0 / 2 =   2.5 /s   (Dropper 2, 10 -> ~4 s)
---     dropper2                    2 x 5  x 1.0 / 2 =   5   /s   (Speed 1, 22  -> ~4 s)
---     speed1                                           5   /s   (Silver, 60   -> ~8 s)
---     tier_silver                 2 x 12 x 1.0 / 2 =  12   /s   (Dropper 3, 150 -> ~12 s)
---     dropper3                    3 x 12 x 1.0 / 2 =  18   /s   (Cash x1.5, 300 -> ~17 s)
+--     dropper2                    2 x 5  x 1.0 / 2 =   5   /s   (Speed 1, 20  -> ~4 s)
+--     speed1                                           5   /s   (Dropper 3, 40 -> ~8 s)
+--     dropper3                    3 x 5  x 1.0 / 2 =   7.5 /s   (Silver, 60 -> ~8 s)
+--     tier_silver                 3 x 12 x 1.0 / 2 =  18   /s   (Cash x1.5, 300 -> ~17 s)
 --     mult1 (x1.5)                3 x 12 x 1.5 / 2 =  27   /s   (Gold, 500 -> ~18 s)
 --     tier_gold                   3 x 30 x 1.5 / 2 =  67.5 /s   (Speed 2, 800 -> ~12 s)
 --     speed2                                          67.5 /s   (Dropper 4, 1300 -> ~19 s)
@@ -44,7 +43,7 @@
 
 local list = {
 	{ id = "dropper2", name = "Dropper 2", cost = 10, requires = nil, effect = { kind = "dropper", slots = 2 } },
-	{ id = "speed1", name = "Speed 1", cost = 22, requires = "dropper2", effect = { kind = "speed", mult = 1.5 } },
+	{ id = "speed1", name = "Speed 1", cost = 20, requires = "dropper2", effect = { kind = "speed", mult = 1.5 } },
 	{
 		id = "tier_silver",
 		name = "Silver Ore",
@@ -55,7 +54,7 @@ local list = {
 		popup = "SILVER ORE! $12 per cube",
 		color = Color3.fromRGB(205, 210, 220),
 	},
-	{ id = "dropper3", name = "Dropper 3", cost = 150, requires = "dropper2", effect = { kind = "dropper", slots = 3 } },
+	{ id = "dropper3", name = "Dropper 3", cost = 40, requires = "dropper2", effect = { kind = "dropper", slots = 3 } },
 	{ id = "mult1", name = "Cash x1.5", cost = 300, requires = "tier_silver", effect = { kind = "cashMult", mult = 1.5 } },
 	{
 		id = "tier_gold",

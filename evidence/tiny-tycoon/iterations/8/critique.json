@@ -1,0 +1,27 @@
+{
+  "score": 7,
+  "summary": "The game runs cleanly with no errors or warnings. The plaza, 6 themed plots, claim gate and auto-claim all work, cubes drop and are collected (15 dropped, 13 collected), and the HUD, tutorial, juice and leaderboard systems are all active. The buy-pad flow was never exercised in the playtest (no upgrades_bought, dropper_bought or conveyor_bought counter), so the main progression loop is unverified.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The report has no `upgrades_bought` counter, no shop counters and no purchase telemetry. The core progression (touch the Dropper 2 pad, spend 10, reveal the next pads) never happened in the 32s playtest. Starting cash is 10, so the pad was affordable, but nothing shows the touch path works or that a pad is only reachable by deliberate walking. The checkClaim and onPlotClaimed handoff to UpgradeService also hides failures behind callFirst, which silently skips a missing method.",
+      "fix_hint": "Make callFirst log a one-time warning if none of the named methods exist, so a broken UpgradeService hookup is visible. Make sure the ForgeTest harness walks to the Dropper 2 pad after claiming so that `upgrades_bought` is exercised."
+    },
+    {
+      "path": "ReplicatedStorage/Config.luau",
+      "problem": "Config.CUBE_VALUE = 1 conflicts with Upgrades.luau, which says the first (Bronze) cube pays 5 and uses a per-ore value table. Two sources of truth for cube value risk the HUD, tutorial or collector reading the wrong number. The spec's core loop says 1-cash cubes. The header comment also claims prices live only in Upgrades.luau.",
+      "fix_hint": "Remove CUBE_VALUE from Config, or set it to the real base value and have the dropper and collector read it. Add a comment that ore values come from Upgrades.ores. Check that the tutorial text and HUD income display use the same number."
+    },
+    {
+      "path": "ServerScriptService/CashInService.luau",
+      "problem": "Cash-in feedback is rate-limited per player (allowSend, about 8 per second) and the code depends on TutorialService being present. Telemetry shows 13 `cashin_fx_sent` for 13 collected cubes, so it works now. With many droppers late in the game, popups may be dropped and the feedback will look inconsistent.",
+      "fix_hint": "Instead of dropping popups over the limit, aggregate them into one popup that sums the values. Wrap the TutorialService require in a guarded pcall-style lookup so a missing module can't stop this service."
+    },
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The ForgeWorldBuilt guard returns silently on a second run. If the script is ever duplicated or restarted in Studio, the world and services never start, and nothing in the output says why.",
+      "fix_hint": "Keep the single-start guard but add a `ForgeTelemetry.count(\"duplicate_start\")` or a debug-level print before returning, so it can be diagnosed without raising a warning."
+    }
+  ],
+  "done": false
+}

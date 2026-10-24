@@ -15,8 +15,7 @@ local UiTheme = require(ReplicatedStorage:WaitForChild("UiTheme", 10))
 
 -- Find the remote (ReplicatedStorage directly, or inside Remotes) with a timeout.
 local function findRemote()
-	local t0 = os.clock()
-	while os.clock() - t0 < 10 do
+	do
 		local r = ReplicatedStorage:FindFirstChild(Config.REMOTE_NAME)
 		if not r then
 			local folder = ReplicatedStorage:FindFirstChild("Remotes")
@@ -27,15 +26,11 @@ local function findRemote()
 		if r and r:IsA("RemoteEvent") then
 			return r
 		end
-		task.wait(0.5)
 	end
 	return nil
 end
 
 local remote = findRemote()
-if not remote then
-	return
-end
 
 local active = false
 local finished = false
@@ -523,6 +518,7 @@ local function start()
 	end)
 end
 
+if remote then
 remote.OnClientEvent:Connect(function(event)
 	if finished or type(event) ~= "string" then
 		return
@@ -546,3 +542,49 @@ remote.OnClientEvent:Connect(function(event)
 		setStep(4)
 	end
 end)
+end
+
+-- State-driven sync: covers the remote firing before this script connected.
+local function applyState()
+	local s = player:GetAttribute("TutorialStep")
+	if type(s) ~= "number" then
+		return
+	end
+	if s >= 6 then
+		if active then
+			finish()
+		else
+			finished = true
+		end
+		return
+	end
+	if s < 1 or finished then
+		return
+	end
+	if not active then
+		start()
+	end
+	if not active then
+		return
+	end
+	setStep(s)
+	local text = player:GetAttribute("TutorialText")
+	if bannerLabel and type(text) == "string" and text ~= "" then
+		bannerLabel.Text = text
+	end
+	if stepLabel then
+		stepLabel.Text = math.min(s, 4) .. "/4"
+	end
+	local frame = gui and gui:FindFirstChild("Banner")
+	if frame and frame:IsA("GuiObject") then
+		frame.Visible = true
+	end
+	if gui then
+		gui.Enabled = true
+	end
+end
+
+player:GetAttributeChangedSignal("TutorialNonce"):Connect(applyState)
+player:GetAttributeChangedSignal("TutorialText"):Connect(applyState)
+player:GetAttributeChangedSignal("TutorialStep"):Connect(applyState)
+applyState()

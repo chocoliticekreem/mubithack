@@ -127,8 +127,7 @@ end
 
 local function updateLabel(s: State)
 	if s.label then
-		s.label.Text = "REBIRTH\n$" .. tostring(RebirthConfig.costFor(s.rebirths))
-			.. "\nNext: x" .. RebirthConfig.formatMultiplier(RebirthConfig.multiplierFor(s.rebirths + 1))
+		s.label.Text = "REBIRTH $" .. tostring(RebirthConfig.costFor(s.rebirths))
 	end
 end
 
@@ -254,20 +253,61 @@ function RebirthService.onPlotClaimed(player: Player, plot: any)
 		return
 	end
 	local size = RebirthConfig.altarSize
+	local gold = Color3.fromRGB(255, 196, 48)
+	local groundCF = cf * CFrame.new(-16, 0, 16)
+	local cylRot = CFrame.Angles(0, 0, math.pi / 2)
 	local altar = Instance.new("Part")
 	altar.Name = "RebirthAltar_" .. player.Name
-	altar.Size = size
+	altar.Shape = Enum.PartType.Cylinder
+	altar.Size = Vector3.new(1, 8, 8)
 	altar.Anchored = true
 	altar.CanCollide = true
-	altar.Material = Enum.Material.Neon
-	altar.Color = RebirthConfig.altarColor
-	altar.CFrame = cf * CFrame.new(-16, size.Y / 2, 16)
+	altar.Material = Enum.Material.Foil
+	altar.Color = gold
+	altar.CFrame = groundCF * CFrame.new(0, 0.5, 0) * cylRot
+
+	local step2 = Instance.new("Part")
+	step2.Name = "AltarStep2"
+	step2.Shape = Enum.PartType.Cylinder
+	step2.Size = Vector3.new(1, 5.2, 5.2)
+	step2.Anchored = true
+	step2.CanCollide = true
+	step2.Material = Enum.Material.Foil
+	step2.Color = gold
+	step2.CFrame = groundCF * CFrame.new(0, 1.5, 0) * cylRot
+	step2.Parent = altar
+
+	for i = 0, 3 do
+		local ang = math.rad(i * 90 + 45)
+		local pillar = Instance.new("Part")
+		pillar.Name = "AltarPillar"
+		pillar.Size = Vector3.new(0.8, 2.5, 0.8)
+		pillar.Anchored = true
+		pillar.CanCollide = true
+		pillar.Material = Enum.Material.Foil
+		pillar.Color = gold
+		pillar.CFrame = groundCF * CFrame.new(math.cos(ang) * 2, 3.25, math.sin(ang) * 2)
+		pillar.Parent = altar
+	end
+
+	local orbBase = groundCF * CFrame.new(0, 3.8, 0)
+	local orb = Instance.new("Part")
+	orb.Name = "AltarOrb"
+	orb.Shape = Enum.PartType.Ball
+	orb.Size = Vector3.new(1.8, 1.8, 1.8)
+	orb.Anchored = true
+	orb.CanCollide = false
+	orb.CanQuery = false
+	orb.Material = Enum.Material.Neon
+	orb.Color = Color3.fromRGB(255, 214, 80)
+	orb.CFrame = orbBase
+	orb.Parent = altar
 
 	local light = Instance.new("PointLight")
 	light.Color = RebirthConfig.altarGlowColor
 	light.Range = 18
 	light.Brightness = 2
-	light.Parent = altar
+	light.Parent = orb
 
 	local sparks = Instance.new("ParticleEmitter")
 	sparks.Color = ColorSequence.new(RebirthConfig.altarGlowColor)
@@ -276,13 +316,13 @@ function RebirthService.onPlotClaimed(player: Player, plot: any)
 	sparks.Speed = NumberRange.new(2, 4)
 	sparks.Size = NumberSequence.new(0.4, 0)
 	sparks.LightEmission = 1
-	sparks.Parent = altar
+	sparks.Parent = orb
 
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromOffset(180, 60)
-	bb.StudsOffset = Vector3.new(0, 4, 0)
+	bb.Size = UDim2.fromScale(6, 2)
+	bb.StudsOffset = Vector3.new(0, 5, 0)
 	bb.AlwaysOnTop = false
-	bb.MaxDistance = 50
+	bb.MaxDistance = 45
 	bb.Adornee = altar
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
@@ -314,6 +354,15 @@ function RebirthService.onPlotClaimed(player: Player, plot: any)
 	s.altar, s.label = altar, label
 	updateLabel(s)
 	altar.Parent = Workspace
+
+	task.spawn(function()
+		local t0 = os.clock()
+		while orb.Parent do
+			local t = os.clock() - t0
+			orb.CFrame = orbBase * CFrame.new(0, math.sin(t * 2) * 0.4, 0) * CFrame.Angles(0, t * 1.5, 0)
+			task.wait(0.05)
+		end
+	end)
 end
 
 function RebirthService.onPlotReleased(player: Player)

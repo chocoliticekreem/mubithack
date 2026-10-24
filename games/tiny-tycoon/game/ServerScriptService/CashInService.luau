@@ -33,8 +33,10 @@ local Cfg: any = CashInConfig
 
 local FLASH_COLOR = Color3.fromRGB(255, 214, 64)
 local FLASH_TIME = 0.15
+local PULSE_SCALE = 1.15
+local PULSE_HALF_TIME = 0.075 -- up + back = 0.15s
 local AGGREGATE_DELAY = 0.25 -- over-limit cash-ins are merged into one popup this often
-local COMBO_WINDOW = 2 -- seconds between cubes that keep a streak alive
+local COMBO_WINDOW = 3 -- seconds between cubes that keep a streak alive
 local MILESTONES: { [number]: boolean } = { [1] = true, [10] = true, [50] = true, [100] = true }
 local CASH_MILESTONES: { number } = { 50, 100, 500, 1000, 5000 }
 local COIN_VOLUME = 0.8
@@ -72,8 +74,11 @@ local CashInService = {}
 type CollectorInfo = {
 	part: BasePart,
 	baseColor: Color3,
+	baseSize: Vector3,
+	baseMaterial: Enum.Material,
 	emitter: ParticleEmitter,
 	tween: Tween?,
+	pulse: Tween?,
 }
 
 type Pending = {
@@ -343,45 +348,21 @@ local function playWin(part: BasePart?, player: Player?)
 		end)
 		if ok then
 			ForgeTelemetry.count("sounds_played", 1)
-			return
 		end
 	end
-	ForgeTelemetry.count("cashin_sound_missing", 1)
 end
 
-local function flashCollector(info: CollectorInfo, pitch: number, player: Player?)
-	local part = info.part
-	if part.Parent == nil then
-		return
-	end
-	if info.tween then
-		info.tween:Cancel()
-	end
-	part.Color = FLASH_COLOR
-	local tween = TweenService:Create(
-		part,
-		TweenInfo.new(FLASH_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ Color = info.baseColor }
-	)
-	info.tween = tween
-	tween:Play()
-
-	-- Coin sound is throttled per player so rapid cash-ins don't stack audio.
-	if gate(lastSoundAt, player) then
-		pcall(playCoin, part, pitch, player)
-	end
-end
-
+-- Popup rate limiting (per player, sliding one-second window).
 local function popupLimit(): number
-	local n = Cfg.MAX_POPUPS_PER_SECOND
-	if isFiniteNumber(n) and n >= 1 then
-		return n
+	local v = Cfg.POPUPS_PER_SECOND
+	if isFiniteNumber(v) and v > 0 then
+		return v
 	end
 	return DEFAULT_POPUPS_PER_SECOND
 end
 
 local function pruneLog(player: Player): { number }
-local log = sendLog[player]
+	local log = sendLog[player]
 	if not log then
 		log = {}
 		sendLog[player] = log
@@ -398,9 +379,11 @@ local function allowSend(player: Player): boolean
 end
 
 local function recordSend(player: Player)
-	table.insert(pruneLog(player), os.clock())
+	local log = pruneLog(player)
+	table.insert(log, os.clock())
 end
 
+-- Sends the floating +$N popup data to one client.
 local function sendPopup(
 	player: Player,
 	amount: number,
@@ -408,45 +391,32 @@ local function sendPopup(
 	pos: Vector3,
 	pitch: number,
 	scale: number,
-	milestone: boolean,
+	big: boolean,
 	cubes: number
 )
 	if player.Parent ~= Players then
 		return
 	end
-	if not milestone then
-		recordSend(player)
-	end
 	local ok = pcall(function()
-		CashInRemote:FireClient(player, amount, tier, pos, pitch, scale, milestone, cubes)
+		CashInRemote:FireClient(player, amount, tier, pos, pitch, scale, big, cubes)
 	end)
 	if ok then
-		ForgeTelemetry.count("cashin_fx_sent", 1)
+		recordSend(player)
+		ForgeTelemetry.count("cashin_popups_sent", 1)
 	else
-		ForgeTelemetry.count("cashin_fx_failed", 1)
+		ForgeTelemetry.count("cashin_popup_failed", 1)
 	end
 end
 
-local function flushPending(player: Player)
-	local p = pendingPopups[player]
-	pendingPopups[player] = nil
-	if not p then
-		return
-	end
-	if player.Parent ~= Players then
-		return
-	end
-	sendPopup(player, p.amount, p.tier, p.pos, p.pitch, math.clamp(1 + 0.05 * p.cubes, 1, 1.5), false, p.cubes)
-end
-
+-- Over-limit cash-ins are merged and flushed as one summed popup.
 local function queuePopup(player: Player, amount: number, tier: number, pos: Vector3, pitch: number)
-	local p = pendingPopups[player]
-	if p then
-		p.amount += amount
-		p.cubes += 1
-		p.tier = math.max(p.tier, tier)
-		p.pos = pos
-		p.pitch = math.max(p.pitch, pitch)
+	local pending = pendingPopups[player]
+	if pending then
+		pending.amount += amount
+		pending.cubes += 1
+		pending.tier = math.max(pending.tier, tier)
+		pending.pos = pos
+		pending.pitch = pitch
 		return
 	end
 	pendingPopups[player] = {
@@ -456,9 +426,61 @@ local function queuePopup(player: Player, amount: number, tier: number, pos: Vec
 		pos = pos,
 		pitch = pitch,
 	}
+	ForgeTelemetry.count("cashin_popups_aggregated", 1)
 	task.delay(AGGREGATE_DELAY, function()
-		flushPending(player)
+		local p = pendingPopups[player]
+		pendingPopups[player] = nil
+		if p and player.Parent == Players then
+			local s = math.clamp(1 + 0.1 * (p.tier - 1) + 0.05 * p.cubes, 1, 1.8)
+			sendPopup(player, p.amount, p.tier, p.pos, p.pitch, s, false, p.cubes)
+		end
 	end)
+end
+
+-- Collector flash + Neon size pulse + sparkle + (throttled) coin sound.
+local function flashCollector(info: CollectorInfo, pitch: number, player: Player?)
+	local part = info.part
+	if part.Parent == nil then
+		return
+	end
+
+	-- Colour flash.
+	if info.tween then
+		info.tween:Cancel()
+	end
+	part.Color = FLASH_COLOR
+	local colorTween = TweenService:Create(part, TweenInfo.new(FLASH_TIME), { Color = info.baseColor })
+	info.tween = colorTween
+	colorTween:Play()
+
+	-- Neon pulse: Size 1.0 -> 1.15 -> 1.0 in 0.15s.
+	if info.pulse then
+		info.pulse:Cancel()
+	end
+	part.Size = info.baseSize
+	part.Material = Enum.Material.Neon
+	local pulse = TweenService:Create(
+		part,
+		TweenInfo.new(PULSE_HALF_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true),
+		{ Size = info.baseSize * PULSE_SCALE }
+	)
+	info.pulse = pulse
+	pulse.Completed:Once(function()
+		if part.Parent ~= nil then
+			part.Size = info.baseSize
+			part.Material = info.baseMaterial
+		end
+	end)
+	pulse:Play()
+
+	-- Tiny sparkle.
+	pcall(function()
+		info.emitter:Emit(6)
+	end)
+
+	if gate(lastSoundAt, player) then
+		playCoin(part, pitch, player)
+	end
 end
 
 function CashInService.decorateCollector(collectorPart: BasePart)
@@ -494,8 +516,11 @@ function CashInService.decorateCollector(collectorPart: BasePart)
 	table.insert(collectors, {
 		part = collectorPart,
 		baseColor = collectorPart.Color,
+		baseSize = collectorPart.Size,
+		baseMaterial = collectorPart.Material,
 		emitter = emitter :: ParticleEmitter,
 		tween = nil,
+		pulse = nil,
 	})
 
 	if not collectorPart:FindFirstChild("CashInLight") then
@@ -578,7 +603,9 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 
 	local total = (sentTotal[player] or 0) + 1
 	sentTotal[player] = total
-	local milestone = MILESTONES[total] == true
+	-- Every 10th cube is a bigger moment (plus the early/round-number milestones).
+	local tenth = total % 10 == 0
+	local milestone = MILESTONES[total] == true or tenth
 
 	-- Cash-threshold milestones ($50, $100, $500, ...): bigger moment when crossed.
 	local prevCash = cashTotal[player] or 0
@@ -598,20 +625,25 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 		ForgeTelemetry.count("cashin_milestones", 1)
 	end
 
+	-- Popup scale grows with cube value, tier and current combo.
+	local valueScale = 0.15 * math.log10(math.max(amount, 1) + 1)
+	local comboScale = 0.03 * math.min(streak.count - 1, 10)
+	local normalScale = math.clamp(1 + 0.1 * (t - 1) + valueScale + comboScale, 1, 1.6)
+
 	-- Send the reward popup FIRST so later cosmetic errors can never swallow it.
 	-- Milestones are always sent immediately, larger. Over-limit popups are
 	-- aggregated into one summed popup instead of being dropped.
 	if milestone then
 		recordSend(player)
-		sendPopup(player, amount, t, pos, pitch, if cashMilestone then 2 else 1.5, true, 1)
+		local big = if cashMilestone then 2.2 elseif tenth then 2 else 1.6
+		sendPopup(player, amount, t, pos, pitch, big, true, 1)
 	elseif pendingPopups[player] == nil and allowSend(player) then
-		-- Higher tiers get a slightly larger +$N popup.
-		sendPopup(player, amount, t, pos, pitch, math.clamp(1 + 0.1 * (t - 1), 1, 1.5), false, 1)
+		sendPopup(player, amount, t, pos, pitch, normalScale, false, 1)
 	else
 		queuePopup(player, amount, t, pos, pitch)
 	end
 
-	-- Collector flash + sparkle + (throttled) coin sound.
+	-- Collector flash + pulse + sparkle + (throttled) coin sound.
 	local info: CollectorInfo? = nil
 	local fxOk = pcall(function()
 		if #collectors == 0 then
@@ -646,7 +678,8 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 			lastBurstAt[player] = os.clock()
 		end
 		local burstDone = false
-		local tierColor = tierColorFor(t)
+		-- Every 10th cube gets a big gold sparkle.
+		local tierColor = if tenth then FLASH_COLOR else tierColorFor(t)
 		if GameAssets and type(GameAssets.burst) == "function" then
 			local burstOk = pcall(function()
 				if milestone then

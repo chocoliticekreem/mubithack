@@ -1,12 +1,12 @@
 # Cube Cash Tycoon
 
-Watch cubes roll down your conveyor, cash in, and buy droppers and speed upgrades to grow your tiny factory!
+Claim a themed plot, watch ore roll down your conveyor into a glowing collector, and grow a tiny factory into a gold-and-diamond empire, then rebirth for a permanent multiplier.
 
 Built by Forge's Mubit agent (designer, coder, AI playtests, critic, fixer, verifier).
 
 ## How it plays
 
-Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 seconds onto a conveyor. The conveyor carries cubes to a collector at the end, and the server adds each cube's value to the player's Cash leaderstat and destroys the cube. Two buy pads sit off to the side of the walking area: a second dropper for 25 cash and a faster conveyor for 50 cash. Touching a pad with enough cash buys the upgrade once, so income climbs and the numbers go up.
+Players spawn in a central plaza ringed by 6 themed plots (Candy, Lava, Ice, Jungle, Neon City, Desert) and claim one by walking onto its glowing CLAIM gate (auto-claim after a few seconds). Their dropper drops ore onto the conveyor; the collector pays cash with a cha-ching, sparkles and a floating +$N. Cash buys a data-driven upgrade tree (Droppers 2-4, Silver/Gold/Diamond ore, conveyor speed, cash multipliers) on owner-only glowing buy pads or in the SHOP panel; every purchase visibly grows the plot (dropper machines, chevrons, ore piles, a vault, a plot wall). At $5000 (doubling each time) the player can rebirth for a permanent x1.5, x2, ... multiplier. A first-60-seconds tutorial arrow and banner guide new players, a TOP TYCOONS board in the plaza ranks lifetime earnings, and progress saves with DataStore (in-memory fallback in Studio).
 
 ## Modules
 
@@ -155,8 +155,41 @@ Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 
 
 ## How it was built
 
-- 11 build iterations (critic scores: 7.0, 4.0, 4.0, 4.0, 6.0, 6.0, 8.0, 7.0, 7.0, 8.0, 7.0), 80 saved versions, 36 human corrections.
+- 13 build iterations (critic scores: 7.0, 4.0, 4.0, 4.0, 6.0, 6.0, 8.0, 7.0, 7.0, 8.0, 7.0, 8.0, 7.0), 87 saved versions, 43 human corrections.
 - Working copy, versions and traces: `runs/tiny-tycoon/` (local); record: `evidence/tiny-tycoon/` (`forge archive`).
+
+## The rebuild (Forge + Mubit, Oct 24)
+
+The first version had one 40x40 plot on a grey baseplate, two unlabeled pads (Dropper 25 / Fast Belt 50) and nothing
+to do after about a minute. Forge rebuilt it on top of that run, and every LLM call went through Mubit.
+
+- **11 `forge feature` requests:** themed plots and claiming, an upgrade tree with ore tiers, rebirth, cash-in VFX and
+  sound, the UI-kit shop, a leaderboard, the first-60-second tutorial, saving, a juice pass, and plot growth (the first
+  attempt hit the coder's 20k-token cap, so it was re-split). The director role added the first-60-seconds script and
+  the GameAssets art kit.
+- **`forge orchestrate` rounds:** gap finder -> fix/visual jobs -> playtest + critic -> checks -> AI-tester fix cycles.
+  `forge fix` ran 7 cycles of 2 AI-tester rounds each.
+- **Human corrections, each a call in the `fixer`/`patcher` Mubit task:** about 40 `forge correct` notes. Examples: the
+  tycoon never started after a claim; the claim-gate call signature was wrong; legacy pads disagreed with the real
+  ones; there was no edge boundary; the HUD overlapped; the shop clipped its cards so Buy never fired; the tutorial
+  had two owners; and an in-game "live check" bought the first upgrade for every player.
+- **Gap-finder corrections in the `gap_finder` task:** 4. These cover stale compile-only evidence, the 4-second
+  playtest window, never routing "verify" gaps to feature jobs, and no self-testing game code.
+- **Rolled back by a human:** 3 rounds of in-game self-test code (ForgeChecks / FeatureVerifier) and one auto-rollback
+  that erased human corrections after a noisy 7-vs-8 critic score.
+
+**Before vs after:**
+
+| Measure | Before | After |
+|---|---|---|
+| Critic | 7.0 | 7-8 (passive 30 s watch, no player input) |
+| Fun critic | n/a | 6.0-6.5 (fun 6, juice 6, clarity 5-6, visuals 7-8) |
+| Grey parts | n/a | 0/764 |
+| Executable checks | 0 | 19/22 pass |
+| Features verified by AI testers | n/a | 10/15 (they bought upgrades and tiers in the shop and rebirthed) |
+
+Screenshots are in `screenshots/`: `before-*.png` and `after-*.png` (overview, player, plot, grown plot, shop,
+cash-in, rebirth).
 
 ## Play it
 

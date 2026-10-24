@@ -1,0 +1,17 @@
+{
+  "score": 4,
+  "summary": "The map and plaza build and no runtime errors or warnings appear in the report. The ForgeChecks runner itself crashed at line 125 (`attempt to compare number <= table`), so the playtest ended at about 10s. No claim, drop, collect or buy counters were ever observed, so the core loop is unverified. `themes_built` is 12 where the spec expects 6.",
+  "issues": [
+    {
+      "path": "ServerScriptService/ForgeChecks.server.luau",
+      "problem": "The runner errors with `ForgeChecks:125: attempt to compare number <= table`, which is the `no_output_errors` branch (`n <= chk.expect...`). In ForgeChecksPlan, `expect` for that check is a table (`{forbidden = {...}, maxAllowed = 0}`), so the number is compared against the table. This kills the runner, leaving 0 checks passed. No claim or auto-claim ever happened, and `plots_claimed`, `plot_assigned`, `cubes_dropped`, `cubes_collected` and `upgrades_bought` are all missing from the counters.",
+      "fix_hint": "In the `no_output_errors` branch, compare against the numeric field: `record(chk.id, n <= (chk.expect.maxAllowed or 0), ...)`. Also check the other branches for places that use `chk.expect` as a number when the plan supplies a table. Wrap each check in pcall so one bad check cannot abort the run. Make sure the run lasts long enough to cover the 20s auto-claim and the sampling windows."
+    },
+    {
+      "path": "ReplicatedStorage/PlotThemes.luau",
+      "problem": "The `themes_built` counter is 12 but the spec requires exactly 6 for 6 plots. Theme building or its telemetry is probably running twice, for example once per code path or per module require.",
+      "fix_hint": "Find where `themes_built` is incremented (this module or the server builder that uses it). Count it once per plot theme built, and guard against a second build pass so the total is 6."
+    }
+  ],
+  "done": false
+}

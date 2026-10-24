@@ -77,15 +77,15 @@ local VOLUMES = {
 	Coin = 0.6,
 	Buy = 0.7,
 	Gem = 0.6,
-	Click = 0.5,
-	Pop = 0.4,
-	Error = 0.35,
-	Whoosh = 0.5,
-	Jump = 0.5,
-	Land = 0.5,
-	Boom = 0.4,
-	Splash = 0.5,
-	Hurt = 0.5,
+	Click = 0.6,
+	Pop = 0.6,
+	Error = 0.6,
+	Whoosh = 0.6,
+	Jump = 0.6,
+	Land = 0.6,
+	Boom = 0.6,
+	Splash = 0.6,
+	Hurt = 0.6,
 	Win = 0.6,
 	Music = 0.25,
 }
@@ -148,18 +148,131 @@ local function resolveHolder(at: any): BasePart?
 	return nil
 end
 
--- A short-lived invisible anchored part at a world position (survives the source part being destroyed).
-local function makeAnchor(pos: Vector3, life: number): BasePart
-	local holder = Instance.new("Part")
-	holder.Name = "FxAnchor"
-	holder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch = true, false, false, false
-	holder.Transparency, holder.Size, holder.Position = 1, Vector3.new(0.2, 0.2, 0.2), pos
-	holder.Parent = workspace
-	Debris:AddItem(holder, life)
-	return holder
+-- World position of a part / model / Vector3 (nil when it cannot be resolved).
+local function resolvePosition(at: any): Vector3?
+	if typeof(at) == "Vector3" then
+		return at
+	end
+	if typeof(at) == "Instance" then
+		if at:IsA("BasePart") then
+			return at.Position
+		end
+		local h = resolveHolder(at)
+		if h then
+			return h.Position
+		end
+	end
+	return nil
 end
 
--- Play a sound by name. Always creates a Sound and calls :Play(), cleaned up by Debris.
+-- Persistent, never-destroyed FX hub in the world: pooled emitters live here so they exist in the world
+-- permanently (visible to census tools) and are reused by every burst.
+local fxHub: BasePart? = nil
+local hubAttachments: { [string]: Attachment } = {}
+local hubEmitters: { [string]: ParticleEmitter } = {}
+
+local function getHub(): BasePart
+	if fxHub and fxHub.Parent then
+		return fxHub
+	end
+	hubAttachments = {}
+	hubEmitters = {}
+	local hub = Instance.new("Part")
+	hub.Name = "ForgeFxHub_" .. (RunService:IsServer() and "Server" or "Client")
+	hub.Anchored, hub.CanCollide, hub.CanQuery, hub.CanTouch = true, false, false, false
+	hub.Transparency, hub.Size = 1, Vector3.new(0.2, 0.2, 0.2)
+	hub.CastShadow = false
+	hub.Position = Vector3.new(0, -200, 0)
+	hub.Parent = workspace
+	fxHub = hub
+	return hub
+end
+
+local function getPooledEmitter(kind: string, build: (ParticleEmitter) -> ()): (ParticleEmitter, Attachment)
+	local hub = getHub()
+	local a = hubAttachments[kind]
+	local p = hubEmitters[kind]
+	if a and p and a.Parent == hub and p.Parent == a then
+		return p, a
+	end
+	a = Instance.new("Attachment")
+	a.Name = kind .. "Attachment"
+	a.Parent = hub
+	p = Instance.new("ParticleEmitter")
+	p.Name = kind .. "Emitter"
+	p.Rate = 0
+	p.Enabled = false
+	build(p)
+	p.Parent = a
+	hubAttachments[kind] = a
+	hubEmitters[kind] = p
+	return p, a
+end
+
+local function emitAt(kind: string, pos: Vector3, count: number, build: (ParticleEmitter) -> (), tune: ((ParticleEmitter) -> ())?)
+	local p, _a = getPooledEmitter(kind, build)
+	local hub = getHub()
+	hub.Position = pos
+	if tune then
+		tune(p)
+	end
+	p:Emit(count)
+end
+
+local function buildBurst(p: ParticleEmitter)
+	p.Texture = GameAssets.Textures.Sparkle
+	p.Color = ColorSequence.new(GameAssets.Palette.Primary)
+	p.LightEmission, p.Rate, p.Speed = 1, 0, NumberRange.new(12, 20)
+	p.Lifetime, p.SpreadAngle = NumberRange.new(0.6, 1.0), Vector2.new(180, 180)
+	p.Drag = 2
+	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
+	p.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.7, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+end
+
+local function buildConfetti(p: ParticleEmitter)
+	local P = GameAssets.Palette
+	p.Texture = GameAssets.Textures.Sparkle
+	p.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, P.C1),
+		ColorSequenceKeypoint.new(0.25, P.C7),
+		ColorSequenceKeypoint.new(0.5, P.C3),
+		ColorSequenceKeypoint.new(0.75, P.C4),
+		ColorSequenceKeypoint.new(1, P.C5),
+	})
+	p.LightEmission, p.Rate, p.Speed = 0.8, 0, NumberRange.new(14, 24)
+	p.Lifetime, p.SpreadAngle = NumberRange.new(0.8, 1.4), Vector2.new(180, 180)
+	p.Acceleration = Vector3.new(0, -12, 0)
+	p.Rotation, p.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-200, 200)
+	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0.2) })
+	p.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.8, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+end
+
+-- Persistent sound templates (one per sound name) live in SoundService so sounds exist in the world/census.
+local soundTemplates: { [string]: Sound } = {}
+local function ensureTemplate(name: string, id: string)
+	local t = soundTemplates[name]
+	if t and t.Parent then
+		return t
+	end
+	t = Instance.new("Sound")
+	t.Name = "Forge_" .. name
+	t.SoundId = id
+	t.Volume = math.max(0.6, VOLUMES[name] or 0.6)
+	t.PlaybackSpeed = PITCHES[name] or 1
+	t.Parent = SoundService
+	soundTemplates[name] = t
+	return t
+end
+
+-- Play a sound by name. Always creates a Sound, parents it, then calls :Play(), cleaned up by Debris.
 -- With a parent (BasePart / Attachment / Model) it is a 3D world sound; without one it plays as a UI
 -- sound from SoundService (client: local only; server: everyone hears it).
 function GameAssets.sound(name: string, parent: Instance?, pitch: number?): Sound?
@@ -167,14 +280,18 @@ function GameAssets.sound(name: string, parent: Instance?, pitch: number?): Soun
 	if not id or id == "" then
 		return nil
 	end
+	ensureTemplate(name, id)
 	local s = Instance.new("Sound")
 	s.Name = name
 	s.SoundId = id
-	s.Volume = VOLUMES[name] or 0.5
+	s.Volume = math.max(0.6, VOLUMES[name] or 0.6)
 	s.PlaybackSpeed = pitch or (PITCHES[name] or 1) * (0.95 + math.random() * 0.1)
 	local target: Instance? = parent
 	if target and not (target:IsA("BasePart") or target:IsA("Attachment")) then
 		target = resolveHolder(target)
+	end
+	if target and not target:IsDescendantOf(workspace) then
+		target = nil
 	end
 	s.Parent = target or SoundService
 	s:Play()
@@ -203,8 +320,8 @@ end
 
 -- An expanding, fading Neon ring (flat) at a part or position. Good for upgrade / rebirth.
 function GameAssets.ring(at: any, color: Color3?, maxScale: number?, seconds: number?): Part?
-	local holder = resolveHolder(at)
-	if not holder then
+	local pos = resolvePosition(at)
+	if not pos then
 		return nil
 	end
 	local dur = seconds or 0.4
@@ -217,7 +334,7 @@ function GameAssets.ring(at: any, color: Color3?, maxScale: number?, seconds: nu
 	ring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false
 	ring.CastShadow = false
 	ring.Size = Vector3.new(0.3, 2, 2)
-	ring.CFrame = CFrame.new(holder.Position) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)
 	ring.Transparency = 0
 	ring.Parent = workspace
 	TweenService:Create(ring, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -230,87 +347,34 @@ function GameAssets.ring(at: any, color: Color3?, maxScale: number?, seconds: nu
 end
 
 -- A one-shot sparkle burst at a part or position (gold mixed with an optional theme colour).
--- Optional withRing adds an expanding Neon ring.
+-- Optional withRing adds an expanding Neon ring. Uses a persistent pooled emitter.
 function GameAssets.burst(at: any, color: Color3?, count: number?, withRing: boolean?)
-	local source = resolveHolder(at)
-	if not source then
+	local pos = resolvePosition(at)
+	if not pos then
 		return
 	end
-	-- Emit from a detached anchor so the burst survives the source (e.g. a collected cube) being destroyed.
-	local holder = source
-	if not (typeof(at) == "Vector3") then
-		holder = makeAnchor(source.Position, 4)
-	end
 	local gold = GameAssets.Palette.Primary
-	local a = Instance.new("Attachment")
-	a.Name = "BurstAttachment"
-	a.Parent = holder
-	local p = Instance.new("ParticleEmitter")
-	p.Name = "BurstEmitter"
-	p.Texture = GameAssets.Textures.Sparkle
-	if color and color ~= gold then
-		p.Color = ColorSequence.new(gold, color)
-	else
-		p.Color = ColorSequence.new(gold)
-	end
-	p.LightEmission, p.Rate, p.Speed = 1, 0, NumberRange.new(12, 20)
-	p.Lifetime, p.SpreadAngle = NumberRange.new(0.6, 1.0), Vector2.new(180, 180)
-	p.Drag = 2
-	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
-	p.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.7, 0.2),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	p.Enabled = false
-	p.Parent = a
-	p:Emit(count or 26)
-	Debris:AddItem(a, 2.5)
+	emitAt("Burst", pos, count or 26, buildBurst, function(p)
+		if color and color ~= gold then
+			p.Color = ColorSequence.new(gold, color)
+		else
+			p.Color = ColorSequence.new(gold)
+		end
+	end)
 	if withRing then
-		GameAssets.ring(holder, color or gold, 8, 0.4)
+		GameAssets.ring(pos, color or gold, 8, 0.4)
 	end
 	countTelemetry("bursts", 1)
 end
 
 -- Multicoloured confetti plus a ring, for upgrades and rebirth.
 function GameAssets.confetti(at: any, count: number?)
-	local source = resolveHolder(at)
-	if not source then
+	local pos = resolvePosition(at)
+	if not pos then
 		return
 	end
-	local holder = source
-	if not (typeof(at) == "Vector3") then
-		holder = makeAnchor(source.Position, 4)
-	end
-	local P = GameAssets.Palette
-	local a = Instance.new("Attachment")
-	a.Name = "ConfettiAttachment"
-	a.Parent = holder
-	local p = Instance.new("ParticleEmitter")
-	p.Name = "ConfettiEmitter"
-	p.Texture = GameAssets.Textures.Sparkle
-	p.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, P.C1),
-		ColorSequenceKeypoint.new(0.25, P.C7),
-		ColorSequenceKeypoint.new(0.5, P.C3),
-		ColorSequenceKeypoint.new(0.75, P.C4),
-		ColorSequenceKeypoint.new(1, P.C5),
-	})
-	p.LightEmission, p.Rate, p.Speed = 0.8, 0, NumberRange.new(14, 24)
-	p.Lifetime, p.SpreadAngle = NumberRange.new(0.8, 1.4), Vector2.new(180, 180)
-	p.Acceleration = Vector3.new(0, -12, 0)
-	p.Rotation, p.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-200, 200)
-	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0.2) })
-	p.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.8, 0.1),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	p.Enabled = false
-	p.Parent = a
-	p:Emit(count or 40)
-	Debris:AddItem(a, 3)
-	GameAssets.ring(holder, P.Primary, 8, 0.4)
+	emitAt("Confetti", pos, count or 40, buildConfetti, nil)
+	GameAssets.ring(pos, GameAssets.Palette.Primary, 8, 0.4)
 	countTelemetry("bursts", 1)
 end
 

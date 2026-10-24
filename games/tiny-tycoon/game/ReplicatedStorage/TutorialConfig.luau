@@ -9,7 +9,13 @@ local TutorialConfig = {
 	REMOTE_NAME = "TutorialStep",
 
 	-- Re-show a stuck step's hint after this many seconds without progress.
-	STUCK_RESHOW_SECONDS = 5,
+	-- Lowered from 5 to 3 so the buy step re-guides the player quickly.
+	STUCK_RESHOW_SECONDS = 3,
+
+	-- Optional per-step override (keyed by step number); falls back to STUCK_RESHOW_SECONDS.
+	STUCK_RESHOW_BY_STEP = {
+		[3] = 3,
+	},
 
 	-- If the player has not opened the SHOP this many seconds after the shop step
 	-- begins, the server advances the step anyway so guidance never stalls.
@@ -34,6 +40,15 @@ local TutorialConfig = {
 		"Tap the SHOP button!", -- 4: open the shop
 		"Buy an upgrade in the SHOP!", -- 5: buy a tier upgrade
 		"You did it! Keep growing!", -- 6: done
+	},
+
+	-- Banner text swapped in for a step once the player can afford its target
+	-- (cash >= AFFORDABLE_CASH_BY_STEP[step]).
+	AFFORDABLE_STEP_TEXT = {
+		[3] = "Step on the glowing pad to buy Dropper 2 ($10)",
+	},
+	AFFORDABLE_CASH_BY_STEP = {
+		[3] = 10,
 	},
 
 	-- Which server event advances away from each step.
@@ -114,9 +129,9 @@ local TutorialConfig = {
 	BOUNCE_HEIGHT = 1.5,
 	BOUNCE_SPEED = 4, -- radians per second
 
-	-- Beam from player to target.
-	BEAM_COLOR = Color3.fromRGB(255, 240, 120),
-	BEAM_WIDTH = 2,
+	-- Beam from player to target: thicker and bright yellow.
+	BEAM_COLOR = Color3.fromRGB(255, 235, 0),
+	BEAM_WIDTH = 3,
 
 	-- Banner visuals.
 	BANNER_COLOR = Color3.fromRGB(30, 30, 50),

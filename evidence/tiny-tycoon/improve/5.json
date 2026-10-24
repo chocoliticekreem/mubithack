@@ -1,0 +1,1919 @@
+{
+  "cycle": 5,
+  "ts": "2026-10-24T06:12:26Z",
+  "session_id": "improve-tiny-tycoon-5",
+  "goal": "Play like a new player for the first few minutes: get your plot (walk onto a CLAIM gate or wait for auto-claim), watch cash come in, walk onto the glowing green Dropper 2 buy pad as soon as you can afford it, keep buying the next pads as they appear, open the SHOP with the SHOP button and buy an upgrade there, press REBIRTH once you can afford it, look at the TOP TYCOONS board in the plaza, and report anything confusing, broken or unfair",
+  "planted": 0,
+  "detected": 0,
+  "missed": 0,
+  "unmatched": 8,
+  "fixed_verified": 0,
+  "score": {
+    "planted": 0,
+    "detected": [],
+    "missed": [],
+    "anomaly_for": {},
+    "unmatched_anomalies": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "audit": {
+    "summary": "The core loop works: cubes drop, get collected and pay cash, there are no server errors, and rebirth succeeded once in round 2. However, the game has a seeded TotalEarned/leaderboard bug, shop Buy buttons that do not fire, several acceptance-check counters that never appear, and tutorial and economy oddities.",
+    "anomalies": [
+      {
+        "kind": "economy",
+        "system": "leaderboard",
+        "title": "TotalEarned seeded at ~1 trillion",
+        "expected": "A new player starts near $0 on the TOP TYCOONS board and the value grows with real earnings.",
+        "observed": "Round 1 reports the board showing $1T for a new player. Round 2 reports $1T cash again, so the bad seed persists across rounds. The board is meaningless and likely corrupts the saved data.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "shop",
+        "title": "Shop Buy buttons do not fire (Gold Ore, Cash x1.5)",
+        "expected": "Pressing Buy on an affordable card fires the server purchase, deducts the cost and increments shop_purchases.",
+        "observed": "In round 1 the Buy presses on Card_mult1 and Card_tier_gold show fired=false, and the judge notes the buttons do not fire. In round 2 the judge again reports the Gold tier Buy does not fire. Round 1 still shows shop_purchases=3, and round 2 shows 5, so some purchases do go through. The failure is specific to certain cards and happens in both rounds.",
+        "severity": "high"
+      },
+      {
+        "kind": "broken_link",
+        "system": "pads",
+        "title": "Pad purchase did not trigger on touch",
+        "expected": "Touching the Cash x1.5 pad with enough cash buys it through the same validation as the shop.",
+        "observed": "Round 1 reports that touching the Cash x1.5 upgrade pad did not buy it. The shop path and the pad path may not share validation or state.",
+        "severity": "medium"
+      },
+      {
+        "kind": "broken_link",
+        "system": "telemetry",
+        "title": "Acceptance-check counters never appear",
+        "expected": "Counters such as pad_denied, and the shop's tween/sound counters, increment when those actions happen. rebirth_denied is recorded as 5 and 8, and the shop opens 2 and 4 times, so denied actions are being exercised.",
+        "observed": "pad_denied never appears in either round. Only the generic 'highlights' (8 and 12) and 'pad_highlighted' (1) counters exist. The denial feedback for a pad touched while poor is therefore unverified, and pads appear to be bought with enough cash.",
+        "severity": "medium"
+      },
+      {
+        "kind": "balance",
+        "system": "rebirth",
+        "title": "Rebirth gives no feedback when unaffordable and cost doubles",
+        "expected": "Pressing REBIRTH while unaffordable shows a clear denial message, and the cost curve is sensible.",
+        "observed": "rebirth_denied is 5 in round 1 and 8 in round 2, yet the judge reports no visible feedback on denial. Only a small HUD line, 'Need $N more', changes. After the round 2 rebirth the cost jumps from $5000 to $10.0K. Cash resets to 54 and income drops from +$32/s to +$25/s, which is a modest reward for losing every unlock.",
+        "severity": "medium"
+      },
+      {
+        "kind": "conflict",
+        "system": "tutorial",
+        "title": "Tutorial re-shown repeatedly",
+        "expected": "The tutorial shows once, and tutorial_done fires once.",
+        "observed": "tutorial_reshown is 6 in both rounds, while tutorial_done is 2 and tutorial_steps is 2. The tutorial keeps being re-triggered.",
+        "severity": "low"
+      },
+      {
+        "kind": "balance",
+        "system": "economy",
+        "title": "Cash pacing is much faster than the pad costs",
+        "expected": "The next purchase is reachable in 15-40 s, with costs growing steadily.",
+        "observed": "The shop prices are $10, $22, $150, $300, $1300 and $2200. Cash reaches 1.1K-4K within minutes, and unspent cash piles up (Cash 4K while upgrades are still available). Round 1 ends with goal_met=false, and the rebirth at 5000 is reached in round 2 with the shop's upgrades already owned.",
+        "severity": "low"
+      },
+      {
+        "kind": "broken_link",
+        "system": "ui",
+        "title": "Rebirth panel never opened in coverage",
+        "expected": "The REBIRTH panel or flow is covered by UI testing.",
+        "observed": "ui_coverage in both rounds lists the REBIRTH gap: its panel was never opened, even though the RebirthGui button was pressed. The coverage surfaces are inconsistent and mis-labelled: the 'Owned' surface appears as a named panel, and Owned buttons were pressed.",
+        "severity": "low"
+      }
+    ],
+    "request_id": "mreq_01a16c824e0b77e0949a30edc17ba218"
+  },
+  "correction": null,
+  "verdicts": [],
+  "before": [
+    {
+      "round": 1,
+      "goal": "Play like a new player for the first few minutes: get your plot (walk onto a CLAIM gate or wait for auto-claim), watch cash come in, walk onto the glowing green Dropper 2 buy pad as soon as you can afford it, keep buying the next pads as they appear, open the SHOP with the SHOP button and buy an upgrade there, press REBIRTH once you can afford it, look at the TOP TYCOONS board in the plaza, and report anything confusing, broken or unfair",
+      "goal_met": false,
+      "players": 1,
+      "counters": {
+        "plots_claimed": 1,
+        "purchase_fx_sent": 5,
+        "data_loaded": 1,
+        "tutorial_done": 2,
+        "shop_purchases": 3,
+        "cashin_local_sounds": 167,
+        "cashin_fx_sent": 214,
+        "cubes_collected": 197,
+        "tutorial_reshown": 6,
+        "data_saved": 2,
+        "tutorial_steps": 2,
+        "cubes_dropped": 198,
+        "cashin_milestones": 12,
+        "themes_built": 6,
+        "leaderboard_refresh": 31,
+        "bursts": 320,
+        "tier_upgrades": 1,
+        "highlights": 8,
+        "rebirth_denied": 5,
+        "auto_claims": 1,
+        "juice_events": 316,
+        "plaza_built": 1,
+        "dropper_bought": 2,
+        "shop_opened": 2,
+        "conveyor_bought": 1,
+        "plot_assigned": 1,
+        "map_built": 1,
+        "pad_highlighted": 1,
+        "upgrades_bought": 5,
+        "sounds_played": 167
+      },
+      "errors": {
+        "count": 0,
+        "first": []
+      },
+      "bugs": [
+        {
+          "title": "TotalEarned seeded at ~1 trillion; TOP TYCOONS board shows $1T for a new player",
+          "severity": "medium"
+        },
+        {
+          "title": "SHOP Buy buttons for Cash x1.5 and Gold Ore do not fire",
+          "severity": "medium"
+        },
+        {
+          "title": "Touching the Cash x1.5 upgrade pad did not buy it",
+          "severity": "low"
+        },
+        {
+          "title": "Rebirth path unverified: progress bar and denial feedback unclear",
+          "severity": "low"
+        }
+      ],
+      "events": {
+        "count": 12
+      },
+      "ui_presses": [
+        {
+          "player": "retailtycoonlover21",
+          "text": "REBIRTH $5000 (7%)",
+          "path": "RebirthGui.RebirthButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$22/s",
+              "+12",
+              "Cash: 353"
+            ],
+            "hud_new": [
+              "+$19/s",
+              "Cash: 377",
+              "Need $4647 more to rebirth"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_mult1.State",
+          "fired": false,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$19/s",
+              "+24",
+              "Cash: 521"
+            ],
+            "hud_new": [
+              "+$22/s",
+              "Cash: 533"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_mult1.State",
+          "fired": false,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "Cash: 641",
+              "REBIRTH $5000 (12%)"
+            ],
+            "buttons_new": [
+              "REBIRTH $5000 (13%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (12%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "+12",
+              "Cash: 677",
+              "REBIRTH $5000 (13%)"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_tier_gold.State",
+          "fired": false,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$19/s",
+              "+24",
+              "Cash: 809"
+            ],
+            "hud_new": [
+              "+$17/s",
+              "Cash: 821"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "X",
+          "path": "ShopUi.Panel.Close",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "$10",
+              "$1300",
+              "$150",
+              "$22",
+              "$2200",
+              "$300"
+            ],
+            "panels_closed": [
+              "ShopUi.Panel 'SHOP'"
+            ],
+            "buttons_gone": [
+              "Buy @ ShopUi.Panel.List.Card_mult1.State",
+              "Buy @ ShopUi.Panel.List.Card_tier_gold.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper3.State",
+              "Owned @ ShopUi.Panel.List.Card_speed1.State",
+              "Owned @ ShopUi.Panel.List.Card_tier_silver.State",
+              "X @ ShopUi.Panel.Close"
+            ],
+            "hud_new": [
+              "+$19/s"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "REBIRTH $5000 (22%)",
+          "path": "RebirthGui.RebirthButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "Cash: 1.1K",
+              "REBIRTH $5000 (22%)"
+            ],
+            "buttons_new": [
+              "REBIRTH $5000 (23%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (22%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "Cash: 1.2K",
+              "Need $3855 more to rebirth",
+              "REBIRTH $5000 (23%)"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "SHOP",
+          "path": "ShopUi.ShopButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "Cash: 1.7K",
+              "REBIRTH $5000 (33%)"
+            ],
+            "panels_opened": [
+              "ShopUi.Panel 'SHOP'"
+            ],
+            "buttons_new": [
+              "Buy @ ShopUi.Panel.List.Card_tier_gold.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper3.State",
+              "Owned @ ShopUi.Panel.List.Card_mult1.State",
+              "Owned @ ShopUi.Panel.List.Card_speed1.State",
+              "Owned @ ShopUi.Panel.List.Card_tier_silver.State",
+              "REBIRTH $5000 (35%) @ RebirthGui.RebirthButton",
+              "X @ ShopUi.Panel.Close"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (33%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "$10",
+              "$1300",
+              "$150",
+              "$22",
+              "$2200",
+              "$300"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_tier_gold.State",
+          "fired": false,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "REBIRTH $5000 (37%)"
+            ],
+            "buttons_new": [
+              "REBIRTH $5000 (38%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (37%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "+18",
+              "REBIRTH $5000 (38%)"
+            ]
+          }
+        }
+      ],
+      "ui_coverage": {
+        "surfaces": [
+          {
+            "name": "SHOP",
+            "gui": "ShopUi",
+            "assigned": "retailtycoonlover21",
+            "presses": 10,
+            "fired": 6,
+            "changed": 6,
+            "actions_pressed": [
+              "Buy"
+            ],
+            "actions": []
+          },
+          {
+            "name": "REBIRTH $5000 (0%)",
+            "gui": "RebirthGui",
+            "assigned": "retailtycoonlover21",
+            "presses": 3,
+            "fired": 3,
+            "changed": 3,
+            "actions_pressed": [
+              "REBIRTH $5000 (1%)",
+              "REBIRTH $5000 (22%)",
+              "REBIRTH $5000 (7%)"
+            ],
+            "actions": []
+          },
+          {
+            "name": "REBIRTH",
+            "gui": "",
+            "assigned": "retailtycoonlover21",
+            "presses": 0,
+            "fired": 0,
+            "changed": 0,
+            "actions_pressed": [],
+            "actions": [
+              "REBIRTH $"
+            ]
+          }
+        ],
+        "pressed": 2,
+        "total": 3,
+        "gaps": [
+          "REBIRTH: never pressed, its panel was never opened"
+        ]
+      },
+      "physics": []
+    },
+    {
+      "round": 2,
+      "goal": "Play like a new player for the first few minutes: get your plot (walk onto a CLAIM gate or wait for auto-claim), watch cash come in, walk onto the glowing green Dropper 2 buy pad as soon as you can afford it, keep buying the next pads as they appear, open the SHOP with the SHOP button and buy an upgrade there, press REBIRTH once you can afford it, look at the TOP TYCOONS board in the plaza, and report anything confusing, broken or unfair",
+      "goal_met": true,
+      "players": 1,
+      "counters": {
+        "plots_claimed": 1,
+        "purchase_fx_sent": 7,
+        "data_loaded": 1,
+        "cashin_fx_sent": 434,
+        "tutorial_done": 2,
+        "shop_purchases": 5,
+        "cashin_local_sounds": 326,
+        "upgrades_bought": 7,
+        "cubes_collected": 417,
+        "tutorial_reshown": 6,
+        "data_saved": 5,
+        "tutorial_steps": 2,
+        "cubes_dropped": 419,
+        "highlights": 12,
+        "themes_built": 6,
+        "leaderboard_refresh": 64,
+        "bursts": 636,
+        "tier_upgrades": 1,
+        "auto_claims": 1,
+        "rebirth_denied": 8,
+        "juice_events": 545,
+        "rebirths": 1,
+        "plaza_built": 1,
+        "dropper_bought": 3,
+        "shop_opened": 4,
+        "conveyor_bought": 2,
+        "plot_assigned": 1,
+        "map_built": 1,
+        "pad_highlighted": 1,
+        "cashin_milestones": 13,
+        "sounds_played": 326
+      },
+      "errors": {
+        "count": 0,
+        "first": []
+      },
+      "bugs": [
+        {
+          "title": "TOP TYCOONS board shows $1T cash for the player",
+          "severity": "medium"
+        },
+        {
+          "title": "Gold tier 'Buy' button in the shop does not fire",
+          "severity": "medium"
+        },
+        {
+          "title": "No visible feedback when REBIRTH is pressed while unaffordable",
+          "severity": "low"
+        },
+        {
+          "title": "Tutorial is re-shown repeatedly",
+          "severity": "low"
+        }
+      ],
+      "events": {
+        "count": 12
+      },
+      "ui_presses": [
+        {
+          "player": "retailtycoonlover21",
+          "text": "REBIRTH $5000 (80%)",
+          "path": "RebirthGui.RebirthButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "Cash: 4K",
+              "REBIRTH $5000 (80%)"
+            ],
+            "buttons_new": [
+              "REBIRTH $5000 (81%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (80%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "+36",
+              "Cash: 4.1K",
+              "Need $927 more to rebirth",
+              "REBIRTH $5000 (81%)"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "SHOP",
+          "path": "ShopUi.ShopButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "$10",
+              "$1300",
+              "$150",
+              "$22",
+              "$2200",
+              "$300"
+            ],
+            "panels_closed": [
+              "ShopUi.Panel 'SHOP'"
+            ],
+            "buttons_gone": [
+              "Buy @ ShopUi.Panel.List.Card_tier_gold.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper3.State",
+              "Owned @ ShopUi.Panel.List.Card_mult1.State",
+              "Owned @ ShopUi.Panel.List.Card_speed1.State",
+              "Owned @ ShopUi.Panel.List.Card_tier_silver.State",
+              "X @ ShopUi.Panel.Close"
+            ],
+            "hud_new": [
+              "+$29/s",
+              "+36"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "REBIRTH $5000 (100%)",
+          "path": "RebirthGui.RebirthButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$32/s",
+              "Cash: 5.3K",
+              "Next: Gold Ore ($500)",
+              "REBIRTH $5000 (100%)"
+            ],
+            "panels_opened": [
+              "RebirthFx.Frame"
+            ],
+            "buttons_new": [
+              "REBIRTH $10.0K (0%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "REBIRTH $5000 (100%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "+$25/s",
+              "Cash: 54",
+              "Next: Dropper 2 ($10)",
+              "REBIRTH $10.0K (0%)",
+              "REBIRTH x1.5!"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "SHOP",
+          "path": "ShopUi.ShopButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$7/s",
+              "Cash: 70"
+            ],
+            "panels_opened": [
+              "ShopUi.Panel 'SHOP'"
+            ],
+            "buttons_new": [
+              "Buy @ ShopUi.Panel.List.Card_dropper2.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_dropper3.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_speed1.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_tier_silver.State",
+              "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State",
+              "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State",
+              "X @ ShopUi.Panel.Close"
+            ],
+            "hud_new": [
+              "$10",
+              "$1300",
+              "$150",
+              "$22",
+              "$2200",
+              "$300"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_dropper2.State",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$5/s",
+              "+8",
+              "Cash: 102",
+              "Locked (needs Dropper 2)",
+              "Next: Dropper 2 ($10)",
+              "Ore: Bronze Slots: 3 Cash x1.5"
+            ],
+            "buttons_new": [
+              "Buy @ ShopUi.Panel.List.Card_dropper3.State",
+              "Buy @ ShopUi.Panel.List.Card_speed1.State",
+              "Buy @ ShopUi.Panel.List.Card_tier_silver.State",
+              "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+              "REBIRTH $10.0K (0%) @ RebirthGui.RebirthButton"
+            ],
+            "buttons_gone": [
+              "Buy @ ShopUi.Panel.List.Card_dropper2.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_dropper3.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_speed1.State",
+              "Locked (needs Dropper 2) @ ShopUi.Panel.List.Card_tier_silver.State",
+              "REBIRTH $10.0K (1%) @ RebirthGui.RebirthButton"
+            ],
+            "hud_new": [
+              "+$3/s",
+              "Cash: 92",
+              "Next: Speed 1 ($22)",
+              "Ore: Bronze Slots: 2 Cash x1",
+              "Owned",
+              "REBIRTH $10.0K (0%)"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Owned",
+          "path": "ShopUi.Panel.List.Card_dropper2.State",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$8/s",
+              "Cash: 148"
+            ],
+            "hud_new": [
+              "+$10/s",
+              "Cash: 164"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "Buy",
+          "path": "ShopUi.Panel.List.Card_speed1.State",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "+$8/s",
+              "Cash: 212",
+              "Locked (needs Speed 1)",
+              "Next: Speed 1 ($22)"
+            ],
+            "buttons_new": [
+              "Owned @ ShopUi.Panel.List.Card_speed1.State"
+            ],
+            "buttons_gone": [
+              "Buy @ ShopUi.Panel.List.Card_speed1.State"
+            ],
+            "hud_new": [
+              "+$10/s",
+              "Cash: 206",
+              "Next: Silver Ore ($60)",
+              "Upgraded: Speed 1"
+            ]
+          }
+        },
+        {
+          "player": "retailtycoonlover21",
+          "text": "REBIRTH $10.0K (2%)",
+          "path": "RebirthGui.RebirthButton",
+          "fired": true,
+          "changed": true,
+          "effect": {
+            "hud_gone": [
+              "Cash: 254"
+            ],
+            "hud_new": [
+              "Cash: 270",
+              "Need $9730 more to rebirth"
+            ]
+          }
+        }
+      ],
+      "ui_coverage": {
+        "surfaces": [
+          {
+            "name": "Owned",
+            "gui": "ShopUi",
+            "assigned": "retailtycoonlover21",
+            "presses": 12,
+            "fired": 9,
+            "changed": 9,
+            "actions_pressed": [
+              "Buy",
+              "SHOP"
+            ],
+            "actions": []
+          },
+          {
+            "name": "SHOP",
+            "gui": "ShopUi",
+            "assigned": "retailtycoonlover21",
+            "presses": 12,
+            "fired": 9,
+            "changed": 9,
+            "actions_pressed": [
+              "Buy",
+              "Owned"
+            ],
+            "actions": []
+          },
+          {
+            "name": "REBIRTH $5000 (47%)",
+            "gui": "RebirthGui",
+            "assigned": "retailtycoonlover21",
+            "presses": 4,
+            "fired": 4,
+            "changed": 4,
+            "actions_pressed": [
+              "REBIRTH $10.0K (2%)",
+              "REBIRTH $5000 (100%)",
+              "REBIRTH $5000 (62%)",
+              "REBIRTH $5000 (80%)"
+            ],
+            "actions": []
+          },
+          {
+            "name": "Buy",
+            "gui": "ShopUi",
+            "assigned": "retailtycoonlover21",
+            "presses": 12,
+            "fired": 9,
+            "changed": 9,
+            "actions_pressed": [
+              "Owned",
+              "SHOP"
+            ],
+            "actions": []
+          },
+          {
+            "name": "REBIRTH",
+            "gui": "",
+            "assigned": "retailtycoonlover21",
+            "presses": 0,
+            "fired": 0,
+            "changed": 0,
+            "actions_pressed": [],
+            "actions": [
+              "REBIRTH $"
+            ]
+          }
+        ],
+        "pressed": 4,
+        "total": 5,
+        "gaps": [
+          "REBIRTH: never pressed, its panel was never opened"
+        ]
+      },
+      "physics": []
+    }
+  ],
+  "open": 14,
+  "code_fixes": [
+    {
+      "anomaly": "Check fails: pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+      "path": "StarterPlayerScripts/ShopUi.client.luau",
+      "attempts": [
+        {
+          "status": "fixed",
+          "verdict": {
+            "verdict": "inconclusive",
+            "evidence": "The anomaly is a static check on how many times tryBuy references buyFail, and the digests carry no counter or event for buyFail feedback. In round 3 no 'Locked (needs ...)' card ever appeared, because no rebirth reset the shop (rebirths absent, as in round 1), so the locked-card Buy branch was never pressed. The Buy presses that did happen (Card_mult1, Card_tier_gold) were unlocked and still show fired:false, as in round 1.",
+            "regressions": [],
+            "request_id": "mreq_01a16c861f6e7de398794fa0871b1796"
+          },
+          "checks": {
+            "repro": {
+              "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+              "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+              "ok": true,
+              "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message"
+            },
+            "guards": [
+              {
+                "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+                "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+                "ok": true,
+                "detail": "map_built=1 plaza_built=1 themes_built=6"
+              },
+              {
+                "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+                "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+                "ok": true,
+                "detail": "count=10 first=Dropper 2 cost=10"
+              },
+              {
+                "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+                "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+                "ok": true,
+                "detail": "Cash=0 Rebirths=0"
+              },
+              {
+                "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+                "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+                "ok": true,
+                "detail": "claim labels=6 distinct=6"
+              },
+              {
+                "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+                "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+                "ok": true,
+                "detail": "all boundaries ok"
+              },
+              {
+                "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+                "title": "Rebirth config stays sane at very large rebirth counts",
+                "ok": true,
+                "detail": "cost10=5120000 mult10=6"
+              },
+              {
+                "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+                "title": "NumberFormat handles zero, huge and invalid values without erroring",
+                "ok": true,
+                "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞"
+              },
+              {
+                "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+                "title": "cubes_dropped stays 0 while no plot has been claimed",
+                "ok": true,
+                "detail": "no plot claimed, cubes_dropped=0"
+              },
+              {
+                "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+                "title": "Player spawns in the plaza before claiming a plot",
+                "ok": true,
+                "detail": "distance from plaza center=13.0 pos=0, 3.3984375, 13"
+              },
+              {
+                "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+                "title": "Cash leaderstat accepts a very large value and restores cleanly",
+                "ok": true,
+                "detail": "old=0 big readback=1000000000000 restored=0"
+              },
+              {
+                "id": "11-all-telemetry-counters-are-non-negative-numbers",
+                "title": "All telemetry counters are non-negative numbers",
+                "ok": true,
+                "detail": "counters=5"
+              },
+              {
+                "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+                "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+                "ok": true,
+                "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz"
+              },
+              {
+                "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+                "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+                "ok": true,
+                "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true"
+              },
+              {
+                "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+                "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+                "ok": true,
+                "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder"
+              },
+              {
+                "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+                "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+                "ok": true,
+                "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false"
+              },
+              {
+                "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+                "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+                "ok": true,
+                "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)"
+              }
+            ]
+          }
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "In ShopUi.client.luau, tryBuy has no check for an unmet requirement. It only handles the owned case, the debounce, and the insufficient-cash branch, which is the only direct ShopFx.buyFail call. The other buyFail call is a 2-second pending-buy timeout. A card whose requirement is not owned (button text 'Locked (needs ...)') therefore falls through when the player has enough cash. The client fires BuyUpgrade, the server rejects it, and the player gets no immediate shake, buzz or toast. The probe confirmed that locked cards exist (mult1, tier_gold, dropper4, mult2 and tier_diamond all show 'Locked (needs X)'), and refresh() already computes the requirement state but tryBuy ignores it. I did not trigger a buy on a locked card to watch the silent failure directly.",
+          "file": "StarterPlayerScripts/ShopUi.client.luau",
+          "evidence": "The tryBuy source has one direct buyFail call, in the cash < u.cost branch, plus the 2-second pending timeout. It has no u.requires / ownedSet[u.requires] check. The client probe listed cards with 'Locked (needs Silver Ore)', 'Locked (needs Dropper 3)', 'Locked (needs Cash x1.5)' and 'Locked (needs Gold Ore)'. Each of these buttons has Active=true and goes through tryBuy.",
+          "fix_hint": "In tryBuy, after the owned check and before the cash check, add: if u.requires and not ownedSet[u.requires] then card.button.BackgroundColor3 = UiTheme.bad; task.delay(0.25, refresh); ShopFx.buyFail(card.frame); return end. This gives a locked card its own buyFail call (shake, buzz, toast) and returns before the remote fires."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "read",
+              "path": "StarterPlayerScripts/ShopUi.client.luau",
+              "why": "tryBuy lives here; check buyFail references"
+            },
+            "result": "--!nonstrict\n-- ShopUi.client: client-only shop panel (SHOP button + upgrade cards). Sends intent only.\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal TweenService = game:GetService(\"TweenService\")\n\nlocal player = Players.LocalPlayer\nlocal UiTheme = require(ReplicatedStorage:WaitForChild(\"UiTheme\"))\nlocal Upgrades = require(ReplicatedStorage:WaitForChild(\"Upgrades\"))\n\nlocal ShopFx = nil\ndo\n\tlocal fxModule = script.Parent:WaitForChild(\"ShopFx\", 10)\n\tif fxModule then\n\t\tlocal okFx, mod = pcall(require, fxModule)\n\t\tif okFx then\n\t\t\tShopFx = mod\n\t\tend\n\tend\n\tif not ShopFx then\n\t\twarn(\"[ShopUi] ShopFx missing; using no-op effects\")\n\t\tShopFx = {\n\t\t\topenPanel = function(p)\n\t\t\t\tp.Visible = true\n\t\t\t\tlocal sc = p:FindFirstChildOfClass(\"UIScale\")\n\t\t\t\tif sc then\n\t\t\t\t\tsc.Scale = 0\n\t\t\t\t\tTweenService:Create(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()\n\t\t\t\tend\n\t\t\tend,\n\t\t\tbuySuccess = function() end,\n\t\t\tbuyFail = function() end,\n\t\t}\n\tend\nend\nlocal pendingBuy = nil\n\nlocal buyRemote = ReplicatedStorage:WaitForChild(\"BuyUpgrade\", 10)\nlocal syncRemote = ReplicatedStorage:WaitForChild(\"ShopSync\", 10)\nif not buyRemote or not syncRemote then\n\twarn(\"[ShopUi] shop remotes missing; shop disabled\")\n\treturn\nend\n\nlocal playerGui = player:WaitForChild(\"PlayerGui\")\n\nlocal ownedSet = {}\nlocal cash = 0\nlocal cards = {}\nlocal lastBuy = 0\n\n-- Effect text built from the exact effect fields in Upgrades\nlocal function effectText(u)\n\tlocal e = u.effect\n\tif type(e) ~= \"table\" then\n\t\treturn \"\"\n\tend\n\tif e.kind == \"dropper\" then\n\t\treturn \"Droppers: \" .. tostring(e.slots)\n\telseif e.kind == \"tier\" then\n\t\tlocal ore = Upgrades.ores[e.tier]\n\t\tif ore then\n\t\t\treturn ore.name .. \" ore, $\" .. tostring(ore.value) .. \" each\"\n\t\tend\n\t\treturn \"Ore tier \" .. tostring(e.tier)\n\telseif e.kind == \"speed\" then\n\t\treturn \"Conveyor speed x\" .. tostring(e.mult)\n\telseif e.kind == \"cashMult\" then\n\t\treturn \"Cash payout x\" .. tostring(e.mult)\n\tend\n\treturn tostring(e.kind)\nend\n\nlocal function swatchColor(u)\n\tlocal e = u.effect\n\tif type(e) == \"table\" then\n\t\tif e.kind == \"tier\" and Upgrades.ores[e.tier] then\n\t\t\treturn Upgrades.ores[e.tier].color\n\t\telseif e.kind == \"dropper\" then\n\t\t\treturn UiTheme.info\n\t\telseif e.kind == \"speed\" then\n\t\t\treturn UiTheme.good\n\t\tend\n\tend\n\treturn UiTheme.accent\nend\n\n-- GUI\nlocal gui = Instance.new(\"ScreenGui\")\ngui.Name = \"ShopUi\"\ngui.ResetOnSpawn = false\ngui.DisplayOrder = 5\ngui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling\ngui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets\n\nlocal panel = Instance.new(\"Frame\")\npanel.Name = \"Panel\"\npanel.AnchorPoint = Vector2.new(0.5, 0.5)\npanel.Position = UDim2.fromScale(0.54, 0.5)\npanel.Size = UDim2.fromScale(0.82, 0.8)\npanel.BackgroundColor3 = UiTheme.panel\npanel.BorderSizePixel = 0\npanel.Visible = false\npanel.ZIndex = 1\npanel.Parent = gui\nUiTheme.roundify(panel, 18)\nlocal panelStroke = Instance.new(\"UIStroke\")\npanelStroke.Thickness = 4\npanelStroke.Color = UiTheme.ink\npanelStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border\npanelStroke.Parent = panel\nlocal limit = Instance.new(\"UISizeConstraint\")\nlimit.MaxSize = Vector2.new(420, 520)\nlimit.MinSize = Vector2.new(240, 260)\nlimit.Parent = panel\nlocal panelScale = Instance.new(\"UIScale\")\npanelScale.Parent = panel\n\nlocal title = Instance.new(\"TextLabel\")\ntitle.Name = \"Title\"\ntitle.BackgroundTransparency = 1\ntitle.Position = UDim2.fromScale(0.04, 0.02)\ntitle.Size = UDim2.fromScale(0.6, 0.09)\ntitle.Text = \"SHOP\"\ntitle.Font = UiTheme.headerFont\ntitle.TextScaled = true\ntitle.TextXAlignment = Enum.TextXAlignment.Left\ntitle.TextColor3 = UiTheme.accent\ntitle.ZIndex = 2\ntitle.Parent = panel\nlocal titleStroke = Instance.new(\"UIStroke\")\ntitleStroke.Thickness = 3\ntitleStroke.Color = UiTheme.ink\ntitleStroke.Parent = title\n\nlocal scroll = Instance.new(\"ScrollingFrame\")\nscroll.Name = \"List\"\nscroll.Position = UDim2.fromScale(0.03, 0.13)\nscroll.Size = UDim2.fromScale(0.94, 0.85)\nscroll.BackgroundTransparency = 1\nscroll.BorderSizePixel = 0\nscroll.ScrollBarThickness = 6\nscroll.AutomaticCanvasSize = Enum.AutomaticSize.Y\nscroll.CanvasSize = UDim2.new()\nscroll.ZIndex = 2\nscroll.Parent = panel\nlocal layout = Instance.new(\"UIListLayout\")\nlayout.Padding = UDim.new(0, 8)\nlayout.SortOrder = Enum.SortOrder.LayoutOrder\nlayout.Parent = scroll\nlocal listPad = Instance.new(\"UIPadding\")\nlistPad.PaddingRight = UDim.new(0, 8)\nlistPad.PaddingBottom = UDim.new(0, 8)\nlistPad.Parent = scroll\n\nlocal function makeLabel(parent, name, pos, size, color)\n\tlocal l = Instance.new(\"TextLabel\")\n\tl.Name = name\n\tl.BackgroundTransparency = 1\n\tl.Position = pos\n\tl.Size = size\n\tl.Font = UiTheme.font\n\tl.TextScaled = true\n\tl.TextXAlignment = Enum.TextXAlignment.Left\n\tl.TextColor3 = color\n\tl.ZIndex = 4\n\tl.Parent = parent\n\tlocal cap = Instance.new(\"UITextSizeConstraint\")\n\tcap.MinTextSize = 10\n\tcap.MaxTextSize = 24\n\tcap.Parent = l\n\treturn l\nend\n\nlocal function refresh()\n\tfor _, c in ipairs(cards) do\n\t\tlocal u = c.upgrade\n\t\tlocal owned = ownedSet[u.id] == true\n\t\tlocal reqName = nil\n\t\tif u.requires and not ownedSet[u.requires] then\n\t\t\tlocal req = Upgrades.byId[u.requires]\n\t\t\treqName = req and req.name or tostring(u.requires)\n\t\tend\n\t\tlocal dimmed = (not owned) and cash < u.cost\n\t\tc.frame.BackgroundTransparency = dimmed and 0.45 or 0\n\t\tc.name.TextColor3 = dimmed and UiTheme.locked or UiTheme.text\n\t\tc.effect.TextColor3 = dimmed and UiTheme.locked or UiTheme.text\n\t\tc.cost.TextColor3 = dimmed and UiTheme.locked or UiTheme.text\n\t\tc.swatch.BackgroundTransparency = dimmed and 0.5 or 0\n\t\tc.cost.Text = \"$\" .. tostring(u.cost)\n\t\tlocal b = c.button\n\t\tif owned then\n\t\t\tb.Text = \"Owned\"\n\t\t\tb.BackgroundColor3 = UiTheme.dim\n\t\t\tb.AutoButtonColor = false\n\t\t\tb.Active = false\n\t\telseif reqName then\n\t\t\tb.Text = \"Locked (needs \" .. reqName .. \")\"\n\t\t\tb.BackgroundColor3 = UiTheme.locked\n\t\t\tb.AutoButtonColor = false\n\t\t\tb.Active = true\n\t\telse\n\t\t\tb.Text = \"Buy\"\n\t\t\tb.BackgroundColor3 = dimmed and UiTheme.dim or UiTheme.good\n\t\t\tb.AutoButtonColor = true\n\t\t\tb.Active = true\n\t\tend\n\t\tb.TextWrapped = true\n\tend\nend\n\nlocal function tryBuy(card)\n\tlocal u = card.upgrade\n\tif ownedSet[u.id] then\n\t\treturn\n\tend\n\tif os.clock() - lastBuy < 0.4 then\n\t\treturn\n\tend\n\tif cash < u.cost then\n\t\tlocal b = card.button\n\t\tb.BackgroundColor3 = UiTheme.bad\n\t\ttask.delay(0.25, refresh)\n\t\tShopFx.buyFail(card.frame)\n\t\treturn\n\tend\n\tlastBuy = os.clock()\n\tlocal token = { card = card }\n\tpendingBuy = token\n\tbuyRemote:FireServer(u.id)\n\ttask.delay(2, function()\n\t\tif pendingBuy == token then\n\t\t\tpendingBuy = nil\n\t\t\tShopFx.buyFail(card.frame)\n\t\tend\n\tend)\nend\n\nfor i, u in ipairs(Upgrades.list) do\n\tlocal frame = Instance.new(\"Frame\")\n\tframe.Name = \"Card_\" .. u.id\n\tframe.Size = UDim2.new(1, 0, 0, 96)\n\tframe.BackgroundColor3 = UiTheme.card\n\tframe.BorderSizePixel = 0\n\tframe.LayoutOrder = i\n\tframe.ZIndex = 3\n\tframe.Parent = scroll\n\tUiTheme.roundify(frame, 12)\n\tlocal fs = Instance.new(\"UIStroke\")\n\tfs.Thickness = 2\n\tfs.Color = UiTheme.ink\n\tfs.ApplyStrokeMode = E\n...[4116 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Client",
+              "code": "local pg = game.Players.LocalPlayer.PlayerGui\nlocal gui = pg:FindFirstChild('ShopUi')\nlocal out = {}\nif gui then\n  for _, c in ipairs(gui.Panel.List:GetChildren()) do\n    if c:IsA('Frame') then\n      local b = c:FindFirstChildWhichIsA('TextButton', true)\n      table.insert(out, c.Name .. ': ' .. (b and b.Text or 'nobtn'))\n    end\n  end\nend\nreturn game:GetService('HttpService'):JSONEncode(out)",
+              "why": "Confirm locked cards exist with 'Locked (needs ...)' button text, while tryBuy has no requirement check that calls buyFail"
+            },
+            "result": "[\"Card_dropper2: Owned\",\"Card_speed1: Owned\",\"Card_tier_silver: Buy\",\"Card_dropper3: Buy\",\"Card_mult1: Locked (needs Silver Ore)\",\"Card_tier_gold: Locked (needs Silver Ore)\",\"Card_speed2: Buy\",\"Card_dropper4: Locked (needs Dropper 3)\",\"Card_mult2: Locked (needs Cash x1.5)\",\"Card_tier_diamond: Locked (needs Gold Ore)\"]"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16c82b2dc71008a51939c89f582f8",
+          "mreq_01a16c82eab57380aba5d9cffc29f90e",
+          "mreq_01a16c82fcf97102ac7b1e192514b881"
+        ]
+      },
+      "repro": {
+        "check": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+        "source": "saved",
+        "before": {
+          "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+          "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+          "ok": false,
+          "detail": "tryBuy references buyFail 1 time(s); expected at least 2 (insufficient cash and locked/rejected branch)"
+        },
+        "attempts": [],
+        "saved": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-ac2a218754292fed0/runs/tiny-tycoon/checks/pressing-buy-on-a-locked-card-requirement-not-owned-must-tri.luau"
+      },
+      "version": "v71",
+      "status": "kept"
+    },
+    {
+      "anomaly": "Check fails: Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+      "path": "ServerScriptService/CashInService.luau",
+      "attempts": [
+        {
+          "status": "check_failed",
+          "error": "The failing check still fails after your fix: 101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only). Make the behaviour the check asserts true.",
+          "checks": {
+            "repro": {
+              "id": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+              "title": "Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+              "ok": false,
+              "detail": "101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only)"
+            },
+            "guards": [
+              {
+                "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+                "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+                "ok": true,
+                "detail": "map_built=1 plaza_built=1 themes_built=6"
+              },
+              {
+                "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+                "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+                "ok": true,
+                "detail": "count=10 first=Dropper 2 cost=10"
+              },
+              {
+                "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+                "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+                "ok": true,
+                "detail": "Cash=15 Rebirths=0"
+              },
+              {
+                "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+                "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+                "ok": true,
+                "detail": "claim labels=6 distinct=6"
+              },
+              {
+                "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+                "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+                "ok": true,
+                "detail": "all boundaries ok"
+              },
+              {
+                "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+                "title": "Rebirth config stays sane at very large rebirth counts",
+                "ok": true,
+                "detail": "cost10=5120000 mult10=6"
+              },
+              {
+                "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+                "title": "NumberFormat handles zero, huge and invalid values without erroring",
+                "ok": true,
+                "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞"
+              },
+              {
+                "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+                "title": "cubes_dropped stays 0 while no plot has been claimed",
+                "ok": true,
+                "detail": "plot already claimed (plot_assigned=1), cubes_dropped=1, nothing to verify"
+              },
+              {
+                "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+                "title": "Player spawns in the plaza before claiming a plot",
+                "ok": true,
+                "detail": "plot already claimed (1), spawn position not verifiable"
+              },
+              {
+                "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+                "title": "Cash leaderstat accepts a very large value and restores cleanly",
+                "ok": true,
+                "detail": "old=15 big readback=1000000000000 restored=15"
+              },
+              {
+                "id": "11-all-telemetry-counters-are-non-negative-numbers",
+                "title": "All telemetry counters are non-negative numbers",
+                "ok": true,
+                "detail": "counters=18"
+              },
+              {
+                "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+                "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+                "ok": true,
+                "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz"
+              },
+              {
+                "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+                "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+                "ok": true,
+                "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true"
+              },
+              {
+                "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+                "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+                "ok": true,
+                "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder"
+              },
+              {
+                "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+                "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+                "ok": true,
+                "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false"
+              },
+              {
+                "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+                "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+                "ok": true,
+                "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)"
+              },
+              {
+                "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+                "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+                "ok": true,
+                "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message"
+              }
+            ]
+          }
+        },
+        {
+          "status": "check_failed",
+          "error": "The failing check still fails after your fix: 101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only). Make the behaviour the check asserts true.",
+          "checks": {
+            "repro": {
+              "id": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+              "title": "Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+              "ok": false,
+              "detail": "101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only)"
+            },
+            "guards": [
+              {
+                "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+                "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+                "ok": true,
+                "detail": "map_built=1 plaza_built=1 themes_built=6"
+              },
+              {
+                "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+                "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+                "ok": true,
+                "detail": "count=10 first=Dropper 2 cost=10"
+              },
+              {
+                "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+                "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+                "ok": true,
+                "detail": "Cash=15 Rebirths=0"
+              },
+              {
+                "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+                "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+                "ok": true,
+                "detail": "claim labels=6 distinct=6"
+              },
+              {
+                "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+                "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+                "ok": true,
+                "detail": "all boundaries ok"
+              },
+              {
+                "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+                "title": "Rebirth config stays sane at very large rebirth counts",
+                "ok": true,
+                "detail": "cost10=5120000 mult10=6"
+              },
+              {
+                "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+                "title": "NumberFormat handles zero, huge and invalid values without erroring",
+                "ok": true,
+                "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞"
+              },
+              {
+                "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+                "title": "cubes_dropped stays 0 while no plot has been claimed",
+                "ok": true,
+                "detail": "plot already claimed (plot_assigned=1), cubes_dropped=1, nothing to verify"
+              },
+              {
+                "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+                "title": "Player spawns in the plaza before claiming a plot",
+                "ok": true,
+                "detail": "plot already claimed (1), spawn position not verifiable"
+              },
+              {
+                "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+                "title": "Cash leaderstat accepts a very large value and restores cleanly",
+                "ok": true,
+                "detail": "old=15 big readback=1000000000000 restored=15"
+              },
+              {
+                "id": "11-all-telemetry-counters-are-non-negative-numbers",
+                "title": "All telemetry counters are non-negative numbers",
+                "ok": true,
+                "detail": "counters=18"
+              },
+              {
+                "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+                "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+                "ok": true,
+                "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz"
+              },
+              {
+                "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+                "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+                "ok": true,
+                "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true"
+              },
+              {
+                "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+                "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+                "ok": true,
+                "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder"
+              },
+              {
+                "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+                "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+                "ok": true,
+                "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false"
+              },
+              {
+                "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+                "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+                "ok": true,
+                "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)"
+              },
+              {
+                "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+                "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+                "ok": true,
+                "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message"
+              }
+            ]
+          }
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "In CashInService's cash-in handler, the milestone burst block is gated on `burstInfo = info`, the collector found by findCollector/scanForCollectors. The check cashes in 101 times at a bare position, so no registered collector part exists (or none is near it) and `info` stays nil. The whole block is then skipped, including `GameAssets.burst`, even though milestone counts 1/10/50/100 are computed correctly (`MILESTONES[total]`). GameAssets.burst exists and is a function, so the burst depends only on the collector lookup. Milestones are supposed to always burst. This conclusion comes from reading the code and confirming GameAssets.burst exists. I did not directly probe that `info` is nil.",
+          "file": "ServerScriptService/CashInService.luau",
+          "evidence": "A probe showed GameAssets exposes burst:function. The source read shows `local burstInfo = info; if burstInfo and (milestone or gate(lastBurstAt, player)) then ... GameAssets.burst(burstInfo.part.Position ...)`. The milestone computation (`MILESTONES[total]`, with total as the per-player sentTotal count) runs before this and is unconditional. The burst is the only call to GameAssets.burst, and it needs a non-nil collector `info`. The check observed 0 burst calls across 101 cash-ins, which fits `info == nil` skipping the block.",
+          "fix_hint": "Do not require a collector for the burst. Compute `local burstPos = if info then info.part.Position else pos`. Change the condition to `if milestone or gate(lastBurstAt, player) then` and call `GameAssets.burst(burstPos, tierColor, 30)` for milestones and `GameAssets.burst(burstPos)` otherwise. Keep the existing pcall."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/CashInService.luau",
+              "why": "Owner of cash-in feedback; check milestone burst logic"
+            },
+            "result": "--!strict\n-- CashInService: server-side owner of cash-in / purchase feedback.\n-- Sends display data only to clients; never changes cash.\n\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal CollectionService = game:GetService(\"CollectionService\")\nlocal TweenService = game:GetService(\"TweenService\")\nlocal SoundService = game:GetService(\"SoundService\")\nlocal Debris = game:GetService(\"Debris\")\n\nlocal CashInConfig = require(ReplicatedStorage:WaitForChild(\"CashInConfig\", 10))\nlocal ForgeTelemetry = require(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\", 10))\n\n-- Guarded lookup: a missing/broken TutorialService must never stop this service.\nlocal TutorialService: any = nil\ndo\n\tlocal ok, res = pcall(function()\n\t\tlocal m = script.Parent:WaitForChild(\"TutorialService\", 10)\n\t\tif m and m:IsA(\"ModuleScript\") then\n\t\t\treturn require(m)\n\t\tend\n\t\treturn nil\n\tend)\n\tif ok then\n\t\tTutorialService = res\n\telse\n\t\tForgeTelemetry.count(\"cashin_tutorial_missing\", 1)\n\tend\nend\n\nlocal Cfg: any = CashInConfig\n\nlocal FLASH_COLOR = Color3.fromRGB(255, 214, 64)\nlocal FLASH_TIME = 0.15\nlocal AGGREGATE_DELAY = 0.25 -- over-limit cash-ins are merged into one popup this often\nlocal COMBO_WINDOW = 2 -- seconds between cubes that keep a streak alive\nlocal MILESTONES: { [number]: boolean } = { [1] = true, [10] = true, [50] = true, [100] = true }\nlocal CASH_MILESTONES: { number } = { 50, 100, 500, 1000, 5000 }\nlocal COIN_VOLUME = 0.8\nlocal FX_THROTTLE = 0.15 -- min seconds between coin sounds / bursts per player\nlocal DEFAULT_POPUPS_PER_SECOND = 4\n\n-- Optional GameAssets (burst at the intake); never required to succeed.\nlocal GameAssets: any = nil\ndo\n\tlocal mod = ReplicatedStorage:FindFirstChild(\"GameAssets\")\n\tif mod and mod:IsA(\"ModuleScript\") then\n\t\tlocal ok, res = pcall(require, mod)\n\t\tif ok then\n\t\t\tGameAssets = res\n\t\tend\n\tend\nend\n\nlocal function getOrCreateRemote(name: string): RemoteEvent\n\tlocal existing = ReplicatedStorage:FindFirstChild(name)\n\tif existing and existing:IsA(\"RemoteEvent\") then\n\t\treturn existing\n\tend\n\tlocal remote = Instance.new(\"RemoteEvent\")\n\tremote.Name = name\n\tremote.Parent = ReplicatedStorage\n\treturn remote\nend\n\nlocal CashInRemote = getOrCreateRemote(Cfg.CASHIN_REMOTE or \"CashInFX\")\nlocal PurchaseRemote = getOrCreateRemote(Cfg.PURCHASE_REMOTE or \"PurchaseFX\")\n\nlocal CashInService = {}\n\ntype CollectorInfo = {\n\tpart: BasePart,\n\tbaseColor: Color3,\n\temitter: ParticleEmitter,\n\ttween: Tween?,\n}\n\ntype Pending = {\n\tamount: number,\n\tcubes: number,\n\ttier: number,\n\tpos: Vector3,\n\tpitch: number,\n}\n\nlocal collectors: { CollectorInfo } = {}\nlocal sendLog: { [Player]: { number } } = {}\nlocal sentTotal: { [Player]: number } = {}\nlocal cashTotal: { [Player]: number } = {}\nlocal pendingPopups: { [Player]: Pending } = {}\nlocal streaks: { [Player]: { count: number, last: number } } = {}\nlocal lastSoundAt: { [Player]: number } = {}\nlocal lastBurstAt: { [Player]: number } = {}\nlocal lastScan = 0\n\nlocal function isFiniteNumber(v: any): boolean\n\treturn type(v) == \"number\" and v == v and v ~= math.huge and v ~= -math.huge\nend\n\n-- Per-player throttle gate: returns true (and stamps) if enough time has passed.\nlocal function gate(tbl: { [Player]: number }, player: Player?): boolean\n\tif player == nil then\n\t\treturn true\n\tend\n\tlocal now = os.clock()\n\tlocal last = tbl[player]\n\tif last and now - last < FX_THROTTLE then\n\t\treturn false\n\tend\n\ttbl[player] = now\n\treturn true\nend\n\nlocal function toSoundIdString(v: any): string\n\tif type(v) == \"string\" then\n\t\treturn v\n\telseif type(v) == \"number\" and v > 0 then\n\t\treturn \"rbxassetid://\" .. tostring(math.floor(v))\n\telseif type(v) == \"table\" then\n\t\tlocal inner = v.SoundId or v.Id or v.id or v.soundId\n\t\tif inner ~= nil and inner ~= v then\n\t\t\treturn toSoundIdString(inner)\n\t\tend\n\tend\n\treturn \"\"\nend\n\n-- Try to find the sound id for a director sound name (e.g. \"Coin\") in GameAssets.\nlocal function assetSoundId(name: string): string\n\tif GameAssets == nil then\n\t\treturn \"\"\n\tend\n\tlocal ok, res = pcall(function(): string\n\t\tlocal ga: any = GameAssets\n\t\tfor _, key in ipairs({ \"Sounds\", \"sounds\", \"SOUNDS\" }) do\n\t\t\tlocal tbl = ga[key]\n\t\t\tif type(tbl) == \"table\" then\n\t\t\t\tlocal s = toSoundIdString(tbl[name])\n\t\t\t\tif s ~= \"\" then\n\t\t\t\t\treturn s\n\t\t\t\tend\n\t\t\tend\n\t\tend\n\t\treturn \"\"\n\tend)\n\tif ok and type(res) == \"string\" then\n\t\treturn res\n\tend\n\treturn \"\"\nend\n\nlocal function configSoundId(): string\n\t-- Prefer the verified GameAssets coin id, then the config id.\n\tlocal a = assetSoundId(\"Coin\")\n\tif a ~= \"\" then\n\t\treturn a\n\tend\n\treturn toSoundIdString(Cfg.CASHIN_SOUND_ID)\nend\n\nlocal function pitchForTier(tier: number): number\n\tlocal fn = Cfg.pitchForTier\n\tif type(fn) == \"function\" then\n\t\tlocal ok, res = pcall(fn, tier)\n\t\tif ok and isFiniteNumber(res) then\n\t\t\treturn res\n\t\tend\n\tend\n\treturn math.clamp(1 + 0.12 * (tier - 1), 0.5, 2)\nend\n\nlocal function tierColorFor(tier: number): Color3\n\tlocal tc: any = Cfg.TIER_COLORS\n\tif type(tc) == \"table\" then\n\t\tlocal c = tc[tier]\n\t\tif typeof(c) == \"Color3\" then\n\t\t\treturn c\n\t\tend\n\tend\n\treturn FLASH_COLOR\nend\n\nlocal function isRegistered(part: BasePart): boolean\n\tfor _, info in ipairs(collectors) do\n\t\tif info.part == part then\n\t\t\treturn true\n\t\tend\n\tend\n\treturn false\nend\n\n-- Fallback discovery: decorate any workspace part that looks like a collector\n-- if nothing has been registered through decorateCollector yet.\nlocal function scanForCollectors()\n\tlocal now = os.clock()\n\tif now - lastScan < 2 then\n\t\treturn\n\tend\n\tlastScan = now\n\tfor _, d in ipairs(workspace:GetDescendants()) do\n\t\tif d:IsA(\"BasePart\") and string.find(string.lower(d.Name), \"collector\", 1, true) then\n\t\t\tif not string.find(d.Name, \"CashIn\", 1, true) and not isRegistered(d) then\n\t\t\t\tCashInService.decorateCollector(d)\n\t\t\tend\n\t\tend\n\tend\nend\n\nlocal function findCollector(pos: Vector3): CollectorInfo?\n\tlocal best: CollectorInfo? = nil\n\tlocal bestDist = math.huge\n\tfor i = #collectors, 1, -1 do\n\t\tlocal info = collectors[i]\n\t\tif info.part.Parent == nil then\n\t\t\ttable.remove(collectors, i)\n\t\telse\n\t\t\tlocal d = (info.part.Position - pos).Magnitude\n\t\t\tif d < bestDist then\n\t\t\t\tbestDist = d\n\t\t\t\tbest = info\n\t\t\tend\n\t\tend\n\tend\n\tif best == nil and #collectors > 0 then\n\t\tbest = collectors[#collectors]\n\tend\n\treturn best\nend\n\n-- Plays a non-positional (2D) sound for exactly one player by parenting a Sound\n-- to their PlayerGui. Returns true if it was started. Always cleaned up via Debris.\nlocal function playForPlayer(player: Player, soundId: string, volume: number, pitch: number): boolean\n\tif soundId == \"\" then\n\t\treturn false\n\tend\n\tif player.Parent ~= Players then\n\t\treturn false\n\tend\n\tlocal gui = player:FindFirstChildOfClass(\"PlayerGui\")\n\tif not gui then\n\t\treturn false\n\tend\n\tlocal ok = pcall(function()\n\t\tlocal s = Instance.new(\"Sound\")\n\t\ts.Name = \"CashInLocalSound\"\n\t\ts.SoundId = soundId\n\t\ts.Volume = volume\n\t\ts.PlaybackSpeed = math.clamp(pitch, 0.5, 2)\n\t\ts.RollOffMaxDistance = 10000\n\t\ts.Parent = gui\n\t\ts.Ended:Once(function()\n\t\t\ts:Destroy()\n\t\tend)\n\t\ts:Play()\n\t\tDebris:AddItem(\n...[13850 more chars]"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ReplicatedStorage/GameAssets.luau",
+              "why": "Check whether GameAssets.burst exists and its signature, since CashInService only calls it if GameAssets loaded"
+            },
+            "result": "--!nonstrict\n-- GameAssets: prebuilt by Forge's art pass (forge/director.py). Palette, verified sound ids, particle\n-- bursts, camera shake and styled parts. Works on server and client. Do not rewrite; require it.\nlocal Players = game:GetService(\"Players\")\nlocal RunService = game:GetService(\"RunService\")\nlocal SoundService = game:GetService(\"SoundService\")\nlocal Lighting = game:GetService(\"Lighting\")\nlocal TweenService = game:GetService(\"TweenService\")\nlocal Debris = game:GetService(\"Debris\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\n\nlocal GameAssets = {}\n\n-- Server-side telemetry (optional, never yields, never errors).\nlocal telemetryFn: any = nil\nlocal function countTelemetry(name: string, n: number?)\n\tif not RunService:IsServer() then\n\t\treturn\n\tend\n\tif telemetryFn == nil then\n\t\tlocal mod = ReplicatedStorage:FindFirstChild(\"ForgeTelemetry\")\n\t\tif mod and mod:IsA(\"ModuleScript\") then\n\t\t\tlocal ok, res = pcall(require, mod)\n\t\t\tif ok and type(res) == \"table\" and type(res.count) == \"function\" then\n\t\t\t\ttelemetryFn = res.count\n\t\t\telse\n\t\t\t\ttelemetryFn = false\n\t\t\tend\n\t\telse\n\t\t\treturn -- may appear later; try again next time\n\t\tend\n\tend\n\tif telemetryFn then\n\t\tpcall(telemetryFn, name, n or 1)\n\tend\nend\n\nGameAssets.Palette = {\n\tInk = Color3.fromRGB(28, 22, 38),\n\tCream = Color3.fromRGB(255, 248, 232),\n\tPrimary = Color3.fromRGB(255, 196, 41),\n\tGood = Color3.fromRGB(88, 214, 92),\n\tBad = Color3.fromRGB(240, 68, 64),\n\tInfo = Color3.fromRGB(64, 170, 255),\n\tGem = Color3.fromRGB(190, 92, 255),\n\tGrass = Color3.fromRGB(110, 200, 90),\n\tWood = Color3.fromRGB(176, 120, 72),\n\tStone = Color3.fromRGB(120, 130, 150),\n\tC1 = Color3.fromRGB(255, 143, 208),\n\tC2 = Color3.fromRGB(255, 106, 43),\n\tC3 = Color3.fromRGB(127, 227, 255),\n\tC4 = Color3.fromRGB(76, 217, 100),\n\tC5 = Color3.fromRGB(176, 76, 255),\n\tC6 = Color3.fromRGB(242, 196, 107),\n\tC7 = Color3.fromRGB(255, 210, 63),\n\tC8 = Color3.fromRGB(43, 45, 66),\n}\n\nGameAssets.Sounds = {\n\tCoin = \"rbxasset://sounds/volume_slider.ogg\",\n\tBuy = \"rbxasset://sounds/volume_slider.ogg\",\n\tGem = \"rbxasset://sounds/volume_slider.ogg\",\n\tClick = \"rbxasset://sounds/volume_slider.ogg\",\n\tPop = \"rbxasset://sounds/action_jump_land.mp3\",\n\tError = \"rbxasset://sounds/oof.ogg\",\n\tWhoosh = \"rbxasset://sounds/action_jump.mp3\",\n\tJump = \"rbxasset://sounds/action_jump.mp3\",\n\tLand = \"rbxasset://sounds/action_jump_land.mp3\",\n\tBoom = \"rbxasset://sounds/impact_explosion_03.mp3\",\n\tSplash = \"rbxasset://sounds/impact_water.mp3\",\n\tHurt = \"rbxasset://sounds/ouch.ogg\",\n\tWin = \"rbxasset://sounds/action_get_up.mp3\",\n\tMusic = \"\",\n}\n\nlocal VOLUMES = {\n\tCoin = 0.6,\n\tBuy = 0.7,\n\tGem = 0.6,\n\tClick = 0.5,\n\tPop = 0.4,\n\tError = 0.35,\n\tWhoosh = 0.5,\n\tJump = 0.5,\n\tLand = 0.5,\n\tBoom = 0.4,\n\tSplash = 0.5,\n\tHurt = 0.5,\n\tWin = 0.6,\n\tMusic = 0.25,\n}\n\nlocal PITCHES = {\n\tCoin = 1.7,\n\tBuy = 1.15,\n\tGem = 2.0,\n\tClick = 1.0,\n\tPop = 1.8,\n\tError = 1.3,\n\tWhoosh = 0.8,\n\tJump = 1.0,\n\tLand = 1.0,\n\tBoom = 1.0,\n\tSplash = 1.0,\n\tHurt = 1.0,\n\tWin = 1.4,\n\tMusic = 1.0,\n}\n\nGameAssets.Textures = {\n\tSparkle = \"rbxasset://textures/particles/sparkles_main.dds\",\n\tFire = \"rbxasset://textures/particles/fire_main.dds\",\n\tSmoke = \"rbxasset://textures/particles/smoke_main.dds\",\n}\n\n-- Resolve a BasePart / Model / Vector3 into a part that can hold an attachment.\nlocal function resolveHolder(at: any): BasePart?\n\tif typeof(at) == \"Vector3\" then\n\t\tlocal holder = Instance.new(\"Part\")\n\t\tholder.Name = \"FxAnchor\"\n\t\tholder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch = true, false, false, false\n\t\tholder.Transparency, holder.Size, holder.Position = 1, Vector3.new(0.2, 0.2, 0.2), at\n\t\tholder.Parent = workspace\n\t\tDebris:AddItem(holder, 4)\n\t\treturn holder\n\tend\n\tif typeof(at) == \"Instance\" then\n\t\tif at:IsA(\"BasePart\") then\n\t\t\treturn at\n\t\tend\n\t\tif at:IsA(\"Model\") then\n\t\t\tif at.PrimaryPart then\n\t\t\t\treturn at.PrimaryPart\n\t\t\tend\n\t\t\tlocal best: BasePart? = nil\n\t\t\tlocal bestVol = -1\n\t\t\tfor _, d in at:GetDescendants() do\n\t\t\t\tif d:IsA(\"BasePart\") then\n\t\t\t\t\tlocal v = d.Size.X * d.Size.Y * d.Size.Z\n\t\t\t\t\tif v > bestVol then\n\t\t\t\t\t\tbest, bestVol = d, v\n\t\t\t\t\tend\n\t\t\t\tend\n\t\t\tend\n\t\t\treturn best\n\t\tend\n\tend\n\treturn nil\nend\n\n-- A short-lived invisible anchored part at a world position (survives the source part being destroyed).\nlocal function makeAnchor(pos: Vector3, life: number): BasePart\n\tlocal holder = Instance.new(\"Part\")\n\tholder.Name = \"FxAnchor\"\n\tholder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch = true, false, false, false\n\tholder.Transparency, holder.Size, holder.Position = 1, Vector3.new(0.2, 0.2, 0.2), pos\n\tholder.Parent = workspace\n\tDebris:AddItem(holder, life)\n\treturn holder\nend\n\n-- Play a sound by name. Always creates a Sound and calls :Play(), cleaned up by Debris.\n-- With a parent (BasePart / Attachment / Model) it is a 3D world sound; without one it plays as a UI\n-- sound from SoundService (client: local only; server: everyone hears it).\nfunction GameAssets.sound(name: string, parent: Instance?, pitch: number?): Sound?\n\tlocal id = GameAssets.Sounds[name]\n\tif not id or id == \"\" then\n\t\treturn nil\n\tend\n\tlocal s = Instance.new(\"Sound\")\n\ts.Name = name\n\ts.SoundId = id\n\ts.Volume = VOLUMES[name] or 0.5\n\ts.PlaybackSpeed = pitch or (PITCHES[name] or 1) * (0.95 + math.random() * 0.1)\n\tlocal target: Instance? = parent\n\tif target and not (target:IsA(\"BasePart\") or target:IsA(\"Attachment\")) then\n\t\ttarget = resolveHolder(target)\n\tend\n\ts.Parent = target or SoundService\n\ts:Play()\n\tDebris:AddItem(s, 6)\n\tcountTelemetry(\"sounds_played\", 1)\n\treturn s\nend\n\n-- Backwards compatible alias.\nfunction GameAssets.play(name: string, parent: Instance?, pitch: number?): Sound?\n\treturn GameAssets.sound(name, parent, pitch)\nend\n\n-- Looping background music at low volume (call once, on the client).\nfunction GameAssets.music(name: string?, volume: number?): Sound?\n\tlocal id = GameAssets.Sounds[name or \"Music\"]\n\tif not id or id == \"\" then\n\t\treturn nil\n\tend\n\tlocal s = Instance.new(\"Sound\")\n\ts.Name, s.SoundId, s.Looped, s.Volume = \"Music\", id, true, volume or 0.25\n\ts.Parent = SoundService\n\ts:Play()\n\treturn s\nend\n\n-- An expanding, fading Neon ring (flat) at a part or position. Good for upgrade / rebirth.\nfunction GameAssets.ring(at: any, color: Color3?, maxScale: number?, seconds: number?): Part?\n\tlocal holder = resolveHolder(at)\n\tif not holder then\n\t\treturn nil\n\tend\n\tlocal dur = seconds or 0.4\n\tlocal scale = maxScale or 8\n\tlocal ring = Instance.new(\"Part\")\n\tring.Name = \"FxRing\"\n\tring.Shape = Enum.PartType.Cylinder\n\tring.Material = Enum.Material.Neon\n\tring.Color = color or GameAssets.Palette.Primary\n\tring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false\n\tring.CastShadow = false\n\tring.Size = Vector3.new(0.3, 2, 2)\n\tring.CFrame = CFrame.new(holder.Position) * CFrame.Angles(0, 0, math.pi / 2)\n\tring.Transparency = 0\n\tring.Parent = workspace\n\tTweenService:Create(ring, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {\n\t\tSize = Vector3.new(0.3, 2 * scale, 2 * scale),\n\t\tTransparency = 1,\n\t}):Play()\n...[7853 more chars]"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local GA = require(game.ReplicatedStorage.GameAssets)\nlocal keys = {}\nfor k,v in pairs(GA) do table.insert(keys, k..\":\"..type(v)) end\ntable.sort(keys)\nreturn table.concat(keys, \",\")",
+              "why": "Check GameAssets.burst exists and how it is named"
+            },
+            "result": "Palette:table,Sounds:table,Textures:table,ambient:function,burst:function,confetti:function,highlight:function,music:function,part:function,play:function,popIn:function,ring:function,shake:function,sound:function,sparkleFountain:function,styleLighting:function"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local m = game.ServerScriptService.CashInService\nlocal ok, src = pcall(function() return m.Source end)\nif not ok then return 'nosrc '..tostring(src) end\nlocal out = {}\nlocal pos = 1\nwhile true do\n  local i = string.find(src, 'burst', pos, true)\n  if not i then break end\n  table.insert(out, string.sub(src, math.max(1,i-300), i+300))\n  pos = i + 300\n  if #out >= 4 then break end\nend\nreturn table.concat(out, '\\n=====\\n')",
+              "why": "Read burst-related parts of CashInService that were truncated"
+            },
+            "result": "2 -- seconds between cubes that keep a streak alive\nlocal MILESTONES: { [number]: boolean } = { [1] = true, [10] = true, [50] = true, [100] = true }\nlocal CASH_MILESTONES: { number } = { 50, 100, 500, 1000, 5000 }\nlocal COIN_VOLUME = 0.8\nlocal FX_THROTTLE = 0.15 -- min seconds between coin sounds / bursts per player\nlocal DEFAULT_POPUPS_PER_SECOND = 4\n\n-- Optional GameAssets (burst at the intake); never required to succeed.\nlocal GameAssets: any = nil\ndo\n\tlocal mod = ReplicatedStorage:FindFirstChild(\"GameAssets\")\n\tif mod and mod:IsA(\"ModuleScript\") then\n\t\tlocal ok, res = pcall(require, mod)\n\t\ti\n=====\nlayer) and playForPlayer(player, configSoundId(), COIN_VOLUME, pitch) then\n\t\t\tForgeTelemetry.count(\"sounds_played\", 1)\n\t\t\tForgeTelemetry.count(\"cashin_local_sounds\", 1)\n\t\tend\n\tend\n\n\t-- Burst at the intake, isolated so a failure never blocks anything else.\n\t-- Throttled per player; milestones always burst.\n\tlocal burstInfo = info\n\tif burstInfo and (milestone or gate(lastBurstAt, player)) then\n\t\tif milestone then\n\t\t\tlastBurstAt[player] = os.clock()\n\t\tend\n\t\tlocal burstDone = false\n\t\tlocal tierColor = tierColorFor(t)\n\t\tif GameAssets and type(GameAssets.burst) == \"function\" then\n\t\t\tlocal burstOk = p\n=====\ntone or gate(lastBurstAt, player)) then\n\t\tif milestone then\n\t\t\tlastBurstAt[player] = os.clock()\n\t\tend\n\t\tlocal burstDone = false\n\t\tlocal tierColor = tierColorFor(t)\n\t\tif GameAssets and type(GameAssets.burst) == \"function\" then\n\t\t\tlocal burstOk = pcall(function()\n\t\t\t\tif milestone then\n"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local src = game.ServerScriptService.CashInService.Source\nlocal a = string.find(src, 'local milestone', 1, true) or string.find(src, 'milestone =', 1, true)\nreturn tostring(a)..'\\n'..string.sub(src, math.max(1,(a or 1)-2500), (a or 1)+1500)",
+              "why": "Read the cash-in function: how milestone, info and the collector lookup are computed before the burst"
+            },
+            "result": "15577\n\n\t\tlight.Brightness = if isFiniteNumber(Cfg.LIGHT_BRIGHTNESS) then Cfg.LIGHT_BRIGHTNESS else 1.5\n\t\tlight.Range = if isFiniteNumber(Cfg.LIGHT_RANGE) then Cfg.LIGHT_RANGE else 12\n\t\tlight.Parent = collectorPart\n\tend\n\n\t-- Sound object on the collector (fallback; the main coin sound is played 2D per player).\n\tif not collectorPart:FindFirstChild(\"CashInSound\") then\n\t\tlocal snd = Instance.new(\"Sound\")\n\t\tsnd.Name = \"CashInSound\"\n\t\tlocal id = configSoundId()\n\t\tif id ~= \"\" then\n\t\t\tsnd.SoundId = id\n\t\tend\n\t\tsnd.Volume = COIN_VOLUME\n\t\tsnd.Parent = collectorPart\n\tend\n\n\tlocal ring = Instance.new(\"Part\")\n\tring.Name = \"CashInRing\"\n\tring.Shape = Enum.PartType.Cylinder\n\t-- Cylinder axis is X; rotate so the ring lies flat (axis pointing up).\n\tlocal diameter = math.max(collectorPart.Size.X, collectorPart.Size.Z) + 2\n\tring.Size = Vector3.new(0.3, diameter, diameter)\n\tring.CFrame = CFrame.new(collectorPart.Position + Vector3.new(0, collectorPart.Size.Y / 2 + 1.5, 0))\n\t\t* CFrame.Angles(0, 0, math.rad(90))\n\tring.Anchored = true\n\tring.CanCollide = false\n\tring.CanQuery = false\n\tring.CanTouch = false\n\tring.CastShadow = false\n\tring.Material = Enum.Material.Neon\n\tring.Color = FLASH_COLOR\n\tring.Parent = collectorPart.Parent or workspace\n\tlocal ringTag = Cfg.RING_TAG\n\tif type(ringTag) == \"string\" and ringTag ~= \"\" then\n\t\tCollectionService:AddTag(ring, ringTag)\n\tend\n\n\tcollectorPart.AncestryChanged:Connect(function(_, parent)\n\t\tif parent == nil and ring.Parent then\n\t\t\tring:Destroy()\n\t\tend\n\tend)\nend\n\nfun"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local src = game.ServerScriptService.CashInService.Source\nlocal a = string.find(src, 'Burst at the intake', 1, true)\nreturn tostring(a)..'\\n'..string.sub(src, math.max(1,a-2600), a+1800)",
+              "why": "Read the cash-in function code that computes milestone and info, and the full burst block"
+            },
+            "result": "17467\nbad_amount\", 1)\n\t\treturn\n\tend\n\tlocal t = if isFiniteNumber(tier) then tier else 1\n\tlocal pos = if typeof(collectorPosition) == \"Vector3\" then collectorPosition else Vector3.zero\n\n\t-- Combo streak: cubes cashed in quick succession raise the pitch.\n\tlocal now = os.clock()\n\tlocal streak = streaks[player]\n\tif streak and now - streak.last <= COMBO_WINDOW then\n\t\tstreak.count += 1\n\t\tstreak.last = now\n\telse\n\t\tstreak = { count = 1, last = now }\n\t\tstreaks[player] = streak\n\tend\n\tlocal pitch = pitchForTier(t + math.min(streak.count - 1, 8))\n\n\t-- Verifiable juice counter: one event per collected cube.\n\tForgeTelemetry.count(\"juice_events\", 1)\n\n\tlocal total = (sentTotal[player] or 0) + 1\n\tsentTotal[player] = total\n\tlocal milestone = MILESTONES[total] == true\n\n\t-- Cash-threshold milestones ($50, $100, $500, ...): bigger moment when crossed.\n\tlocal prevCash = cashTotal[player] or 0\n\tlocal newCash = prevCash + math.max(amount, 0)\n\tcashTotal[player] = newCash\n\tlocal cashMilestone = false\n\tfor _, threshold in ipairs(CASH_MILESTONES) do\n\t\tif prevCash < threshold and newCash >= threshold then\n\t\t\tcashMilestone = true\n\t\t\tbreak\n\t\tend\n\tend\n\tif cashMilestone then\n\t\tmilestone = true\n\tend\n\tif milestone then\n\t\tForgeTelemetry.count(\"cashin_milestones\", 1)\n\tend\n\n\t-- Send the reward popup FIRST so later cosmetic errors can never swallow it.\n\t-- Milestones are always sent immediately, larger. Over-limit popups are\n\t-- aggregated into one summed popup instead of being dropped.\n\tif milestone then\n\t\trecord"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local src = game.ServerScriptService.CashInService.Source\nlocal a = string.find(src, 'Burst at the intake', 1, true)\nreturn string.sub(src, a-900, a+2600)",
+              "why": "Read the full burst block and where info (the collector lookup) is defined"
+            },
+            "result": " popup.\n\t\tsendPopup(player, amount, t, pos, pitch, math.clamp(1 + 0.1 * (t - 1), 1, 1.5), false, 1)\n\telse\n\t\tqueuePopup(player, amount, t, pos, pitch)\n\tend\n\n\t-- Collector flash + sparkle + (throttled) coin sound.\n\tlocal info: CollectorInfo? = nil\n\tlocal fxOk = pcall(function()\n\t\tif #collectors == 0 then\n\t\t\tscanForCollectors()\n\t\tend\n\t\tinfo = findCollector(pos)\n\t\tif info == nil then\n\t\t\tlastScan = 0\n\t\t\tscanForCollectors()\n\t\t\tinfo = findCollector(pos)\n\t\tend\n\t\tif info then\n\t\t\tflashCollector(info, pitch, player)\n\t\tend\n\tend)\n\tif not fxOk then\n\t\tForgeTelemetry.count(\"cashin_collector_fx_failed\", 1)\n\tend\n\tif info == nil then\n\t\t-- No collector found: still make the reward audible (throttled).\n\t\tif gate(lastSoundAt, player) and playForPlayer(player, configSoundId(), COIN_VOLUME, pitch) then\n\t\t\tForgeTelemetry.count(\"sounds_played\", 1)\n\t\t\tForgeTelemetry.count(\"cashin_local_sounds\", 1)\n\t\tend\n\tend\n\n\t-- Burst at the intake, isolated so a failure never blocks anything else.\n\t-- Throttled per player; milestones always burst.\n\tlocal burstInfo = info\n\tif burstInfo and (milestone or gate(lastBurstAt, player)) then\n\t\tif milestone then\n\t\t\tlastBurstAt[player] = os.clock()\n\t\tend\n\t\tlocal burstDone = false\n\t\tlocal tierColor = tierColorFor(t)\n\t\tif GameAssets and type(GameAssets.burst) == \"function\" then\n\t\t\tlocal burstOk = pcall(function()\n\t\t\t\tif milestone then\n\t\t\t\t\tGameAssets.burst(burstInfo.part.Position, tierColor, 30)\n\t\t\t\telse\n\t\t\t\t\tGameAssets.burst(burstInfo.part.Position)\n\t\t\t\tend\n\t\t\tend)\n\t\t\tif burstO"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16c86359a7023babe824e2de14728",
+          "mreq_01a16c8643db72618dc1a1f77f00123a",
+          "mreq_01a16c865b327c9293ee49b573409865",
+          "mreq_01a16c867249761188b9fc0c7ac2a145",
+          "mreq_01a16c8689777333a71d5d109350f363",
+          "mreq_01a16c869c2c7da186b9d3df25ce1e68",
+          "mreq_01a16c86af3774b0a0366f5e1f7ea956",
+          "mreq_01a16c86b5f07803b5f9955d161e2322"
+        ]
+      },
+      "repro": {
+        "check": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+        "source": "saved",
+        "before": {
+          "id": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+          "title": "Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+          "ok": false,
+          "detail": "101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only)"
+        },
+        "attempts": []
+      },
+      "reinvestigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "I could not probe this in the playtest, so this is a best guess from the failed fix and not a proven cause. Milestone cash-ins (1/10/50/100) never reach GameAssets.burst, and an earlier edit to CashInService.luau did not change that (still 0 burst calls over 101 cash-ins). The milestone data that CashInService reads from the shared CashInConfig is most likely missing, empty, or has the wrong key or shape, so no cash-in count is ever treated as a milestone.",
+          "file": "ReplicatedStorage/CashInConfig.luau",
+          "evidence": "The check saw 0 burst calls across 101 cash-ins, both before and after the CashInService.luau fix. That points to the milestone configuration that CashInService consumes, not the service logic. I have no probe output confirming this.",
+          "fix_hint": "In CashInConfig.luau, define the milestone list as {1, 10, 50, 100} under the key CashInService reads, and make sure CashInService calls GameAssets.burst(position) only when the cash-in count is in that set."
+        },
+        "steps": [],
+        "request_ids": [
+          "mreq_01a16c88223175d2aeafaa79ef1f73d6"
+        ]
+      },
+      "status": "rolled_back"
+    },
+    {
+      "anomaly": "Check fails: The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+      "path": "ReplicatedStorage/RebirthConfig.luau",
+      "attempts": [
+        {
+          "status": "check_regression",
+          "error": "Your fix broke checks that passed before: 05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou: cost0 got 10000 want 5000; cost1 got 20000 want 10000; can5000 got false want true; can10000r1 got false want true",
+          "checks": {
+            "repro": {
+              "id": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+              "title": "The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+              "ok": true,
+              "detail": "first rebirth cost 10000, second 20000; upgrade tree total 9342 (10 items, max item 4000); expected first rebirth cost >= tree total"
+            },
+            "guards": [
+              {
+                "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+                "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+                "ok": true,
+                "detail": "map_built=1 plaza_built=1 themes_built=6"
+              },
+              {
+                "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+                "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+                "ok": true,
+                "detail": "count=10 first=Dropper 2 cost=10"
+              },
+              {
+                "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+                "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+                "ok": true,
+                "detail": "Cash=0 Rebirths=0"
+              },
+              {
+                "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+                "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+                "ok": true,
+                "detail": "claim labels=6 distinct=6"
+              },
+              {
+                "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+                "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+                "ok": false,
+                "detail": "cost0 got 10000 want 5000; cost1 got 20000 want 10000; can5000 got false want true; can10000r1 got false want true"
+              },
+              {
+                "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+                "title": "Rebirth config stays sane at very large rebirth counts",
+                "ok": true,
+                "detail": "cost10=10240000 mult10=6"
+              },
+              {
+                "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+                "title": "NumberFormat handles zero, huge and invalid values without erroring",
+                "ok": true,
+                "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞"
+              },
+              {
+                "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+                "title": "cubes_dropped stays 0 while no plot has been claimed",
+                "ok": true,
+                "detail": "no plot claimed, cubes_dropped=0"
+              },
+              {
+                "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+                "title": "Player spawns in the plaza before claiming a plot",
+                "ok": true,
+                "detail": "distance from plaza center=13.0 pos=0, 3.3984375, 13"
+              },
+              {
+                "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+                "title": "Cash leaderstat accepts a very large value and restores cleanly",
+                "ok": true,
+                "detail": "old=0 big readback=1000000000000 restored=0"
+              },
+              {
+                "id": "11-all-telemetry-counters-are-non-negative-numbers",
+                "title": "All telemetry counters are non-negative numbers",
+                "ok": true,
+                "detail": "counters=5"
+              },
+              {
+                "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+                "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+                "ok": true,
+                "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz"
+              },
+              {
+                "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+                "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+                "ok": true,
+                "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true"
+              },
+              {
+                "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+                "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+                "ok": true,
+                "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder"
+              },
+              {
+                "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+                "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+                "ok": true,
+                "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false"
+              },
+              {
+                "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+                "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+                "ok": true,
+                "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)"
+              },
+              {
+                "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+                "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+                "ok": true,
+                "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message"
+              }
+            ]
+          }
+        },
+        {
+          "status": "check_regression",
+          "error": "Your fix broke checks that passed before: 05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou: cost0 got 9342 want 5000; cost1 got 18684 want 10000; can5000 got false want true; can10000r1 got false want true",
+          "checks": {
+            "repro": {
+              "id": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+              "title": "The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+              "ok": true,
+              "detail": "first rebirth cost 9342, second 18684; upgrade tree total 9342 (10 items, max item 4000); expected first rebirth cost >= tree total"
+            },
+            "guards": [
+              {
+                "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+                "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+                "ok": true,
+                "detail": "map_built=1 plaza_built=1 themes_built=6"
+              },
+              {
+                "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+                "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+                "ok": true,
+                "detail": "count=10 first=Dropper 2 cost=10"
+              },
+              {
+                "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+                "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+                "ok": true,
+                "detail": "Cash=0 Rebirths=0"
+              },
+              {
+                "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+                "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+                "ok": true,
+                "detail": "claim labels=6 distinct=6"
+              },
+              {
+                "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+                "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+                "ok": false,
+                "detail": "cost0 got 9342 want 5000; cost1 got 18684 want 10000; can5000 got false want true; can10000r1 got false want true"
+              },
+              {
+                "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+                "title": "Rebirth config stays sane at very large rebirth counts",
+                "ok": true,
+                "detail": "cost10=9566208 mult10=6"
+              },
+              {
+                "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+                "title": "NumberFormat handles zero, huge and invalid values without erroring",
+                "ok": true,
+                "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞"
+              },
+              {
+                "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+                "title": "cubes_dropped stays 0 while no plot has been claimed",
+                "ok": true,
+                "detail": "no plot claimed, cubes_dropped=0"
+              },
+              {
+                "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+                "title": "Player spawns in the plaza before claiming a plot",
+                "ok": true,
+                "detail": "distance from plaza center=13.0 pos=0, 3.3984375, 13"
+              },
+              {
+                "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+                "title": "Cash leaderstat accepts a very large value and restores cleanly",
+                "ok": true,
+                "detail": "old=0 big readback=1000000000000 restored=0"
+              },
+              {
+                "id": "11-all-telemetry-counters-are-non-negative-numbers",
+                "title": "All telemetry counters are non-negative numbers",
+                "ok": true,
+                "detail": "counters=5"
+              },
+              {
+                "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+                "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+                "ok": true,
+                "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz"
+              },
+              {
+                "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+                "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+                "ok": true,
+                "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true"
+              },
+              {
+                "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+                "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+                "ok": true,
+                "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder"
+              },
+              {
+                "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+                "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+                "ok": true,
+                "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false"
+              },
+              {
+                "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+                "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+                "ok": true,
+                "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)"
+              },
+              {
+                "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+                "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+                "ok": true,
+                "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message"
+              }
+            ]
+          }
+        }
+      ],
+      "investigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "RebirthConfig.baseCost is hardcoded to 5000, so the first rebirth (costFor(0) = 5000) costs less than the whole upgrade tree (10 items summing to 9342 in Upgrades.luau). A player can rebirth after roughly half the tree, so rebirth is not an endgame milestone and cash can be spent on rebirth before the tree is bought. The two values are not linked, so the threshold was never derived from the tree total. RebirthService.tryRebirth uses RebirthConfig.costFor with no override, so the live gate has the same value.",
+          "file": "ReplicatedStorage/RebirthConfig.luau",
+          "evidence": "Server probe returned {\"total\":9342,\"first\":5000,\"base\":5000,\"second\":10000}, so first rebirth cost 5000 < tree total 9342. RebirthService.tryRebirth reads RebirthConfig.costFor(s.rebirths) with no other threshold; the only other path is the all-upgrades-bought bypass.",
+          "fix_hint": "In RebirthConfig.luau, raise baseCost from 5000 to at least the tree total, e.g. baseCost = 10000 (costs become 10000 and 20000, keeping 2x growth). Optionally derive it by requiring Upgrades and summing list costs so the two cannot drift apart."
+        },
+        "steps": [
+          {
+            "action": {
+              "action": "read",
+              "path": "ReplicatedStorage/RebirthConfig.luau",
+              "why": "See rebirth cost config"
+            },
+            "result": "--!strict\n-- RebirthConfig: shared tunables and pure helpers for the Rebirth feature (server and client).\n\nlocal RebirthConfig = {\n\tbaseCost = 5000,\n\tcostGrowth = 2,\n\tmultPerRebirth = 0.5,\n\trequestCooldown = 1.5, -- seconds between rebirth requests per player\n\taltarColor = Color3.fromRGB(255, 205, 40),\n\taltarGlowColor = Color3.fromRGB(255, 240, 150),\n\taltarSize = Vector3.new(4, 5, 4),\n\tflashDuration = 1.2, -- seconds for the full-screen golden flash\n\tbannerDuration = 2.5, -- seconds the 'REBIRTH x<mult>!' banner stays up\n\tflashColor = Color3.fromRGB(255, 215, 60),\n}\n\n-- Cash required for the next rebirth, given how many rebirths were already done.\nfunction RebirthConfig.costFor(rebirths: number): number\n\tlocal n = math.max(0, math.floor(rebirths))\n\treturn math.floor(RebirthConfig.baseCost * RebirthConfig.costGrowth ^ n)\nend\n\n-- Permanent cash multiplier for a given number of rebirths.\nfunction RebirthConfig.multiplierFor(rebirths: number): number\n\tlocal n = math.max(0, math.floor(rebirths))\n\treturn 1 + RebirthConfig.multPerRebirth * n\nend\n\n-- Formats a multiplier for display, e.g. 1.5 -> \"1.5\", 2 -> \"2.0\".\nfunction RebirthConfig.formatMultiplier(mult: number): string\n\treturn string.format(\"%.1f\", mult)\nend\n\n-- Banner text, e.g. \"REBIRTH x1.5!\".\nfunction RebirthConfig.bannerText(rebirths: number): string\n\treturn \"REBIRTH x\" .. RebirthConfig.formatMultiplier(RebirthConfig.multiplierFor(rebirths)) .. \"!\"\nend\n\n-- Rounded payout for a cube value after applying the multiplier.\nfunction RebirthConfig.applyMultiplier(value: number, rebirths: number): number\n\treturn math.floor(value * RebirthConfig.multiplierFor(rebirths) + 0.5)\nend\n\n-- Whether a player may rebirth: enough cash, or every upgrade bought.\nfunction RebirthConfig.canRebirth(cash: number, rebirths: number, allUpgradesBought: boolean): boolean\n\treturn allUpgradesBought or cash >= RebirthConfig.costFor(rebirths)\nend\n\nreturn RebirthConfig\n"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ReplicatedStorage/Upgrades.luau",
+              "why": "Verify tree total cost of 9342"
+            },
+            "result": "-- Upgrades: pure data for the dropper / ore tier / speed / cash multiplier tree.\n-- No requires, no side effects. Returns { list = {...}, byId = {...}, ores = {...}, starterCash = n }.\n--\n-- This table is the SINGLE source of truth for upgrade prices. Shop cards, world pads, the\n-- server purchase check, the tutorial text and the HUD \"Next:\" hint must all read cost from here.\n-- Dropper 2 = 10 and Speed 1 (Fast Belt) = 22, matching the design doc and the tutorial text\n-- (\"the pad costs $10\"). The player starts with 0 cash (Config.STARTING_CASH must match), so the\n-- first two collected cubes earn the first purchase.\n--\n-- BUDGET MATH\n--   The first cube (Bronze) is worth 5 cash. The player starts with 0 cash, so the first buy\n--   (Dropper 2, 10 cash) is earned by the first two cubes (about 4-8 s after claiming a plot),\n--   which fills the HUD goal bar before the pad turns green. After that, income is\n--   5 cash/s (2 cubes per 2 s cycle x 5 cash), so every following purchase lands 4-24 s apart.\n--   Total cost of all 10 upgrades:\n--     10 + 22 + 60 + 150 + 300 + 500 + 800 + 1300 + 2200 + 4000 = 9342 cash\n--   Income after each milestone (cubes per 2 s cycle x ore value x cash multiplier, per second),\n--   and the approximate wait for the NEXT purchase at that income:\n--     base                        1 x 5  x 1.0 / 2 =   2.5 /s   (Dropper 2, 10 -> ~4 s)\n--     dropper2                    2 x 5  x 1.0 / 2 =   5   /s   (Speed 1, 22  -> ~4 s)\n--     speed1                                           5   /s   (Silver, 60   -> ~8 s)\n--     tier_silver                 2 x 12 x 1.0 / 2 =  12   /s   (Dropper 3, 150 -> ~12 s)\n--     dropper3                    3 x 12 x 1.0 / 2 =  18   /s   (Cash x1.5, 300 -> ~17 s)\n--     mult1 (x1.5)                3 x 12 x 1.5 / 2 =  27   /s   (Gold, 500 -> ~18 s)\n--     tier_gold                   3 x 30 x 1.5 / 2 =  67.5 /s   (Speed 2, 800 -> ~12 s)\n--     speed2                                          67.5 /s   (Dropper 4, 1300 -> ~19 s)\n--     dropper4                    4 x 30 x 1.5 / 2 =  90   /s   (Cash x2, 2200 -> ~24 s)\n--     mult2 (x2)                  4 x 30 x 2.0 / 2 = 120   /s   (Diamond, 4000 -> ~33 s)\n--     tier_diamond                4 x 75 x 2.0 / 2 = 300   /s\n--   (speed upgrades only shorten the trip to the collector.)\n--\n-- Effect shapes:\n--   { kind = \"dropper\",  slots = n }   total active dropper slots after purchase\n--   { kind = \"tier\",     tier = n }    ore tier every dropper spits out (index into ores)\n--   { kind = \"speed\",    mult = x }    conveyor speed multiplier\n--   { kind = \"cashMult\", mult = x }    collector cash multiplier\n--\n-- Optional presentation fields (read by the client for the purchase celebration):\n--   label  = short headline string\n--   popup  = RewardPopup text (shown with Win sting, shockwave ring and FOV punch for ore tiers)\n--   color  = Color3 for the shockwave ring / popup (ore tiers)\n--\n-- Every `requires` points at an existing id, so pads reveal progressively.\n\nlocal list = {\n\t{ id = \"dropper2\", name = \"Dropper 2\", cost = 10, requires = nil, effect = { kind = \"dropper\", slots = 2 } },\n\t{ id = \"speed1\", name = \"Speed 1\", cost = 22, requires = \"dropper2\", effect = { kind = \"speed\", mult = 1.5 } },\n\t{\n\t\tid = \"tier_silver\",\n\t\tname = \"Silver Ore\",\n\t\tcost = 60,\n\t\trequires = \"dropper2\",\n\t\teffect = { kind = \"tier\", tier = 2 },\n\t\tlabel = \"Silver Ore\",\n\t\tpopup = \"SILVER ORE! $12 per cube\",\n\t\tcolor = Color3.fromRGB(205, 210, 220),\n\t},\n\t{ id = \"dropper3\", name = \"Dropper 3\", cost = 150, requires = \"dropper2\", effect = { kind = \"dropper\", slots = 3 } },\n\t{ id = \"mult1\", name = \"Cash x1.5\", cost = 300, requires = \"tier_silver\", effect = { kind = \"cashMult\", mult = 1.5 } },\n\t{\n\t\tid = \"tier_gold\",\n\t\tname = \"Gold Ore\",\n\t\tcost = 500,\n\t\trequires = \"tier_silver\",\n\t\teffect = { kind = \"tier\", tier = 3 },\n\t\tlabel = \"Gold Ore\",\n\t\tpopup = \"GOLD ORE! $30 per cube\",\n\t\tcolor = Color3.fromRGB(255, 205, 40),\n\t},\n\t{ id = \"speed2\", name = \"Speed 2\", cost = 800, requires = \"speed1\", effect = { kind = \"speed\", mult = 2 } },\n\t{ id = \"dropper4\", name = \"Dropper 4\", cost = 1300, requires = \"dropper3\", effect = { kind = \"dropper\", slots = 4 } },\n\t{ id = \"mult2\", name = \"Cash x2\", cost = 2200, requires = \"mult1\", effect = { kind = \"cashMult\", mult = 2 } },\n\t{\n\t\tid = \"tier_diamond\",\n\t\tname = \"Diamond Ore\",\n\t\tcost = 4000,\n\t\trequires = \"tier_gold\",\n\t\teffect = { kind = \"tier\", tier = 4 },\n\t\tlabel = \"Diamond Ore\",\n\t\tpopup = \"DIAMOND ORE! $75 per cube\",\n\t\tcolor = Color3.fromRGB(80, 235, 255),\n\t},\n}\n\n-- Indexed by tier.\nlocal ores = {\n\t{ name = \"Bronze\", value = 5, color = Color3.fromRGB(205, 127, 50), material = Enum.Material.Metal, sparkles = false },\n\t{ name = \"Silver\", value = 12, color = Color3.fromRGB(205, 210, 220), material = Enum.Material.Metal, sparkles = false },\n\t{ name = \"Gold\", value = 30, color = Color3.fromRGB(255, 205, 40), material = Enum.Material.Foil, sparkles = false },\n\t{ name = \"Diamond\", value = 75, color = Color3.fromRGB(80, 235, 255), material = Enum.Material.Glass, sparkles = true },\n}\n\nlocal byId = {}\nfor _, upgrade in ipairs(list) do\n\tbyId[upgrade.id] = upgrade\nend\n\n-- Sanity check: every requirement must reference an existing upgrade id.\nfor _, upgrade in ipairs(list) do\n\tif upgrade.requires ~= nil and byId[upgrade.requires] == nil then\n\t\twarn(\"[Upgrades] \" .. upgrade.id .. \" requires unknown id \" .. tostring(upgrade.requires))\n\tend\nend\n\nreturn {\n\tlist = list,\n\tbyId = byId,\n\tores = ores,\n\t-- Starter grant: 0, so the first two collected $5 cubes earn Dropper 2 (10). Keep Config.STARTING_CASH in sync.\n\tstarterCash = 0,\n}\n"
+          },
+          {
+            "action": {
+              "action": "probe",
+              "datamodel": "Server",
+              "code": "local RS=game:GetService('ReplicatedStorage')\nlocal R=require(RS.RebirthConfig)\nlocal U=require(RS.Upgrades)\nlocal t=0\nfor _,u in ipairs(U.list) do t+=u.cost end\nreturn game:GetService('HttpService'):JSONEncode({first=R.costFor(0),second=R.costFor(1),total=t,base=R.baseCost})",
+              "why": "Confirm live rebirth cost vs upgrade tree total"
+            },
+            "result": "{\"total\":9342,\"first\":5000,\"base\":5000,\"second\":10000}"
+          },
+          {
+            "action": {
+              "action": "read",
+              "path": "ServerScriptService/RebirthService.luau",
+              "why": "Confirm the live rebirth gate uses RebirthConfig.costFor and see whether anything else overrides the threshold"
+            },
+            "result": "-- RebirthService: server-authoritative rebirth system (altar, remotes, multiplier, leaderstat).\nlocal Players = game:GetService(\"Players\")\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerScriptService = game:GetService(\"ServerScriptService\")\nlocal Workspace = game:GetService(\"Workspace\")\n\nlocal RebirthConfig = require(ReplicatedStorage:WaitForChild(\"RebirthConfig\"))\nlocal ForgeTelemetry = require(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\"))\nlocal UpgradeService: any = require(ServerScriptService:WaitForChild(\"UpgradeService\"))\n\nlocal RebirthService = {}\n\ntype State = {\n\trebirths: number,\n\tlast: number,\n\taltar: BasePart?,\n\tlabel: TextLabel?,\n\tstat: IntValue?,\n}\n\nlocal states: { [Player]: State } = {}\nlocal requestRemote: RemoteEvent? = nil\nlocal resultRemote: RemoteEvent? = nil\nlocal started = false\n\nlocal juiceService: any = nil\nlocal juiceTried = false\n\n-- Lazily resolves JuiceService (it may be created after this module loads).\nlocal function getJuice(): any\n\tif juiceService then\n\t\treturn juiceService\n\tend\n\tif juiceTried then\n\t\treturn nil\n\tend\n\tlocal mod = ServerScriptService:FindFirstChild(\"JuiceService\") or ServerScriptService:WaitForChild(\"JuiceService\", 5)\n\tjuiceTried = true\n\tif not mod then\n\t\treturn nil\n\tend\n\tlocal ok, res = pcall(require, mod)\n\tif ok then\n\t\tjuiceService = res\n\telse\n\t\twarn(\"RebirthService: could not require JuiceService: \" .. tostring(res))\n\tend\n\treturn juiceService\nend\n\nlocal function notifyJuice(player: Player)\n\tlocal juice = getJuice()\n\tif not juice then\n\t\treturn\n\tend\n\tif type(juice.onRebirth) == \"function\" then\n\t\tlocal ok, err = pcall(juice.onRebirth, player)\n\t\tif not ok then\n\t\t\twarn(\"RebirthService: JuiceService.onRebirth failed: \" .. tostring(err))\n\t\tend\n\tend\n\tif type(juice.pushGoal) == \"function\" then\n\t\t-- After a reset the cheapest unbought upgrade is Dropper 2.\n\t\tlocal goalName = \"Dropper 2\"\n\t\tlocal goalCost: number? = nil\n\t\tif type(UpgradeService.costOf) == \"function\" then\n\t\t\tlocal okCost, c = pcall(UpgradeService.costOf, goalName)\n\t\t\tif okCost and type(c) == \"number\" then\n\t\t\t\tgoalCost = c\n\t\t\tend\n\t\tend\n\t\tlocal ok, err = pcall(juice.pushGoal, player, goalName, goalCost)\n\t\tif not ok then\n\t\t\twarn(\"RebirthService: JuiceService.pushGoal failed: \" .. tostring(err))\n\t\tend\n\tend\nend\n\nlocal function getRemote(folder: Instance, name: string): RemoteEvent\n\tlocal existing = folder:FindFirstChild(name)\n\tif existing and existing:IsA(\"RemoteEvent\") then\n\t\treturn existing\n\tend\n\tlocal r = Instance.new(\"RemoteEvent\")\n\tr.Name = name\n\tr.Parent = folder\n\treturn r\nend\n\nlocal function getCash(player: Player): IntValue?\n\tlocal ls = player:FindFirstChild(\"leaderstats\")\n\tif not ls then\n\t\treturn nil\n\tend\n\tlocal c = ls:FindFirstChild(\"Cash\")\n\tif c and (c:IsA(\"IntValue\") or c:IsA(\"NumberValue\")) then\n\t\treturn c :: any\n\tend\n\treturn nil\nend\n\nlocal function ensureState(player: Player): State\n\tlocal s = states[player]\n\tif not s then\n\t\ts = { rebirths = 0, last = 0, altar = nil, label = nil, stat = nil }\n\t\tstates[player] = s\n\t\tplayer:SetAttribute(\"RebirthMult\", RebirthConfig.multiplierFor(0))\n\tend\n\treturn s\nend\n\nlocal function updateLabel(s: State)\n\tif s.label then\n\t\ts.label.Text = \"REBIRTH\\n$\" .. tostring(RebirthConfig.costFor(s.rebirths))\n\t\t\t.. \"\\nNext: x\" .. RebirthConfig.formatMultiplier(RebirthConfig.multiplierFor(s.rebirths + 1))\n\tend\nend\n\nlocal function fireResult(player: Player, ok: boolean, s: State, reason: string)\n\tif resultRemote then\n\t\tresultRemote:FireClient(player, ok, RebirthConfig.multiplierFor(s.rebirths), RebirthConfig.costFor(s.rebirths), reason)\n\tend\nend\n\nfunction RebirthService.tryRebirth(player: Player)\n\tif not player or player.Parent ~= Players then\n\t\treturn\n\tend\n\tlocal s = ensureState(player)\n\tlocal now = os.clock()\n\tif now - s.last < RebirthConfig.requestCooldown then\n\t\treturn\n\tend\n\ts.last = now\n\n\tlocal cash = getCash(player)\n\tlocal cost = RebirthConfig.costFor(s.rebirths)\n\tlocal hasAll = false\n\tif type(UpgradeService.hasAll) == \"function\" then\n\t\tlocal okCall, res = pcall(UpgradeService.hasAll, player)\n\t\thasAll = okCall and res == true\n\tend\n\tlocal eligible = hasAll or (cash ~= nil and cash.Value >= cost)\n\tif not eligible or cash == nil then\n\t\tfireResult(player, false, s, \"Need $\" .. tostring(cost) .. \" or every upgrade\")\n\t\tForgeTelemetry.count(\"rebirth_denied\", 1)\n\t\treturn\n\tend\n\n\tcash.Value = 0\n\tif type(UpgradeService.resetPlayer) == \"function\" then\n\t\tlocal okReset, err = pcall(UpgradeService.resetPlayer, player)\n\t\tif not okReset then\n\t\t\twarn(\"RebirthService: resetPlayer failed: \" .. tostring(err))\n\t\tend\n\tend\n\ts.rebirths += 1\n\tif s.stat then\n\t\ts.stat.Value = s.rebirths\n\tend\n\tplayer:SetAttribute(\"RebirthMult\", RebirthConfig.multiplierFor(s.rebirths))\n\tupdateLabel(s)\n\tfireResult(player, true, s, \"ok\")\n\tForgeTelemetry.count(\"rebirths\", 1)\n\tnotifyJuice(player)\nend\n\n-- Silently sets the rebirth count (used when loading saved data): no banner, no cash reset.\nfunction RebirthService.setRebirths(player: Player, n: number)\n\tif not player or player.Parent ~= Players then\n\t\treturn\n\tend\n\tlocal count = 0\n\tif type(n) == \"number\" and n == n and n > 0 and n < math.huge then\n\t\tcount = math.floor(n)\n\tend\n\tlocal s = ensureState(player)\n\ts.rebirths = count\n\tif s.stat then\n\t\ts.stat.Value = count\n\tend\n\tplayer:SetAttribute(\"RebirthMult\", RebirthConfig.multiplierFor(count))\n\tupdateLabel(s)\nend\n\nfunction RebirthService.getRebirths(player: Player): number\n\tlocal s = states[player]\n\tif s then\n\t\treturn s.rebirths\n\tend\n\treturn 0\nend\n\nfunction RebirthService.onPlotClaimed(player: Player, plot: any)\n\tlocal s = ensureState(player)\n\tif s.altar then\n\t\ts.altar:Destroy()\n\t\ts.altar, s.label = nil, nil\n\tend\n\tif type(plot) ~= \"table\" then\n\t\treturn\n\tend\n\tlocal origin = plot.origin\n\tlocal cf: CFrame\n\tif typeof(origin) == \"CFrame\" then\n\t\tcf = origin\n\telseif typeof(origin) == \"Vector3\" then\n\t\tcf = CFrame.new(origin)\n\telse\n\t\treturn\n\tend\n\tlocal size = RebirthConfig.altarSize\n\tlocal altar = Instance.new(\"Part\")\n\taltar.Name = \"RebirthAltar_\" .. player.Name\n\taltar.Size = size\n\taltar.Anchored = true\n\taltar.CanCollide = true\n\taltar.Material = Enum.Material.Neon\n\taltar.Color = RebirthConfig.altarColor\n\taltar.CFrame = cf * CFrame.new(-16, size.Y / 2, 16)\n\n\tlocal light = Instance.new(\"PointLight\")\n\tlight.Color = RebirthConfig.altarGlowColor\n\tlight.Range = 18\n\tlight.Brightness = 2\n\tlight.Parent = altar\n\n\tlocal sparks = Instance.new(\"ParticleEmitter\")\n\tsparks.Color = ColorSequence.new(RebirthConfig.altarGlowColor)\n\tsparks.Rate = 8\n\tsparks.Lifetime = NumberRange.new(1, 2)\n\tsparks.Speed = NumberRange.new(2, 4)\n\tsparks.Size = NumberSequence.new(0.4, 0)\n\tsparks.LightEmission = 1\n\tsparks.Parent = altar\n\n\tlocal bb = Instance.new(\"BillboardGui\")\n\tbb.Size = UDim2.fromOffset(180, 60)\n\tbb.StudsOffset = Vector3.new(0, 4, 0)\n\tbb.AlwaysOnTop = false\n\tbb.MaxDistance = 50\n\tbb.Adornee = altar\n\tlocal label = Instance.new(\"TextLabel\")\n\tlabel.Size = UDim2.fromScale(1, 1)\n\tlabel.BackgroundTransparency = 1\n\tlabel.Font = Enum.Font.LuckiestGuy\n\tlabel.TextScaled = true\n\tlabel.TextColor3 = \n...[2202 more chars]"
+          }
+        ],
+        "request_ids": [
+          "mreq_01a16c884cc971e1844dec38f147c10d",
+          "mreq_01a16c8852aa7d828a9337456069c6c5",
+          "mreq_01a16c886ad47a439ca2f2bb56cfe639",
+          "mreq_01a16c8880b67c019abaffbde1a99ec7",
+          "mreq_01a16c88a0c77c61986d6061b4482340"
+        ]
+      },
+      "repro": {
+        "check": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+        "source": "saved",
+        "before": {
+          "id": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+          "title": "The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+          "ok": false,
+          "detail": "first rebirth cost 5000, second 10000; upgrade tree total 9342 (10 items, max item 4000); expected first rebirth cost >= tree total"
+        },
+        "attempts": []
+      },
+      "reinvestigation": {
+        "conclusion": {
+          "action": "conclude",
+          "root_cause": "The upgrade tree is too expensive relative to the rebirth thresholds. The Upgrades data sums to 9342 across 10 items (the most expensive is 4000), while the first rebirth cost in RebirthConfig is 5000 (the second is 10000). The check requires the first rebirth cost to be at least the total tree cost. The rebirth thresholds are pinned by another passing check (cost0 = 5000, cost1 = 10000, canRebirth boundaries), so they are not the thing to change. An earlier attempt to raise them to 9342 and 18684 broke that check. I did not run a probe on the live playtest, so this conclusion rests on the check's reported numbers and the rejected fix.",
+          "file": "ReplicatedStorage/Upgrades.luau",
+          "evidence": "The check reports first rebirth cost 5000, second 10000, tree total 9342 over 10 items, max item 4000. The rejected fix, which raised the RebirthConfig thresholds to match the tree, broke the rebirth-thresholds check (cost0 got 9342 want 5000, cost1 got 18684 want 10000, can5000 got false want true, can10000r1 got false want true). The rebirth thresholds are therefore fixed by spec, and the tree total is the value that has to change.",
+          "fix_hint": "In ReplicatedStorage/Upgrades.luau, lower the upgrade costs so the sum over all 10 items is at most 5000. Scale each cost by about 0.5, round to clean numbers, and keep the tiers in increasing order. For example, cap the most expensive item at about 2000 and check that the total comes to 5000 or less. Leave RebirthConfig.luau unchanged."
+        },
+        "steps": [],
+        "request_ids": [
+          "mreq_01a16c89665c7df383a7747720579a0a"
+        ]
+      },
+      "status": "rolled_back"
+    }
+  ],
+  "code_kept": 1,
+  "backlog": [],
+  "repro": true,
+  "checks": {
+    "start": [
+      {
+        "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+        "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+        "ok": true,
+        "detail": "map_built=1 plaza_built=1 themes_built=6",
+        "pending": false
+      },
+      {
+        "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+        "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+        "ok": true,
+        "detail": "count=10 first=Dropper 2 cost=10",
+        "pending": false
+      },
+      {
+        "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+        "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+        "ok": true,
+        "detail": "Cash=0 Rebirths=0",
+        "pending": false
+      },
+      {
+        "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+        "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+        "ok": true,
+        "detail": "claim labels=6 distinct=6",
+        "pending": false
+      },
+      {
+        "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+        "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+        "ok": true,
+        "detail": "all boundaries ok",
+        "pending": false
+      },
+      {
+        "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+        "title": "Rebirth config stays sane at very large rebirth counts",
+        "ok": true,
+        "detail": "cost10=5120000 mult10=6",
+        "pending": false
+      },
+      {
+        "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+        "title": "NumberFormat handles zero, huge and invalid values without erroring",
+        "ok": true,
+        "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞",
+        "pending": false
+      },
+      {
+        "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+        "title": "cubes_dropped stays 0 while no plot has been claimed",
+        "ok": true,
+        "detail": "no plot claimed, cubes_dropped=0",
+        "pending": false
+      },
+      {
+        "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+        "title": "Player spawns in the plaza before claiming a plot",
+        "ok": true,
+        "detail": "distance from plaza center=13.0 pos=0, 3.3984375, 13",
+        "pending": false
+      },
+      {
+        "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+        "title": "Cash leaderstat accepts a very large value and restores cleanly",
+        "ok": true,
+        "detail": "old=0 big readback=1000000000000 restored=0",
+        "pending": false
+      },
+      {
+        "id": "11-all-telemetry-counters-are-non-negative-numbers",
+        "title": "All telemetry counters are non-negative numbers",
+        "ok": true,
+        "detail": "counters=5",
+        "pending": false
+      },
+      {
+        "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+        "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+        "ok": true,
+        "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz",
+        "pending": false
+      },
+      {
+        "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+        "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+        "ok": true,
+        "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true",
+        "pending": false
+      },
+      {
+        "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+        "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+        "ok": false,
+        "detail": "tryBuy references buyFail 1 time(s); expected at least 2 (insufficient cash and locked/rejected branch)",
+        "pending": false
+      },
+      {
+        "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+        "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+        "ok": true,
+        "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder",
+        "pending": false
+      },
+      {
+        "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+        "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+        "ok": true,
+        "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false",
+        "pending": false
+      },
+      {
+        "id": "the-real-dropper-2-buy-pad-upgradepad-dropper2-is-enlarged-t",
+        "title": "The real Dropper 2 buy pad (UpgradePad_dropper2) is enlarged to at least 6x6 studs so the player can find and reach it",
+        "ok": true,
+        "detail": "UpgradePad_dropper2 size 6.0 x 1.0 x 6.0, expected X and Z >= 6 (enlarged easy-to-find pad); material Enum.Material.Neon",
+        "pending": false
+      },
+      {
+        "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+        "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+        "ok": true,
+        "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)",
+        "pending": false
+      },
+      {
+        "id": "when-the-tutorial-is-active-on-an-early-step-1-3-the-player-",
+        "title": "When the tutorial is active on an early step (1-3), the player gets a TutorialTarget and a visible guide Beam toward it",
+        "ok": true,
+        "detail": "TutorialStep=3, TutorialTarget value=Workspace.ClaimGates.ClaimGate_Lava, beam=Workspace.retailtycoonlover21.HumanoidRootPart.TutorialBeam",
+        "pending": false
+      },
+      {
+        "id": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+        "title": "Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+        "ok": false,
+        "detail": "101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only)",
+        "pending": true
+      },
+      {
+        "id": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+        "title": "The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+        "ok": false,
+        "detail": "first rebirth cost 5000, second 10000; upgrade tree total 9342 (10 items, max item 4000); expected first rebirth cost >= tree total",
+        "pending": true
+      }
+    ],
+    "start_failing": [
+      "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+      "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+      "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol"
+    ],
+    "proven": [
+      "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+      "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+      "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol"
+    ],
+    "written": [],
+    "unproven": [],
+    "kept": [
+      "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri"
+    ],
+    "end": [
+      {
+        "id": "01-world-startup-counters-map-built-1-plaza-built-1-themes-buil",
+        "title": "World startup counters: map_built 1, plaza_built 1, themes_built 6",
+        "ok": true,
+        "detail": "map_built=1 plaza_built=1 themes_built=6",
+        "pending": false
+      },
+      {
+        "id": "02-upgrades-data-has-10-upgrades-unique-ids-valid-requires-firs",
+        "title": "Upgrades data has 10 upgrades, unique ids, valid requires, first costs 10",
+        "ok": true,
+        "detail": "count=10 first=Dropper 2 cost=10",
+        "pending": false
+      },
+      {
+        "id": "03-cashin-and-purchasefx-remoteevents-exist-and-the-player-has-",
+        "title": "CashIn and PurchaseFx RemoteEvents exist and the player has Cash and Rebirths leaderstats",
+        "ok": true,
+        "detail": "Cash=90 Rebirths=0",
+        "pending": false
+      },
+      {
+        "id": "04-free-plots-show-glowing-gates-with-claim-theme-plot-signs",
+        "title": "Free plots show glowing gates with 'Claim <Theme> Plot' signs",
+        "ok": true,
+        "detail": "claim labels=6 distinct=6",
+        "pending": false
+      },
+      {
+        "id": "05-rebirth-thresholds-multiplier-values-cost-and-canrebirth-bou",
+        "title": "Rebirth thresholds: multiplier values, cost and canRebirth boundaries",
+        "ok": true,
+        "detail": "all boundaries ok",
+        "pending": false
+      },
+      {
+        "id": "06-rebirth-config-stays-sane-at-very-large-rebirth-counts",
+        "title": "Rebirth config stays sane at very large rebirth counts",
+        "ok": true,
+        "detail": "cost10=5120000 mult10=6",
+        "pending": false
+      },
+      {
+        "id": "07-numberformat-handles-zero-huge-and-invalid-values-without-er",
+        "title": "NumberFormat handles zero, huge and invalid values without erroring",
+        "ok": true,
+        "detail": "0=0 1=1 999=999 1000=1K 1500000=1.5M 1000000000=1B 1000000000000=1T 1000000000000000=1000T -5=-5 nan=0 inf=∞",
+        "pending": false
+      },
+      {
+        "id": "08-cubes-dropped-stays-0-while-no-plot-has-been-claimed",
+        "title": "cubes_dropped stays 0 while no plot has been claimed",
+        "ok": true,
+        "detail": "plot already claimed (plot_assigned=1), cubes_dropped=17, nothing to verify",
+        "pending": false
+      },
+      {
+        "id": "09-player-spawns-in-the-plaza-before-claiming-a-plot",
+        "title": "Player spawns in the plaza before claiming a plot",
+        "ok": true,
+        "detail": "plot already claimed (1), spawn position not verifiable",
+        "pending": false
+      },
+      {
+        "id": "10-cash-leaderstat-accepts-a-very-large-value-and-restores-clea",
+        "title": "Cash leaderstat accepts a very large value and restores cleanly",
+        "ok": true,
+        "detail": "old=90 big readback=1000000000000 restored=90",
+        "pending": false
+      },
+      {
+        "id": "11-all-telemetry-counters-are-non-negative-numbers",
+        "title": "All telemetry counters are non-negative numbers",
+        "ok": true,
+        "detail": "counters=20",
+        "pending": false
+      },
+      {
+        "id": "a-refused-shop-purchase-shopfx-buyfail-plays-a-buzz-sound-th",
+        "title": "A refused shop purchase (ShopFx.buyFail) plays a buzz sound through GameAssets.play using a sound that exists in GameAssets.Sounds",
+        "ok": true,
+        "detail": "buyFail triggered GameAssets.play 1 time(s) (Error), valid sound names: 1, expected at least 1 buzz",
+        "pending": false
+      },
+      {
+        "id": "collecting-a-cube-makes-the-collector-part-flash-to-color3-f",
+        "title": "Collecting a cube makes the collector part flash to Color3.fromRGB(255,214,64) and the collector carries a ParticleEmitter (CashInEmitter) for the per-collect Emit(4)",
+        "ok": true,
+        "detail": "collector flashed=true (closest color distance to flash 0.000), ParticleEmitter on collector=true",
+        "pending": false
+      },
+      {
+        "id": "pressing-buy-on-a-locked-card-requirement-not-owned-must-tri",
+        "title": "pressing Buy on a locked card (requirement not owned) must trigger the ShopFx.buyFail feedback (shake, buzz, toast) instead of returning silently",
+        "ok": true,
+        "detail": "locked-card (requires) branch in tryBuy calls buyFail 2 time(s); expected at least 1 so a press on a locked card shakes, buzzes and shows a message",
+        "pending": false
+      },
+      {
+        "id": "the-cashin-and-purchasefx-remotes-must-be-reachable-by-the-c",
+        "title": "The CashIn and PurchaseFx remotes must be reachable by the client's primary lookup (ReplicatedStorage.Remotes), so the client connects its cash-in sound/FX handler without a 10s stall",
+        "ok": true,
+        "detail": "CashIn in Remotes folder: false, PurchaseFx in Remotes folder: false (client looks there first and waits 10s each); client no longer blocks 10s on the Remotes folder",
+        "pending": false
+      },
+      {
+        "id": "the-client-cash-in-and-purchase-sounds-take-their-volume-fro",
+        "title": "The client cash-in and purchase sounds take their volume from CashInConfig.CASHIN_VOLUME / POP_VOLUME instead of a hardcoded value",
+        "ok": true,
+        "detail": "config CASHIN_VOLUME=0.4 POP_VOLUME=0.5; client reads CASHIN_VOLUME=true, reads POP_VOLUME=true, hardcoded 'Volume = 0.6' present=false",
+        "pending": false
+      },
+      {
+        "id": "the-real-dropper-2-buy-pad-upgradepad-dropper2-is-enlarged-t",
+        "title": "The real Dropper 2 buy pad (UpgradePad_dropper2) is enlarged to at least 6x6 studs so the player can find and reach it",
+        "ok": true,
+        "detail": "UpgradePad_dropper2 size 6.0 x 1.0 x 6.0, expected X and Z >= 6 (enlarged easy-to-find pad); material Enum.Material.Neon",
+        "pending": false
+      },
+      {
+        "id": "tutorialguide-client-must-give-step-completion-feedback-a-po",
+        "title": "TutorialGuide (client) must give step-completion feedback: a Pop sound and a sparkle particle burst on the arrow when a tutorial step advances",
+        "ok": true,
+        "detail": "TutorialGuide source 13981 chars; sound=true pop=true sparkle/particle=true (all must be true for step-completion feedback)",
+        "pending": false
+      },
+      {
+        "id": "when-the-tutorial-is-active-on-an-early-step-1-3-the-player-",
+        "title": "When the tutorial is active on an early step (1-3), the player gets a TutorialTarget and a visible guide Beam toward it",
+        "ok": true,
+        "detail": "TutorialStep=1, TutorialTarget value=Workspace.ClaimGates.ClaimGate_Lava, beam=Workspace.retailtycoonlover21.HumanoidRootPart.TutorialBeam",
+        "pending": false
+      },
+      {
+        "id": "cash-ins-at-milestone-counts-1-10-50-100-fire-a-gameassets-b",
+        "title": "Cash-ins at milestone counts (1, 10, 50, 100) fire a GameAssets.burst sparkle at the collector position, and ordinary cubes do not",
+        "ok": false,
+        "detail": "101 cash-ins at one position produced burst on 0 calls (indices: ); expected 1 to 4 (milestones 1/10/50/100 only)",
+        "pending": true
+      },
+      {
+        "id": "the-first-rebirth-threshold-is-at-least-the-cost-of-the-whol",
+        "title": "The first rebirth threshold is at least the cost of the whole upgrade tree, so rebirth is an endgame milestone and cash cannot pile up unspent first",
+        "ok": false,
+        "detail": "first rebirth cost 5000, second 10000; upgrade tree total 9342 (10 items, max item 4000); expected first rebirth cost >= tree total",
+        "pending": true
+      }
+    ]
+  }
+}

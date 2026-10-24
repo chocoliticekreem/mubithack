@@ -1,0 +1,12 @@
+{
+  "score": 7,
+  "summary": "The game starts cleanly with no errors or warnings. The plaza, 6 themed plots, plot claim (via auto-claim), dropping, collecting and cash-in feedback all happened: map_built, plaza_built, themes_built=6, plot_assigned, cubes_dropped=15 and cubes_collected=13. The purchase path was never exercised in the playtest, so upgrades_bought is missing. Several acceptance criteria therefore remain unverified.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The counters show no 'upgrades_bought' (and no 'dropper_bought' or 'conveyor_bought'), although 'pad_highlighted' is 1, so the Dropper 2 pad became affordable. The purchase flow (deduct 10 once, pad vanishes, next pads appear) never ran, so those acceptance criteria are unverified. Also, 15 cubes dropped in a 32.5s run where 'auto_claims' is 1 (claim at roughly 20s) is more than a 2s cadence would give, so the drop timing is suspicious.",
+      "fix_hint": "Make sure a successful purchase calls ForgeTelemetry.bump('upgrades_bought') exactly once, after the cost is deducted. Make the ForgeTest/probe walk the character onto the Dropper 2 pad once Cash >= 10 so the counter is exercised. Check that the dropper loop starts only after the plot is claimed and uses a 2s interval, so cubes_dropped matches the spec."
+    }
+  ],
+  "done": false
+}

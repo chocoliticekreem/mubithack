@@ -186,7 +186,8 @@ function ClaimWatcher.hasPlot(player: Player): boolean
 	return player:GetAttribute("PlotIndex") ~= nil or player:GetAttribute("ClaimedPlot") ~= nil
 end
 
--- Makes the Dropper 2 pad easy to see (accent colour + Neon pulse) and easy to hit (>= 6x1x6).
+-- Makes the Dropper 2 pad easy to see (accent colour + Neon pulse, green when affordable)
+-- and easy to hit (>= 8x2x8, CanTouch on).
 local function highlightDropperPad(player: Player)
 	local pad: BasePart? = nil
 	for _ = 1, 40 do
@@ -214,19 +215,71 @@ local function highlightDropperPad(player: Player)
 	if typeof(Config.ACCENT_COLOR) == "Color3" then
 		accent = Config.ACCENT_COLOR
 	end
+	local green: Color3 = Color3.fromRGB(76, 217, 100)
 
+	-- Larger hitbox, keeping the bottom of the pad flush with the ground.
 	local s = d.Size
-	d.Size = Vector3.new(math.max(s.X, 6), math.max(s.Y, 1), math.max(s.Z, 6))
+	local newSize = Vector3.new(math.max(s.X, 8), math.max(s.Y, 2), math.max(s.Z, 8))
+	local lift = (newSize.Y - s.Y) / 2
+	d.Size = newSize
+	if lift ~= 0 then
+		d.Position = d.Position + Vector3.new(0, lift, 0)
+	end
+	d.CanTouch = true
 	d.Material = Enum.Material.Neon
 	d.Color = accent
-	local ok = pcall(function()
-		local tween = TweenService:Create(
-			d,
-			TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-			{ Color = accent:Lerp(Color3.new(1, 1, 1), 0.45) }
-		)
-		tween:Play()
-	end)
+
+	local costAttr = d:GetAttribute("Cost")
+	local cost: number = if type(costAttr) == "number" then costAttr else 10
+
+	local currentTween: Tween? = nil
+	local currentAffordable: boolean? = nil
+	local pulseOk = false
+	local function setPulse(affordable: boolean)
+		if currentAffordable == affordable or d.Parent == nil then
+			return
+		end
+		currentAffordable = affordable
+		if currentTween then
+			currentTween:Cancel()
+			currentTween = nil
+		end
+		local base = if affordable then green else accent
+		d.Color = base
+		local ok = pcall(function()
+			local tween = TweenService:Create(
+				d,
+				TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Color = base:Lerp(Color3.new(1, 1, 1), 0.45) }
+			)
+			currentTween = tween
+			tween:Play()
+		end)
+		if ok then
+			pulseOk = true
+		end
+	end
+
+	local function currentCash(): number
+		local ls = player:FindFirstChild("leaderstats")
+		local cashV = ls and ls:FindFirstChild("Cash")
+		if cashV and cashV:IsA("IntValue") then
+			return cashV.Value
+		end
+		return 0
+	end
+
+	setPulse(currentCash() >= cost)
+	local ls = player:FindFirstChild("leaderstats")
+	local cashV = ls and ls:FindFirstChild("Cash")
+	if cashV and cashV:IsA("IntValue") then
+		cashV.Changed:Connect(function()
+			if d.Parent ~= nil then
+				setPulse(cashV.Value >= cost)
+			end
+		end)
+	end
+
 	pcall(function()
 		local bb = Instance.new("BillboardGui")
 		bb.Name = "StepHereArrow"
@@ -255,7 +308,7 @@ local function highlightDropperPad(player: Player)
 			{ StudsOffset = Vector3.new(0, d.Size.Y / 2 + 6.5, 0) }
 		):Play()
 	end)
-	if ok then
+	if pulseOk then
 		ForgeTelemetry.count("pad_highlighted", 1)
 	end
 end

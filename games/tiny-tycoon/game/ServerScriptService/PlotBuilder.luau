@@ -351,6 +351,120 @@ function PlotBuilder.buildBase(): Part
 	return base
 end
 
+local FLOOR_MATERIALS: { [string]: Enum.Material } = {
+	Candy = Enum.Material.SmoothPlastic,
+	Lava = Enum.Material.Basalt,
+	Ice = Enum.Material.Glacier,
+	Jungle = Enum.Material.Grass,
+	["Neon City"] = Enum.Material.DiamondPlate,
+	Desert = Enum.Material.Sand,
+}
+
+local function decorateFloor(model: Model, origin: CFrame, size: Vector3, theme: any)
+	local tname = themeName(theme)
+	local baseColor = pickColor(theme, { "floorColor", "floor", "groundColor", "ground" }, DEFAULT_THEME.floorColor)
+	local accentColor = pickColor(theme, { "accent", "accentColor", "glow", "glowColor" }, DEFAULT_THEME.accent)
+	local mat = FLOOR_MATERIALS[tname] or pickMaterial(theme, { "floorMaterial", "material", "groundMaterial" }, DEFAULT_THEME.floorMaterial)
+	local shadeA = baseColor:Lerp(Color3.new(1, 1, 1), 0.15)
+	local shadeB = baseColor:Lerp(Color3.new(0, 0, 0), 0.12)
+	if tname == "Candy" then
+		shadeB = baseColor:Lerp(Color3.fromRGB(150, 235, 200), 0.65)
+	end
+
+	local folder = Instance.new("Folder")
+	folder.Name = "FloorDecor"
+	local TILE = 8
+	local TILE_H = 0.2
+	local nx = math.ceil(size.X / TILE)
+	local nz = math.ceil(size.Z / TILE)
+	for ix = 0, nx - 1 do
+		local x0 = -size.X / 2 + ix * TILE
+		local w = math.min(TILE, size.X / 2 - x0)
+		for iz = 0, nz - 1 do
+			local z0 = -size.Z / 2 + iz * TILE
+			local d = math.min(TILE, size.Z / 2 - z0)
+			local shade = if (ix + iz) % 2 == 0 then shadeA else shadeB
+			local tile = makePart("FloorTile", Vector3.new(w, TILE_H, d),
+				origin * CFrame.new(x0 + w / 2, TILE_H / 2, z0 + d / 2),
+				shade, mat, folder)
+			tile.CanCollide = false
+		end
+	end
+
+	local TRIM = 1
+	local trimDefs = {
+		{ Vector3.new(size.X, TRIM, TRIM), Vector3.new(0, TRIM / 2, size.Z / 2 - TRIM / 2) },
+		{ Vector3.new(size.X, TRIM, TRIM), Vector3.new(0, TRIM / 2, -size.Z / 2 + TRIM / 2) },
+		{ Vector3.new(TRIM, TRIM, size.Z - TRIM * 2), Vector3.new(size.X / 2 - TRIM / 2, TRIM / 2, 0) },
+		{ Vector3.new(TRIM, TRIM, size.Z - TRIM * 2), Vector3.new(-size.X / 2 + TRIM / 2, TRIM / 2, 0) },
+	}
+	for i, def in ipairs(trimDefs) do
+		local off = def[2] :: Vector3
+		local trim = makePart("FloorTrim" .. i, def[1] :: Vector3, origin * CFrame.new(off.X, off.Y, off.Z),
+			accentColor, Enum.Material.SmoothPlastic, folder)
+		trim.CanCollide = false
+	end
+	folder.Parent = model
+end
+
+-- Adds decoration only; never moves, resizes or renames the existing machine parts.
+local function dressMachines(model: Model, origin: CFrame, dropper: Part, conveyor: Part, collector: Part, theme: any)
+	local primary = pickColor(theme, { "primary", "primaryColor", "colorA", "color1" }, DEFAULT_THEME.primary)
+	local secondary = pickColor(theme, { "secondary", "secondaryColor", "colorB", "color2" }, DEFAULT_THEME.secondary)
+	local accent = pickColor(theme, { "accent", "accentColor", "glow", "glowColor" }, DEFAULT_THEME.accent)
+	local metalColor = secondary:Lerp(Color3.fromRGB(235, 235, 255), 0.35)
+	local darkColor = secondary:Lerp(Color3.fromRGB(30, 26, 44), 0.5)
+	local stripeColor = secondary:Lerp(Color3.new(1, 1, 1), 0.65)
+
+	local folder = Instance.new("Folder")
+	folder.Name = "MachineDecor"
+
+	local function deco(pname: string, psize: Vector3, cf: CFrame, color: Color3, material: Enum.Material): Part
+		local p = makePart(pname, psize, cf, color, material, folder)
+		p.CanCollide = false
+		p.CanTouch = false
+		return p
+	end
+
+	-- Dropper: wider hopper bin on top, 4 thin legs to the floor, glowing nozzle ring under it
+	local dcf = dropper.CFrame
+	local dsz = dropper.Size
+	deco("HopperBin", Vector3.new(4.8, 1.2, 4.8), dcf * CFrame.new(0, dsz.Y / 2 + 0.6, 0), primary:Lerp(Color3.new(1, 1, 1), 0.2), Enum.Material.SmoothPlastic)
+	deco("HopperRim", Vector3.new(5.2, 0.3, 5.2), dcf * CFrame.new(0, dsz.Y / 2 + 1.35, 0), accent, Enum.Material.SmoothPlastic)
+	local legH = math.max(dropper.Position.Y - dsz.Y / 2 - origin.Position.Y, 1)
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			deco("DropperLeg", Vector3.new(0.4, legH, 0.4),
+				dcf * CFrame.new(sx * 1.6, -dsz.Y / 2 - legH / 2, sz * 1.6),
+				metalColor, Enum.Material.Metal)
+		end
+	end
+	local ring = deco("NozzleRing", Vector3.new(0.3, 2.4, 2.4), dcf * CFrame.new(0, -dsz.Y / 2 - 0.15, 0) * CFrame.Angles(0, 0, math.pi / 2), accent, Enum.Material.Neon)
+	ring.Shape = Enum.PartType.Cylinder
+
+	-- Conveyor: metal side rails and lighter stripes every 3 studs
+	local ccf = conveyor.CFrame
+	local csz = conveyor.Size
+	for _, side in ipairs({ -1, 1 }) do
+		deco("BeltSideRail", Vector3.new(csz.X, 0.8, 0.3), ccf * CFrame.new(0, 0.1, side * (csz.Z / 2 + 0.6)), metalColor, Enum.Material.Metal)
+	end
+	local x = -csz.X / 2 + 1.5
+	while x < csz.X / 2 - 0.5 do
+		deco("BeltStripe", Vector3.new(0.5, 0.06, csz.Z - 0.6), ccf * CFrame.new(x, csz.Y / 2 + 0.03, 0), stripeColor, Enum.Material.SmoothPlastic)
+		x += 3
+	end
+
+	-- Collector: funnel rim, Neon mouth facing the belt (local -X), small chimney
+	local kcf = collector.CFrame
+	local ksz = collector.Size
+	deco("FunnelRim", Vector3.new(ksz.X + 1.4, 0.4, ksz.Z + 1.4), kcf * CFrame.new(0, ksz.Y / 2 + 0.2, 0), primary, Enum.Material.SmoothPlastic)
+	deco("FunnelMouth", Vector3.new(0.3, ksz.Y - 0.8, ksz.Z - 0.8), kcf * CFrame.new(-(ksz.X / 2 + 0.15), 0, 0), accent:Lerp(Color3.new(1, 1, 1), 0.3), Enum.Material.Neon)
+	deco("Chimney", Vector3.new(1, 2.5, 1), kcf * CFrame.new(0.8, ksz.Y / 2 + 0.4 + 1.25, 1.1), darkColor, Enum.Material.Metal)
+	deco("ChimneyCap", Vector3.new(1.4, 0.3, 1.4), kcf * CFrame.new(0.8, ksz.Y / 2 + 0.4 + 2.65, 1.1), accent, Enum.Material.SmoothPlastic)
+
+	folder.Parent = model
+end
+
 function PlotBuilder.buildPlot(index: number, themeIn: any?): Plot
 	local count = slotCount()
 	local idx = math.clamp(math.floor(index), 1, count)
@@ -393,6 +507,7 @@ function PlotBuilder.buildPlot(index: number, themeIn: any?): Plot
 	local floor = makePart("PlotFloor", Vector3.new(size.X, thickness, size.Z), at(0, -thickness / 2, 0),
 		floorColor, floorMaterial, model)
 	model.PrimaryPart = floor
+	decorateFloor(model, origin, size, theme)
 
 	-- Conveyor (thin, long; top surface at +0.65 above plot surface)
 	local len = Config.CONVEYOR_LENGTH
@@ -457,6 +572,8 @@ function PlotBuilder.buildPlot(index: number, themeIn: any?): Plot
 	if gate then
 		gate:SetAttribute("PlotIndex", idx)
 	end
+
+	dressMachines(model, origin, d1, conveyor, collector, theme)
 
 	return {
 		index = idx,

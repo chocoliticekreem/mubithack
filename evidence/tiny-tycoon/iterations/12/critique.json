@@ -1,0 +1,17 @@
+{
+  "score": 8,
+  "summary": "The playtest ran clean with no errors or warnings. The plaza and all 6 themed plots were built, the player was auto-claimed, and cubes dropped and were collected (15 dropped, 13 collected). The cash-in, juice, tutorial, and leaderboard systems all fired. The one visible gap is that no purchase counters appear, so buying was never confirmed in this run.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The report has no 'upgrades_bought', 'dropper_bought' or 'conveyor_bought' counters, and the tutorial reached only 2 steps in 32s. The purchase loop (Dropper 2 for 10, the pad vanishing, the next pads appearing) was never exercised, so it is untested. The 13 collected cubes should have been enough cash to buy it.",
+      "fix_hint": "Confirm that the pad touch handler fires for a character standing on the pad. When cash >= cost, deduct it once and bump 'upgrades_bought'. Check that the Dropper 2 pad turns the accent color once cash reaches 10 (the 'pad_highlighted' counter is 1, so this may be working). Consider having the ForgeTest path walk onto the pad so the purchase is verified."
+    },
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The player was auto-claimed ('auto_claims' 1) and 'plots_claimed' is 1, but the playtest does not show whether gate-touch claiming works. The auto-claim may just be masking a gate that the player cannot reach or trigger.",
+      "fix_hint": "Verify that the gate's Touched handler is connected on a part with CanTouch enabled, and that the gate sits on the plaza side of the plot where the player can walk onto it. Count a manual claim and an auto-claim separately so a test can tell them apart."
+    }
+  ],
+  "done": false
+}

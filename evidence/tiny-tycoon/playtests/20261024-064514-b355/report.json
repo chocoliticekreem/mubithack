@@ -1,0 +1,7238 @@
+{
+  "run_id": "20261024-064514-b355",
+  "kind": "multi_playtest",
+  "agent_role": "player",
+  "session_id": "playtest-20261024-064514-b355",
+  "goal": "Play like a new player for the first few minutes: get your plot (walk onto a CLAIM gate or wait for auto-claim), watch cash come in, walk onto the glowing green Dropper 2 buy pad as soon as you can afford it, keep buying the next pads as they appear and watch your plot grow, open the SHOP with the SHOP button and buy upgrades there, press REBIRTH once you can afford it, look at the TOP TYCOONS board in the plaza, and report anything confusing, broken or unfair",
+  "studio": "c5b04411-e15d-46ab-adbd-941b8da022b6",
+  "started": "2026-10-24T06:45:14Z",
+  "ended": "2026-10-24T06:47:52Z",
+  "max_steps": 18,
+  "goal_met": false,
+  "summary": "The playtester started with the shop already open. It bought Dropper 2 and Dropper 3 from the pads, bought Speed 1 and Silver Ore in the shop, and pressed REBIRTH several times. A rebirth went through at step 3, and nine others were denied. It ended the session without ever looking at the TOP TYCOONS board, and the early plot claim and first cash income are not visible in the trace. There were no server errors, and the only game issue is stale pad labels.",
+  "bugs": [
+    {
+      "title": "Rebirth went through while the button showed less than 100%",
+      "evidence": "At step 3 the button read 'REBIRTH $10.0K (92%)' and the press was accepted. The following observation shows the post-rebirth state (Ore: Bronze, Slots 1, Cash x1), and step 4 shows the button reset to 1%. Either the percentage on the button is stale, or the cost check lets players rebirth before they have $10K. The cause could not be determined from the trace.",
+      "severity": "medium"
+    },
+    {
+      "title": "Bought upgrade pads still show their buy label and price",
+      "evidence": "After Dropper 2 and Speed 1 were bought (shop cards read 'Owned', slots went 1 to 2), UpgradePad_dropper2 still lists 'Dropper 2 | $10' and UpgradePad_speed1 'Speed 1 | $22'. The HUD still shows '$10' and '$22' price text (steps 6-9).",
+      "severity": "low"
+    },
+    {
+      "title": "Dropper 3 pad still shows its price after purchase",
+      "evidence": "After step 15 the shop card reads 'Owned' and slots went from 2 to 3. The pad is still labelled 'Dropper 3 | $150' (CanTouch=false) and the HUD still shows stale '$10' and '$22' price text (steps 16-18). A new player could think the purchase did not register.",
+      "severity": "low"
+    },
+    {
+      "title": "Pressing 'Owned' on shop cards gives no visible feedback",
+      "evidence": "The Owned button on Card_dropper2 was pressed at steps 1, 7, 12 and 17. Each press reported 'button fired', but the trace shows no confirmation message or state change.",
+      "severity": "low"
+    }
+  ],
+  "steps": [
+    {
+      "n": 1,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -18.6,
+            4,
+            130.8
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 2,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Growth.Vault.Part",
+            "name": "Part",
+            "dist": 5,
+            "label": "Cash x1.5",
+            "touch": false,
+            "pos": [
+              -15.6,
+              4.3,
+              135
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 6,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 8,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 9,
+            "label": "Dropper 2 | $10 | Step here! $10\nv",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 12,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 13,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (70%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Gold Slots: 4 Cash x1.5",
+          "REBIRTH $10.0K (70%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824315
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "counters": {
+            "plots_claimed": 1,
+            "data_loaded": 1,
+            "cashin_milestones": 10,
+            "auto_claims": 1,
+            "cashin_fx_sent": 310,
+            "tutorial_done": 2,
+            "shop_purchases": 7,
+            "cashin_local_sounds": 229,
+            "plot_growth_built": 9,
+            "cubes_collected": 309,
+            "tutorial_reshown": 6,
+            "data_saved": 3,
+            "tutorial_steps": 2,
+            "cubes_dropped": 309,
+            "highlights": 12,
+            "themes_built": 6,
+            "leaderboard_refresh": 41,
+            "upgrades_bought": 8,
+            "tier_upgrades": 2,
+            "bursts": 453,
+            "rebirth_denied": 4,
+            "juice_events": 336,
+            "rebirths": 1,
+            "plaza_built": 1,
+            "dropper_bought": 3,
+            "shop_opened": 4,
+            "conveyor_bought": 2,
+            "plot_assigned": 1,
+            "map_built": 1,
+            "pad_highlighted": 1,
+            "purchase_fx_sent": 8,
+            "sounds_played": 229
+          }
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 201.306,
+          "kind": "count",
+          "data": {
+            "value": 313,
+            "name": "cubes_dropped",
+            "delta": 4
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_dropper2.State"
+        },
+        "reason": "Press the Owned button in the already-open shop panel as assigned.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_dropper2.State\"} -> done=True clicked 'Owned' (ShopUi.Panel.List.Card_dropper2.State): button fired; changed: {\"hud_gone\": [\"+$163/s\", \"+136\", \"Cash: 7.6K\"], \"hud_new\": [\"+$122/s\", \"Cash: 7.7K\"]} | effect: {\"hud_gone\":[\"+$163/s\",\"+136\",\"Cash: 7.6K\"],\"hud_new\":[\"+$122/s\",\"Cash: 7.7K\"]}",
+      "request_id": "mreq_01a16ca80e2678f3a5c1a38e3815d308",
+      "latency_ms": 2717,
+      "step_ms": 5030
+    },
+    {
+      "n": 2,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -18.6,
+            4,
+            130.8
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 2,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Growth.Vault.Part",
+            "name": "Part",
+            "dist": 5,
+            "label": "Cash x1.5",
+            "touch": false,
+            "pos": [
+              -15.6,
+              4.3,
+              135
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 6,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 8,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 9,
+            "label": "Dropper 2 | $10 | Step here! $10\nv",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 12,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 13,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (79%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Gold Slots: 4 Cash x1.5",
+          "REBIRTH $10.0K (79%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824321
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 346,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 320,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 319,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 347,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 321,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 205.989,
+          "kind": "count",
+          "data": {
+            "value": 320,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 348,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 322,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 235,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 235,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 465,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 206.255,
+          "kind": "count",
+          "data": {
+            "value": 321,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.ShopButton"
+        },
+        "reason": "Press the SHOP button to test that it toggles the panel.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.ShopButton\"} -> done=True clicked 'SHOP' (ShopUi.ShopButton): button fired; changed: {\"hud_gone\": [\"$10\", \"$1300\", \"$150\", \"$22\", \"$2200\", \"$300\"], \"panels_closed\": [\"ShopUi.Panel 'SHOP'\"], \"buttons_new\": [\"REBIRTH $10.0K (86%) @ RebirthGui.RebirthButton\"], \"buttons_gone\": [\"Buy @ ShopUi.Panel.List.Card_mult2.State\", \"Buy... | effect: {\"hud_gone\":[\"$10\",\"$1300\",\"$150\",\"$22\",\"$2200\",\"$300\"],\"panels_closed\":[\"ShopUi.Panel 'SHOP'\"],\"buttons_new\":[\"REBIRTH $10.0K (86%) @ RebirthGui.RebirthButton\"],\"buttons_gone\":[\"Buy @ ShopUi.Panel.List.Card_mult2.State\",\"Buy @ ShopUi.Panel.List.Card_tier_diamond.State\",\"Owned @ ShopUi.Panel.List.Card_dropper2.State\",\"Owned @ ShopUi.Panel.List.Card_dropper3.State\",\"Owned @ ShopUi.Panel.List.Card_dropper4.State\",\"Owned @ ShopUi.Panel.List.Card_mult1.State\",\"Owned @ ShopUi.Panel.List.Card_speed1.State\",\"Owned @ ShopUi.Panel.List.Card_speed2.State\"],\"hud_new\":[\"+$150/s\",\"Cash: 8.7K\",\"REBIRTH $...",
+      "request_id": "mreq_01a16ca8254270b3bdc6f6dfdddf24cc",
+      "latency_ms": 3071,
+      "step_ms": 5263
+    },
+    {
+      "n": 3,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -18.6,
+            4,
+            130.8
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 2,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Growth.Vault.Part",
+            "name": "Part",
+            "dist": 5,
+            "label": "Cash x1.5",
+            "touch": false,
+            "pos": [
+              -15.6,
+              4.3,
+              135
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 6,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 8,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 9,
+            "label": "Dropper 2 | $10 | Step here! $10\nv",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 12,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 13,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (87%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          }
+        ],
+        "hud": [
+          "Ore: Gold Slots: 4 Cash x1.5",
+          "REBIRTH $10.0K (87%)",
+          "SHOP",
+          "Cash: 8.7K",
+          "+$122/s",
+          "Next: Cash x2 ($2.2K)"
+        ],
+        "panels": [],
+        "world": {
+          "now": 1792824327
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 212.021,
+          "kind": "count",
+          "data": {
+            "value": 331,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.021,
+          "kind": "count",
+          "data": {
+            "value": 359,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.021,
+          "kind": "count",
+          "data": {
+            "value": 333,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.021,
+          "kind": "count",
+          "data": {
+            "value": 332,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.255,
+          "kind": "ui_press",
+          "data": {
+            "path": "ShopUi.ShopButton",
+            "effect": {
+              "hud_gone": [
+                "$10",
+                "$1300",
+                "$150",
+                "$22",
+                "$2200",
+                "$300"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [],
+              "panels_closed": [
+                "ShopUi.Panel 'SHOP'"
+              ],
+              "buttons_new": [
+                "REBIRTH $10.0K (86%) @ RebirthGui.RebirthButton"
+              ],
+              "buttons_gone": [
+                "Buy @ ShopUi.Panel.List.Card_mult2.State",
+                "Buy @ ShopUi.Panel.List.Card_tier_diamond.State",
+                "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+                "Owned @ ShopUi.Panel.List.Card_dropper3.State",
+                "Owned @ ShopUi.Panel.List.Card_dropper4.State",
+                "Owned @ ShopUi.Panel.List.Card_mult1.State",
+                "Owned @ ShopUi.Panel.List.Card_speed1.State",
+                "Owned @ ShopUi.Panel.List.Card_speed2.State"
+              ],
+              "hud_new": [
+                "+$150/s",
+                "Cash: 8.7K",
+                "REBIRTH $10.0K (86%)"
+              ]
+            },
+            "text": "SHOP",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "ShopUi"
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 360,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 334,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 241,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 241,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 477,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 212.289,
+          "kind": "count",
+          "data": {
+            "value": 333,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 213.372,
+          "kind": "count",
+          "data": {
+            "value": 337,
+            "name": "cubes_dropped",
+            "delta": 4
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "RebirthGui.RebirthButton"
+        },
+        "reason": "Press the REBIRTH button to test its feature and see what it says when I can't afford it yet.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"RebirthGui.RebirthButton\"} -> done=True clicked 'REBIRTH $10.0K (92%)' (RebirthGui.RebirthButton): button fired; changed: {\"hud_gone\": [\"+$163/s\", \"+68\", \"Cash: 9.3K\", \"Next: Cash x2 ($2.2K)\", \"Ore: Gold Slots: 4 Cash x1.5\", \"REBIRTH $10.0K (92%)\"], \"panels_opened\": [\"RebirthFx.Frame\"], \"buttons_new\": [\"REBIRTH $10.0K (0%) @ RebirthGui... | effect: {\"hud_gone\":[\"+$163/s\",\"+68\",\"Cash: 9.3K\",\"Next: Cash x2 ($2.2K)\",\"Ore: Gold Slots: 4 Cash x1.5\",\"REBIRTH $10.0K (92%)\"],\"panels_opened\":[\"RebirthFx.Frame\"],\"buttons_new\":[\"REBIRTH $10.0K (0%) @ RebirthGui.RebirthButton\"],\"buttons_gone\":[\"REBIRTH $10.0K (92%) @ RebirthGui.RebirthButton\"],\"hud_new\":[\"+$118/s\",\"+45\",\"Cash: 45\",\"Next: Dropper 2 ($10)\",\"Ore: Bronze Slots: 1 Cash x1\",\"REBIRTH $10.0K (0%)\"]}",
+      "request_id": "mreq_01a16ca83de77d80b31c21d4c6c858f6",
+      "latency_ms": 3119,
+      "step_ms": 5378
+    },
+    {
+      "n": 4,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -18.6,
+            4,
+            130.8
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 2,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 6,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 8,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 9,
+            "label": "Dropper 2 | $10",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 12,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 13,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 21,
+            "label": "Dropper 3 | $150",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (1%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 1 Cash x1",
+          "REBIRTH $10.0K (1%)",
+          "REBIRTH x1.5!",
+          "SHOP",
+          "Cash: 180",
+          "+45",
+          "+$90/s",
+          "Next: Dropper 2 ($10)"
+        ],
+        "panels": [],
+        "world": {
+          "now": 1792824333
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 218.805,
+          "kind": "count",
+          "data": {
+            "value": 489,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 218.805,
+          "kind": "count",
+          "data": {
+            "value": 343,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 218.805,
+          "kind": "count",
+          "data": {
+            "value": 374,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 218.805,
+          "kind": "count",
+          "data": {
+            "value": 345,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 218.805,
+          "kind": "count",
+          "data": {
+            "value": 344,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.406,
+          "kind": "count",
+          "data": {
+            "value": 346,
+            "name": "cubes_dropped",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 375,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 346,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 248,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 248,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 491,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 219.638,
+          "kind": "count",
+          "data": {
+            "value": 345,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "RebirthGui.RebirthButton"
+        },
+        "reason": "Press the post-rebirth REBIRTH button (1%, can't afford yet) to check its feedback.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"RebirthGui.RebirthButton\"} -> done=True clicked 'REBIRTH $10.0K (1%)' (RebirthGui.RebirthButton): button fired; changed: {\"hud_gone\": [\"+$38/s\", \"Cash: 188\"], \"hud_new\": [\"+$12/s\", \"+8\", \"Cash: 196\", \"Need $9812 more to rebirth\"]} | effect: {\"hud_gone\":[\"+$38/s\",\"Cash: 188\"],\"hud_new\":[\"+$12/s\",\"+8\",\"Cash: 196\",\"Need $9812 more to rebirth\"]}",
+      "request_id": "mreq_01a16ca856d17a82a3685cb894edf50c",
+      "latency_ms": 3153,
+      "step_ms": 5060
+    },
+    {
+      "n": 5,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 44,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -18.6,
+            4,
+            130.8
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 2,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 6,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 8,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 9,
+            "label": "Dropper 2 | $10",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 12,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 13,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 21,
+            "label": "Dropper 3 | $150",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (1%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 1 Cash x1",
+          "REBIRTH $10.0K (1%)",
+          "Need $9812 more to rebirth",
+          "SHOP",
+          "Cash: 196",
+          "+$3/s",
+          "Next: Dropper 2 ($10)"
+        ],
+        "panels": [],
+        "world": {
+          "now": 1792824339
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 222.355,
+          "kind": "count",
+          "data": {
+            "value": 346,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 223.437,
+          "kind": "count",
+          "data": {
+            "value": 348,
+            "name": "cubes_dropped",
+            "delta": 1
+          }
+        },
+        {
+          "t": 223.856,
+          "kind": "count",
+          "data": {
+            "value": 5,
+            "name": "rebirth_denied",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 377,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 348,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 250,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 250,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 495,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 224.372,
+          "kind": "count",
+          "data": {
+            "value": 347,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 224.721,
+          "kind": "ui_press",
+          "data": {
+            "path": "RebirthGui.RebirthButton",
+            "effect": {
+              "hud_gone": [
+                "+$38/s",
+                "Cash: 188"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [],
+              "panels_closed": [],
+              "buttons_new": [],
+              "buttons_gone": [],
+              "hud_new": [
+                "+$12/s",
+                "+8",
+                "Cash: 196",
+                "Need $9812 more to rebirth"
+              ]
+            },
+            "text": "REBIRTH $10.0K (1%)",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "RebirthGui"
+          }
+        },
+        {
+          "t": 225.455,
+          "kind": "count",
+          "data": {
+            "value": 349,
+            "name": "cubes_dropped",
+            "delta": 1
+          }
+        },
+        {
+          "t": 225.471,
+          "kind": "count",
+          "data": {
+            "value": 46,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "go_touch",
+        "args": {
+          "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2"
+        },
+        "reason": "After the rebirth I have $196, so I can rebuy Dropper 2 for $10.",
+        "bug": null
+      },
+      "result": "go_touch {\"path\":\"Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2\"} -> done=True touched Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2 after arrived 4.3 studs from target via path (the part has CanTouch=false) | effect: {\"attrs\":{\"NextGoalName\":[\"Dropper 2\",\"Speed 1\"],\"DropperSlots\":[1,2],\"NextGoalCost\":[10,22]},\"counters\":{\"plot_growth_built\":[9,11],\"upgrades_bought\":[8,9],\"purchase_fx_sent\":[8,9],\"dropper_bought\":[3,4]},\"leaderstats\":{\"Cash\":[228,218]},\"hud_gone\":[\"Ore: Bronze Slots: 1 Cash x1\",\"Cash: 228\",\"+8\",\"+$5/s\",\"Next: Dropper 2 ($10)\"],\"hud_new\":[\"Upgraded: Dropper 2\",\"Ore: Bronze Slots: 2 Cash x1\",\"Cash: 218\",\"+$3/s\",\"Next: Speed 1 ($22)\"]}",
+      "request_id": "mreq_01a16ca86e5f71128e05cade598a0944",
+      "latency_ms": 6916,
+      "step_ms": 8613
+    },
+    {
+      "n": 6,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 50,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -19,
+            4,
+            139.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 2,
+            "label": "Dropper 2 | $10",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 7,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 10,
+            "label": "Speed 1 | $22",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 12,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 13,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 19,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 20,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 21,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (2%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          }
+        ],
+        "hud": [
+          "Upgraded: Dropper 2",
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (2%)",
+          "SHOP",
+          "Cash: 226",
+          "+$3/s",
+          "Next: Speed 1 ($22)"
+        ],
+        "panels": [],
+        "world": {
+          "now": 1792824349
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "counters": {
+            "plots_claimed": 1,
+            "data_loaded": 1,
+            "cashin_milestones": 10,
+            "auto_claims": 1,
+            "cashin_fx_sent": 353,
+            "tutorial_done": 2,
+            "shop_purchases": 7,
+            "cashin_local_sounds": 255,
+            "plot_growth_built": 11,
+            "cubes_collected": 352,
+            "tutorial_reshown": 6,
+            "data_saved": 3,
+            "tutorial_steps": 2,
+            "cubes_dropped": 355,
+            "highlights": 16,
+            "themes_built": 6,
+            "leaderboard_refresh": 48,
+            "upgrades_bought": 9,
+            "tier_upgrades": 2,
+            "bursts": 507,
+            "rebirth_denied": 5,
+            "juice_events": 385,
+            "rebirths": 2,
+            "plaza_built": 1,
+            "dropper_bought": 4,
+            "shop_opened": 4,
+            "conveyor_bought": 2,
+            "plot_assigned": 1,
+            "map_built": 1,
+            "pad_highlighted": 1,
+            "purchase_fx_sent": 9,
+            "sounds_played": 255
+          }
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 233.605,
+          "kind": "count",
+          "data": {
+            "value": 504,
+            "name": "bursts",
+            "delta": 1
+          }
+        },
+        {
+          "t": 233.605,
+          "kind": "count",
+          "data": {
+            "value": 10,
+            "name": "plot_growth_built",
+            "delta": 1
+          }
+        },
+        {
+          "t": 233.605,
+          "kind": "count",
+          "data": {
+            "value": 505,
+            "name": "bursts",
+            "delta": 1
+          }
+        },
+        {
+          "t": 233.605,
+          "kind": "count",
+          "data": {
+            "value": 11,
+            "name": "plot_growth_built",
+            "delta": 1
+          }
+        },
+        {
+          "t": 234.422,
+          "kind": "count",
+          "data": {
+            "value": 385,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 234.422,
+          "kind": "count",
+          "data": {
+            "value": 353,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 234.422,
+          "kind": "count",
+          "data": {
+            "value": 255,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 234.422,
+          "kind": "count",
+          "data": {
+            "value": 255,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 234.423,
+          "kind": "count",
+          "data": {
+            "value": 507,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 234.423,
+          "kind": "count",
+          "data": {
+            "value": 352,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 235.489,
+          "kind": "count",
+          "data": {
+            "value": 48,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        },
+        {
+          "t": 235.505,
+          "kind": "count",
+          "data": {
+            "value": 355,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.ShopButton"
+        },
+        "reason": "Open the shop panel to find the Owned button and test the shop upgrades.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.ShopButton\"} -> done=True clicked 'SHOP' (ShopUi.ShopButton): button fired; changed: {\"hud_gone\": [\"+$5/s\", \"Cash: 242\"], \"panels_opened\": [\"ShopUi.Panel 'SHOP'\"], \"buttons_new\": [\"Buy @ ShopUi.Panel.List.Card_dropper3.State\", \"Buy @ ShopUi.Panel.List.Card_speed1.State\", \"Buy @ ShopUi.Panel.List.Card_tier_silver.State\", \"... | effect: {\"hud_gone\":[\"+$5/s\",\"Cash: 242\"],\"panels_opened\":[\"ShopUi.Panel 'SHOP'\"],\"buttons_new\":[\"Buy @ ShopUi.Panel.List.Card_dropper3.State\",\"Buy @ ShopUi.Panel.List.Card_speed1.State\",\"Buy @ ShopUi.Panel.List.Card_tier_silver.State\",\"Locked (needs Cash x1.5) @ ShopUi.Panel.List.Card_mult2.State\",\"Locked (needs Dropper 3) @ ShopUi.Panel.List.Card_dropper4.State\",\"Locked (needs Gold Ore) @ ShopUi.Panel.List.Card_tier_diamond.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State\"],\"hud_new\":[\"$10\",\"$1300\",\"$150\",\"...",
+      "request_id": "mreq_01a16ca894537eb29388ac39941bd89f",
+      "latency_ms": 2461,
+      "step_ms": 4792
+    },
+    {
+      "n": 7,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 50,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -19,
+            4,
+            139.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 2,
+            "label": "Dropper 2 | $10",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 7,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 10,
+            "label": "Speed 1 | $22",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 12,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 13,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 19,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 20,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 21,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (2%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Locked (needs Speed 1)",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (2%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824355
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 239.639,
+          "kind": "count",
+          "data": {
+            "value": 259,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 239.639,
+          "kind": "count",
+          "data": {
+            "value": 515,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 239.639,
+          "kind": "count",
+          "data": {
+            "value": 356,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.037,
+          "kind": "count",
+          "data": {
+            "value": 4,
+            "name": "data_saved",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.087,
+          "kind": "ui_press",
+          "data": {
+            "path": "ShopUi.ShopButton",
+            "effect": {
+              "hud_gone": [
+                "+$5/s",
+                "Cash: 242"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [
+                "ShopUi.Panel 'SHOP'"
+              ],
+              "panels_closed": [],
+              "buttons_new": [
+                "Buy @ ShopUi.Panel.List.Card_dropper3.State",
+                "Buy @ ShopUi.Panel.List.Card_speed1.State",
+                "Buy @ ShopUi.Panel.List.Card_tier_silver.State",
+                "Locked (needs Cash x1.5) @ ShopUi.Panel.List.Card_mult2.State",
+                "Locked (needs Dropper 3) @ ShopUi.Panel.List.Card_dropper4.State",
+                "Locked (needs Gold Ore) @ ShopUi.Panel.List.Card_tier_diamond.State",
+                "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State",
+                "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State"
+              ],
+              "buttons_gone": [],
+              "hud_new": [
+                "$10",
+                "$1300",
+                "$150",
+                "$22",
+                "$2200",
+                "$300"
+              ]
+            },
+            "text": "SHOP",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "ShopUi"
+          }
+        },
+        {
+          "t": 240.47,
+          "kind": "count",
+          "data": {
+            "value": 390,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.47,
+          "kind": "count",
+          "data": {
+            "value": 358,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.47,
+          "kind": "count",
+          "data": {
+            "value": 260,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.47,
+          "kind": "count",
+          "data": {
+            "value": 260,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.471,
+          "kind": "count",
+          "data": {
+            "value": 517,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 240.471,
+          "kind": "count",
+          "data": {
+            "value": 357,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 240.503,
+          "kind": "count",
+          "data": {
+            "value": 49,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_dropper2.State"
+        },
+        "reason": "Press the Owned button in the open SHOP panel as assigned.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_dropper2.State\"} -> done=True clicked 'Owned' (ShopUi.Panel.List.Card_dropper2.State): button fired; changed: {\"hud_gone\": [\"Cash: 282\"], \"hud_new\": [\"+8\", \"Cash: 298\"]} | effect: {\"hud_gone\":[\"Cash: 282\"],\"hud_new\":[\"+8\",\"Cash: 298\"]}",
+      "request_id": "mreq_01a16ca8aa9579809ad07be61b118a7a",
+      "latency_ms": 1859,
+      "step_ms": 4010
+    },
+    {
+      "n": 8,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 50,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -19,
+            4,
+            139.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 2,
+            "label": "Dropper 2 | $10",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 7,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 10,
+            "label": "Speed 1 | $22",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 12,
+            "label": "Speed 2 | $800",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 13,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 19,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 20,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 21,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (3%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Locked (needs Speed 1)",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (3%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824360
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 244.506,
+          "kind": "count",
+          "data": {
+            "value": 264,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 244.506,
+          "kind": "count",
+          "data": {
+            "value": 525,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 244.506,
+          "kind": "count",
+          "data": {
+            "value": 361,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.136,
+          "kind": "ui_press",
+          "data": {
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "effect": {
+              "hud_gone": [
+                "Cash: 282"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [],
+              "panels_closed": [],
+              "buttons_new": [],
+              "buttons_gone": [],
+              "hud_new": [
+                "+8",
+                "Cash: 298"
+              ]
+            },
+            "text": "Owned",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "ShopUi"
+          }
+        },
+        {
+          "t": 245.504,
+          "kind": "count",
+          "data": {
+            "value": 50,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.57,
+          "kind": "count",
+          "data": {
+            "value": 365,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 395,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 363,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 265,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 265,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 527,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 245.671,
+          "kind": "count",
+          "data": {
+            "value": 362,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_speed1.State"
+        },
+        "reason": "Test the shop Buy button for Speed 1 now that I have cash.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_speed1.State\"} -> done=True clicked 'Buy' (ShopUi.Panel.List.Card_speed1.State): button fired; changed: {\"hud_gone\": [\"Cash: 346\", \"Locked (needs Speed 1)\", \"Next: Speed 1 ($22)\"], \"buttons_new\": [\"Buy @ ShopUi.Panel.List.Card_speed2.State\", \"Owned @ ShopUi.Panel.List.Card_speed1.State\"], \"buttons_gone\": [\"Buy @ ShopUi.Pane... | effect: {\"hud_gone\":[\"Cash: 346\",\"Locked (needs Speed 1)\",\"Next: Speed 1 ($22)\"],\"buttons_new\":[\"Buy @ ShopUi.Panel.List.Card_speed2.State\",\"Owned @ ShopUi.Panel.List.Card_speed1.State\"],\"buttons_gone\":[\"Buy @ ShopUi.Panel.List.Card_speed1.State\",\"Locked (needs Speed 1) @ ShopUi.Panel.List.Card_speed2.State\"],\"hud_new\":[\"Cash: 340\",\"Next: Silver Ore ($60)\",\"Upgraded: Speed 1\"]}",
+      "request_id": "mreq_01a16ca8be2f763289c7b921abf38e20",
+      "latency_ms": 4052,
+      "step_ms": 6242
+    },
+    {
+      "n": 9,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 50,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -19,
+            4,
+            139.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 2,
+            "label": "Dropper 2 | $10",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 7,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 10,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 12,
+            "label": "Speed 2 | $800",
+            "touch": true,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 13,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 19,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 20,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 21,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (3%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Upgraded: Speed 1",
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (3%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824367
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 252.97,
+          "kind": "count",
+          "data": {
+            "value": 371,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 252.97,
+          "kind": "count",
+          "data": {
+            "value": 273,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 252.97,
+          "kind": "count",
+          "data": {
+            "value": 273,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 252.97,
+          "kind": "count",
+          "data": {
+            "value": 544,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 252.97,
+          "kind": "count",
+          "data": {
+            "value": 370,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 407,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 372,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 274,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 274,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 546,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 253.503,
+          "kind": "count",
+          "data": {
+            "value": 371,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 253.621,
+          "kind": "count",
+          "data": {
+            "value": 373,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "RebirthGui.RebirthButton"
+        },
+        "reason": "Press the REBIRTH button to test it, even though it is only at 3% of the cost.",
+        "bug": {
+          "title": "Bought upgrade pads still show their buy label and price",
+          "evidence": "Dropper 2 and Speed 1 are already owned (shop cards say 'Owned', DropperSlots is 2). The touchables still list UpgradePad_dropper2 as 'Dropper 2 | $10' and UpgradePad_speed1 as 'Speed 1 | $22', and the HUD still shows '$10' next to 'Dropper 2'.",
+          "severity": "low"
+        }
+      },
+      "result": "press {\"path\":\"RebirthGui.RebirthButton\"} -> done=True clicked 'REBIRTH $10.0K (3%)' (RebirthGui.RebirthButton): button fired; changed: {\"hud_gone\": [\"+$8/s\", \"+8\", \"Cash: 396\", \"REBIRTH $10.0K (3%)\"], \"buttons_new\": [\"REBIRTH $10.0K (4%) @ RebirthGui.RebirthButton\"], \"buttons_gone\": [\"REBIRTH $10.0K (3%) @ RebirthGui.RebirthButton\"], \"hud_new\": [\"+$... | effect: {\"hud_gone\":[\"+$8/s\",\"+8\",\"Cash: 396\",\"REBIRTH $10.0K (3%)\"],\"buttons_new\":[\"REBIRTH $10.0K (4%) @ RebirthGui.RebirthButton\"],\"buttons_gone\":[\"REBIRTH $10.0K (3%) @ RebirthGui.RebirthButton\"],\"hud_new\":[\"+$6/s\",\"Cash: 404\",\"Need $9596 more to rebirth\",\"REBIRTH $10.0K (4%)\"]}",
+      "request_id": "mreq_01a16ca8da9372308d065f9b49476383",
+      "latency_ms": 5163,
+      "step_ms": 7345
+    },
+    {
+      "n": 10,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 50,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -19,
+            4,
+            139.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper2",
+            "name": "UpgradePad_dropper2",
+            "dist": 2,
+            "label": "Dropper 2 | $10",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_gold",
+            "name": "UpgradePad_tier_gold",
+            "dist": 7,
+            "label": "Gold Ore | $500",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              140
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 10,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed2",
+            "name": "UpgradePad_speed2",
+            "dist": 12,
+            "label": "Speed 2 | $800",
+            "touch": true,
+            "pos": [
+              -26,
+              2,
+              130
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 13,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 19,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 20,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 21,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (4%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (4%)",
+          "Need $9596 more to rebirth",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824375
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 261.003,
+          "kind": "count",
+          "data": {
+            "value": 379,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.003,
+          "kind": "count",
+          "data": {
+            "value": 281,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.003,
+          "kind": "count",
+          "data": {
+            "value": 281,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.003,
+          "kind": "count",
+          "data": {
+            "value": 560,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 261.003,
+          "kind": "count",
+          "data": {
+            "value": 378,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 415,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 380,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 282,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 282,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 562,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 261.536,
+          "kind": "count",
+          "data": {
+            "value": 379,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 261.638,
+          "kind": "count",
+          "data": {
+            "value": 381,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "go_use",
+        "args": {
+          "path": "Workspace.RebirthAltar_retailtycoonlover21",
+          "action": "Rebirth"
+        },
+        "reason": "Try the Rebirth altar prompt to see how the game rejects a rebirth when I can't afford it yet.",
+        "bug": null
+      },
+      "result": "go_use {\"path\":\"Workspace.RebirthAltar_retailtycoonlover21\",\"action\":\"Rebirth\"} -> done=True walked (arrived 4.2 studs from target via path), then triggered 'Rebirth Golden Altar' on Workspace.RebirthAltar_retailtycoonlover21 at 4.2 studs (range 10) | effect: {\"hud_gone\":[\"REBIRTH $10.0K (4%)\",\"Cash: 468\"],\"events\":[{\"action\":\"Rebirth\",\"kind\":\"prompt_triggered\",\"object\":\"Golden Altar\",\"prompt\":\"Workspace.RebirthAltar_retailtycoonlover21.ProximityPrompt\"}],\"leaderstats\":{\"Cash\":[468,500]},\"attrs\":{\"TotalEarned\":[17905,17937]},\"hud_new\":[\"REBIRTH $10.0K (5%)\",\"Need $9500 more to rebirth\",\"Cash: 500\",\"E\",\"Rebirth\",\"Golden Altar\"]}",
+      "request_id": "mreq_01a16ca8fb307452a1d0ef2881ccfa51",
+      "latency_ms": 5732,
+      "step_ms": 10660
+    },
+    {
+      "n": 11,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 4,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            14.2,
+            4.1,
+            107.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 4,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.PlotSigns.OwnerSign.SignBoard",
+            "name": "SignBoard",
+            "dist": 31,
+            "label": "retailtycoonlover21's Plot",
+            "touch": false,
+            "pos": [
+              14,
+              8.1,
+              138
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 33,
+            "label": "Dropper 3 | $150",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 34,
+            "label": "Cash x1.5 | $300",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 34,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 35,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 37,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 40,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (5%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (5%)",
+          "Need $9500 more to rebirth",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824387
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "counters": {
+            "plots_claimed": 1,
+            "data_loaded": 1,
+            "cashin_milestones": 10,
+            "auto_claims": 1,
+            "cashin_fx_sent": 392,
+            "tutorial_done": 2,
+            "shop_purchases": 8,
+            "cashin_local_sounds": 294,
+            "plot_growth_built": 12,
+            "cubes_collected": 391,
+            "tutorial_reshown": 6,
+            "data_saved": 4,
+            "tutorial_steps": 2,
+            "cubes_dropped": 393,
+            "highlights": 16,
+            "themes_built": 6,
+            "leaderboard_refresh": 55,
+            "upgrades_bought": 10,
+            "tier_upgrades": 2,
+            "bursts": 586,
+            "rebirth_denied": 7,
+            "juice_events": 427,
+            "rebirths": 2,
+            "plaza_built": 1,
+            "dropper_bought": 4,
+            "shop_opened": 6,
+            "conveyor_bought": 3,
+            "plot_assigned": 1,
+            "map_built": 1,
+            "pad_highlighted": 1,
+            "purchase_fx_sent": 10,
+            "sounds_played": 294
+          }
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 273.053,
+          "kind": "count",
+          "data": {
+            "value": 391,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.053,
+          "kind": "count",
+          "data": {
+            "value": 293,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.053,
+          "kind": "count",
+          "data": {
+            "value": 293,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.053,
+          "kind": "count",
+          "data": {
+            "value": 584,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 273.054,
+          "kind": "count",
+          "data": {
+            "value": 390,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 427,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 392,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 294,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 294,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 586,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 273.586,
+          "kind": "count",
+          "data": {
+            "value": 391,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 273.703,
+          "kind": "count",
+          "data": {
+            "value": 393,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "move_to",
+        "args": {
+          "x": 0,
+          "y": 4,
+          "z": 70
+        },
+        "reason": "Head toward the plaza to find the TOP TYCOONS board, since the assigned UI buttons have all been pressed.",
+        "bug": null
+      },
+      "result": "walk_to {\"pos\":[0.0,4.0,70.0]} -> done=True arrived 1.5 studs from target via path",
+      "request_id": "mreq_01a16ca9293d73c388c4e893a6a16f77",
+      "latency_ms": 6980,
+      "step_ms": 10111
+    },
+    {
+      "n": 12,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 36,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            0.1,
+            3,
+            71.4
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 34,
+            "label": "Cash x1.5 | $300",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 36,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_diamond",
+            "name": "UpgradePad_tier_diamond",
+            "dist": 39,
+            "label": "Diamond Ore | $4000",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 43,
+            "label": "Dropper 3 | $150",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 47,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 52,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 55,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 58,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (5%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (5%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824398
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 283.12,
+          "kind": "count",
+          "data": {
+            "value": 401,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.12,
+          "kind": "count",
+          "data": {
+            "value": 303,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.12,
+          "kind": "count",
+          "data": {
+            "value": 303,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.12,
+          "kind": "count",
+          "data": {
+            "value": 604,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 283.12,
+          "kind": "count",
+          "data": {
+            "value": 400,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.636,
+          "kind": "count",
+          "data": {
+            "value": 437,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.636,
+          "kind": "count",
+          "data": {
+            "value": 402,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.636,
+          "kind": "count",
+          "data": {
+            "value": 304,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.636,
+          "kind": "count",
+          "data": {
+            "value": 304,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.637,
+          "kind": "count",
+          "data": {
+            "value": 606,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 283.637,
+          "kind": "count",
+          "data": {
+            "value": 401,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 283.753,
+          "kind": "count",
+          "data": {
+            "value": 403,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_dropper2.State"
+        },
+        "reason": "Press the Owned button to check that it does nothing harmful and doesn't double-buy.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_dropper2.State\"} -> done=True clicked 'Owned' (ShopUi.Panel.List.Card_dropper2.State): button fired; changed: {\"hud_gone\": [\"Cash: 628\"], \"hud_new\": [\"+8\", \"Cash: 644\"]} | effect: {\"hud_gone\":[\"Cash: 628\"],\"hud_new\":[\"+8\",\"Cash: 644\"]}",
+      "request_id": "mreq_01a16ca9541c76d39bfc9dc636ece3aa",
+      "latency_ms": 3532,
+      "step_ms": 5672
+    },
+    {
+      "n": 13,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 36,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            0.1,
+            3,
+            71.4
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 34,
+            "label": "Cash x1.5 | $300",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 36,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_diamond",
+            "name": "UpgradePad_tier_diamond",
+            "dist": 39,
+            "label": "Diamond Ore | $4000",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 43,
+            "label": "Dropper 3 | $150",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 47,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 52,
+            "label": "Silver Ore | $60",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 55,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 58,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Locked (needs Silver Ore)",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (6%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (6%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824405
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 289.67,
+          "kind": "count",
+          "data": {
+            "value": 310,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 289.67,
+          "kind": "count",
+          "data": {
+            "value": 618,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 289.67,
+          "kind": "count",
+          "data": {
+            "value": 407,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 289.803,
+          "kind": "count",
+          "data": {
+            "value": 409,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        },
+        {
+          "t": 290.219,
+          "kind": "ui_press",
+          "data": {
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "effect": {
+              "hud_gone": [
+                "Cash: 628"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [],
+              "panels_closed": [],
+              "buttons_new": [],
+              "buttons_gone": [],
+              "hud_new": [
+                "+8",
+                "Cash: 644"
+              ]
+            },
+            "text": "Owned",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "ShopUi"
+          }
+        },
+        {
+          "t": 290.636,
+          "kind": "count",
+          "data": {
+            "value": 59,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 444,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 409,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 311,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 311,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 620,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 291.136,
+          "kind": "count",
+          "data": {
+            "value": 408,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_tier_silver.State"
+        },
+        "reason": "Buy Silver Ore in the SHOP with current cash to test shop purchases.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_tier_silver.State\"} -> done=True clicked 'Buy' (ShopUi.Panel.List.Card_tier_silver.State): button fired; changed: {\"hud_gone\": [\"+8\", \"Cash: 700\", \"Locked (needs Silver Ore)\", \"Next: Silver Ore ($60)\", \"Ore: Bronze Slots: 2 Cash x1\", \"REBIRTH $10.0K (7%)\"], \"buttons_new\": [\"Buy @ ShopUi.Panel.List.Card_mult1.State\", \"Buy @ ShopU... | effect: {\"hud_gone\":[\"+8\",\"Cash: 700\",\"Locked (needs Silver Ore)\",\"Next: Silver Ore ($60)\",\"Ore: Bronze Slots: 2 Cash x1\",\"REBIRTH $10.0K (7%)\"],\"buttons_new\":[\"Buy @ ShopUi.Panel.List.Card_mult1.State\",\"Buy @ ShopUi.Panel.List.Card_tier_gold.State\",\"Owned @ ShopUi.Panel.List.Card_tier_silver.State\",\"REBIRTH $10.0K (6%) @ RebirthGui.RebirthButton\"],\"buttons_gone\":[\"Buy @ ShopUi.Panel.List.Card_tier_silver.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State\",\"Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State\",\"REBIRTH $10.0K (7%) @ RebirthGui.RebirthButton\"],\"hud_...",
+      "request_id": "mreq_01a16ca96e3b7e438b88130742ca8e42",
+      "latency_ms": 5658,
+      "step_ms": 7797
+    },
+    {
+      "n": 14,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 36,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            0.1,
+            3,
+            71.4
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 34,
+            "label": "Cash x1.5 | $300",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 36,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_diamond",
+            "name": "UpgradePad_tier_diamond",
+            "dist": 39,
+            "label": "Diamond Ore | $4000",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 43,
+            "label": "Dropper 3 | $150",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 47,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 52,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 55,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 58,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (6%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Upgraded: Silver Ore",
+          "Ore: Silver Slots: 2 Cash x1",
+          "REBIRTH $10.0K (6%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824414
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 299.201,
+          "kind": "count",
+          "data": {
+            "value": 319,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.201,
+          "kind": "count",
+          "data": {
+            "value": 319,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.201,
+          "kind": "count",
+          "data": {
+            "value": 637,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 299.201,
+          "kind": "count",
+          "data": {
+            "value": 416,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 456,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 418,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 320,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 320,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 639,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 299.735,
+          "kind": "count",
+          "data": {
+            "value": 417,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 299.869,
+          "kind": "count",
+          "data": {
+            "value": 419,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        },
+        {
+          "t": 300.052,
+          "kind": "count",
+          "data": {
+            "value": 5,
+            "name": "data_saved",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "RebirthGui.RebirthButton"
+        },
+        "reason": "Press the REBIRTH button, which is one of my assigned UI features, and check what happens.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"RebirthGui.RebirthButton\"} -> done=True clicked 'REBIRTH $10.0K (7%)' (RebirthGui.RebirthButton): button fired; changed: {\"hud_gone\": [\"Cash: 736\"], \"hud_new\": [\"Cash: 754\", \"Need $9264 more to rebirth\"]} | effect: {\"hud_gone\":[\"Cash: 736\"],\"hud_new\":[\"Cash: 754\",\"Need $9264 more to rebirth\"]}",
+      "request_id": "mreq_01a16ca990aa73c28c4c5a26bee0bada",
+      "latency_ms": 3604,
+      "step_ms": 5789
+    },
+    {
+      "n": 15,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 36,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            0.1,
+            3,
+            71.4
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 34,
+            "label": "Cash x1.5 | $300",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 36,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_diamond",
+            "name": "UpgradePad_tier_diamond",
+            "dist": 39,
+            "label": "Diamond Ore | $4000",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 43,
+            "label": "Dropper 3 | $150",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 47,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 52,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 55,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 58,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (7%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Silver Slots: 2 Cash x1",
+          "REBIRTH $10.0K (7%)",
+          "Need $9264 more to rebirth",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824420
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 305.252,
+          "kind": "count",
+          "data": {
+            "value": 325,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.252,
+          "kind": "count",
+          "data": {
+            "value": 649,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 305.252,
+          "kind": "count",
+          "data": {
+            "value": 422,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.684,
+          "kind": "count",
+          "data": {
+            "value": 62,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 462,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 424,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 326,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 326,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 651,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 305.784,
+          "kind": "count",
+          "data": {
+            "value": 423,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 305.817,
+          "kind": "ui_press",
+          "data": {
+            "path": "RebirthGui.RebirthButton",
+            "effect": {
+              "hud_gone": [
+                "Cash: 736"
+              ],
+              "guis_opened": [],
+              "guis_closed": [],
+              "panels_opened": [],
+              "panels_closed": [],
+              "buttons_new": [],
+              "buttons_gone": [],
+              "hud_new": [
+                "Cash: 754",
+                "Need $9264 more to rebirth"
+              ]
+            },
+            "text": "REBIRTH $10.0K (7%)",
+            "userId": 2757580371,
+            "name": "retailtycoonlover21",
+            "fired": true,
+            "changed": true,
+            "gui": "RebirthGui"
+          }
+        },
+        {
+          "t": 305.902,
+          "kind": "count",
+          "data": {
+            "value": 425,
+            "name": "cubes_dropped",
+            "delta": 2
+          }
+        }
+      ],
+      "action": {
+        "action": "go_touch",
+        "args": {
+          "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3"
+        },
+        "reason": "Dropper 3 costs $150 and I have about $754, so I'll buy it from the pad.",
+        "bug": null
+      },
+      "result": "go_touch {\"path\":\"Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3\"} -> done=True touched Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3 after arrived 2.7 studs from target via path (the part has CanTouch=false) | effect: {\"attrs\":{\"NextGoalName\":[\"Dropper 3\",\"Cash x1.5\"],\"DropperSlots\":[2,3],\"NextGoalCost\":[150,300],\"TotalEarned\":[18377,18449]},\"counters\":{\"dropper_bought\":[4,5]},\"leaderstats\":{\"Cash\":[880,802]},\"hud_gone\":[\"Ore: Silver Slots: 2 Cash x1\",\"Locked (needs Dropper 3)\",\"Cash: 880\",\"+$18/s\",\"Next: Dropper 3 ($150)\"],\"hud_new\":[\"Upgraded: Dropper 3\",\"Ore: Silver Slots: 3 Cash x1\",\"Cash: 802\",\"+18\",\"+$22/s\",\"Next: Cash x1.5 ($300)\"]}",
+      "request_id": "mreq_01a16ca9ab287852a7d7af223758f71c",
+      "latency_ms": 5673,
+      "step_ms": 9612
+    },
+    {
+      "n": 16,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 33,
+            "in_range": false,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            -16.6,
+            4.1,
+            109.1
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 3,
+            "label": "Dropper 3 | $150",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 10,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 10,
+            "label": "Cash x1.5 | $300",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 11,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_diamond",
+            "name": "UpgradePad_tier_diamond",
+            "dist": 13,
+            "label": "Diamond Ore | $4000",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper4",
+            "name": "UpgradePad_dropper4",
+            "dist": 14,
+            "label": "Dropper 4 | $1300",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 19,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_speed1",
+            "name": "UpgradePad_speed1",
+            "dist": 21,
+            "label": "Speed 1 | $22",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              130
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (8%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Upgraded: Dropper 3",
+          "Ore: Silver Slots: 3 Cash x1",
+          "REBIRTH $10.0K (8%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824431
+        },
+        "probe": {
+          "errors": [],
+          "n_errors": 0,
+          "counters": {
+            "plots_claimed": 1,
+            "data_loaded": 1,
+            "cashin_milestones": 10,
+            "auto_claims": 1,
+            "cashin_fx_sent": 436,
+            "tutorial_done": 2,
+            "shop_purchases": 9,
+            "cashin_local_sounds": 337,
+            "plot_growth_built": 14,
+            "cubes_collected": 435,
+            "tutorial_reshown": 6,
+            "data_saved": 5,
+            "tutorial_steps": 2,
+            "cubes_dropped": 436,
+            "highlights": 19,
+            "themes_built": 6,
+            "leaderboard_refresh": 64,
+            "upgrades_bought": 12,
+            "tier_upgrades": 3,
+            "bursts": 674,
+            "rebirth_denied": 8,
+            "juice_events": 477,
+            "rebirths": 2,
+            "plaza_built": 1,
+            "dropper_bought": 5,
+            "shop_opened": 6,
+            "conveyor_bought": 3,
+            "plot_assigned": 1,
+            "map_built": 1,
+            "pad_highlighted": 1,
+            "purchase_fx_sent": 12,
+            "sounds_played": 337
+          }
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 337,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 674,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 434,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 477,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 436,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.302,
+          "kind": "count",
+          "data": {
+            "value": 435,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 478,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 437,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 338,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 338,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 676,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 317.818,
+          "kind": "count",
+          "data": {
+            "value": 436,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        }
+      ],
+      "action": {
+        "action": "go_use",
+        "args": {
+          "path": "Workspace.RebirthAltar_retailtycoonlover21",
+          "action": "Rebirth"
+        },
+        "reason": "Test the altar rebirth prompt, the last unpressed rebirth feature.",
+        "bug": null
+      },
+      "result": "go_use {\"path\":\"Workspace.RebirthAltar_retailtycoonlover21\",\"action\":\"Rebirth\"} -> done=True walked (arrived 3.5 studs from target via path), then triggered 'Rebirth Golden Altar' on Workspace.RebirthAltar_retailtycoonlover21 at 8.3 studs (range 10) | effect: {\"attrs\":{\"TotalEarned\":[18647,18719]},\"events\":[{\"action\":\"Rebirth\",\"kind\":\"prompt_triggered\",\"object\":\"Golden Altar\",\"prompt\":\"Workspace.RebirthAltar_retailtycoonlover21.ProximityPrompt\"}],\"counters\":{\"rebirth_denied\":[8,9]},\"leaderstats\":{\"Cash\":[1000,1072]},\"hud_gone\":[\"Cash: 1K\",\"+36\",\"+$29/s\"],\"hud_new\":[\"Need $8928 more to rebirth\",\"Cash: 1.1K\",\"+18\",\"+$25/s\",\"E\",\"Rebirth\"]}",
+      "request_id": "mreq_01a16ca9d52676b299e794ce8fc99a2e",
+      "latency_ms": 5927,
+      "step_ms": 9456
+    },
+    {
+      "n": 17,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 6,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            13.4,
+            8.7,
+            104.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 6,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 33,
+            "label": "Cash x1.5 | $300",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.PlotSigns.OwnerSign.SignBoard",
+            "name": "SignBoard",
+            "dist": 33,
+            "label": "retailtycoonlover21's Plot",
+            "touch": false,
+            "pos": [
+              14,
+              8.1,
+              138
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 34,
+            "label": "Dropper 3 | $150",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 36,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 36,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 40,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 40,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (11%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Silver Slots: 3 Cash x1",
+          "REBIRTH $10.0K (11%)",
+          "Need $8928 more to rebirth",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824441
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 327.385,
+          "kind": "count",
+          "data": {
+            "value": 694,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 327.385,
+          "kind": "count",
+          "data": {
+            "value": 449,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.385,
+          "kind": "count",
+          "data": {
+            "value": 492,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.385,
+          "kind": "count",
+          "data": {
+            "value": 451,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.385,
+          "kind": "count",
+          "data": {
+            "value": 450,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 493,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 452,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 348,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 348,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 696,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 327.918,
+          "kind": "count",
+          "data": {
+            "value": 451,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 328.034,
+          "kind": "count",
+          "data": {
+            "value": 454,
+            "name": "cubes_dropped",
+            "delta": 3
+          }
+        }
+      ],
+      "action": {
+        "action": "press",
+        "args": {
+          "path": "ShopUi.Panel.List.Card_dropper2.State"
+        },
+        "reason": "Press the Owned button to check it does nothing harmful and gives feedback.",
+        "bug": null
+      },
+      "result": "press {\"path\":\"ShopUi.Panel.List.Card_dropper2.State\"} -> done=True clicked 'Owned' (ShopUi.Panel.List.Card_dropper2.State): button fired; changed: {\"hud_gone\": [\"+$29/s\", \"+36\"], \"hud_new\": [\"+$25/s\"]} | effect: {\"hud_gone\":[\"+$29/s\",\"+36\"],\"hud_new\":[\"+$25/s\"]}",
+      "request_id": "mreq_01a16ca9fd837dc18ba2d3e02e230392",
+      "latency_ms": 5361,
+      "step_ms": 7511
+    },
+    {
+      "n": 18,
+      "player": 2757580371,
+      "player_name": "retailtycoonlover21",
+      "role": "nozzle (fight fires)",
+      "observation": {
+        "prompts": [
+          {
+            "key": "E",
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "action": "Rebirth",
+            "dist": 6,
+            "in_range": true,
+            "hold": 0.5,
+            "range": 10,
+            "object": "Golden Altar"
+          }
+        ],
+        "me": {
+          "attrs": {},
+          "backpack": [],
+          "name": "retailtycoonlover21",
+          "health": 100,
+          "max_health": 100,
+          "userId": 2757580371,
+          "pos": [
+            13.4,
+            8.7,
+            104.6
+          ]
+        },
+        "touchables": [
+          {
+            "path": "Workspace.RebirthAltar_retailtycoonlover21",
+            "name": "RebirthAltar_retailtycoonlover21",
+            "dist": 6,
+            "label": "REBIRTH\n$10000\nNext: x2.0",
+            "touch": false,
+            "pos": [
+              16,
+              3.5,
+              104
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult1",
+            "name": "UpgradePad_mult1",
+            "dist": 33,
+            "label": "Cash x1.5 | $300",
+            "touch": true,
+            "pos": [
+              -19,
+              2,
+              100
+            ]
+          },
+          {
+            "path": "Workspace.PlotSigns.OwnerSign.SignBoard",
+            "name": "SignBoard",
+            "dist": 33,
+            "label": "retailtycoonlover21's Plot",
+            "touch": false,
+            "pos": [
+              14,
+              8.1,
+              138
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_dropper3",
+            "name": "UpgradePad_dropper3",
+            "dist": 34,
+            "label": "Dropper 3 | $150",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.Plots.Plot1.Collector",
+            "name": "Collector",
+            "dist": 36,
+            "touch": true,
+            "pos": [
+              -13.5,
+              2.6,
+              128
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_tier_silver",
+            "name": "UpgradePad_tier_silver",
+            "dist": 36,
+            "label": "Silver Ore | $60",
+            "touch": false,
+            "pos": [
+              -19,
+              2,
+              120
+            ]
+          },
+          {
+            "path": "Workspace.UpgradePads_retailtycoonlover21.UpgradePad_mult2",
+            "name": "UpgradePad_mult2",
+            "dist": 40,
+            "label": "Cash x2 | $2200",
+            "touch": false,
+            "pos": [
+              -26,
+              2,
+              110
+            ]
+          },
+          {
+            "path": "Workspace.ClaimGates.ClaimGate_Candy",
+            "name": "ClaimGate_Candy",
+            "dist": 40,
+            "label": "Claim Candy Plot",
+            "touch": false,
+            "pos": [
+              0,
+              1.8,
+              142
+            ]
+          }
+        ],
+        "things": [],
+        "ui": [
+          {
+            "y": 118,
+            "x": 858,
+            "path": "ShopUi.Panel.Close",
+            "h": 48,
+            "text": "X",
+            "w": 48,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_dropper2.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 204,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_speed1.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_tier_silver.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 296,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_dropper3.State",
+            "h": 56,
+            "text": "Owned",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 368,
+            "x": 50,
+            "path": "ShopUi.ShopButton",
+            "h": 52,
+            "text": "SHOP",
+            "w": 84,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_mult1.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 388,
+            "x": 818,
+            "path": "ShopUi.Panel.List.Card_tier_gold.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          },
+          {
+            "y": 456,
+            "x": 1001,
+            "path": "RebirthGui.RebirthButton",
+            "h": 53,
+            "text": "REBIRTH $10.0K (13%)",
+            "w": 221,
+            "gui": "RebirthGui"
+          },
+          {
+            "y": 480,
+            "x": 559,
+            "path": "ShopUi.Panel.List.Card_speed2.State",
+            "h": 56,
+            "text": "Buy",
+            "w": 70,
+            "gui": "ShopUi"
+          }
+        ],
+        "hud": [
+          "Ore: Silver Slots: 3 Cash x1",
+          "REBIRTH $10.0K (13%)",
+          "SHOP",
+          "Dropper 2",
+          "Droppers: 2",
+          "$10",
+          "Owned",
+          "Speed 1",
+          "Conveyor speed x1.5",
+          "$22"
+        ],
+        "panels": [
+          {
+            "path": "ShopUi.Panel",
+            "title": "SHOP",
+            "gui": "ShopUi"
+          }
+        ],
+        "world": {
+          "now": 1792824450
+        }
+      },
+      "team": [],
+      "events": [
+        {
+          "t": 335.434,
+          "kind": "count",
+          "data": {
+            "value": 461,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.434,
+          "kind": "count",
+          "data": {
+            "value": 504,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.434,
+          "kind": "count",
+          "data": {
+            "value": 463,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.434,
+          "kind": "count",
+          "data": {
+            "value": 462,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.751,
+          "kind": "count",
+          "data": {
+            "value": 68,
+            "name": "leaderboard_refresh",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 505,
+            "name": "juice_events",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 464,
+            "name": "cashin_fx_sent",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 356,
+            "name": "sounds_played",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 356,
+            "name": "cashin_local_sounds",
+            "delta": 1
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 712,
+            "name": "bursts",
+            "delta": 2
+          }
+        },
+        {
+          "t": 335.967,
+          "kind": "count",
+          "data": {
+            "value": 463,
+            "name": "cubes_collected",
+            "delta": 1
+          }
+        },
+        {
+          "t": 336.085,
+          "kind": "count",
+          "data": {
+            "value": 466,
+            "name": "cubes_dropped",
+            "delta": 3
+          }
+        }
+      ],
+      "action": {
+        "action": "done",
+        "args": {},
+        "reason": "All assigned UI features (SHOP, Owned, REBIRTH button, Rebirth altar) have been pressed and the step budget is used up.",
+        "bug": {
+          "title": "Dropper 3 shows Owned in the shop but its world pad still shows 'Dropper 3 | $150'",
+          "evidence": "After the step 15 go_touch on UpgradePad_dropper3, the Shop card Card_dropper3 reads 'Owned' and DropperSlots went from 2 to 3. The pad is still listed in touchables with the label 'Dropper 3 | $150', and the HUD still shows stale '$10' and '$22' price text. The pad also has CanTouch=false, so the pad label is stale or confusing for new players.",
+          "severity": "low"
+        }
+      },
+      "result": "done",
+      "request_id": "mreq_01a16caa1efb7e20b2481aaa8d8b4eb8",
+      "latency_ms": 6685,
+      "step_ms": 6962
+    }
+  ],
+  "players": [
+    {
+      "userId": 2757580371,
+      "name": "retailtycoonlover21",
+      "helmet": null,
+      "role": "nozzle (fight fires)",
+      "can_press": true
+    }
+  ],
+  "probe": {
+    "players": 1,
+    "physics": {
+      "flagged": [],
+      "watched": 3,
+      "loudest": []
+    },
+    "uptime": 343.5,
+    "errors": [],
+    "counters": {
+      "plots_claimed": 1,
+      "data_loaded": 1,
+      "cashin_milestones": 10,
+      "auto_claims": 1,
+      "cashin_fx_sent": 475,
+      "tutorial_done": 2,
+      "shop_purchases": 9,
+      "cashin_local_sounds": 363,
+      "plot_growth_built": 14,
+      "cubes_collected": 474,
+      "tutorial_reshown": 6,
+      "data_saved": 5,
+      "tutorial_steps": 2,
+      "cubes_dropped": 475,
+      "highlights": 19,
+      "themes_built": 6,
+      "leaderboard_refresh": 69,
+      "upgrades_bought": 12,
+      "tier_upgrades": 3,
+      "bursts": 726,
+      "rebirth_denied": 9,
+      "juice_events": 516,
+      "rebirths": 2,
+      "plaza_built": 1,
+      "dropper_bought": 5,
+      "shop_opened": 6,
+      "conveyor_bought": 3,
+      "plot_assigned": 1,
+      "map_built": 1,
+      "pad_highlighted": 1,
+      "purchase_fx_sent": 12,
+      "sounds_played": 363
+    },
+    "warnings": [],
+    "joins": 1,
+    "instances": 783
+  },
+  "counters": {
+    "plots_claimed": 1,
+    "data_loaded": 1,
+    "cashin_milestones": 10,
+    "auto_claims": 1,
+    "cashin_fx_sent": 475,
+    "tutorial_done": 2,
+    "shop_purchases": 9,
+    "cashin_local_sounds": 363,
+    "plot_growth_built": 14,
+    "cubes_collected": 474,
+    "tutorial_reshown": 6,
+    "data_saved": 5,
+    "tutorial_steps": 2,
+    "cubes_dropped": 475,
+    "highlights": 19,
+    "themes_built": 6,
+    "leaderboard_refresh": 69,
+    "upgrades_bought": 12,
+    "tier_upgrades": 3,
+    "bursts": 726,
+    "rebirth_denied": 9,
+    "juice_events": 516,
+    "rebirths": 2,
+    "plaza_built": 1,
+    "dropper_bought": 5,
+    "shop_opened": 6,
+    "conveyor_bought": 3,
+    "plot_assigned": 1,
+    "map_built": 1,
+    "pad_highlighted": 1,
+    "purchase_fx_sent": 12,
+    "sounds_played": 363
+  },
+  "events": [
+    {
+      "t": 342.017,
+      "kind": "count",
+      "data": {
+        "value": 724,
+        "name": "bursts",
+        "delta": 2
+      }
+    },
+    {
+      "t": 342.017,
+      "kind": "count",
+      "data": {
+        "value": 472,
+        "name": "cubes_collected",
+        "delta": 1
+      }
+    },
+    {
+      "t": 342.117,
+      "kind": "count",
+      "data": {
+        "value": 475,
+        "name": "cubes_dropped",
+        "delta": 3
+      }
+    },
+    {
+      "t": 343.484,
+      "kind": "count",
+      "data": {
+        "value": 515,
+        "name": "juice_events",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 474,
+        "name": "cashin_fx_sent",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 363,
+        "name": "sounds_played",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 363,
+        "name": "cashin_local_sounds",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 726,
+        "name": "bursts",
+        "delta": 2
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 473,
+        "name": "cubes_collected",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 516,
+        "name": "juice_events",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 475,
+        "name": "cashin_fx_sent",
+        "delta": 1
+      }
+    },
+    {
+      "t": 343.485,
+      "kind": "count",
+      "data": {
+        "value": 474,
+        "name": "cubes_collected",
+        "delta": 1
+      }
+    }
+  ],
+  "request_ids": [
+    "mreq_01a16ca80e2678f3a5c1a38e3815d308",
+    "mreq_01a16ca8254270b3bdc6f6dfdddf24cc",
+    "mreq_01a16ca83de77d80b31c21d4c6c858f6",
+    "mreq_01a16ca856d17a82a3685cb894edf50c",
+    "mreq_01a16ca86e5f71128e05cade598a0944",
+    "mreq_01a16ca894537eb29388ac39941bd89f",
+    "mreq_01a16ca8aa9579809ad07be61b118a7a",
+    "mreq_01a16ca8be2f763289c7b921abf38e20",
+    "mreq_01a16ca8da9372308d065f9b49476383",
+    "mreq_01a16ca8fb307452a1d0ef2881ccfa51",
+    "mreq_01a16ca9293d73c388c4e893a6a16f77",
+    "mreq_01a16ca9541c76d39bfc9dc636ece3aa",
+    "mreq_01a16ca96e3b7e438b88130742ca8e42",
+    "mreq_01a16ca990aa73c28c4c5a26bee0bada",
+    "mreq_01a16ca9ab287852a7d7af223758f71c",
+    "mreq_01a16ca9d52676b299e794ce8fc99a2e",
+    "mreq_01a16ca9fd837dc18ba2d3e02e230392",
+    "mreq_01a16caa1efb7e20b2481aaa8d8b4eb8",
+    "mreq_01a16caa39ed79a191f6593debaf94d3"
+  ],
+  "bug_hints": [
+    {
+      "title": "Bought upgrade pads still show their buy label and price",
+      "evidence": "Dropper 2 and Speed 1 are already owned (shop cards say 'Owned', DropperSlots is 2). The touchables still list UpgradePad_dropper2 as 'Dropper 2 | $10' and UpgradePad_speed1 as 'Speed 1 | $22', and the HUD still shows '$10' next to 'Dropper 2'.",
+      "severity": "low",
+      "step": 9,
+      "player": "retailtycoonlover21"
+    },
+    {
+      "title": "Dropper 3 shows Owned in the shop but its world pad still shows 'Dropper 3 | $150'",
+      "evidence": "After the step 15 go_touch on UpgradePad_dropper3, the Shop card Card_dropper3 reads 'Owned' and DropperSlots went from 2 to 3. The pad is still listed in touchables with the label 'Dropper 3 | $150', and the HUD still shows stale '$10' and '$22' price text. The pad also has CanTouch=false, so the pad label is stale or confusing for new players.",
+      "severity": "low",
+      "step": 18,
+      "player": "retailtycoonlover21"
+    }
+  ],
+  "corrections": [],
+  "errors": [],
+  "mode": "free",
+  "ready": {
+    "players": 1,
+    "agents": 1,
+    "version": "2",
+    "mapReady": false,
+    "clock": 200.79,
+    "studio": true,
+    "session": "385030ff-d572-405f-bf8b-7101455b0752",
+    "time": 1792824314.799
+  },
+  "ui_pressers": [
+    "retailtycoonlover21"
+  ],
+  "ui_surfaces": [
+    {
+      "name": "Owned",
+      "gui": "ShopUi",
+      "actions": [],
+      "source": [
+        "live",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    },
+    {
+      "name": "SHOP",
+      "gui": "ShopUi",
+      "actions": [],
+      "source": [
+        "live",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    },
+    {
+      "name": "REBIRTH $10.0K (70%)",
+      "gui": "RebirthGui",
+      "actions": [],
+      "source": [
+        "live",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    },
+    {
+      "name": "REBIRTH",
+      "gui": "",
+      "actions": [
+        "REBIRTH $"
+      ],
+      "source": [
+        "script",
+        "spec"
+      ],
+      "assigned": "retailtycoonlover21"
+    }
+  ],
+  "physics": [],
+  "ui_presses": [
+    {
+      "t": 205.988,
+      "player": "retailtycoonlover21",
+      "text": "Owned",
+      "path": "ShopUi.Panel.List.Card_dropper2.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$163/s",
+          "+136",
+          "Cash: 7.6K"
+        ],
+        "hud_new": [
+          "+$122/s",
+          "Cash: 7.7K"
+        ]
+      }
+    },
+    {
+      "t": 212.255,
+      "player": "retailtycoonlover21",
+      "text": "SHOP",
+      "path": "ShopUi.ShopButton",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "$10",
+          "$1300",
+          "$150",
+          "$22",
+          "$2200",
+          "$300"
+        ],
+        "panels_closed": [
+          "ShopUi.Panel 'SHOP'"
+        ],
+        "buttons_new": [
+          "REBIRTH $10.0K (86%) @ RebirthGui.RebirthButton"
+        ],
+        "buttons_gone": [
+          "Buy @ ShopUi.Panel.List.Card_mult2.State",
+          "Buy @ ShopUi.Panel.List.Card_tier_diamond.State",
+          "Owned @ ShopUi.Panel.List.Card_dropper2.State",
+          "Owned @ ShopUi.Panel.List.Card_dropper3.State",
+          "Owned @ ShopUi.Panel.List.Card_dropper4.State",
+          "Owned @ ShopUi.Panel.List.Card_mult1.State",
+          "Owned @ ShopUi.Panel.List.Card_speed1.State",
+          "Owned @ ShopUi.Panel.List.Card_speed2.State"
+        ],
+        "hud_new": [
+          "+$150/s",
+          "Cash: 8.7K",
+          "REBIRTH $10.0K (86%)"
+        ]
+      }
+    },
+    {
+      "t": 218.605,
+      "player": "retailtycoonlover21",
+      "text": "REBIRTH $10.0K (92%)",
+      "path": "RebirthGui.RebirthButton",
+      "gui": "RebirthGui",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$163/s",
+          "+68",
+          "Cash: 9.3K",
+          "Next: Cash x2 ($2.2K)",
+          "Ore: Gold Slots: 4 Cash x1.5",
+          "REBIRTH $10.0K (92%)"
+        ],
+        "panels_opened": [
+          "RebirthFx.Frame"
+        ],
+        "buttons_new": [
+          "REBIRTH $10.0K (0%) @ RebirthGui.RebirthButton"
+        ],
+        "buttons_gone": [
+          "REBIRTH $10.0K (92%) @ RebirthGui.RebirthButton"
+        ],
+        "hud_new": [
+          "+$118/s",
+          "+45",
+          "Cash: 45",
+          "Next: Dropper 2 ($10)",
+          "Ore: Bronze Slots: 1 Cash x1",
+          "REBIRTH $10.0K (0%)"
+        ]
+      }
+    },
+    {
+      "t": 224.721,
+      "player": "retailtycoonlover21",
+      "text": "REBIRTH $10.0K (1%)",
+      "path": "RebirthGui.RebirthButton",
+      "gui": "RebirthGui",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$38/s",
+          "Cash: 188"
+        ],
+        "hud_new": [
+          "+$12/s",
+          "+8",
+          "Cash: 196",
+          "Need $9812 more to rebirth"
+        ]
+      }
+    },
+    {
+      "t": 240.087,
+      "player": "retailtycoonlover21",
+      "text": "SHOP",
+      "path": "ShopUi.ShopButton",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$5/s",
+          "Cash: 242"
+        ],
+        "panels_opened": [
+          "ShopUi.Panel 'SHOP'"
+        ],
+        "buttons_new": [
+          "Buy @ ShopUi.Panel.List.Card_dropper3.State",
+          "Buy @ ShopUi.Panel.List.Card_speed1.State",
+          "Buy @ ShopUi.Panel.List.Card_tier_silver.State",
+          "Locked (needs Cash x1.5) @ ShopUi.Panel.List.Card_mult2.State",
+          "Locked (needs Dropper 3) @ ShopUi.Panel.List.Card_dropper4.State",
+          "Locked (needs Gold Ore) @ ShopUi.Panel.List.Card_tier_diamond.State",
+          "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State",
+          "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State"
+        ],
+        "hud_new": [
+          "$10",
+          "$1300",
+          "$150",
+          "$22",
+          "$2200",
+          "$300"
+        ]
+      }
+    },
+    {
+      "t": 245.136,
+      "player": "retailtycoonlover21",
+      "text": "Owned",
+      "path": "ShopUi.Panel.List.Card_dropper2.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "Cash: 282"
+        ],
+        "hud_new": [
+          "+8",
+          "Cash: 298"
+        ]
+      }
+    },
+    {
+      "t": 252.387,
+      "player": "retailtycoonlover21",
+      "text": "Buy",
+      "path": "ShopUi.Panel.List.Card_speed1.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "Cash: 346",
+          "Locked (needs Speed 1)",
+          "Next: Speed 1 ($22)"
+        ],
+        "buttons_new": [
+          "Buy @ ShopUi.Panel.List.Card_speed2.State",
+          "Owned @ ShopUi.Panel.List.Card_speed1.State"
+        ],
+        "buttons_gone": [
+          "Buy @ ShopUi.Panel.List.Card_speed1.State",
+          "Locked (needs Speed 1) @ ShopUi.Panel.List.Card_speed2.State"
+        ],
+        "hud_new": [
+          "Cash: 340",
+          "Next: Silver Ore ($60)",
+          "Upgraded: Speed 1"
+        ]
+      }
+    },
+    {
+      "t": 260.736,
+      "player": "retailtycoonlover21",
+      "text": "REBIRTH $10.0K (3%)",
+      "path": "RebirthGui.RebirthButton",
+      "gui": "RebirthGui",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$8/s",
+          "+8",
+          "Cash: 396",
+          "REBIRTH $10.0K (3%)"
+        ],
+        "buttons_new": [
+          "REBIRTH $10.0K (4%) @ RebirthGui.RebirthButton"
+        ],
+        "buttons_gone": [
+          "REBIRTH $10.0K (3%) @ RebirthGui.RebirthButton"
+        ],
+        "hud_new": [
+          "+$6/s",
+          "Cash: 404",
+          "Need $9596 more to rebirth",
+          "REBIRTH $10.0K (4%)"
+        ]
+      }
+    },
+    {
+      "t": 290.219,
+      "player": "retailtycoonlover21",
+      "text": "Owned",
+      "path": "ShopUi.Panel.List.Card_dropper2.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "Cash: 628"
+        ],
+        "hud_new": [
+          "+8",
+          "Cash: 644"
+        ]
+      }
+    },
+    {
+      "t": 299.001,
+      "player": "retailtycoonlover21",
+      "text": "Buy",
+      "path": "ShopUi.Panel.List.Card_tier_silver.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+8",
+          "Cash: 700",
+          "Locked (needs Silver Ore)",
+          "Next: Silver Ore ($60)",
+          "Ore: Bronze Slots: 2 Cash x1",
+          "REBIRTH $10.0K (7%)"
+        ],
+        "buttons_new": [
+          "Buy @ ShopUi.Panel.List.Card_mult1.State",
+          "Buy @ ShopUi.Panel.List.Card_tier_gold.State",
+          "Owned @ ShopUi.Panel.List.Card_tier_silver.State",
+          "REBIRTH $10.0K (6%) @ RebirthGui.RebirthButton"
+        ],
+        "buttons_gone": [
+          "Buy @ ShopUi.Panel.List.Card_tier_silver.State",
+          "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_mult1.State",
+          "Locked (needs Silver Ore) @ ShopUi.Panel.List.Card_tier_gold.State",
+          "REBIRTH $10.0K (7%) @ RebirthGui.RebirthButton"
+        ],
+        "hud_new": [
+          "Cash: 648",
+          "Next: Dropper 3 ($150)",
+          "Ore: Silver Slots: 2 Cash x1",
+          "REBIRTH $10.0K (6%)",
+          "Upgraded: Silver Ore"
+        ]
+      }
+    },
+    {
+      "t": 305.817,
+      "player": "retailtycoonlover21",
+      "text": "REBIRTH $10.0K (7%)",
+      "path": "RebirthGui.RebirthButton",
+      "gui": "RebirthGui",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "Cash: 736"
+        ],
+        "hud_new": [
+          "Cash: 754",
+          "Need $9264 more to rebirth"
+        ]
+      }
+    },
+    {
+      "t": 335.416,
+      "player": "retailtycoonlover21",
+      "text": "Owned",
+      "path": "ShopUi.Panel.List.Card_dropper2.State",
+      "gui": "ShopUi",
+      "fired": true,
+      "changed": true,
+      "effect": {
+        "hud_gone": [
+          "+$29/s",
+          "+36"
+        ],
+        "hud_new": [
+          "+$25/s"
+        ]
+      }
+    }
+  ],
+  "ui_coverage": {
+    "surfaces": [
+      {
+        "name": "Owned",
+        "gui": "ShopUi",
+        "assigned": "retailtycoonlover21",
+        "presses": 8,
+        "fired": 8,
+        "changed": 8,
+        "actions_pressed": [
+          "Buy",
+          "SHOP"
+        ],
+        "actions": []
+      },
+      {
+        "name": "SHOP",
+        "gui": "ShopUi",
+        "assigned": "retailtycoonlover21",
+        "presses": 8,
+        "fired": 8,
+        "changed": 8,
+        "actions_pressed": [
+          "Buy",
+          "Owned"
+        ],
+        "actions": []
+      },
+      {
+        "name": "REBIRTH $10.0K (70%)",
+        "gui": "RebirthGui",
+        "assigned": "retailtycoonlover21",
+        "presses": 4,
+        "fired": 4,
+        "changed": 4,
+        "actions_pressed": [
+          "REBIRTH $10.0K (1%)",
+          "REBIRTH $10.0K (3%)",
+          "REBIRTH $10.0K (7%)",
+          "REBIRTH $10.0K (92%)"
+        ],
+        "actions": []
+      },
+      {
+        "name": "REBIRTH",
+        "gui": "",
+        "assigned": "retailtycoonlover21",
+        "presses": 0,
+        "fired": 0,
+        "changed": 0,
+        "actions_pressed": [],
+        "actions": [
+          "REBIRTH $"
+        ]
+      }
+    ],
+    "pressed": 3,
+    "total": 4,
+    "gaps": [
+      "REBIRTH: never pressed, its panel was never opened"
+    ]
+  },
+  "decisions": 18,
+  "macro_decisions": 4,
+  "judge_request_id": "mreq_01a16caa39ed79a191f6593debaf94d3"
+}
