@@ -48,8 +48,9 @@ ROOTS = [
     "Workspace",
 ]
 TAG = "ForgeManaged"
-# Bytes of changed source sent inside one execute_luau call; the rest goes over HTTP.
-INLINE_BUDGET = 1_500_000
+# Bytes of changed source sent inside one execute_luau call; the rest goes over HTTP. Studio refuses a
+# command whose source is 200,000 characters or more, and JSON escaping grows the sources, so stay well under.
+INLINE_BUDGET = 120_000
 
 
 # ---------------------------------------------------------------------------- files / mapping
@@ -233,6 +234,7 @@ local CollectionService = game:GetService("CollectionService")
 local BASE = "http://127.0.0.1:__PORT__/"
 local PRUNE = __PRUNE__
 local FORCE = __FORCE__ -- true: ignore ForgeHash and fetch every file (the pre-incremental behaviour)
+local DEFER = __DEFER__ -- true: a changed file that is not inline waits for a later call (no HTTP)
 local TAG = "ForgeManaged"
 local ROOTS = { "ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts", "ServerStorage", "StarterGui", "Workspace" }
 local MANIFEST_JSON: string? = __MANIFEST__
@@ -278,12 +280,22 @@ local function findDir(parent: Instance, name: string): Instance?
 	return nil
 end
 
+-- Studio may refuse this thread the HttpEnabled write (LocalUser capability): only fetches need it
 local was = HttpService.HttpEnabled
-HttpService.HttpEnabled = true
+local function setHttp(on: boolean)
+	if HttpService.HttpEnabled ~= on then
+		pcall(function()
+			HttpService.HttpEnabled = on
+		end)
+	end
+end
+if not DEFER then
+	setHttp(true)
+end
 local ok, result = pcall(function()
 	local manifest = HttpService:JSONDecode(if MANIFEST_JSON then MANIFEST_JSON else fetch("tools/manifest.json"))
 	local inline = if INLINE_JSON then HttpService:JSONDecode(INLINE_JSON) else {}
-	local n, skipped, fetched, changed, pruned = 0, 0, 0, {}, {}
+	local n, skipped, fetched, pending, changed, pruned = 0, 0, 0, 0, {}, {}
 	local keep: { [Instance]: boolean } = {}
 	for _, e in manifest do
 		local parent = rootOf(e.service)
@@ -308,6 +320,12 @@ local ok, result = pcall(function()
 		if not FORCE and inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
 			and inst:GetAttribute("ForgeLen") == e.size and #(inst :: any).Source == e.size then
 			skipped += 1
+		elseif DEFER and inline[e.path] == nil then
+			pending += 1
+			if inst then
+				keep[inst :: Instance] = true
+			end
+			continue
 		else
 			local src = inline[e.path]
 			if src == nil then
@@ -378,25 +396,27 @@ local ok, result = pcall(function()
 	if #pruned > 0 then
 		msg ..= "; pruned: " .. table.concat(pruned, ", ")
 	end
-	return msg .. "; skipped " .. skipped .. ", fetched " .. fetched
+	return msg .. "; skipped " .. skipped .. ", fetched " .. fetched .. (if pending > 0 then ", pending " .. pending else "")
 end)
-HttpService.HttpEnabled = was
+setHttp(was)
 return (if ok then "OK " else "ERROR ") .. tostring(result)
 '''
 
 
 def pull_luau(port: int = DEFAULT_PORT, prune: bool = True, manifest: list[dict] | None = None,
-              inline: dict[str, str] | None = None, force: bool = False) -> str:
+              inline: dict[str, str] | None = None, force: bool = False, defer: bool = False) -> str:
     """Luau source for execute_luau (Edit DM) that pulls ROOT from serve_in_thread(ROOT, port).
 
     manifest: send the manifest inside the script instead of fetching tools/manifest.json.
     inline: {path: source} sent inside the script; those files are never fetched over HTTP.
     force: ignore the ForgeHash skip and fetch every file (the original, non-incremental pull).
+    defer: changed files that are not inline are left for a later call instead of fetched over HTTP.
     """
     man = long_string(json.dumps(manifest, separators=(",", ":"))) if manifest is not None else "nil"
     inl = long_string(json.dumps(inline, separators=(",", ":"))) if inline else "nil"
     src = (_PULL_TEMPLATE.replace("__PORT__", str(int(port))).replace("__PRUNE__", "true" if prune else "false")
-           .replace("__FORCE__", "true" if force else "false"))
+           .replace("__FORCE__", "true" if force else "false")
+           .replace("__DEFER__", "true" if defer else "false"))
     # one pass, so placeholder words inside the inserted sources are never replaced
     return re.sub(r"__MANIFEST__|__INLINE__", lambda m: man if m.group(0) == "__MANIFEST__" else inl, src)
 

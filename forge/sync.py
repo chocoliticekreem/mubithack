@@ -55,11 +55,12 @@ def serve_in_thread(root: Path, port: int):
 
 
 def pull_luau(port: int, prune: bool = True, manifest: list[dict] | None = None,
-              inline: dict[str, str] | None = None, force: bool = False) -> str:
+              inline: dict[str, str] | None = None, force: bool = False, defer: bool = False) -> str:
     """Luau source to run via execute_luau (Edit DM) that pulls files into Studio. With `manifest`
     and `inline` the manifest and those sources travel inside the script (no HTTP for them).
-    force=True fetches every file regardless of hashes (the original behaviour)."""
-    return _load().pull_luau(int(port), prune=prune, manifest=manifest, inline=inline, force=force)
+    force=True fetches every file regardless of hashes (the original behaviour).
+    defer=True leaves changed files that are not inline for a later call (no HTTP)."""
+    return _load().pull_luau(int(port), prune=prune, manifest=manifest, inline=inline, force=force, defer=defer)
 
 
 def manifest_entries(root: Path) -> list[dict]:

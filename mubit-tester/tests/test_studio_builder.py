@@ -5,7 +5,7 @@ from pathlib import Path
 
 from forge.config import load_settings
 from forge.llm import FakeLLM
-from mubit_tester.studio_builder import build_draft, draft_install_code
+from mubit_tester.studio_builder import MARK_LUAU, PREFLIGHT_LUAU, build_draft
 import pytest
 
 
@@ -28,11 +28,12 @@ async def test_real_builder_produces_a_separate_compiled_draft(tmp_path):
     assert (game/'ServerScriptService/Game.server.luau').is_file()
     assert result['acceptance'] == ['A coin appears']
     assert events
-    # Compilable installation code is emitted from that saved draft only.
-    code = draft_install_code(settings, result['slug'])
-    (tmp_path/'install.luau').write_text(code)
+    # The install checks and marks that wrap the chunked sync compile.
     import subprocess
-    subprocess.run(['luau-compile', str(tmp_path/'install.luau')], stdout=subprocess.DEVNULL, check=True)
+    for name, code in (('preflight', PREFLIGHT_LUAU), ('mark', MARK_LUAU)):
+        code = code.replace('__FILES__', '"[]"').replace('__PROJECT__', '"p"').replace('__SLUG__', '"s"')
+        (tmp_path/f'{name}.luau').write_text(code)
+        subprocess.run(['luau-compile', str(tmp_path/f'{name}.luau')], stdout=subprocess.DEVNULL, check=True)
 
 
 def saved_game(settings, slug='agent-game'):
@@ -85,13 +86,11 @@ async def test_revision_rejects_protected_or_escaping_paths(tmp_path):
         draft_store(settings, '../outside')
 
 
-@pytest.mark.parametrize('kind', ['harness', 'draft'])
-def test_install_preflight_keeps_human_scripts_before_any_writes(tmp_path, kind):
+def test_install_preflight_keeps_human_scripts_before_any_writes(tmp_path):
     from mubit_tester.studio_service import install_code
     import subprocess
     settings = replace(load_settings(), runs_dir=tmp_path/'runs')
-    store, _ = saved_game(settings)
-    code = install_code(settings.repo_root) if kind == 'harness' else draft_install_code(settings, store.slug)
+    code = install_code(settings.repo_root)
     # Execute the actual installer against a minimal Studio API stub: the second
     # destination conflicts, so even the first destination must remain untouched.
     prelude = '''
@@ -113,6 +112,57 @@ end}
 '''
     script = prelude+'\nlocal ok,err=pcall(function()\n'+code+'\nend)\nassert(not ok and tostring(err):find("Keep your existing script"),tostring(err))\nassert(writes==0 and recordings==0,"Conflict changed Studio")\n'
     path = tmp_path/'preflight.luau'
+    path.write_text(script)
+    subprocess.run(['luau', str(path)], capture_output=True, text=True, check=True)
+
+
+DRAFT_STUB = '''
+local function inst(name, class, attrs)
+ local o={Name=name,ClassName=class,attrs=attrs or {},children={}}
+ function o:GetAttribute(k) return self.attrs[k] end
+ function o:SetAttribute(k,v) self.attrs[k]=v end
+ function o:IsA(c) return c=="LuaSourceContainer" and (self.ClassName=="Script" or self.ClassName=="ModuleScript") or c==self.ClassName end
+ function o:GetChildren() return self.children end
+ function o:GetFullName() return "ServerScriptService."..self.Name end
+ return o
+end
+local sss=inst("ServerScriptService","ServerScriptService")
+local tagged={}
+local core=inst("CoreGui","CoreGui")
+local files={{service="ServerScriptService",dirs={},name="Coins",path="ServerScriptService/Coins.server.luau"}}
+game={GetService=function(_,name)
+ if name=="HttpService" then return {JSONDecode=function() return files end,JSONEncode=function(_,t) return t end} end
+ if name=="CollectionService" then return {GetTagged=function() return tagged end} end
+ if name=="CoreGui" then return core end
+ return sss
+end}
+'''
+
+
+@pytest.mark.parametrize('case,ok', [('human script at a draft path', False), ('script from another sync', False),
+                                     ('earlier MuMake draft', True), ('empty place', True)])
+def test_draft_preflight_refuses_scripts_mumake_did_not_add(tmp_path, case, ok):
+    import subprocess
+    setup = {'human script at a draft path': 'table.insert(sss.children, inst("Coins","Script"))',
+             'script from another sync': 'table.insert(tagged, inst("Other","Script"))',
+             'earlier MuMake draft': 'local c=inst("Coins","Script",{MuMakeGenerated=true}) table.insert(sss.children,c) table.insert(tagged,c)',
+             'empty place': ''}[case]
+    code = PREFLIGHT_LUAU.replace('__FILES__', '"[]"')
+    check = 'assert(r.ok==true)' if ok else 'assert(r.ok==false and r.error:find("empty local game"), r.error)'
+    script = DRAFT_STUB + setup + '\nlocal r=(function()\n' + code + '\nend)()\n' + check + '\n'
+    path = tmp_path/'draft_preflight.luau'
+    path.write_text(script)
+    subprocess.run(['luau', str(path)], capture_output=True, text=True, check=True)
+
+
+def test_mark_tags_installed_scripts_and_the_loaded_game(tmp_path):
+    import subprocess
+    code = MARK_LUAU.replace('__FILES__', '"[]"').replace('__PROJECT__', '"obby"').replace('__SLUG__', '"obby-2"')
+    script = (DRAFT_STUB + 'local c=inst("Coins","Script") table.insert(sss.children,c)\n'
+              + 'local n=(function()\n' + code + '\nend)()\n'
+              + 'assert(n==1 and c.attrs.MuMakeGenerated==true and c.attrs.MuMakeProject=="obby")\n'
+              + 'assert(core.attrs.MuMakeLoadedGame=="obby-2")\n')
+    path = tmp_path/'mark.luau'
     path.write_text(script)
     subprocess.run(['luau', str(path)], capture_output=True, text=True, check=True)
 

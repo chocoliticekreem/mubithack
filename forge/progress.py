@@ -101,10 +101,10 @@ class Progress:
             if self.state["running"]:
                 self._refresh(self.clock())
 
-    def done(self, text: str) -> None:
+    def done(self, text: str, ok: bool = True) -> None:
         with self._lock:
             self.state.update(running=False, pct=100, phase="done", step=text, eta_s=0)
-            self.state["events"].append({"t": self.clock(), "text": text, "ok": True})
+            self.state["events"].append({"t": self.clock(), "text": text, "ok": ok})
             del self.state["events"][:-MAX_EVENTS]
             self._refresh(self.clock(), keep_pct=True)
         self.stop()

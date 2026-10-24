@@ -2148,7 +2148,7 @@ attachBot = function(b)
 			if b.life ~= life then
 				break
 			end
-			if not root or root.Parent == nil or root.Position.Y < workspace.FallenPartsDestroyHeight + 5 then
+			if not root or root.Parent == nil or root.Position.Y < (workspace.FallenPartsDestroyHeight or -500) + 5 then -- nil in the headless engine
 				lost("fell out of the world")
 				break
 			end

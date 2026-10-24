@@ -381,7 +381,7 @@ makeActionBar.Position=UDim2.new(0,20,1,-16)
 buildAccess.Parent=makeActionBar makeButton.Parent=makeActionBar
 makeActionBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSurface)
 local buildExplanation=text(makePage,"MuMake plans the game, writes its code, and checks the draft for code errors. Then you can add it to this Studio window.","muted")
-text(makePage,"Creating a game uses paid AI calls. The draft stays separate from your current game until you add it.","small")
+text(makePage,"Creating a game uses paid AI calls. MuMake adds it to this Studio window, so use an empty local game.","small")
 local savedLibrary=section(makePage,"SavedGames") savedLibrary.LayoutOrder=80
 text(savedLibrary,"Your saved games","heading")
 text(savedLibrary,"Reopen a draft made here or with the agent tool. Opening it does not change Studio or use AI.","small")
@@ -592,7 +592,7 @@ applyExperience=function()
 end
 local guideSteps={
     {title="Start with one fun idea",body="Tell MuMake what players do. ‘Collect coins while lava rises’ is a great start. You can choose an example and change it before building.",action="Open Make game",route="Make game"},
-    {title="Make a draft you can change",body="Make my game uses AI to plan and write your first version. It takes paid AI calls. The draft stays separate until you choose Add draft to Studio.",action="See the creation tools",route="Make game"},
+    {title="Make a draft you can change",body="Make my game uses AI to plan and write your first version. It takes paid AI calls. MuMake adds it to this Studio window, plays it and improves it for up to 3 rounds, then tells you when it is ready.",action="See the creation tools",route="Make game"},
     {title="Try it before friends do",body="Add your draft to a local Studio game, then press Play to try it. Check game can also move a real character and look for game errors. Stop is always available while MuMake is working.",action="Open Check game",route="Check game"},
     {title="Explain what should be better",body="Read Results to see what happened. If the AI made a wrong move, choose it and explain what you expected. Fix ideas are previews; a fix is only verified after the game is checked again.",action="Open Results",route="Results"},
 }
@@ -667,9 +667,13 @@ displayReport=function(job)
         if #(job.result.files or {})>0 then
             text(checkRows,"What your draft aims to do","heading")
             for _,item in job.result.acceptance or {} do text(checkRows,tostring(item)) end
-            text(checkRows,tostring(#job.result.files).." game scripts written. Not played yet.","small")
+            local standard=type(job.result.standard)=="table" and job.result.standard or nil
+            text(checkRows,tostring(#job.result.files).." game scripts written. "..(standard and "Played and reviewed by MuMake ("..tostring(standard.rounds or 0).." improvement rounds)." or "Not played yet."),"small")
         end
-        if job.state=="passed" and job.result.ready then
+        if job.result.in_studio then
+            text(reportActions,job.result.studio_current and "This game is in this Studio window now. Press Play to try it." or "An earlier version is in this Studio window. The latest one could not be added.","small")
+        end
+        if job.state=="passed" and job.result.ready and not job.result.studio_current then
             button(reportActions,"Add draft to Studio",function() start("load_game",{source_job=job.id}) end,{primary=true,action=true})
             text(reportActions,"Adds the draft scripts to this local game with Undo. If a script would replace your own code, MuMake stops and asks you to use an empty game.","small")
         end
@@ -807,7 +811,7 @@ render=function(data)
         say(message)
         if selectedJob==active.id then
             resultTitle.Text=(active.presentation or {}).title or "Checking your game"
-            resultStatus.Text=active.state=="cancelling" and "Stopping…" or (active.operation=="make_game" and "Making your first draft…" or "Working on your game…")
+            resultStatus.Text=active.state=="cancelling" and "Stopping…" or (active.operation=="make_game" and "Making your game…" or "Working on your game…")
             resultStatus.TextColor3=palette.blue
             resultDetail.Text=active.operation=="make_game" and active.state~="cancelling" and "This takes a few minutes. You can press Stop at any time." or message
         end

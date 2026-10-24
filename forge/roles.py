@@ -417,8 +417,10 @@ def _smoke_block(report: dict) -> str:
 
 
 def critique(
-    llm: LLM, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id: str
+    llm: LLM, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id: str,
+    history: str = "",
 ) -> dict:
+    """history: forge.rounds.critic_block, what earlier rounds scored and fixed (empty on the first round)."""
     user = _fit(
         "## Game spec\n"
         f"{_compact_spec(spec, 3000)}\n\n"
@@ -427,6 +429,7 @@ def critique(
         f"{_smoke_block(report)}"
         "## Console output (most recent last)\n"
         f"```\n{_clip_block(_truncate((console or '').strip() or '(empty)', 3500, keep='tail', label='console'))}\n```\n\n"
+        f"{_truncate(history, 2500, keep='both', label='history')}"
         f"{_files_block(files, 10_500)}\n"
         "Return only the critique JSON object."
     )

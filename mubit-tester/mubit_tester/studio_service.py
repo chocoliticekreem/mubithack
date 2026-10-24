@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from forge.config import load_settings
+from forge.memory import RunStore
 from forge.studio import Studio, extract_json
 from mubit_tester.harness import Harness, _long_bracket
 from mubit_tester.scenario import list_scenarios, load_scenario, run_scenario
@@ -105,6 +106,133 @@ class ProgressHarness(Harness):
         if cmd not in {"players", "events", "counters", "query", "observe", "ping"}:
             self.emit(f"{cmd}: {args.get('action', '')}".strip())
         return await super().call(cmd, **args)
+
+
+TOUR_LUAU = r"""
+local out = {}
+local stages = workspace:FindFirstChild("Obby") and workspace.Obby:FindFirstChild("Stages")
+if stages then
+    local cfg = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
+    local per = math.max(1, math.floor(#stages:GetChildren() / math.max(1, #(cfg.Zones or {}))))
+    for i, z in cfg.Zones or {} do
+        local first = (i - 1) * per + 1
+        local s = stages:FindFirstChild(string.format("Stage%03d", first))
+        if s then
+            local p = if s:IsA("Model") then s:GetPivot().Position else s.Position
+            table.insert(out, {name = z.name or ("Zone " .. i), stage = first, x = p.X, y = p.Y, z = p.Z})
+        end
+    end
+end
+return game:GetService("HttpService"):JSONEncode(out)
+"""
+QA_BOTS = 6  # bots that play at once, each from the first stage of a different zone
+QA_FRAMES = 3  # screenshots per bot: two mid-run, one when its run ends
+QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint
+
+QA_START = r"""
+local FT = game:GetService("ServerStorage"):WaitForChild("ForgeTest")
+local HS = game:GetService("HttpService")
+local plan = HS:JSONDecode(__PLAN__)
+FT:Invoke("bot_clear", "{}")
+local names = {}
+for _, q in plan do table.insert(names, q.bot) end
+FT:Invoke("bot_spawn", HS:JSONEncode({names = names}))
+local box = game:GetService("ServerStorage"):FindFirstChild("ForgeQA") or Instance.new("Folder")
+box.Name = "ForgeQA"
+box:ClearAllChildren()
+box.Parent = game:GetService("ServerStorage")
+for _, q in plan do
+    task.spawn(function()
+        local ok, r = pcall(function()
+            return FT:Invoke("obby_try", HS:JSONEncode({userId = q.bot, from_stage = q.stage, attempts = 1,
+                timeout = __TIMEOUT__}))
+        end)
+        local v = Instance.new("StringValue")
+        v.Name = q.bot
+        v.Value = if ok then r else HS:JSONEncode({ok = false, error = tostring(r)})
+        v.Parent = box
+    end)
+end
+return "started"
+"""
+
+QA_WHERE = r"""
+local HS = game:GetService("HttpService")
+local out, box = {}, game:GetService("ServerStorage"):FindFirstChild("ForgeQA")
+for _, name in HS:JSONDecode(__NAMES__) do
+    local m = workspace:FindFirstChild(name, true)
+    local r = m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart")
+    local done = box and box:FindFirstChild(name)
+    out[name] = {pos = r and {r.Position.X, r.Position.Y, r.Position.Z} or nil,
+                 result = done and HS:JSONDecode(done.Value) or nil}
+end
+return HS:JSONEncode(out)
+"""
+
+
+async def qa_swarm(studio, store, round_n):
+    """QA bots play at once in Studio, each from a different zone; every bot is its own dashboard tester row
+    (runs/<slug>/tests/<round>-qa-<k>/) with frames of its run and whether it reached the next checkpoint."""
+    try:
+        zones = extract_json(await studio.execute_luau(TOUR_LUAU, "Server")) or []
+    except Exception:  # noqa: BLE001 - not an obby, or no Config: no QA run
+        return
+    if not isinstance(zones, list) or not zones:
+        return
+    pick = zones if len(zones) <= QA_BOTS else [zones[round(i * (len(zones) - 1) / (QA_BOTS - 1))]
+                                                for i in range(QA_BOTS)]
+    plan = [{"bot": f"QA{k}", "stage": z["stage"], "zone": z["name"]} for k, z in enumerate(pick, 1)]
+    stamp = time.strftime('%H%M%S')
+    started = time.time()
+    await studio.execute_luau(QA_START.replace("__PLAN__", json.dumps(json.dumps(plan)))
+                              .replace("__TIMEOUT__", str(QA_TIMEOUT)), "Server")
+    names = json.dumps(json.dumps([q["bot"] for q in plan]))
+    frames = {q["bot"]: [] for q in plan}
+    results = {}
+    for frame in range(QA_FRAMES):
+        await asyncio.sleep(2.5 if frame == 0 else 3.5)
+        where = extract_json(await studio.execute_luau(QA_WHERE.replace("__NAMES__", names), "Server")) or {}
+        for q in plan:
+            w = where.get(q["bot"]) or {}
+            if w.get("result"):
+                results[q["bot"]] = w["result"]
+            if not w.get("pos") or len(frames[q["bot"]]) > frame:
+                continue
+            x, y, z = w["pos"]
+            rdir = store.dir / "tests" / f"{round_n:02d}-qa-{q['bot'][2:]}-{stamp}"
+            n = len(frames[q["bot"]]) + 1
+            got = await studio.screenshot(rdir / f"step-{n:02d}.png", camera=(x + 18, y + 12, z + 18), look_at=(x, y, z))
+            frames[q["bot"]].append({"n": n, "shot": got is not None, "ts": time.time(),
+                                     "done": bool(results.get(q["bot"]))})
+        if len(results) == len(plan):
+            break
+    for _ in range(int(QA_TIMEOUT / 2) + 2):  # wait for the stragglers' verdicts
+        if len(results) == len(plan):
+            break
+        await asyncio.sleep(2)
+        where = extract_json(await studio.execute_luau(QA_WHERE.replace("__NAMES__", names), "Server")) or {}
+        results.update({b: w["result"] for b, w in where.items() if isinstance(w, dict) and w.get("result")})
+    for q in plan:
+        res = results.get(q["bot"]) or {}
+        body = res.get("result") if isinstance(res.get("result"), dict) else {}
+        reached = bool(body.get("reached"))
+        verdict = (f"reached stage {body.get('to_stage')}" if reached
+                   else f"NOT reached: {body.get('detail') or res.get('error') or 'still running'}")[:200]
+        steps = [{"n": f["n"], "action": {"action": "play", "args": {"target": f"{q['zone']} (stage {q['stage']})"}},
+                  "ok": (reached if i == len(frames[q["bot"]]) - 1 else None),
+                  "result": verdict if i == len(frames[q["bot"]]) - 1 else "mid-run", "ts": f["ts"]}
+                 for i, f in enumerate(frames[q["bot"]])]
+        rdir = store.dir / "tests" / f"{round_n:02d}-qa-{q['bot'][2:]}-{stamp}"
+        rdir.mkdir(parents=True, exist_ok=True)
+        (rdir / "report.json").write_text(json.dumps({
+            "tester": f"QA bot {q['bot'][2:]} · {q['zone']}",
+            "goal": f"Round {round_n}: play stage {q['stage']} to the next checkpoint", "steps": steps,
+            "started": started, "ended": time.time(), "goal_met": reached, "summary": verdict}, indent=1))
+    try:
+        await studio.execute_luau('return game:GetService("ServerStorage").ForgeTest:Invoke("bot_clear", "{}")',
+                                  "Server")
+    except Exception:  # noqa: BLE001 - the playtest stops next anyway
+        pass
 
 
 class Companion:
@@ -328,10 +456,31 @@ class Companion:
                 if operation in DRAFT_OPERATIONS | {"load_game", "read_game_file"}:
                     if state.get("playing") and operation not in {'open_game', 'read_game_file'}:
                         raise ValueError("A playtest is already running. Stop it in Studio first.")
-                    from mubit_tester.studio_builder import build_draft, describe_draft, revise_draft, draft_install_code
+                    from mubit_tester.studio_builder import (build_draft, build_share, describe_draft, finish_draft,
+                                                         install_draft, revise_draft)
                     if operation == "make_game":
-                        job["result"] = await build_draft(self.settings, args["idea"], lambda m, ok=None: self.emit(job, m, ok),
-                                                          on_progress=lambda p: self.set_progress(job, p))
+                        emit = lambda m, ok=None: self.emit(job, m, ok)  # noqa: E731
+                        progress = lambda p: self.set_progress(job, p)  # noqa: E731
+                        draft = await build_draft(self.settings, args["idea"], emit, on_progress=build_share(progress))
+
+                        async def install(slug):
+                            installed = await install_draft(studio, self.settings, slug, place_id=identity.get("placeId"))
+                            if job["marker"] in self.sessions:
+                                self.sessions[job["marker"]]["game_slug"] = slug
+                            return installed
+                        async def show(slug, keep):
+                            store = RunStore(self.settings, slug)
+                            its = store.load_state().get('iterations') or []
+                            shot = store.dir / 'iterations' / str((its[-1].get('n') if its else None) or 0) / 'screenshot.png'
+                            await studio.play(ready_timeout=45)
+                            await asyncio.sleep(2)  # the park and HUD finish building after the character spawns
+                            path = await studio.screenshot(shot)
+                            await qa_swarm(studio, store, len(its))
+                            if not keep:
+                                await studio.stop()
+                            return path
+                        job["result"] = await finish_draft(self.settings, draft, emit, install=install, on_progress=progress,
+                                                          show=show)
                     elif operation == 'open_game':
                         job['result'] = await describe_draft(self.settings, args['slug'])
                     elif operation in {'iterate_game', 'correct_game'}:
@@ -351,16 +500,11 @@ class Companion:
                             raise ValueError('The script must stay inside the game')
                         job['result'] = {'path': path, 'source': target.read_text()[:24000]}
                     else:
-                        if identity.get("placeId"):
-                            raise ValueError("Add a draft to an unpublished local game, using the normal sync workflow for published games.")
-                        from forge import sync
                         draft = self.jobs[args["source_job"]]["result"]
-                        game_root = self.settings.runs_dir / draft["slug"] / "game"
-                        errors = await asyncio.to_thread(sync.check, game_root)
-                        if errors:
-                            raise ValueError("The draft code has errors. Keep it out of Studio until they are fixed.")
                         self.emit(job, "Adding your draft to this Studio window…")
-                        job["result"] = {"summary": await studio.execute_luau(draft_install_code(self.settings, draft["slug"])),
+                        installed = await install_draft(studio, self.settings, draft["slug"], place_id=identity.get("placeId"))
+                        self.emit(job, f"Installed in Studio: {installed['files']} scripts", True)
+                        job["result"] = {"summary": f"Added {installed['files']} draft scripts. Press Play in Studio to try the game.",
                                          "slug": draft["slug"], "title": draft["title"], "runtime_checked": False}
                         self.sessions[job['marker']]['game_slug'] = draft['slug']
                     self.games_checked = 0.

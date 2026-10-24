@@ -56,6 +56,7 @@ forge/                 Python package (uv), entry point `forge`
   sync.py              thin Python wrapper around game/tools/sync.py    [owner: studio]
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
+  rounds.py            round history: acceptance progress, critic/fixer history, round line [owner: loop]
   cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote|assets|improve|scores`   [owner: loop]
   seed.py              seed(settings, slug, spec_path=None) -> RunStore; promote(settings, slug, rel) -> Path
   seeds/<slug>.json    Forge spec for a seeded run (flame-and-blame: FlareUpService)
@@ -463,7 +464,8 @@ attempt may carry `checks: {repro, guards}`. `scores.json` rows add `proven`, `c
 def design(llm, idea: str, lessons: str, *, session_id) -> dict          # Spec
 def code_module(llm, spec: dict, module: dict, deps: dict[str, str], lessons: str, *, session_id) -> str
 def fix_file(llm, path: str, source: str, problem: str, context: str, lessons: str, *, session_id) -> str
-def critique(llm, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id) -> dict
+def critique(llm, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id,
+             history: str = "") -> dict   # history: rounds.critic_block, the earlier rounds' scores and fixes
 def reflect(llm, lessons: str, iteration_summary: str, *, session_id) -> str   # new lessons.md text
 # investigator context (message assembled in improve.investigate_message; every call re-sends it):
 def steps_block(steps, focus, budget=STEPS_BUDGET (9000)) -> str   # "## Steps so far"; byte-identical while it

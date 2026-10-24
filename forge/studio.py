@@ -310,6 +310,8 @@ return HttpService:JSONEncode(out)
 
 HOT_SERVICES = ("ServerScriptService", "ServerStorage")
 _SETS_BOOTED = re.compile(r"SetAttribute\(\s*[^,)]*ServerBooted")
+# largest single source sent alone in one execute_luau call (Studio refuses commands of 200k chars or more)
+SYNC_SOLO_MAX = 180_000
 _STATE_RE = re.compile(r"^local\s+(\w+)\s*(?::[^=]+)?=\s*(\{\s*\}|0|nil|false|true)\s*(--.*)?$", re.MULTILINE)
 _RETURN_RE = re.compile(r"^return\s+(\w+)\s*$", re.MULTILINE)
 
@@ -748,8 +750,7 @@ class Studio:
         if not incremental:
             return await self.execute_luau(fsync.pull_luau(port, prune=prune, force=True), "Edit")
         key = (str(self.studio_id), str(root))
-        inline = fsync.inline_plan(root, entries, self._pushed.get(key))
-        out = await self.execute_luau(fsync.pull_luau(port, prune=prune, manifest=entries, inline=inline), "Edit")
+        out = await self._sync_passes(root, port, entries, prune, key)
         if str(out).startswith("OK"):
             self._pushed[key] = fsync.hashes(entries)
             self._uses_booted = any(_SETS_BOOTED.search((root / e["path"]).read_text(encoding="utf-8", errors="replace"))
@@ -757,6 +758,36 @@ class Studio:
         else:
             self._pushed.pop(key, None)
         return out
+
+    async def _sync_passes(self, root: Path, port: int, entries: list[dict], prune: bool, key) -> str:
+        """Send changed sources inline over as many execute_luau calls as it takes, each under Studio's
+        200k-character command limit. No HTTP: Studio may refuse the script the HttpEnabled write. A single
+        file too big for one call is left to the HTTP fetch of the last call."""
+        pushed = dict(self._pushed.get(key) or {})
+        now = fsync.hashes(entries)
+        sizes = {e["path"]: int(e.get("size", 0)) for e in entries}
+        outs: list[str] = []
+        while True:
+            d = fsync.changed_paths(entries, pushed)
+            todo = sorted(set(d["changed"]) | set(d["added"]), key=lambda p: (sizes.get(p, 0), p))
+            inline = fsync.inline_plan(root, entries, pushed)
+            if not inline and todo and sizes.get(todo[0], 0) <= SYNC_SOLO_MAX:
+                inline = fsync.inline_plan(root, entries, pushed, budget=SYNC_SOLO_MAX)
+                inline = dict([next(iter(inline.items()))]) if inline else {}
+            last = set(inline) >= set(todo)
+            if not inline and not last:  # only files too big for one call remain: fetch them over HTTP
+                last = True
+            out = str(await self.execute_luau(fsync.pull_luau(port, prune=prune and last, manifest=entries,
+                                                              inline=inline, defer=not last), "Edit"))
+            outs.append(out)
+            if not out.startswith("OK") or last:
+                break
+            pushed.update({p: now[p] for p in inline})
+        if len(outs) == 1:
+            return outs[0]
+        changed = [c for o in outs for c in re.findall(r"changed: (.*?)(?:; |$)", o) if c != "none"]
+        return (outs[-1].split(" ", 1)[0] + f" {len(entries)} files in {len(outs)} calls, changed: "
+                + (", ".join(changed) or "none") + "; " + outs[-1].rsplit("; ", 1)[-1])
 
     async def hot_reload(self, root: Path) -> dict:
         """Push changed server ModuleScripts into the running playtest without stopping it.

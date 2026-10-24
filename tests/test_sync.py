@@ -120,7 +120,7 @@ def test_pull_luau_params():
     assert "local PRUNE = false" in src
     assert "__PORT__" not in src and "__PRUNE__" not in src
     assert "local PRUNE = true" in sync.pull_luau(4321)
-    assert "ForgeManaged" in src and "HttpEnabled = was" in src
+    assert "ForgeManaged" in src and "setHttp(was)" in src
 
 
 @needs_luau

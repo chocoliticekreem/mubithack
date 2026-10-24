@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from forge import director, levels, template
+from forge import director, levels, rounds, template
 from forge.config import Settings, load_settings
 from forge.fun import FUN_BAR
 from forge.llm import _JSONMixin, jobs_from_env
@@ -450,6 +450,12 @@ class Run:
             out.append(rel)
         return out
 
+    def all_sources(self) -> dict[str, str]:
+        """Every Luau file of the game, kit and runtime included (what a counter could be bumped from)."""
+        return {_rel(p, self.game_dir): p.read_text(errors="replace")
+                for p in sorted(self.game_dir.rglob(f"*{LUAU_SUFFIX}"))
+                if not _rel(p, self.game_dir).startswith("tools/")}
+
     def resolve_path(self, path: str) -> str | None:
         """Map a loosely given path (from a human or the critic) to a file in the game."""
         cleaned = clean_rel_path(path) or (path or "").strip().replace("\\", "/")
@@ -855,20 +861,28 @@ class Run:
         if console:
             (it_dir / "console.txt").write_text(console)
 
-        # 3. critic
+        # 3. critic, told what earlier rounds scored and fixed so it judges the change
         files = {}
         for rel in self.game_files():
             src = self.read(rel)
             if len(src) > MAX_FILE_CHARS:
                 src = src[:MAX_FILE_CHARS] + "\n-- [truncated]\n"
             files[rel] = src
+        prior = self.store.load_state().get("iterations") or []
+        history = rounds.past_rounds([it for it in prior if it.get("n") != n], self.spec,
+                                     self.store.load_iteration_json)
+        rec["acceptance"] = rounds.acceptance(self.spec, report.get("counters") or {}, self.all_sources())
+        blocked_before = (max(prior, key=lambda it: it.get("n", 0)).get("blocked_issues") or []) if prior else []
+        history_text = rounds.critic_block(history, rec["acceptance"],
+                                           rounds.read_only_list(self.base_files, RUNTIME_FILES), blocked_before)
         critique: dict | None = None
         # the fun critic reads the same files and report, so it runs alongside the critic
         fun_task = asyncio.create_task(self.fun_pass(n, files, report))
         try:
             with self.stage(f"iteration {n}: critic"):
                 critique = await self.call("critic", f"{len(files)} files", roles.critique, self.spec,
-                                           report, console[-4000:], files, session_id=self.slug)
+                                           report, console[-4000:], files, session_id=self.slug,
+                                           history=history_text)
                 fun_res = await fun_task
             self.store.save_iteration_json(n, "critique.json", critique)
         except Exception as e:
@@ -907,9 +921,11 @@ class Run:
             # 4. fix critic issues: one fixer call per file (not on code that was just rolled back)
             if not stop and rec["issues"] and not rec.get("rolled_back_to"):
                 with self.stage(f"iteration {n}: fix"):
-                    await self.fix_issues(rec, report)
+                    await self.fix_issues(rec, report, history)
                     remaining = await self.compile_fix(rec)
                 rec["compile_errors_after_fix"] = [{"path": p, "error": m} for p, m in remaining]
+        rec["round_line"] = rounds.round_line(history[-1] if history else None, rec)
+        self.ui.line("round", rec["round_line"], None)
 
         # 5. reflect -> lessons, in the background: nothing until the next fixer reads lessons needs it,
         # so it overlaps the next iteration's compile check, playtest and critic (settle_reflection).
@@ -931,6 +947,11 @@ class Run:
             "studio": rec["studio"], "engine": rec.get("engine"), "fixes": len(rec["fixes"]),
             "version": rec.get("version"),
             "rolled_back_to": rec.get("rolled_back_to"),
+            "acceptance": {k: rec["acceptance"].get(k) for k in ("met", "missing", "unemitted")},
+            "fixed": rec.get("fixed") or {},
+            "blocked_issues": rec.get("blocked_issues") or [],
+            "taught": rec.get("taught") or [],
+            "round_line": rec["round_line"],
             "failed_steps": [s["step"] for s in rec["steps"] if not s.get("ok")],
             "request_ids": [c.get("request_id") for c in self.calls if c.get("request_id")],
             "ended": rec["ended"],
@@ -987,10 +1008,15 @@ class Run:
             with contextlib.suppress(Exception):
                 await task
 
-    async def fix_issues(self, rec: dict, report: dict) -> None:
-        """One fixer call per file the critic named, all files at once."""
+    async def fix_issues(self, rec: dict, report: dict, history: list[dict] | None = None) -> None:
+        """One fixer call per file the critic named, all files at once. history (forge.rounds.past_rounds)
+        tells each fixer how its last fix to the file turned out; issues on read-only files are recorded
+        in rec["blocked_issues"] instead of vanishing."""
         from forge import roles
 
+        history = history or []
+        acc = {**(rec.get("acceptance") or {}), "score": rec.get("score")}
+        missing = acc.get("missing") or []
         by_path: dict[str, list[dict]] = defaultdict(list)
         for issue in rec["issues"]:
             path = self.resolve_path(str(issue.get("path", "")))
@@ -1000,15 +1026,30 @@ class Run:
                              if m["path"].endswith(".server.luau")), None)
             if path and path not in self.base_files:
                 by_path[path].append(issue)
+            else:
+                rec.setdefault("blocked_issues", []).append(
+                    {"path": path or str(issue.get("path", "")), "problem": str(issue.get("problem", ""))[:300]})
         runtime = report.get("errors") or []
         await self.settle_reflection()
         lessons = director.coder_notes(self.spec, read_lessons(self.settings))
+        rec.setdefault("fixed", {})
+        rec.setdefault("taught", [])
+
+        def text(i: dict) -> str:
+            return f"{i.get('problem', '')} {i.get('fix_hint', '')}"
 
         async def fix_one(path: str, issues: list[dict]) -> None:
+            # issues about an acceptance counter that does not fire yet go first: the score hinges on them
+            issues = sorted(issues, key=lambda i: not rounds.mentioned(text(i), missing))
             problem = "Playtest critique:\n" + "\n".join(
                 f"- {i.get('problem', '')}" + (f" (hint: {i['fix_hint']})" if i.get("fix_hint") else "")
                 for i in issues)
+            correction, taught = rounds.fixer_correction(history, path, acc)
+            if correction:
+                problem += "\n\n" + correction
             context = spec_summary(self.spec)
+            if history:
+                context += "\n" + rounds.trend(history, rec.get("score"))
             name = Path(path).name.split(".")[0]
             related = [e for e in runtime if name and name in json.dumps(e)]
             if related:
@@ -1019,6 +1060,10 @@ class Run:
                 self.write(path, fixed)
                 rec["fixes"].append({"path": path, "kind": "critic", "problem": problem[:500],
                                      "request_id": self.last_request_id})
+                rec["fixed"][path] = rounds.mentioned(" ".join(text(i) for i in issues),
+                                                      rounds.acceptance_counters(self.spec))
+                if taught:
+                    rec["taught"].append(taught)
             except Exception as e:
                 rec["steps"].append({"step": f"fix:{path}", "ok": False, "error": str(e)})
 
@@ -1053,6 +1098,11 @@ class Run:
         if rec["issues"]:
             lines.append("Critic issues:")
             lines += [f"- {i.get('path', '?')}: {i.get('problem', '')}" for i in rec["issues"]]
+        if rec.get("round_line"):
+            lines.append(f"Round outcome: {rec['round_line']}")
+        if rec.get("blocked_issues"):
+            lines.append("Critic issues on read-only kit files (skipped, the fixer cannot edit them):")
+            lines += [f"- {b['path']}: {b['problem'][:200]}" for b in rec["blocked_issues"]]
         if rec.get("rolled_back_to"):
             lines.append(f"Rolled back to {rec['rolled_back_to']}: this version scored lower than it, "
                          "so the fixes made since then were undone. Learn what made it worse.")
@@ -1253,7 +1303,8 @@ async def _new_game(idea: str, iterations: int, use_studio: bool, *, settings: S
 
         def iteration_done(rec: dict) -> None:
             score = rec.get("score")
-            prog.event(f"Playtest round {rec['n']} done" + (f": score {score:g}" if score is not None else ""),
+            detail = rec.get("round_line") or (f"score {score:g}" if score is not None else "")
+            prog.event(f"Playtest round {rec['n']} done" + (f": {detail}" if detail else ""),
                        not rec.get("compile_errors") and not rec.get("runtime_errors"))
             prog.item_done()
 
