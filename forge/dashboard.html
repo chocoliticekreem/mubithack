@@ -534,8 +534,8 @@
   </header>
 
   <div id="nowBox"><div class="card empty">Loading…</div></div>
-  <div id="gameBox"></div>
   <div id="agentsBox"></div>
+  <div id="gameBox"></div>
 
   <section id="more" aria-label="More detail">
     <div id="main"></div>
@@ -833,7 +833,8 @@ function renderGame(g) {
       <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
       <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
         <span class="chip">${g.versions.length} versions</span><span class="chip">${(g.agents || []).length} agents</span></div></div>
-    ${resultBlock(g, false)}</div>`);
+    ${resultBlock(g, false)}</div>
+    ${(g.team?.testers?.length || g.team?.critic_shots?.length) ? `<div class="card"><div class="sec-head"><h2>Screenshots</h2><span class="sub">one per round, plus a look at each zone in Studio · tap to enlarge</span></div>${renderFeed(g)}</div>` : ""}`);
 }
 
 function renderAgents(g) {
