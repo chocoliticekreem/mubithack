@@ -76,6 +76,8 @@ forge/                 Python package (uv), entry point `forge`
   prompts/planner.md   Mubit task: feature request -> {summary, new_modules, edits, telemetry, acceptance}
   ledger.py            `forge ledger`: ledger(settings) -> {total_calls, roles[{role, calls, corrections, verified,
                        rejected}], entries} rebuilt from runs/**/traces + improve/<n>.json + state.json corrections
+  done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass,
+                       features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded)
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
                        snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against

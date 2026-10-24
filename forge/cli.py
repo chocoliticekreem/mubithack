@@ -488,6 +488,13 @@ def cmd_ledger(args) -> int:
     return 0
 
 
+def cmd_done(args) -> int:
+    from forge.done import readiness, render
+    r = readiness(load_settings(), args.slug)
+    print(json.dumps(r, indent=1) if args.json else render(r))
+    return 0 if r["ready"] else 1
+
+
 def cmd_scores(args) -> int:
     from forge.improve import ImproveStore
     rows = ImproveStore(load_settings(), args.slug).scores()
@@ -670,6 +677,10 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--json", action="store_true")
     lg.add_argument("--recent", type=int, default=12)
 
+    dn = sub.add_parser("done", help="is the game ready? checks pass, features verified, nothing open, critic bar")
+    dn.add_argument("slug")
+    dn.add_argument("--json", action="store_true")
+
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
     return p
@@ -683,7 +694,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
