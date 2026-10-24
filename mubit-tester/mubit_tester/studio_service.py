@@ -125,32 +125,114 @@ if stages then
 end
 return game:GetService("HttpService"):JSONEncode(out)
 """
-TOUR_SHOTS = 7  # zones photographed per round (the dashboard feed shows the newest 8 steps)
+QA_BOTS = 6  # bots that play at once, each from the first stage of a different zone
+QA_FRAMES = 3  # screenshots per bot: two mid-run, one when its run ends
+QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint
+
+QA_START = r"""
+local FT = game:GetService("ServerStorage"):WaitForChild("ForgeTest")
+local HS = game:GetService("HttpService")
+local plan = HS:JSONDecode(__PLAN__)
+FT:Invoke("bot_clear", "{}")
+local names = {}
+for _, q in plan do table.insert(names, q.bot) end
+FT:Invoke("bot_spawn", HS:JSONEncode({names = names}))
+local box = game:GetService("ServerStorage"):FindFirstChild("ForgeQA") or Instance.new("Folder")
+box.Name = "ForgeQA"
+box:ClearAllChildren()
+box.Parent = game:GetService("ServerStorage")
+for _, q in plan do
+    task.spawn(function()
+        local ok, r = pcall(function()
+            return FT:Invoke("obby_try", HS:JSONEncode({userId = q.bot, from_stage = q.stage, attempts = 1,
+                timeout = __TIMEOUT__}))
+        end)
+        local v = Instance.new("StringValue")
+        v.Name = q.bot
+        v.Value = if ok then r else HS:JSONEncode({ok = false, error = tostring(r)})
+        v.Parent = box
+    end)
+end
+return "started"
+"""
+
+QA_WHERE = r"""
+local HS = game:GetService("HttpService")
+local out, box = {}, game:GetService("ServerStorage"):FindFirstChild("ForgeQA")
+for _, name in HS:JSONDecode(__NAMES__) do
+    local m = workspace:FindFirstChild(name, true)
+    local r = m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart")
+    local done = box and box:FindFirstChild(name)
+    out[name] = {pos = r and {r.Position.X, r.Position.Y, r.Position.Z} or nil,
+                 result = done and HS:JSONDecode(done.Value) or nil}
+end
+return HS:JSONEncode(out)
+"""
 
 
-async def studio_tour(studio, store, round_n):
-    """One screenshot per zone from above, saved as a dashboard "Studio tour" run under runs/<slug>/tests/."""
+async def qa_swarm(studio, store, round_n):
+    """QA bots play at once in Studio, each from a different zone; every bot is its own dashboard tester row
+    (runs/<slug>/tests/<round>-qa-<k>/) with frames of its run and whether it reached the next checkpoint."""
     try:
         zones = extract_json(await studio.execute_luau(TOUR_LUAU, "Server")) or []
-    except Exception:  # noqa: BLE001 - not an obby, or no Config: no tour
+    except Exception:  # noqa: BLE001 - not an obby, or no Config: no QA run
         return
     if not isinstance(zones, list) or not zones:
         return
-    pick = zones if len(zones) <= TOUR_SHOTS else [zones[round(i * (len(zones) - 1) / (TOUR_SHOTS - 1))]
-                                                     for i in range(TOUR_SHOTS)]
-    rdir = store.dir / "tests" / f"{round_n:02d}-studio-tour-{time.strftime('%H%M%S')}"
-    started, steps = time.time(), []
-    for n, z in enumerate(pick, 1):
-        at = (z["x"], z["y"], z["z"])
-        got = await studio.screenshot(rdir / f"step-{n:02d}.png", camera=(at[0] + 45, at[1] + 35, at[2] + 45),
-                                      look_at=at)
-        steps.append({"n": n, "action": {"action": "look at", "args": {"target": z["name"]}}, "ok": got is not None,
-                      "result": f"stage {z['stage']}" + ("" if got else ": no image came back"), "ts": time.time()})
-    report = {"tester": "Studio tour", "goal": f"Round {round_n}: one look at each zone, in Studio", "steps": steps,
-              "started": started, "ended": time.time(),
-              "summary": f"{sum(1 for s in steps if s['ok'])} zones photographed"}
-    rdir.mkdir(parents=True, exist_ok=True)
-    (rdir / "report.json").write_text(json.dumps(report, indent=1))
+    pick = zones if len(zones) <= QA_BOTS else [zones[round(i * (len(zones) - 1) / (QA_BOTS - 1))]
+                                                for i in range(QA_BOTS)]
+    plan = [{"bot": f"QA{k}", "stage": z["stage"], "zone": z["name"]} for k, z in enumerate(pick, 1)]
+    stamp = time.strftime('%H%M%S')
+    started = time.time()
+    await studio.execute_luau(QA_START.replace("__PLAN__", json.dumps(json.dumps(plan)))
+                              .replace("__TIMEOUT__", str(QA_TIMEOUT)), "Server")
+    names = json.dumps(json.dumps([q["bot"] for q in plan]))
+    frames = {q["bot"]: [] for q in plan}
+    results = {}
+    for frame in range(QA_FRAMES):
+        await asyncio.sleep(2.5 if frame == 0 else 3.5)
+        where = extract_json(await studio.execute_luau(QA_WHERE.replace("__NAMES__", names), "Server")) or {}
+        for q in plan:
+            w = where.get(q["bot"]) or {}
+            if w.get("result"):
+                results[q["bot"]] = w["result"]
+            if not w.get("pos") or len(frames[q["bot"]]) > frame:
+                continue
+            x, y, z = w["pos"]
+            rdir = store.dir / "tests" / f"{round_n:02d}-qa-{q['bot'][2:]}-{stamp}"
+            n = len(frames[q["bot"]]) + 1
+            got = await studio.screenshot(rdir / f"step-{n:02d}.png", camera=(x + 18, y + 12, z + 18), look_at=(x, y, z))
+            frames[q["bot"]].append({"n": n, "shot": got is not None, "ts": time.time(),
+                                     "done": bool(results.get(q["bot"]))})
+        if len(results) == len(plan):
+            break
+    for _ in range(int(QA_TIMEOUT / 2) + 2):  # wait for the stragglers' verdicts
+        if len(results) == len(plan):
+            break
+        await asyncio.sleep(2)
+        where = extract_json(await studio.execute_luau(QA_WHERE.replace("__NAMES__", names), "Server")) or {}
+        results.update({b: w["result"] for b, w in where.items() if isinstance(w, dict) and w.get("result")})
+    for q in plan:
+        res = results.get(q["bot"]) or {}
+        body = res.get("result") if isinstance(res.get("result"), dict) else {}
+        reached = bool(body.get("reached"))
+        verdict = (f"reached stage {body.get('to_stage')}" if reached
+                   else f"NOT reached: {body.get('detail') or res.get('error') or 'still running'}")[:200]
+        steps = [{"n": f["n"], "action": {"action": "play", "args": {"target": f"{q['zone']} (stage {q['stage']})"}},
+                  "ok": (reached if i == len(frames[q["bot"]]) - 1 else None),
+                  "result": verdict if i == len(frames[q["bot"]]) - 1 else "mid-run", "ts": f["ts"]}
+                 for i, f in enumerate(frames[q["bot"]])]
+        rdir = store.dir / "tests" / f"{round_n:02d}-qa-{q['bot'][2:]}-{stamp}"
+        rdir.mkdir(parents=True, exist_ok=True)
+        (rdir / "report.json").write_text(json.dumps({
+            "tester": f"QA bot {q['bot'][2:]} · {q['zone']}",
+            "goal": f"Round {round_n}: play stage {q['stage']} to the next checkpoint", "steps": steps,
+            "started": started, "ended": time.time(), "goal_met": reached, "summary": verdict}, indent=1))
+    try:
+        await studio.execute_luau('return game:GetService("ServerStorage").ForgeTest:Invoke("bot_clear", "{}")',
+                                  "Server")
+    except Exception:  # noqa: BLE001 - the playtest stops next anyway
+        pass
 
 
 class Companion:
@@ -393,7 +475,7 @@ class Companion:
                             await studio.play(ready_timeout=45)
                             await asyncio.sleep(2)  # the park and HUD finish building after the character spawns
                             path = await studio.screenshot(shot)
-                            await studio_tour(studio, store, len(its))
+                            await qa_swarm(studio, store, len(its))
                             if not keep:
                                 await studio.stop()
                             return path
