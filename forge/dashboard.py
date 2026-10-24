@@ -16,8 +16,10 @@ The page polls /api/state every few seconds. Its one write is POST /api/rollback
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
+import threading
 import time
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -457,8 +459,32 @@ def _intervals(calls: list[dict]) -> list[dict]:
             continue
         lat = _num(c.get("latency_ms")) or 0.0
         out.append({"role": c["role"], "start": end - lat / 1000, "end": end, "latency_ms": int(lat),
-                    "request_id": c.get("request_id"), "ok": not c.get("error")})
+                    "request_id": c.get("request_id"), "ok": not c.get("error"), "error": c.get("error"),
+                    "aborted": bool(c.get("aborted")), "model": c.get("model"),
+                    "input_tokens": c.get("input_tokens"), "output_tokens": c.get("output_tokens")})
     return sorted(out, key=lambda c: (c["start"], c["end"]))
+
+
+def _kilo(n: Any) -> str:
+    v = _num(n)
+    return "" if v is None else (f"{v / 1000:.1f}k" if v >= 1000 else str(int(v)))
+
+
+def _secs_label(ms_: Any) -> str:
+    v = _num(ms_)
+    return "" if not v else (f"{int(v)}ms" if v < 1000 else f"{v / 1000:.1f}s")
+
+
+def call_tip(iv: dict) -> dict:
+    """One Mubit call as a hover card: ok is True (answered), False (failed), None (cut short or in flight)."""
+    toks = " / ".join(x for x in (_kilo(iv.get("input_tokens")) and f"{_kilo(iv.get('input_tokens'))} in",
+                                  _kilo(iv.get("output_tokens")) and f"{_kilo(iv.get('output_tokens'))} out") if x)
+    lines = [x for x in (" · ".join(x for x in (_secs_label(iv.get("latency_ms")), iv.get("model") or "", toks) if x),
+                         _clip(iv.get("error") or "", 180),
+                         "cut short: the reply was going nowhere" if iv.get("aborted") else "",
+                         iv.get("request_id") or "") if x]
+    ok = False if iv.get("error") else (None if iv.get("aborted") else True)
+    return {"ok": ok, "head": iv.get("role") or "call", "lines": lines}
 
 
 def _pack(ivs: list[dict]) -> list[list[dict]]:
@@ -534,7 +560,12 @@ def _lanes_from_timings(t: dict, t0: float) -> list[dict]:
                     "status": str(ln.get("status") or ("running" if start is not None and end is None else "done")),
                     "step": _clip(ln.get("step") or "", 140), "thought": _clip(ln.get("thought") or ""),
                     "latency_ms": int(_num(ln.get("latency_ms")) or 0), "calls": int(_num(ln.get("calls")) or 0),
-                    "spans": [_span(start, end, t0)] if start is not None else []})
+                    "spans": [_span(start, end, t0)] if start is not None else [],
+                    "tips": [{"ok": False if ln.get("error") else (None if end is None else True),
+                              "head": str(ln.get("label") or role),
+                              "lines": [x for x in (_clip(ln.get("step") or "", 140),
+                                                    _clip(ln.get("error") or "", 180)) if x]}]
+                    if start is not None else []})
     groups: dict[str, list[dict]] = {}
     for c in t["calls"]:
         groups.setdefault(str(c.get("lane") or c.get("worker") or c.get("role")), []).append(c)
@@ -549,8 +580,19 @@ def _lanes_from_timings(t: dict, t0: float) -> list[dict]:
                     "thought": _clip(last.get("thought") or ""),
                     "latency_ms": int(_num(last.get("latency_ms")) or 0), "calls": len(cs),
                     "spans": [_span(_epoch(c.get("start")), _epoch(c.get("end")), t0) for c in cs[-LANE_SPANS:]
-                              if _epoch(c.get("start")) is not None]})
+                              if _epoch(c.get("start")) is not None],
+                    "tips": [_timed_tip(c, role) for c in cs[-LANE_SPANS:] if _epoch(c.get("start")) is not None]})
     return out
+
+
+def _timed_tip(c: dict, role: str) -> dict:
+    tip = call_tip({**c, "role": c.get("role") or role})
+    step = _clip(c.get("step") or c.get("label") or "", 140)
+    if step:
+        tip["lines"].insert(0, step)
+    if _epoch(c.get("end")) is None and not c.get("error"):
+        tip["ok"] = None
+    return tip
 
 
 def _peak(lanes: list[dict]) -> int:
@@ -600,7 +642,8 @@ def lanes_view(run_dir: Path, calls: list[dict], live_role: str | None, timings:
                               "step": step_of(tr.get("user")) or ROLE_STEP.get(role, ""),
                               "thought": thought_of(tr.get("reply")),
                               "latency_ms": last["latency_ms"], "calls": len(lane),
-                              "spans": [_span(iv["start"], iv["end"], t0) for iv in lane[-LANE_SPANS:]]})
+                              "spans": [_span(iv["start"], iv["end"], t0) for iv in lane[-LANE_SPANS:]],
+                              "tips": [call_tip(iv) for iv in lane[-LANE_SPANS:]]})
         if live_role:  # calls are logged when they end, so the one in flight is only known from the log
             mine = [ln for ln in lanes if ROLE_WORDS.get(ln["role"], ln["role"]) == live_role]
             # the call in flight started after the last logged one ended and before the log last moved
@@ -611,10 +654,11 @@ def lanes_view(run_dir: Path, calls: list[dict], live_role: str | None, timings:
                 mine[-1]["thought"] = ""
                 last_end = max((e for _, e in mine[-1]["spans"] if e is not None), default=since - t0) + t0
                 mine[-1]["spans"].append(_span(max(last_end, since), None, t0))
+                mine[-1]["tips"].append(LIVE_TIP)
             else:
                 lanes.append({"id": live_role, "role": live_role, "label": live_role, "kind": "role",
                               "status": "running", "step": ROLE_STEP.get(live_role, ""), "thought": "",
-                              "latency_ms": 0, "calls": 0, "spans": [_span(since, None, t0)]})
+                              "latency_ms": 0, "calls": 0, "spans": [_span(since, None, t0)], "tips": [LIVE_TIP]})
     for t in testers:
         last = t["steps"][-1] if t["steps"] else {}
         lanes.append({"id": f"tester-{t['run']}", "role": "tester", "label": t["label"], "kind": "tester",
@@ -624,13 +668,18 @@ def lanes_view(run_dir: Path, calls: list[dict], live_role: str | None, timings:
                       "calls": t["n_steps"], "passed": t["passed"], "failed": t["failed"],
                       "spans": [_span(s["start"], s["end"], t0) for s in t["spans"]]
                       + ([_span(max(s["end"] for s in t["spans"]), None, t0)]
-                         if t["status"] == "running" and t["spans"] else [])})
+                         if t["status"] == "running" and t["spans"] else []),
+                      "tips": [s.get("tip") or {"ok": None, "head": t["label"], "lines": []} for s in t["spans"]]
+                      + ([LIVE_TIP] if t["status"] == "running" and t["spans"] else [])})
     lanes.sort(key=lambda ln: (_role_rank(ln["role"]), ln["label"]))
     ends = [e for ln in lanes for _, e in ln["spans"] if e is not None]
     running_n = sum(1 for ln in lanes if ln["status"] == "running")
     span = max(ends + ([now - t0] if running_n else []) + [1.0])
     return {"t0": t0, "span_secs": round(span, 1), "lanes": lanes, "running": running_n,
             "parallel_peak": _peak(lanes)}
+
+
+LIVE_TIP = {"ok": None, "head": "working now", "lines": ["the call is still in flight"]}
 
 
 def _assertions(step: dict) -> list[dict]:
@@ -687,7 +736,11 @@ def testers_view(run_dir: Path, slug: str, now: float) -> list[dict]:
             end = _epoch(s.get("ts") or s.get("ended"))
             if end is not None:
                 dur = (_num(s.get("step_ms"), s.get("latency_ms")) or 0) / 1000
-                spans.append({"start": end - dur, "end": end})
+                st = steps[-1]
+                spans.append({"start": end - dur, "end": end, "tip": {
+                    "ok": st["ok"], "head": f"step {n}: {st['action']}",
+                    "lines": [x for x in (st["result"], _secs_label(st["latency_ms"])) if x],
+                    "checks": [{"ok": a["ok"], "text": a["text"]} for a in asserts[:6]]}})
         files = list(rdir.iterdir())
         mtime = max([p.stat().st_mtime for p in files] or [rdir.stat().st_mtime])
         started, ended = _epoch(rep.get("started")), _epoch(rep.get("ended"))
@@ -859,6 +912,22 @@ def collect(settings: Settings | None = None) -> dict:
     return {"now": now, "running": runs, "games": games, "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}
 
 
+STATE_TTL = 2.0  # seconds a built state is served to every open tab before it is rebuilt
+_STATE_LOCK = threading.Lock()
+_STATE: dict[str, Any] = {"at": 0.0, "raw": b"", "gz": b""}
+
+
+def state_bytes(settings: Settings) -> tuple[bytes, bytes]:
+    """The /api/state body (plain, gzipped), built at most once per STATE_TTL. A request that arrives while
+    a build is running waits for that build instead of starting another: each build shells out to git
+    hundreds of times, and overlapping polls used to pile up until one response took ~40 s."""
+    with _STATE_LOCK:
+        if time.time() - _STATE["at"] >= STATE_TTL or not _STATE["raw"]:
+            raw = json.dumps(collect(settings), default=str).encode()
+            _STATE.update(at=time.time(), raw=raw, gz=gzip.compress(raw, compresslevel=5))
+        return _STATE["raw"], _STATE["gz"]
+
+
 def shot_path(settings: Settings, slug: str, rel: str) -> Path | None:
     """A screenshot the page may show: a .png under runs/<slug>/tests/ or runs/<slug>/iterations/."""
     if slug not in RunStore.list_games(settings) or not rel.endswith(".png"):
@@ -916,7 +985,17 @@ def make_handler(settings: Settings):
         def do_GET(self) -> None:  # noqa: N802
             route, _, query = self.path.partition("?")
             if route == "/api/state":
-                self._send(200, json.dumps(collect(settings), default=str).encode(), "application/json")
+                raw, packed = state_bytes(settings)
+                if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Encoding", "gzip")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(packed)))
+                    self.end_headers()
+                    self.wfile.write(packed)
+                else:
+                    self._send(200, raw, "application/json")
             elif route == "/api/shot":
                 from urllib.parse import parse_qs
 
@@ -945,7 +1024,9 @@ def make_handler(settings: Settings):
             try:
                 size = min(int(self.headers.get("Content-Length") or 0), 10_000)
                 body = json.loads(self.rfile.read(size) or b"{}")
-                self._json(200, rollback(settings, str(body.get("slug", "")), str(body.get("version", ""))))
+                result = rollback(settings, str(body.get("slug", "")), str(body.get("version", "")))
+                _STATE["at"] = 0.0  # the next poll shows the restored version
+                self._json(200, result)
             except RollbackError as e:
                 self._json(e.code, {"error": str(e)})
             except (ValueError, AttributeError):

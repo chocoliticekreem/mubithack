@@ -86,6 +86,9 @@ forge/                 Python package (uv), entry point `forge`
   prompts/reproducer.md  Mubit task: anomaly + investigation + code excerpts -> ONE check that fails while the
                        bug exists (```luau block, `-- check:` / `-- covers:` / `-- consumer: <file>:<line>` header)
   dashboard.py         `forge dashboard`: live view of runs/ (collect() -> GET /api/state + dashboard.html);
+                       state_bytes(settings) -> (json, gzip) builds the state at most once per STATE_TTL (2 s),
+                       and polls that arrive mid-build share that build; each lane carries tips[] aligned
+                       with spans[] (call_tip: {ok true|false|null, head, lines[], checks[]?}) for hover cards;
                        per game: live (role at work), goal, missions (one per version, what_improved()),
                        features; team_view(settings, slug, game) -> game["team"] = {lanes, testers,
                        critic_shots, timeline, speed} and mubit["ledger"] (ledger_view: per role calls,
