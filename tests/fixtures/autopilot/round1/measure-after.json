@@ -1,0 +1,351 @@
+{
+ "label": "ap1a",
+ "version": "v44",
+ "counters": {
+  "death_fx": 2,
+  "player_spawned": 2,
+  "zone_entered": 1,
+  "player_died": 1,
+  "onboarding_step": 8,
+  "hud_coin_pop": 6,
+  "game_started": 1,
+  "onboarding_done": 3,
+  "stages_built": 200,
+  "costumes_pad_decorated": 1,
+  "juice_coin": 6,
+  "first_buy_prompt": 1,
+  "juice_batches": 7,
+  "checkpoint_reached": 2,
+  "coin_collected": 12,
+  "shop_nudge": 1,
+  "map_built": 1,
+  "costume_equipped": 1,
+  "onboarding_hud_render": 7,
+  "hud_stage_pop": 1,
+  "skip_denied": 2,
+  "juice_checkpoint": 1,
+  "lobby_built": 1,
+  "timer_started": 1
+ },
+ "errors": [],
+ "warnings": [
+  "ContentId: rbxassetid://1781668 failed due to: Asset is not approved for the requester (x2)"
+ ],
+ "instances": 7959,
+ "players": 1,
+ "physics": {
+  "flagged": [],
+  "watched": 0
+ },
+ "census": {
+  "source": "playtest",
+  "lights": 35,
+  "highlights": 13,
+  "grey": 0,
+  "lighting_effects": 3,
+  "bursts": 18,
+  "sounds": 12,
+  "sounds_played": 20,
+  "materials": {
+   "Wood": 2,
+   "Glass": 1,
+   "Neon": 1040,
+   "WoodPlanks": 102,
+   "Plastic": 1,
+   "SmoothPlastic": 1744,
+   "DiamondPlate": 51,
+   "Foil": 91,
+   "Slate": 103,
+   "Grass": 1,
+   "Fabric": 268,
+   "Metal": 536
+  },
+  "beams": 12,
+  "billboards": 221,
+  "colors": 48,
+  "particles": 135,
+  "parts": 3940,
+  "client_particles": 134,
+  "buttons": 15,
+  "corners": 81,
+  "names": [
+   "MusicToggle",
+   "FeedbackFlash",
+   "FeedbackBanner",
+   "HUD",
+   "JuiceGui",
+   "Cosmetics"
+  ],
+  "client_sounds_played": 22,
+  "strokes": 113,
+  "gui_objects": 131,
+  "screen_guis": 6,
+  "text_labels": 61,
+  "client_sounds": 24
+ },
+ "studio": true,
+ "screenshot": "runs/funfair-frenzy-an-amusement-park-obby-2/autopilot/rounds/1/after/screenshot.png",
+ "playtest_steps": [
+  {
+   "step": "sync",
+   "ok": true
+  },
+  {
+   "step": "play",
+   "ok": true
+  },
+  {
+   "step": "wait",
+   "ok": true,
+   "mode": "ready",
+   "secs": 4.35,
+   "boot_secs": 0.35
+  },
+  {
+   "step": "smoke",
+   "ok": true,
+   "secs": 32.6
+  },
+  {
+   "step": "probe_report",
+   "ok": true
+  },
+  {
+   "step": "console",
+   "ok": true
+  },
+  {
+   "step": "screenshot",
+   "ok": true
+  },
+  {
+   "step": "census",
+   "ok": true
+  },
+  {
+   "step": "stop",
+   "ok": true
+  }
+ ],
+ "qa": {
+  "run_id": "20261024-085631-209e",
+  "goal_met": false,
+  "bugs": 1,
+  "test_dir": "runs/funfair-frenzy-an-amusement-park-obby-2/tests/20261024-085631-209e",
+  "screenshots": [
+   "runs/funfair-frenzy-an-amusement-park-obby-2/tests/20261024-085631-209e/step-00.png",
+   "runs/funfair-frenzy-an-amusement-park-obby-2/tests/20261024-085631-209e/step-01.png",
+   "runs/funfair-frenzy-an-amusement-park-obby-2/tests/20261024-085631-209e/step-02.png",
+   "runs/funfair-frenzy-an-amusement-park-obby-2/tests/20261024-085631-209e/step-03.png"
+  ]
+ },
+ "swarm": {
+  "run_id": "20261024-090002-0815",
+  "bugs": 1,
+  "shots": 8
+ },
+ "swarm_high": 0,
+ "ttfr_s": 15.4,
+ "compile_errors": [],
+ "boot_errors": 0,
+ "t0": 1792832111.194377,
+ "checks": {
+  "pass": 13,
+  "fail": 0,
+  "passing": [
+   "killing-the-player-once-humanoid-health-0-increments-the-pla",
+   "obby-checkpoint-per-stage",
+   "obby-kill-parts-kill",
+   "obby-reachability",
+   "obby-stage-count",
+   "stage-200-the-finale-stage-is-not-a-much-longer-segment-than",
+   "teleporting-onto-a-checkpoint-far-ahead-of-the-player-s-curr",
+   "the-lobby-coin-trail-is-visually-guided-a-beam-links-each-pa",
+   "obby-checkpoint-saves-and-respawns",
+   "obby-coins-collectible",
+   "obby-fall-returns",
+   "obby-jump-envelope",
+   "obby-movers-carry"
+  ],
+  "failing": [],
+  "unknown": []
+ },
+ "declared": [
+  "map_built",
+  "stages_built",
+  "game_finished",
+  "lobby_built",
+  "onboarding_step",
+  "onboarding_done",
+  "shop_nudge",
+  "game_started",
+  "item_bought",
+  "costume_equipped",
+  "player_spawned",
+  "coin_collected",
+  "checkpoint_reached"
+ ],
+ "bridge_events": [],
+ "critic": 7.0,
+ "critic_summary": "The game runs end to end with no script errors. The lobby, all 200 stages (4082 course parts, under the 6500 cap), coin collection, checkpoints, death and respawn, zone entry, costume auto-equip and onboarding counters all fired in the playtest. Remaining problems are a ContentId warning, an onboarding_done counter that looks wrong, and many generated level gaps that only get fixed by auto-added helper stones.",
+ "critic_obj": {
+  "score": 7,
+  "summary": "The game runs end to end with no script errors. The lobby, all 200 stages (4082 course parts, under the 6500 cap), coin collection, checkpoints, death and respawn, zone entry, costume auto-equip and onboarding counters all fired in the playtest. Remaining problems are a ContentId warning, an onboarding_done counter that looks wrong, and many generated level gaps that only get fixed by auto-added helper stones.",
+  "issues": [
+   {
+    "path": "ReplicatedStorage/GameAssets.luau",
+    "problem": "The report and console show the warning 'ContentId: rbxassetid://1781668 failed due to: Asset is not approved for the requester' (twice). One audio or image asset cannot be loaded, so that sound or effect is silent or missing. The unapproved id is probably in the sound table or in a hard-coded id elsewhere.",
+    "fix_hint": "Search for 1781668 across the project. In GameAssets, replace it with a verified, publicly usable sound id, or drop that entry. Make getCached/Sound creation skip assets that fail to load, so a bad id never reaches ContentProvider or Sound.SoundId."
+   },
+   {
+    "path": "ReplicatedStorage/Levels/Zone06.luau",
+    "problem": "The course builder logged dozens of 'wide gap of 40-78 studs; bridging' messages, for example stage 119 at 66 studs, stage 133 at 64 studs and stage 197 at 78 studs. 351 helper stones were auto-added to fix them. Zone 6's stage 119 gap is the second-widest in the course. This suggests the level data combines large gap values with moving, jumppad or spinner pieces in a way the builder cannot place sensibly. The result is a stone-bridged path that undermines the intended sawtooth difficulty.",
+    "fix_hint": "Reduce the 'gap' and 'rise' values on the pieces around the flagged stages (about 100-120 here). In particular, check the platforms that follow jumppad, moving and conveyor pieces so each horizontal jump stays under about 15 studs. Apply the same cleanup to the other zone files that produced warnings."
+   }
+  ],
+  "done": false
+ },
+ "fun": 6.2,
+ "fun_summary": "The funfair has real depth: 200 stages, 10 themed zones, varied obstacles, a coin economy, costumes and a guided onboarding. It looks bright and cohesive (0 grey parts, Neon and Metal materials, 3 lighting effects, 135 particles). The playtest shows the opening was only partly delivered: the player never bought the wig and only reached 2 checkpoints, so the biggest improvement is making the first-buy moment and the early stage pacing land, with bigger feedback for big moments.",
+ "fun_obj": {
+  "score": 6.2,
+  "scores": {
+   "fun": 6.0,
+   "juice": 6.0,
+   "clarity": 6.0,
+   "visuals": 7.0
+  },
+  "summary": "The funfair has real depth: 200 stages, 10 themed zones, varied obstacles, a coin economy, costumes and a guided onboarding. It looks bright and cohesive (0 grey parts, Neon and Metal materials, 3 lighting effects, 135 particles). The playtest shows the opening was only partly delivered: the player never bought the wig and only reached 2 checkpoints, so the biggest improvement is making the first-buy moment and the early stage pacing land, with bigger feedback for big moments.",
+  "first_60_seconds": [
+   {
+    "beat": "Player spawns on the plaza pad facing the coin trail with a 'Follow the glowing coins!' hint",
+    "ok": true,
+    "evidence": "player_spawned=2 (min 1), onboarding_step=8 and onboarding_hud_render=7 show the guide and HUD objective rendered."
+   },
+   {
+    "beat": "Player runs the trail and grabs the first coins (ding, +1, counter punch)",
+    "ok": true,
+    "evidence": "coin_collected=12 (min 3), juice_coin=6, hud_coin_pop=6, sounds_played=20."
+   },
+   {
+    "beat": "Player steps on the changing-room pad and equips the free Mouse Ears with sparkles",
+    "ok": true,
+    "evidence": "costume_equipped=1 (min 1) and costumes_pad_decorated=1."
+   },
+   {
+    "beat": "With 12 coins the player buys the 10-coin Clown Wig and the Buy chime plays",
+    "ok": false,
+    "evidence": "item_bought is absent from the counters. first_buy_prompt=1 and shop_nudge=1 fired, but nothing was purchased, so the buy flow is too weak or too easy to skip."
+   },
+   {
+    "beat": "Player runs through the gate and reaches stage 1 (Win, Toast 'Stage 1!', progress bar moves)",
+    "ok": true,
+    "evidence": "checkpoint_reached=2 (min 1), juice_checkpoint=1, hud_stage_pop=1."
+   },
+   {
+    "beat": "Player clears stages 2-3 and has 15+ coins collected",
+    "ok": false,
+    "evidence": "coin_collected=12 is below the min of 15. Only 2 checkpoints were reached, and a death happened (player_died=1, death_fx=2)."
+   },
+   {
+    "beat": "Player reaches stage 4 or later",
+    "ok": false,
+    "evidence": "checkpoint_reached=2, below the min of 4. skip_denied=2 suggests the bot or player tried to skip stages and was blocked."
+   }
+  ],
+  "missing_juice": [
+   "Costume bought: no item_bought counter, so no Buy sound, star burst or 'Unlocked' toast was seen",
+   "Zone entry: only one zone_entered, so the whoosh, banner and lighting tint went unproven past the first zone",
+   "Checkpoint: juice_checkpoint=1 for 2 checkpoints, so confetti, FOV punch and sparkles may not fire every time",
+   "Jump pad: no counter shows the whoosh, ring or FOV widen",
+   "Flawless streak: no counter or evidence of the golden trail or toast",
+   "Gift claimed: no counter or evidence of a gift popup",
+   "Stage 200 finish: fireworks and crown are not exercised in the playtest evidence"
+  ],
+  "issues": [
+   {
+    "path": "ReplicatedStorage/FirstBuyConfig.luau",
+    "problem": "The first-buy flow fired its prompt (first_buy_prompt=1) and a nudge, but item_bought stayed at 0. The 10-coin Clown Wig purchase, the main spend goal in the first minute, never happened.",
+    "fix_hint": "Shorten PromptCooldown and raise PromptRadius so the prompt shows reliably. Add a pulsing Highlight and Beam to the wig card. Make the prompt text 'Buy the Clown Wig - 10 coins!' with a large Buy button. Auto-open the costume panel with the wig focused when the player has at least 10 coins and steps on the pad.",
+    "source": "fun_critic"
+   },
+   {
+    "path": "ReplicatedStorage/HudPolishConfig.luau",
+    "problem": "The HUD reacts to coins and stage only through small pops (hud_coin_pop=6, hud_stage_pop=1). The zone tint fired no hud_zone_tint, and there is no sign of a bar shine sweep or big-moment scaling.",
+    "fix_hint": "Add config for bigger pops on big moments (stage pop scale 1.4 with a Back easing, a white shine sweep across the progress bar). Make sure zoneTint events fire on zone_entered with the zone accent. Raise the coin pop to 1.25x with the Coin sound pitch randomised 0.95-1.1.",
+    "source": "fun_critic"
+   },
+   {
+    "path": "ReplicatedStorage/Config.luau",
+    "problem": "The early difficulty and the lobby economy are tight. Only 12 lobby coins exist and just 12 coins were collected, short of the 15 target, and the player died and reached only 2 checkpoints, so early progress stalls.",
+    "fix_hint": "Raise Config.Lobby.coinCount to 14 and add coins to stages 1-3 in Zone01 (coins = 2 on each platform). Keep the first 3 stages as easy gaps with no lava. Raise Lobby.coinValue or pay a stage-1 checkpoint bonus so the first purchase and the 15-coin beat are certain.",
+    "source": "fun_critic"
+   },
+   {
+    "path": "ReplicatedStorage/Levels/Zone01.luau",
+    "problem": "Stages 2-4 need to be clearly easy to hit the 15-coin and stage-4 beats. The level data includes lava pieces in a tutorial zone, and the player died once with only 2 checkpoints reached.",
+    "fix_hint": "Edit stages 2-4: widen platforms to 10x10, cap gaps at 4-5, remove lava pieces and place a jumppad (power 80) in stage 3 as the optional bounce. Put 2-3 coins on every platform so coin_collected passes 15 by stage 3.",
+    "source": "fun_critic"
+   },
+   {
+    "path": "ReplicatedStorage/GameAssets.luau",
+    "problem": "Only the generic helpers are used for big moments. Nothing shows layered feedback for zone entry, jump pads, flawless streaks or the finale, such as camera FOV punches, whoosh sounds and screen flashes.",
+    "fix_hint": "Add a GameAssets.fovPunch(amount, time) helper that tweens Camera.FieldOfView +8 and back with Quad easing, and a GameAssets.screenFlash(color) helper. Call fovPunch on checkpoint and jump pad, play 'Whoosh' then 'Pop' on zone entry, and add a Gem sound plus a golden ParticleEmitter on flawless streaks.",
+    "source": "fun_critic"
+   }
+  ],
+  "census": {
+   "source": "playtest",
+   "lights": 35,
+   "highlights": 13,
+   "grey": 0,
+   "lighting_effects": 3,
+   "bursts": 18,
+   "sounds": 12,
+   "sounds_played": 20,
+   "materials": {
+    "Wood": 2,
+    "Glass": 1,
+    "Neon": 1040,
+    "WoodPlanks": 102,
+    "Plastic": 1,
+    "SmoothPlastic": 1744,
+    "DiamondPlate": 51,
+    "Foil": 91,
+    "Slate": 103,
+    "Grass": 1,
+    "Fabric": 268,
+    "Metal": 536
+   },
+   "beams": 12,
+   "billboards": 221,
+   "colors": 48,
+   "particles": 135,
+   "parts": 3940,
+   "client_particles": 134,
+   "buttons": 15,
+   "corners": 81,
+   "names": [
+    "MusicToggle",
+    "FeedbackFlash",
+    "FeedbackBanner",
+    "HUD",
+    "JuiceGui",
+    "Cosmetics"
+   ],
+   "client_sounds_played": 22,
+   "strokes": 113,
+   "gui_objects": 131,
+   "screen_guis": 6,
+   "text_labels": 61,
+   "client_sounds": 24
+  },
+  "checks": {
+   "grey_ok": true,
+   "hud_ok": true,
+   "sounds_ok": true
+  },
+  "request_id": "mreq_01a16d25f9d27460bb8f7e99d06cfdef"
+ },
+ "ts": "2026-10-24T09:03:03+00:00"
+}

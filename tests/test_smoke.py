@@ -297,6 +297,34 @@ async def test_the_budget_skips_what_does_not_fit():
     assert time.monotonic() - t0 < 3.0
     assert any(s.get("skipped") and "budget" in s["detail"] for s in res["steps"])
     assert not cmds(game, "multi")
+    assert "obby" in res["cut"]  # a play cut for budget is not like for like with a full one
+
+
+async def test_a_fixed_play_seeds_the_server_and_runs_the_given_stages_with_full_timeouts():
+    from forge import evidence as evm
+
+    game = FakeGame(stages=200, coins=COINS)
+    game.headless = True
+    seeded, run_luau = [], game.execute_luau
+
+    async def spy(code, datamodel="Edit", timeout=None):
+        if "math.randomseed" in code:
+            seeded.append((code, datamodel))
+        return await run_luau(code, datamodel, timeout)
+
+    game.execute_luau = spy
+    res = await smoke.smoke_play(game, {}, None, budget_s=30.0, seed=7, stages=[1, 40, 199])
+    assert seeded == [("math.randomseed(7)\nreturn 'seeded'", "Server")]
+    [multi] = cmds(game, "multi")
+    assert [c["args"]["from_stage"] for c in multi["calls"][1:]] == [1, 40, 199]
+    assert {c["args"]["timeout"] for c in multi["calls"]} == {smoke.RUN_TIMEOUT}  # never shortened by the budget
+    assert (res["seed"], res["seeded"], res["stages"], res["engine"], res.get("cut")) == (7, True, [1, 40, 199],
+                                                                                         "headless", None)
+    m = evm.measurement_from_probe({"counters": dict(game.counters), "smoke": res}, label="x")
+    assert m["smoke"]["comparable"] and m["smoke"]["counters"] == res["counters_delta"]
+    assert m["counter_sources"]["checkpoint_reached"] == "smoke" and m["counter_sources"]["game_started"] == "playtest"
+    unseeded = await play(FakeGame(stages=200))
+    assert unseeded["seed"] is None and unseeded["stages"] == smoke.sample_stages(200) and unseeded["engine"] == "studio"
 
 
 async def test_a_hung_step_is_cut_after_the_overrun(monkeypatch):
@@ -305,6 +333,23 @@ async def test_a_hung_step_is_cut_after_the_overrun(monkeypatch):
     t0 = time.monotonic()
     res = await play(game, budget=0.5)
     assert time.monotonic() - t0 < 3.0 and res["error"].startswith("cut after")
+    assert res.get("cut") == ["play"]  # the wall clock ran out: a budget cut, so never compared like for like
+
+
+async def test_a_fixed_play_that_finds_no_player_says_so_with_the_stages_it_was_given():
+    """The autopilot's gate rolls back a version whose fixed play no longer runs (autopilot.broken_play): the record
+    keeps the stages it was asked to play although it stopped before the obby, and why it did not run."""
+    from forge import evidence as evm
+
+    game = FakeGame(stages=200)
+    game.headless = True
+    game.c_players = lambda a: []
+    res = await smoke.smoke_play(game, {}, None, budget_s=30.0, seed=7, stages=[1, 40, 199])
+    assert (res["stages"], res["seeded"], res["steps"][0]["ok"]) == ([1, 40, 199], True, False)
+    sm = evm.scripted_smoke(res)
+    assert sm["fixed"] and sm["failed"] == "players: no player in the game" and not sm["comparable"]
+    timed_out = {**res, "steps": [{"what": "players", "ok": True}], "cut": ["play"], "error": "cut after 65s"}
+    assert evm.scripted_smoke(timed_out)["failed"] is None and not evm.scripted_smoke(timed_out)["fixed"]
 
 
 async def test_never_raises_when_studio_breaks():

@@ -261,9 +261,12 @@ forge/                 Python package (uv), entry point `forge`
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
                        first_60_seconds, missing_juice, issues, census, checks} (Mubit task `fun_critic`),
                        FunStore -> runs/<slug>/fun/<n>.json + latest.json, pending_fun_anomalies() for run_cycle(fix=True)
-  smoke.py             smoke play in the scoring playtest (no LLM): smoke_play(studio, spec, game_dir, *, budget_s=45)
-                       -> {steps[{what, ok, detail, secs, skipped?}], obby{samples[{from, to, by, result, where, zone?}],
-                       reached, total, zones_sampled, zones_reached} | None, counters_delta, secs, error?}; never raises.
+  smoke.py             smoke play in the scoring playtest (no LLM): smoke_play(studio, spec, game_dir, *, budget_s=45,
+                       seed=None, stages=None) -> {steps[{what, ok, detail, secs, skipped?}], obby{samples[{from, to, by,
+                       result, where, zone?}], reached, total, zones_sampled, zones_reached} | None, counters_delta,
+                       seed, stages, engine, seeded?, cut?, secs, error?}; never raises. A fixed play (seed): the
+                       server's math.random seeded first, full timeouts, the bots on `stages` (recorded even when the
+                       play stops before the obby), budget cuts recorded (cut "play" when the whole play timed out).
                        Steps (ForgeTest harness only): players -> ui (ai.ui_pass, real clicks; skipped when they can't
                        land) -> pickups (walk to Coin-tagged parts) -> obby (player 0 -> 1 from spawn + one bot per
                        sample_stages() stage, one `multi`) + kill part, or the nearest prompt/touchable; format_smoke()
@@ -274,7 +277,10 @@ forge/                 Python package (uv), entry point `forge`
                        loop.new_game (+ optional improve cycles); run_bench(ids, *, iterations, studio, improve, fake,
                        lessons) -> (result, runs/bench/<stamp>.json + .md); compare(a, b) -> markdown deltas (docs/BENCH.md)
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
-                       snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
+                       snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit),
+                       tree() -> the files as a git tree id (no version), changed_between(a, b) -> paths,
+                       apply(base, [(from_tree, to_tree, paths)], msg) -> tag: base + those changes replayed as
+                       patches (VersionError when one does not apply there)
   broker.py            shared resources + job queue for `forge orchestrate` (see "Orchestrator" below):
                        StudioSlots (same dir/semantics as scripts/studio-slot.sh), Broker (all-or-nothing leases on
                        pools, stale-lease reclaim), JobQueue (priority, deps/after, claim with leases, crash recovery)
@@ -287,9 +293,14 @@ forge/                 Python package (uv), entry point `forge`
                        keeper, slots).run() -> {before, after, rounds, stop_reason, budget, queue}
   evidence.py          one EvidenceStore per autopilot round (items with citable ids + metric series), collectors
                        (ForgeProbe measurements, history, tests, swarm, checks, calls, ForgeBridge) and the statistical
-                       pre-filter (z-scores, diffs vs the previous version, flat/untouched counters, leaks, stuck, ttfr)
+                       pre-filter (z-scores, diffs vs the previous version, flat/untouched counters, leaks, stuck, ttfr).
+                       measurement_from_probe tags each counter with its source (counter_sources: HARD_SOURCES smoke |
+                       journey, else playtest) and keeps scripted_smoke(report["smoke"]) = {seed, stages, engine,
+                       counters, fixed, failed, comparable} (fixed: seeded, headless, nothing cut; failed: why a fixed
+                       play did not run, no player or an error; comparable: fixed and it ran)
   autopilot.py         `forge autopilot`: Autopilot(settings, target, AutoOptions, *, llm, runner, measurer, broker,
-                       slots, keeper, maker, clock).run() -> {slug, stop_reason, budget, rounds}; advise(); correct()
+                       slots, keeper, maker, clock, reproducer, rechecker).run() -> {slug, stop_reason, budget, rounds};
+                       advise(); correct(); gate(before, after, *, must_pass=None, flaky=None)
   prompts/anomaly_detector.md  Mubit task: pre-filter candidates + evidence -> anomalies {title, kind, severity, impact,
                        confidence, evidence[refs], job{kind fix|feature|polish|asset|test, request, path?}}, noise[]
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
@@ -994,35 +1005,76 @@ observe  current measurement (first round: measure "baseline" and commit it) -> 
          its t0 (until a rolled-back measurement), checks, calls.jsonl health, ForgeBridge events of our place,
          critic/fun, declared counters (ForgeTelemetry.count("x") + spec first_60s) -> prefilter() candidates
 detect   anomaly_detector (detector_message: goal, spec, pre-filter, evidence, outcomes of earlier findings,
-         rejected ids, previous list, correction) -> parse_anomalies (unknown refs dropped, rank halved);
-         failure -> from_prefilter(). gap_finder with the autopilot evidence inserted first and, when gap jobs
-         were rolled back, that outcome as its correction -> orchestrator/gaps/<n>.json
+         rejected ids, its own previous list, correction) -> parse_anomalies (unknown refs dropped, rank halved);
+         failure -> from_prefilter() (source PREFILTER: the stand-ins are never the detector's, so their labels
+         and the list never reach its task). gap_finder with the autopilot evidence inserted first and, when gap
+         jobs were rolled back, that outcome as its correction -> orchestrator/gaps/<n>.json
 decide   candidates(anomalies, gaps): merged when titles are similar (Jaccard >= .5) or the fix file matches;
-         score = impact x confidence x (0.5 without evidence) x (1.25 corroborated: stat:* evidence or both
-         detectors); decide(): per_round, min_rank, max 2 tries per id, developer-rejected ids, one test per
-         round, COST per kind (fix 4, feature 28, visual 22, test 0) against calls left - verify reserve
+         a merged gap keeps its own kind (gap_kind) for gap_label; score = impact x confidence x (0.5 without
+         evidence) x (1.25 corroborated: stat:* evidence or both
+         detectors); decide(cands, *, ..., rejected, skip): per_round, min_rank, max 2 tries per id,
+         developer-rejected ids, one test per round, COST per kind (fix 4, feature 28, visual 22, test 0) against
+         calls left - verify reserve. A picked fix (broken behaviour) is reproduced first (Autopilot.reproduce):
+         a saved check it cites that fails now, else the reproducer (headless_reproduce = repro.reproduce on a
+         HeadlessStudio) -> rounds/<r>/repro/<id>.json. Not reproduced (a check ran cleanly and passed) ->
+         skip[id] (no job; the slot goes to the next candidate; counts as a try); confirmed -> its check saved
+         pending, the job's request carries repro.problem_block; no label (no luau CLI, the reproducer raised,
+         the Mubit call failed, or every check errored / could not set up / named no consumer) -> the job goes
+         ahead unproven and no try is counted. Features, polish and tests are not reproduced.
 act      baseline tag (snapshot) + checks/results.json backup; builds -> Orchestrator workers on JobQueue(autopilot/)
          (fix + path -> forge correct; feature / visual(polish, asset) -> forge feature -n 1 --polish N) + a verify
          (compile) job; test decisions become the focus of the next QA run. A resumed round recovers its jobs.
-verify   changed files since the baseline? -> measure "after" (studio_measure: compile, headless boot, checks,
-         playtest probe + census, qa_test(focus), run_swarm, bridge, critic + fun_critique). Headless by default
-         (_headless_part: headless.playtest, triage(mode="never"), qa_test / run_swarm on HeadlessStudio, no lease);
-         _studio_part (lease, Run.playtest + screenshot, Studio checks, testers with the visual judge) only with
-         --studio always, or for the final verify (tag "final": Autopilot.final_verify after the last round,
-         --studio auto with a place -> autopilot/final.json) -> gate(before, after): rolled_back on compile errors, more boot errors, new
-         runtime errors (numbers normalised), a passing check failing, a core counter dying, critic/fun -1,
-         physics flags +2 -> GameVersions.restore(baseline) + checks backup restored; else kept -> snapshot +
-         commit(): iteration record (report.json, critique.json, screenshot.png, state.json iteration with
-         source "autopilot") + fun/latest.json, so forge done / gaps / dashboard read it
-learn    per decision {round, id, source, request_id, outcome kept|rolled_back|failed|no_change|tested|skipped,
-         why} -> learn.jsonl; rounds.json row (evidence counts, anomalies, gaps, decisions + reasons + outcome,
-         kept/rolled back, scores before/after, what_improved, why) + journal.md
+         The runner is wrapped by _JobChanges: each build job's GameVersions.tree() when it starts and ends ->
+         rounds/<r>/jobs/<job id>.json (its own edits, for per-job blame).
+verify   changed files since the baseline? -> measure "after" (studio_measure: compile, headless boot, checks
+         including repro's pending ones, playtest probe + census, qa_test(focus), run_swarm, bridge, critic +
+         fun_critique). Headless by default (_headless_part: headless.playtest whose smoke play is a fixed play,
+         seed SMOKE_SEED + the bot stages of the version compared with; triage(mode="never"), qa_test / run_swarm
+         on HeadlessStudio, no lease); _studio_part (lease, Run.playtest + screenshot, Studio checks, testers with
+         the visual judge) only with --studio always, or for the final verify (tag "final": Autopilot.final_verify
+         after the last round, --studio auto with a place -> autopilot/final.json) -> Autopilot.judge = gate(before,
+         after, must_pass=<this round's reproducing checks>, flaky=state["flaky"]) after settle_checks: a check
+         that passed and now fails is run again on the same files (rechecker, default headless_recheck =
+         checks.run_check_offline, up to RECHECKS=2); a pass means it flips on unchanged code -> state["flaky"],
+         soft from then on. Hard (rolls back): compile errors, more boot errors, new
+         runtime errors (same engine, numbers normalised), a passing check failing, a reproducing check not
+         passing, physics flags +2, a counter of a like-for-like scripted play (scripted_counters: HARD_SOURCES,
+         same seed and stages, both comparable) that moved and is 0, that scripted play no longer running
+         (broken_play: same engine, seed and stages, nothing cut, but no player or an error). Soft (g["soft"]:
+         journal and detector evidence, never a rollback): every other counter, critic/fun -1, a flaky check
+         failing. Kept with soft dead counters -> one
+         "confirm" measurement (merge_counters) labels them in the journal, never the verdict. Rolled back ->
+         GameVersions.restore(baseline) + checks backup restored + batch.json, then per-job blame (Autopilot.blame)
+         when two jobs changed code, or one plus edits no done job made: the baseline measured cheaply first
+         (job-baseline), then each job's edits re-applied alone on the baseline (GameVersions.apply) and judged
+         against it (BLAME_TAGS job-/combo-: checks + the fixed smoke play, no QA, swarm or critic, always
+         headless, so like for like in a Studio round too). Fails alone -> rolled_back; the rest combined best
+         first, fails only together -> conflict. What passes is measured once more like the batch ("kept": a full
+         measurement, Studio when the round is) and judged against `before` (confirm_kept): passes -> kept,
+         verdict "partial", measure-kept.json committed; fails -> nothing kept, one job rolled_back (it fails
+         alone), several fix_label None (blame inconclusive, also when every job passed alone and together and the
+         failure recurs). Kept -> snapshot + commit(): iteration record
+         (report.json, critique.json, screenshot.png, state.json iteration with source "autopilot") +
+         fun/latest.json, so forge done / gaps / dashboard read it. fix_labels() -> verify.json jobs {id:
+         {fix_label, why, blame?}} (a failed batch of several jobs with no per-job blame: inconclusive, no label);
+         a kept fix's reproducing check joins the suite (repro.promote).
+learn    per decision {round, id, source, request_id, outcome kept|rolled_back|conflict|inconclusive|failed|
+         no_change|not_reproduced|tested|skipped, detector_label confirmed|not_reproduced|None, detector_why,
+         fix_label kept|rolled_back|conflict|None, why, gap_kind?} -> learn.jsonl (skipped only when it carries a
+         detector label). The
+         detector is labelled by reproduction, the fixer by the gate: the next detector call carries detector
+         labels only (detector_outcomes) and corrections.jsonl gets an anomaly_detector outcome only for findings
+         not reproduced; the gap finder's correction lists, by each gap's own kind, gaps not reproduced and
+         missing-feature jobs not kept (gap_label). rounds.json row (evidence counts, anomalies, gaps, decisions +
+         reasons + outcome, kept / rolled back / conflicts, soft, scores before/after, what_improved, why) +
+         journal.md
 stop     forge done ready and critic, fun >= target | budget (calls under runs/<slug>/ - calls_base; minutes
          summed over sessions) | --rounds | nothing picked and nothing changed
 ```
 Files (runs/<slug>/autopilot/): state.json, status.json (dashboard: game["autopilot"] = dashboard.autopilot_view),
 rounds/<r>/{observe,detect,decide,act,verify,learn}.json + evidence.json + prefilter.json + measure-<tag>.json +
-<tag>/screenshot.png, rounds.json, journal.md, learn.jsonl, corrections.jsonl (role, kind correction|outcome,
+<tag>/screenshot.png + repro/<id>.json + jobs/<job id>.json + batch.json, rounds.json, journal.md, learn.jsonl,
+corrections.jsonl (role, kind correction|outcome,
 request_id: forge ledger counts them), rejected.json, queue.json, calls.jsonl; runs/autopilot-<slug>.log.
 `correct(settings, slug, id, note)`: anomaly -> anomaly_detector call with the previous list + CORRECTION_MARK;
 gap -> gaps.correct_gaps(reject=[gap]); the id -> rejected.json. `advise(settings, root, *, llm, name, goal,

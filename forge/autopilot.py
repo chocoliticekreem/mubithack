@@ -69,9 +69,13 @@ COST = {"fix": 4, "feature": 28, "visual": 22, "test": 0}
 CORRECTION_MARK = "## Correction from the developer"
 OUTCOME_MARK = "## Outcomes of your previous findings"
 MAX_USER_CHARS = 28_000
-CRITIC_DROP = 1.0       # an LLM score this much lower is a regression unless measured evidence improved
-CRITIC_HARD_DROP = 2.0  # this much lower is a regression whatever else improved
+CRITIC_DROP = 1.0       # an LLM score this much lower is a soft regression (journal + detector evidence)
 PHYSICS_RISE = 2
+SMOKE_SEED = 7          # every autopilot measurement's scripted smoke play uses this seed (like for like)
+BLAME_TAGS = ("job-", "combo-")  # per-job blame trials and their baseline: checks + scripted smoke play, no LLM
+RECHECKS = 2            # re-runs of a check that passed before and fails now; one pass = it flips on the same code
+PREFILTER = "prefilter"
+GATE_SOURCE = "gate"  # dead interactions and failed journey steps: proven by a deterministic run, not the detector's  # the source of the pre-filter's stand-ins when the detector call fails (not its findings)
 
 
 def now_iso() -> str:
@@ -214,20 +218,22 @@ def hard_anomaly(a: dict) -> dict:
     return {"id": f"an-{slugify(a['ref'], max_words=8, max_len=48)}-{tag}", "title": _clip(a["title"], 120),
             "kind": "other", "severity": a["severity"], "impact": impact, "confidence": 1.0, "rank": impact,
             "evidence": [a["ref"]], "unverified": [], "system": a["system"], "why": _clip(a.get("proof"), 300),
-            "request_id": None,
+            "request_id": None, "source": GATE_SOURCE,
             "job": {"kind": "fix", "request": _clip(f"{a['observed']} Expected: {a['expected']}", 1200),
                     **({"path": a["path"]} if a.get("path") else {})}}
 
 
 def from_prefilter(cands: list[dict]) -> list[dict]:
-    """When the detector call fails, the pre-filter's high/medium candidates stand in (low confidence)."""
+    """When the detector call fails, the pre-filter's high/medium candidates stand in (low confidence). Their source
+    is PREFILTER: the detector never made them, so their labels never reach its Mubit task."""
     out = []
     for c in cands:
         if c["severity"] == "low":
             continue
         imp = 7 if c["severity"] == "high" else 5
         kind = "test" if c["kind"] in ("stuck", "untouched", "ttfr") else "fix"
-        out.append({"id": "an-" + slugify(c["id"], max_words=8, max_len=56), "title": _clip(c["text"], 120),
+        out.append({"id": "an-" + slugify(c["id"], max_words=8, max_len=56), "source": PREFILTER,
+                    "title": _clip(c["text"], 120),
                     "kind": "other", "severity": c["severity"], "impact": imp, "confidence": 0.4,
                     "rank": round(imp * 0.4, 2), "evidence": [c["id"]] + c["evidence"][:3], "unverified": [],
                     "system": c.get("metric") or "", "why": "statistical pre-filter (the detector call failed)",
@@ -259,7 +265,9 @@ def specific_refs(refs: list[str]) -> set[str]:
 
 def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
     """Anomalies and gaps as one list. A gap that matches an anomaly (similar title, or the same fix file)
-    is merged into it: both detectors agree, so confidence goes up and the evidence is the union."""
+    is merged into it: both detectors agree, so confidence goes up and the evidence is the union. An anomaly keeps
+    its source (the detector, or PREFILTER for a stand-in) and a gap its own job kind (gap_kind): each finder is
+    labelled for its own finding only (gap_label)."""
     out: list[dict] = []
     for a in anomalies:
         dup = next((c for c in out if specific_refs(c["evidence"]) & specific_refs(a["evidence"])), None)
@@ -267,7 +275,8 @@ def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
             dup["evidence"] = list(dict.fromkeys(dup["evidence"] + list(a["evidence"])))
             dup["impact"] = max(dup["impact"], a["impact"])
             continue
-        out.append({"id": a["id"], "source": ROLE, "sources": [ROLE], "title": a["title"],
+        src = a.get("source") or ROLE
+        out.append({"id": a["id"], "source": src, "sources": [src], "title": a["title"],
                     "impact": a["impact"], "confidence": a["confidence"], "severity": a.get("severity"),
                     "evidence": list(a["evidence"]), "why": a.get("why"), "request_id": a.get("request_id"),
                     "job": dict(a["job"]), "kind": JOB_MAP.get(a["job"]["kind"], "fix")})
@@ -275,7 +284,7 @@ def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
         gjob = dict(g["job"])
         match = None
         for c in out:
-            if ROLE not in c["sources"]:
+            if c["source"] == "gap_finder":
                 continue
             same_file = gjob.get("path") and gjob.get("path") == c["job"].get("path")
             shared = specific_refs(c["evidence"]) & specific_refs(g["evidence"])
@@ -285,14 +294,16 @@ def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
         if match is not None:
             match["sources"].append("gap_finder")
             match["gap"] = g["id"]
+            match["gap_kind"] = JOB_MAP.get(gjob["kind"], "feature")
             match["impact"] = max(match["impact"], g["impact"])
             match["confidence"] = min(1.0, max(match["confidence"], g["confidence"]) + 0.1)
             match["evidence"] = list(dict.fromkeys(match["evidence"] + list(g["evidence"])))
             continue
+        kind = JOB_MAP.get(gjob["kind"], "feature")
         out.append({"id": "gap-" + g["id"], "gap": g["id"], "source": "gap_finder", "sources": ["gap_finder"],
                     "title": g["title"], "impact": g["impact"], "confidence": g["confidence"],
                     "evidence": list(g["evidence"]), "why": g.get("why"), "request_id": g.get("request_id"),
-                    "job": gjob, "kind": JOB_MAP.get(gjob["kind"], "feature")})
+                    "job": gjob, "kind": kind, "gap_kind": kind})
     for c in out:
         c["score"] = score_candidate(c)
     out.sort(key=lambda c: (-c["score"], -c["impact"]))
@@ -310,9 +321,11 @@ def score_candidate(c: dict) -> float:
 
 def decide(cands: list[dict], *, per_round: int, min_rank: float, calls_left: int | None,
            reserve: int = 0, tries: dict[str, int] | None = None, max_tries: int = 2,
-           rejected: set[str] | None = None) -> list[dict]:
-    """Pick jobs for this round, best first, and give every candidate a reason (picked or why not)."""
+           rejected: set[str] | None = None, skip: dict[str, str] | None = None) -> list[dict]:
+    """Pick jobs for this round, best first, and give every candidate a reason (picked or why not). `skip`: id ->
+    why it gets no job (an anomaly the reproducer could not prove)."""
     tries = tries or {}
+    skip = skip or {}
     left = None if calls_left is None else max(0, calls_left - reserve)
     picked = 0
     tests = 0
@@ -325,6 +338,8 @@ def decide(cands: list[dict], *, per_round: int, min_rank: float, calls_left: in
             ("" if c.get("evidence") else " x0.5 no evidence")
         if c["id"] in (rejected or set()) or c.get("gap") in (rejected or set()):
             d["reason"] = "skipped: the developer rejected it"
+        elif c["id"] in skip:
+            d["reason"] = f"skipped: {skip[c['id']]}"
         elif c["score"] < min_rank:
             d["reason"] = f"skipped: {why_score} is below the bar {min_rank:g}"
         elif tries.get(c["id"], 0) >= max_tries:
@@ -347,6 +362,80 @@ def decide(cands: list[dict], *, per_round: int, min_rank: float, calls_left: in
     return out
 
 
+# ---------------------------------------------------------------- labels: the detector by reproduction, the fixer by the gate
+
+DETECTOR_LABELS = ("confirmed", "not_reproduced")
+FIX_LABELS = ("kept", "rolled_back", "conflict")
+
+
+def needs_repro(d: dict) -> bool:
+    """A finding about broken behaviour (a fix job) is reproduced before it gets a job; a missing feature, a polish
+    pass or a focused test is not (it is labelled by whether its job is kept). A dead interaction or a failed journey
+    step is already proven by a deterministic run (GATE_SOURCE): no reproduction, and no detector label."""
+    return d.get("kind") == "fix" and d.get("source") != GATE_SOURCE
+
+
+def repro_anomaly(d: dict, refs: dict[str, str]) -> dict:
+    """A decision in the anomaly shape forge/repro.py's reproducer reads (the improve cycle's auditor shape)."""
+    seen = [f"[{e}] {_clip(refs[e], 200)}" for e in d.get("evidence") or [] if e in refs][:6]
+    return {"kind": d.get("kind"), "system": d.get("system") or "", "title": d["title"],
+            "expected": _clip(d["job"]["request"], 600), "observed": _clip(d.get("why"), 300),
+            "severity": d.get("severity") or "medium", "evidence": seen,
+            **({"path": d["job"]["path"]} if d["job"].get("path") else {})}
+
+
+def _repro_why(res: dict) -> str:
+    last = (res.get("attempts") or [{}])[-1]
+    status = last.get("status") or "no check"
+    out = (last.get("result") or {}).get("detail") or (last.get("result") or {}).get("error") or last.get("error")
+    return _clip(f"the reproducer's check {last.get('check') or ''} {status}" + (f": {out}" if out else ""), 240)
+
+
+def detector_outcomes(outs: list[dict]) -> list[dict]:
+    """What the anomaly detector is told about its earlier findings: whether the reproducer proved them (fix C).
+    A fix result labels the fixer only and never reaches the detector."""
+    return [{"id": o.get("id"), "title": o.get("title"), "round": o.get("round"), "outcome": o["detector_label"],
+             "why": o.get("detector_why")}
+            for o in outs if o.get("detector_label") in DETECTOR_LABELS
+            and ROLE in (o.get("sources") or [o.get("source")])]
+
+
+def fix_labels(act: dict, ver: dict, units: list[dict] | None) -> dict[str, dict]:
+    """Fix C: each build job's fix label (kept | rolled_back | conflict, or None when per-job blame was inconclusive)
+    from the gate that judged its own code, by decision id: per-job blame's when it ran, else the batch verdict. A
+    job that failed or changed no file has none."""
+    blame = (ver.get("blame") or {}).get("labels") or {}
+    changed = None if units is None else {u["id"] for u in units}
+    built = [j["gap"] for j in act.get("jobs") or [] if j.get("gap") and j.get("kind") in ("fix", "feature", "visual")
+             and j.get("status") == "done" and (changed is None or j["gap"] in changed)]
+    out: dict[str, dict] = {}
+    for gid in built:
+        if gid in blame:
+            out[gid] = blame[gid]
+        elif ver.get("verdict") == "kept":
+            out[gid] = {"fix_label": "kept", "why": "; ".join(ver.get("improvements") or []) or "no regression"}
+        elif ver.get("verdict") == "rolled_back" and len(built) == 1:  # one job is its own batch
+            out[gid] = {"fix_label": "rolled_back", "why": "; ".join(ver.get("regressions") or [])}
+        elif ver.get("verdict") == "rolled_back":  # several jobs and no per-job blame: the batch's failure is no one's
+            out[gid] = {"fix_label": None, "blame": "inconclusive", "why": _clip(
+                "the batch failed and per-job blame could not run: " + "; ".join(ver.get("regressions") or []), 300)}
+    return out
+
+
+def gap_label(o: dict) -> str | None:
+    """A learn.jsonl record's negative label for the gap finder, or None, by the gap's own kind (gap_kind: a gap
+    merged into an anomaly keeps it). Broken behaviour (fix) is labelled by reproduction (not reproduced), a
+    missing feature or polish by its own job (rolled back or failed). A merged gap whose decision ran another kind
+    of job gets none: that job was not the gap's. Nor do a conflict, an inconclusive blame, or the fix result of a
+    proven bug."""
+    gk = o.get("gap_kind") or o.get("kind")
+    if gk == "fix" and o.get("detector_label") == "not_reproduced":
+        return "not reproduced"
+    if gk in ("feature", "visual") and o.get("kind") == gk and o.get("outcome") in ("rolled_back", "failed"):
+        return o["outcome"]
+    return None
+
+
 # ---------------------------------------------------------------- verify: the regression gate
 
 
@@ -355,27 +444,20 @@ def _err_set(m: dict) -> set[str]:
 
 
 DEAD_COUNTERS = "core counters stopped moving"
+DEAD_SCRIPTED = "scripted play counters stopped moving"
+BROKEN_PLAY = "scripted play no longer runs"
+STILL_FAILING = "reproducing checks do not pass"
+FLIPPING = "checks that flip on the same code now fail"
 
 
-def only_dead_counters(g: dict) -> bool:
-    """A rollback whose only reason is counters that stopped moving: often sampling noise (smoke-play bots
-    land on different stages each run, so jump_pad_used can be 0 by chance), worth one confirming measurement."""
-    regs = g.get("regressions") or []
-    return bool(regs) and all(str(r).startswith(DEAD_COUNTERS) for r in regs)
+def soft_dead_counters(g: dict) -> bool:
+    """Soft counters (not from a like-for-like scripted play) that stopped moving: often sampling noise (the
+    unseeded smoke play's runs land differently each time, so jump_pad_used can be 0 by chance), worth one
+    confirming measurement for the journal. It never changes the verdict."""
+    return any(str(s).startswith(DEAD_COUNTERS) for s in g.get("soft") or [])
 
 
 JOURNEY_LOST = "journey steps that passed now fail"
-
-
-def only_lost_steps(g: dict) -> bool:
-    regs = g.get("regressions") or []
-    return bool(regs) and all(str(r).startswith(JOURNEY_LOST) for r in regs)
-
-
-def only_noisy(g: dict) -> bool:
-    """A rollback whose every reason can be noise (dead counters, journey steps that failed once)."""
-    regs = g.get("regressions") or []
-    return bool(regs) and all(str(r).startswith((DEAD_COUNTERS, JOURNEY_LOST)) for r in regs)
 
 
 def merge_counters(a: dict, b: dict) -> dict:
@@ -388,11 +470,54 @@ def merge_counters(a: dict, b: dict) -> dict:
     return out
 
 
-def gate(before: dict, after: dict) -> dict:
-    """Keep or roll back. Hard regressions (any one rolls back): files that don't compile, more headless boot
-    errors, new Studio errors, checks that passed and now fail, a core counter that moved and now stays at 0,
-    critic or fun down by >= 1, more physics flags. Improvements are listed for the journal."""
+def _numbers(d: dict | None) -> dict[str, float]:
+    return {k: float(v or 0) for k, v in (d or {}).items() if isinstance(v, (int, float))}
+
+
+def scripted_counters(before: dict, after: dict) -> tuple[dict[str, float], dict[str, float]]:
+    """The counters both measurements took from the same scripted play (evm.HARD_SOURCES: a fixed smoke play of
+    the same seed and stage assignments, the journey) -> (before, after) values of what that play moved; ({}, {})
+    when nothing is like for like. Only these counters can roll a version back."""
+    hb: dict[str, float] = {}
+    ha: dict[str, float] = {}
+    for src in evm.HARD_SOURCES:
+        sb, sa = before.get(src) or {}, after.get(src) or {}
+        if not (sb.get("comparable") and sa.get("comparable")) or before.get("studio") != after.get("studio"):
+            continue
+        if (sb.get("seed"), sb.get("stages")) != (sa.get("seed"), sa.get("stages")):
+            continue
+        keys = {k for k, s in (before.get("counter_sources") or {}).items() if s == src}
+        cb, ca = _numbers(sb.get("counters")), _numbers(sa.get("counters"))
+        hb.update({k: cb.get(k, 0.0) for k in keys})
+        ha.update({k: ca.get(k, 0.0) for k in keys})
+    return hb, ha
+
+
+def broken_play(before: dict, after: dict) -> str | None:
+    """Why a scripted play that ran like for like in `before` did not run in `after` under the same conditions
+    (engine, seed, stage assignments, nothing cut for budget): no player found, or the play errored. None when it
+    ran, or when the two plays are not like for like."""
+    if before.get("studio") != after.get("studio"):
+        return None
+    for src in evm.HARD_SOURCES:
+        sb, sa = before.get(src) or {}, after.get(src) or {}
+        if sb.get("comparable") and sa.get("fixed") and sa.get("failed") \
+                and (sb.get("seed"), sb.get("stages")) == (sa.get("seed"), sa.get("stages")):
+            return f"{src}: {_clip(sa['failed'], 160)}"
+    return None
+
+
+def gate(before: dict, after: dict, *, must_pass: list[str] | None = None, flaky: list[str] | None = None) -> dict:
+    """Keep or roll back, on deterministic evidence only (fix A of docs/research/2026-10-24-self-improvement-
+    diagnosis.md). Hard regressions (any one rolls back): files that don't compile, more headless boot errors, new
+    runtime errors in a like-for-like probe (same engine), checks that passed and now fail, a reproducing check of
+    a fix job that does not pass (`must_pass`), more physics flags, counters of a scripted play
+    (scripted_counters) that moved before and stay 0 under the same script, and that scripted play no longer
+    running (broken_play). Soft regressions (journal and detector evidence, never a rollback): every other counter
+    (LLM swarm or QA play, an unseeded smoke play), critic and fun scores, and a check in `flaky` (seen to flip on
+    unchanged code, Autopilot.settle_checks) that now fails. Improvements are listed for the journal."""
     reg: list[str] = []
+    soft: list[str] = []
     imp: list[str] = []
     notes: list[str] = []
     if after.get("compile_errors"):
@@ -409,14 +534,24 @@ def gate(before: dict, after: dict) -> dict:
             reg.append(f"{len(new)} new runtime errors: {_clip('; '.join(new), 240)}")
         if gone:
             imp.append(f"{len(gone)} runtime errors gone: {_clip('; '.join(gone), 200)}")
-        bc = {k: float(v or 0) for k, v in (before.get("counters") or {}).items() if isinstance(v, (int, float))}
-        ac = {k: float(v or 0) for k, v in (after.get("counters") or {}).items() if isinstance(v, (int, float))}
-        dead = [k for k, v in bc.items() if v > 0 and ac.get(k, 0) == 0 and not evm.SETUP_RX.search(k)
-                and not evm.PERF_RX.search(k)]
-        if dead:
-            reg.append(f"core counters stopped moving: {', '.join(sorted(dead)[:6])}")
-        alive = [k for k, v in ac.items() if v > 0 and bc.get(k, 0) == 0 and not evm.PERF_RX.search(k)]
-        known = set(bc) | set(before.get("declared") or [])
+        hb, ha = scripted_counters(before, after)
+        bc = {k: v for k, v in _numbers(before.get("counters")).items() if k not in hb}
+        ac = {k: v for k, v in _numbers(after.get("counters")).items() if k not in hb}
+
+        def dead(b: dict, a: dict) -> list[str]:
+            return sorted(k for k, v in b.items() if v > 0 and a.get(k, 0) == 0 and not evm.SETUP_RX.search(k)
+                          and not evm.PERF_RX.search(k))
+
+        if dead(hb, ha):
+            reg.append(f"{DEAD_SCRIPTED}: {', '.join(dead(hb, ha)[:6])}")
+        play = broken_play(before, after)
+        if play:
+            reg.append(f"{BROKEN_PLAY}: {play}")
+        if dead(bc, ac):
+            soft.append(f"{DEAD_COUNTERS}: {', '.join(dead(bc, ac)[:6])}")
+        alive = [k for k, v in list(ac.items()) + list(ha.items()) if v > 0 and {**bc, **hb}.get(k, 0) == 0
+                 and not evm.PERF_RX.search(k)]
+        known = set(bc) | set(hb) | set(before.get("declared") or [])
         proof = [k for k in alive if k in known]  # a counter the jobs just added can't prove their own work
         if proof:
             imp.append(f"counters now moving: {', '.join(sorted(proof)[:6])}")
@@ -431,41 +566,40 @@ def gate(before: dict, after: dict) -> dict:
             imp.append(f"physics flags {pb} -> {pa}")
     lost = sorted(set((before.get("checks") or {}).get("passing") or [])
                   & set((after.get("checks") or {}).get("failing") or []))
-    if lost:
-        reg.append(f"checks that passed now fail: {', '.join(lost[:6])}")
+    flips = [c for c in lost if c in set(flaky or [])]  # a coin flip on the same code is not deterministic evidence
+    if len(flips) < len(lost):
+        reg.append(f"checks that passed now fail: {', '.join([c for c in lost if c not in flips][:6])}")
+    if flips:
+        soft.append(f"{FLIPPING}: {', '.join(flips[:6])}")
+    unfixed = sorted(set(must_pass or []) - set((after.get("checks") or {}).get("passing") or []))
+    if unfixed:  # the bug a fix job was for is still there (fix C: the fixer is judged by its reproducing check)
+        reg.append(f"{STILL_FAILING}: {', '.join(unfixed[:6])}")
     bp, ap = (before.get("checks") or {}).get("pass"), (after.get("checks") or {}).get("pass")
     if bp is not None and ap is not None and ap > bp:
         imp.append(f"checks passing {bp} -> {ap}")
-    bd, ad = before.get("dead"), after.get("dead")  # dead interactions (forge/interactions.py)
+    bd, ad = before.get("dead"), after.get("dead")  # dead interactions (forge/interactions.py): a static audit
     if bd is not None and ad is not None and ad != bd:
         (reg if ad > bd else imp).append(f"dead interactions {bd} -> {ad}")
-    bj, aj = before.get("journey") or {}, after.get("journey") or {}  # forge/journey.py steps
+    bj, aj = before.get("journey") or {}, after.get("journey") or {}  # forge/journey.py steps: a scripted run
     lost_steps = sorted(set(bj.get("passing") or []) & set(aj.get("failing") or []))
     if lost_steps:
         reg.append(f"{JOURNEY_LOST}: {', '.join(lost_steps)}")
     won_steps = sorted(set(bj.get("failing") or []) & set(aj.get("passing") or []))
     if won_steps:
         imp.append(f"journey steps now pass: {', '.join(won_steps)}")
-    hard_imp = list(imp)  # measured improvements (errors, checks, counters, physics), before the LLM scores
-    soft: list[str] = []
     for key in ("critic", "fun"):
         a, b = before.get(key), after.get(key)
         if a is None or b is None:
             continue
-        if b <= a - CRITIC_HARD_DROP:
-            reg.append(f"{key} score {a:g} -> {b:g}")
-        elif b <= a - CRITIC_DROP:
+        if b <= a - CRITIC_DROP:
             soft.append(f"{key} score {a:g} -> {b:g}")
         elif b > a:
             imp.append(f"{key} score {a:g} -> {b:g}")
-    if soft and not hard_imp:  # an LLM score dip alone is a regression; with measured gains it is noise
-        reg += soft
-    elif soft:
-        imp.append(f"(outweighs a soft dip: {'; '.join(soft)})")
     bh, ah = before.get("swarm_high"), after.get("swarm_high")
     if bh is not None and ah is not None and ah < bh:
         imp.append(f"high-severity swarm bugs {bh} -> {ah}")
-    return {"verdict": "rolled_back" if reg else "kept", "regressions": reg, "improvements": imp, "notes": notes}
+    return {"verdict": "rolled_back" if reg else "kept", "regressions": reg, "soft": soft, "improvements": imp,
+            "notes": notes}
 
 
 # ---------------------------------------------------------------- options and the loop
@@ -494,6 +628,8 @@ class AutoOptions:
 
 
 Measurer = Callable[["Autopilot", int, str, str], dict]
+Reproducer = Callable[["Autopilot", int, dict], "dict | None"]
+Rechecker = Callable[["Autopilot", str], "str | None"]
 
 
 class BudgetSpent(Exception):
@@ -501,14 +637,16 @@ class BudgetSpent(Exception):
 
 
 class Autopilot:
-    """The self-driving loop for one game. `measurer(ap, round, tag, focus) -> Measurement`, `journeyer(ap,
-    round) -> journey brief | None` (the confirming journey) and `runner` (orchestrator job runner) are injectable
-    so the whole loop runs under FakeLLM in tests."""
+    """The self-driving loop for one game. `measurer(ap, round, tag, focus) -> Measurement`, `reproducer(ap, round,
+    anomaly) -> repro.reproduce() result | None`, `rechecker(ap, check id) -> checks.verdict of one more run on the
+    current files | None`, `journeyer(ap, round) -> journey brief | None` (the confirming journey) and `runner`
+    (orchestrator job runner) are injectable so the whole loop runs under FakeLLM in tests."""
 
     def __init__(self, settings: Settings, target: str, opts: AutoOptions, *, llm: Any = None,
                  runner: Any = None, measurer: Measurer | None = None, broker: Any = None, slots: Any = None,
                  keeper: Any = None, maker: Callable[[str], str] | None = None,
                  clock: Callable[[], float] = time.time, log: Callable[[str], None] | None = None,
+                 reproducer: Reproducer | None = None, rechecker: Rechecker | None = None,
                  journeyer: Callable[[Any, int], dict | None] | None = None):
         self.s = settings
         self.target = target
@@ -516,6 +654,8 @@ class Autopilot:
         self.llm = llm
         self.runner = runner
         self.measurer = measurer or studio_measure
+        self.reproducer = reproducer or headless_reproduce
+        self.rechecker = rechecker or headless_recheck
         self.journeyer = journeyer or rerun_journey
         self.broker = broker
         self.slots = slots
@@ -737,8 +877,7 @@ class Autopilot:
     # -- detect
 
     def outcomes(self) -> list[dict]:
-        return [o for o in _lines(self.dir / "learn.jsonl") if o.get("outcome") in ("kept", "rolled_back", "failed",
-                                                                                     "no_change")]
+        return [o for o in _lines(self.dir / "learn.jsonl") if o.get("outcome") != "skipped" or o.get("detector_label")]
 
     def rejected(self) -> list[dict]:
         return list(_read(self.dir / "rejected.json", []) or [])
@@ -756,10 +895,12 @@ class Autopilot:
         spec = _read(self.store.spec_path, {}) or {}
         llm = self.get_llm()
         outs = self.outcomes()
-        # only last round's bad outcomes are new feedback; older ones were already fed back
-        bad_outs = [o for o in outs if o.get("outcome") in ("rolled_back", "failed") and o.get("round") == r - 1]
-        prev_an = (_read(self.rdir(r - 1) / "detect.json", {}) or {}).get("anomalies") if r > 1 else None
-        user = detector_message(self.opts.goal, spec, cur, cands, st, declared=declared, outcomes=outs,
+        labels = detector_outcomes(outs)
+        # only last round's negative labels are new feedback; older ones were already fed back
+        bad_outs = [o for o in labels if o["outcome"] == "not_reproduced" and o.get("round") == r - 1]
+        prev_an = [a for a in (_read(self.rdir(r - 1) / "detect.json", {}) or {}).get("anomalies") or []
+                   if (a.get("source") or ROLE) == ROLE] if r > 1 else None  # its own findings, not stand-ins
+        user = detector_message(self.opts.goal, spec, cur, cands, st, declared=declared, outcomes=labels,
                                 rejected=self.rejected(), previous=prev_an)
         files = list(gapmod.game_sources(self.store.game_dir))
         rejected_ids = {x["id"] for x in self.rejected()}
@@ -778,10 +919,10 @@ class Autopilot:
             hard = [hard_anomaly(a) for a in fjourney.anomalies_for(self.store.game_dir, self.store.dir)]
             have = {a["id"] for a in parsed["anomalies"]} | rejected_ids
             parsed["anomalies"] = [h for h in hard if h["id"] not in have] + parsed["anomalies"]
-        if an_rid and bad_outs:  # this call carried rejected outcomes in the same task: a training correction
+        if an_rid and bad_outs:  # this call carried findings the reproducer could not prove: a training correction
             _append(self.dir / "corrections.jsonl", {"ts": now_iso(), "role": ROLE, "kind": "outcome",
-                                                     "round": r, "request_id": an_rid,
-                                                     "note": f"{len(bad_outs)} earlier findings rolled back or failed"})
+                                                     "round": r, "request_id": an_rid, "label": "not_reproduced",
+                                                     "note": f"{len(bad_outs)} earlier findings not reproduced"})
         self.check_budget()
         gaps_rec = self.find_gaps(r, st, outs)
         out = {"summary": parsed["summary"], "anomalies": parsed["anomalies"], "noise": parsed["noise"],
@@ -808,12 +949,13 @@ class Autopilot:
             ev.sections.insert(0, ("Autopilot measurements of this version (errors, testers, behaviour, statistics)",
                                    rows[:60]))
             kept = [f"{o.get('kind') or 'job'}: {o.get('title')}" for o in outs if o.get("outcome") == "kept"]
-            bad = [o for o in outs if o.get("outcome") in ("rolled_back", "failed") and o.get("round") == r - 1
-                   and "gap_finder" in (o.get("sources") or [o.get("source")])]
+            bad = [o for o in outs if o.get("round") == r - 1 and "gap_finder" in (o.get("sources") or [o.get("source")])
+                   and gap_label(o) is not None]
             correction = None
             if bad:
                 correction = "These gaps' jobs were tried and did not survive verification:\n" + "\n".join(
-                    f"- {o.get('title')}: {o.get('outcome')} ({_clip(o.get('why'), 200)})" for o in bad[-8:]) + \
+                    f"- {o.get('title')}: {gap_label(o)} ({_clip(o.get('detector_why') or o.get('why'), 200)})"
+                    for o in bad[-8:]) + \
                     "\nDo not propose them again unchanged; if they still matter, propose a different job."
             prev = gapmod.latest(self.s, self.slug)
             rej = gapmod.rejected(self.s, self.slug)
@@ -835,7 +977,8 @@ class Autopilot:
             if correction:
                 _append(self.dir / "corrections.jsonl", {"ts": now_iso(), "role": gapmod.ROLE, "kind": "outcome",
                                                          "round": r, "request_id": res.request_id,
-                                                         "note": f"{len(bad)} gap jobs rolled back or failed"})
+                                                         "note": f"{len(bad)} gaps not reproduced, or feature jobs "
+                                                                 "not kept"})
             return rec
         except Exception as e:  # noqa: BLE001
             self.log(f"gap finder failed: {type(e).__name__}: {_clip(e, 160)}")
@@ -851,12 +994,87 @@ class Autopilot:
         det = _read(self.rdir(r) / "detect.json", {}) or {}
         cands = candidates(det.get("anomalies") or [], det.get("gaps") or [])
         rejected = {x["id"] for x in self.rejected()} | {g.get("id") for g in gapmod.rejected(self.s, self.slug)}
-        left = self.calls_left()
-        ds = decide(cands, per_round=self.opts.per_round, min_rank=self.opts.min_rank, calls_left=left,
-                    reserve=self.opts.verify_reserve, tries=self.state.get("tries") or {}, rejected=rejected)
-        out = {"decisions": ds, "picked": [d["id"] for d in ds if d["picked"]], "calls_left": left}
+        repro: dict[str, dict] = {}
+        skip: dict[str, str] = {}
+        while True:  # a finding the reproducer cannot prove gets no job; its slot goes to the next candidate
+            left = self.calls_left()
+            ds = decide(cands, per_round=self.opts.per_round, min_rank=self.opts.min_rank, calls_left=left,
+                        reserve=self.opts.verify_reserve, tries=self.state.get("tries") or {}, rejected=rejected,
+                        skip=skip)
+            todo = [d for d in ds if d["picked"] and needs_repro(d) and d["id"] not in repro]
+            if not todo:
+                break
+            for d in todo:
+                rp = repro[d["id"]] = self.reproduce(r, d)
+                if rp["label"] == "not_reproduced":
+                    skip[d["id"]] = f"not reproduced ({rp['why']}): no fix job"
+        for d in ds:
+            rp = repro.get(d["id"])
+            if rp is None:
+                continue
+            d["detector_label"], d["detector_why"] = rp["label"], rp["why"]
+            if d["picked"] and rp.get("check"):
+                d["check"], d["problem"] = rp["check"], rp.get("problem")
+        out = {"decisions": ds, "picked": [d["id"] for d in ds if d["picked"]], "calls_left": left,
+               "reproduced": {k: v["label"] for k, v in repro.items()}}
         for d in ds:
             self.log(f"round {r}: {'PICK' if d['picked'] else 'skip'} [{d['kind']}] {d['title'][:70]} :: {d['reason'][:140]}")
+        _write(p, out)
+        return out
+
+    def reproduce(self, r: int, d: dict) -> dict:
+        """Fix C: the detector label of a broken-behaviour finding, before it may become a fix job. A saved check it
+        cites that fails on this version proves it; else the reproducer writes a check that must fail while the bug
+        exists (forge/repro.py, run headless). -> {label confirmed | not_reproduced | None, why, check?, problem?
+        (the failing check for the fixer's request)}. not_reproduced only when a check ran cleanly and passed (the
+        game behaved correctly): it gets no job and counts as a try. None (no label, the job goes ahead unproven,
+        as before reproduction existed) when no check ran cleanly: no engine, the reproducer crashed (a session
+        that cannot boot the game), the Mubit call failed, or every check errored, could not set up or named no
+        consumer. Saved per finding in rounds/<r>/repro/, so a resumed round does not pay for it twice."""
+        from forge import repro as frepro
+        from forge.scenarios import load_results
+
+        p = self.rdir(r) / "repro" / f"{d['id']}.json"
+        done = _read(p)
+        if done is not None:
+            return done
+        failing = set(((self.state.get("current") or {}).get("checks") or {}).get("failing") or [])
+        cited = [e.split(":", 1)[1] for e in d.get("evidence") or [] if str(e).startswith("check:")
+                 and str(e).split(":", 1)[1] in failing]
+        saved = frepro.find(self.store.dir, cited[0]) if cited else None
+        if saved is not None:
+            row = next((x for x in load_results(self.store.dir) if x.get("id") == saved.id), {})
+            out = {"label": "confirmed", "why": f"the saved check {saved.id} fails on this version", "check": saved.id,
+                   "problem": frepro.problem_block(saved, row)}
+        else:
+            self.check_budget()
+            st = evm.EvidenceStore.load(self.rdir(r) / "evidence.json")
+            crash = None
+            try:
+                res = self.reproducer(self, r, repro_anomaly(d, st.refs()))
+            except BudgetSpent:
+                raise
+            except Exception as e:  # noqa: BLE001 - e.g. a headless session that cannot boot the game proves nothing
+                res, crash = None, f"{type(e).__name__}: {_clip(e, 160)}"
+            if crash:
+                out = {"label": None, "why": f"the reproducer could not run ({crash}): the finding is not labelled"}
+            elif res is None:
+                out = {"label": None, "why": "no engine could run a check here: the finding is not labelled"}
+            elif res.get("proven") and res.get("check") is not None:
+                check, result = res["check"], res.get("result") or {}
+                frepro.save_pending(self.store.dir, check)
+                out = {"label": "confirmed", "check": check.id, "problem": frepro.problem_block(check, result),
+                       "why": _clip(f"the reproducer's check {check.id} fails while the bug exists: "
+                                    f"{result.get('detail') or ''}", 240)}
+            elif any(a.get("status") == "passed" for a in res.get("attempts") or []):
+                out = {"label": "not_reproduced", "why": _repro_why(res)}
+                tries = self.state.setdefault("tries", {})  # a reproduction is a try: at most max_tries per finding
+                tries[d["id"]] = int(tries.get(d["id"], 0)) + 1
+                self.save_state()
+            else:
+                out = {"label": None, "why": _clip(f"no check ran cleanly ({_repro_why(res)}): the finding is not "
+                                                   "labelled", 300)}
+        self.log(f"round {r}: reproduce [{d['id']}] -> {out['label']}: {out['why'][:140]}")
         _write(p, out)
         return out
 
@@ -892,14 +1110,16 @@ class Autopilot:
 
     def run_jobs(self, r: int, builds: list[dict]) -> list[dict]:
         from forge.broker import JobQueue
-        from forge.orchestrator import Options, Orchestrator
+        from forge.orchestrator import CliRunner, Options, Orchestrator
         left = self.calls_left()
         mins = None if self.opts.minutes is None else max(1.0, self.opts.minutes - self.minutes_used())
+        runner = _JobChanges(self.runner or CliRunner(self.s, self.slug, self.opts.use_studio), self.store.game_dir,
+                             self.rdir(r) / "jobs")
         orch = Orchestrator(self.s, self.slug, Options(goal=self.opts.goal, workers=self.opts.workers,
                                                        studios=list(self.opts.studios), use_studio=self.opts.use_studio,
                                                        max_calls=None if left is None else max(1, left - self.opts.verify_reserve // 2),
                                                        minutes=mins),
-                            llm=self.get_llm(), runner=self.runner, broker=self.broker, slots=self.slots,
+                            llm=self.get_llm(), runner=runner, broker=self.broker, slots=self.slots,
                             keeper=_KeepOpen(self.keeper) if self.keeper is not None else None,
                             queue=JobQueue(self.dir), clock=self.clock)
         if self.keeper is None:  # the orchestrator made the real keeper; keep it, hand it a non-closing view
@@ -908,8 +1128,9 @@ class Autopilot:
         self.broker, self.slots = orch.broker, orch.slots
         existing = [j for j in orch.queue.jobs() if j.get("round") == r]
         if not existing:  # a resumed round keeps the jobs it queued before the crash
-            for d in builds:
-                args = {"request": d["job"]["request"], "polish": self.opts.polish,
+            for d in builds:  # a proven bug's job carries its failing check: what "fixed" means (forge/repro.py)
+                args = {"request": d["job"]["request"] + (f"\n\n{d['problem']}" if d.get("problem") else ""),
+                        "polish": self.opts.polish,
                         **({"path": d["job"]["path"]} if d["job"].get("path") and d["kind"] == "fix" else {})}
                 orch.queue.add(d["kind"], d["title"], priority=d["score"], args=args,
                                needs=orch._needs(d["kind"], args), gap=d["id"], round=r)
@@ -946,55 +1167,258 @@ class Autopilot:
             return done
         act = _read(self.rdir(r) / "act.json", {}) or {}
         before = self.state.get("current") or {}
-        changed = changed_since(self.store.game_dir, act.get("baseline"))
-        if not changed and not act.get("tests"):
-            out = {"verdict": "no_change", "regressions": [], "improvements": [],
-                   "why": "no job changed a file" if act.get("jobs") else "nothing was picked this round"}
-            _write(p, out)
-            return out
-        self.check_budget()
-        after = self.measure(r, "after", act.get("focus") or self.opts.goal)
-        g = gate(before, after) if changed else {"verdict": "kept", "regressions": [], "improvements": [],
-                                                  "why": "test only: no files changed"}
-        if changed and g["verdict"] == "rolled_back" and only_noisy(g):
-            # confirm before throwing the round away: counters that died and journey steps that failed once can be
-            # sampling or timing noise (a journey looks for an effect in a few one-second windows)
-            self.check_budget()
-            merged = None
-            if only_lost_steps(g) and after.get("engine") == "headless":
-                self.log(f"round {r}: only {'; '.join(g['regressions'])[:160]}; running the journey once more to "
-                         "confirm")
-                again = self.journeyer(self, r)
-                if again is not None:
-                    merged = {**after, "journey": fjourney.confirm(after.get("journey"), again)}
-            else:
-                self.log(f"round {r}: only {'; '.join(g['regressions'])[:160]}; measuring once more to confirm")
-                again = self.measure(r, "confirm", act.get("focus") or self.opts.goal)
-                merged = merge_counters(after, again)
-                if after.get("journey") and again.get("journey"):
-                    merged["journey"] = fjourney.confirm(after["journey"], again["journey"])
-            if merged is not None:
-                g2 = gate(before, merged)
-                g2["confirmed"] = {"first": g["regressions"], "second": g2.get("regressions") or []}
-                if g2["verdict"] != "rolled_back":
-                    self.log(f"round {r}: not confirmed by a second look: not a regression")
-                g, after = g2, merged
-        g["changed"] = changed
-        g["before"], g["after"] = _brief(before), _brief(after)
-        if g["verdict"] == "rolled_back":
-            tag = rollback(self.store.game_dir, act.get("baseline"), "; ".join(g["regressions"])[:300])
-            restore_checks(self.store.dir, self.rdir(r))
-            g["restored_as"] = tag
-            self.log(f"round {r}: ROLLED BACK to {act.get('baseline')} ({tag}): {'; '.join(g['regressions'])[:200]}")
+        units = self.job_units(r, act)
+        g = _read(self.rdir(r) / "batch.json")  # a crash during per-job blame: the batch verdict stands, blame again
+        if g:
+            self.log(f"round {r}: resuming per-job blame of a batch that was rolled back")
         else:
-            tag = snapshot_if_dirty(self.store.game_dir, f"autopilot round {r}: kept ("
-                                    + ("; ".join(g["improvements"]) or "no regression")[:200] + ")")
-            after["version"] = tag or after.get("version")
-            self.commit(after, r, "after")
-            g["version"] = after["version"]
-            self.log(f"round {r}: KEPT {after['version']}: " + ("; ".join(g["improvements"]) or "no regression"))
+            changed = changed_since(self.store.game_dir, act.get("baseline"))
+            if not changed and not act.get("tests"):
+                out = {"verdict": "no_change", "regressions": [], "improvements": [],
+                       "why": "no job changed a file" if act.get("jobs") else "nothing was picked this round"}
+                _write(p, out)
+                return out
+            self.check_budget()
+            focus = act.get("focus") or self.opts.goal
+            after = self.measure(r, "after", focus)
+            must = self.must_pass(r, act, units)
+            g = self.judge(before, after, must_pass=must) if changed else {
+                "verdict": "kept", "regressions": [], "soft": [], "improvements": [], "why": "test only: no files changed"}
+            if changed and g["verdict"] == "kept" and soft_dead_counters(g):
+                # #150's confirming measurement, now for soft counters only: it tells noise from a real drop for
+                # the journal and the next detector call; the verdict comes from the hard evidence alone
+                self.log(f"round {r}: soft {'; '.join(g['soft'])[:160]}; measuring once more to confirm")
+                self.check_budget()
+                merged = merge_counters(after, self.measure(r, "confirm", focus))
+                second = gate(before, merged, must_pass=must, flaky=self.state.get("flaky"))
+                g["confirmed"] = {"first": [s for s in g["soft"] if s.startswith(DEAD_COUNTERS)],
+                                  "second": [s for s in second["soft"] if s.startswith(DEAD_COUNTERS)]}
+                g["soft"], after = second["soft"], merged
+            g["changed"] = changed
+            g["before"], g["after"] = _brief(before), _brief(after)
+            if g["verdict"] == "rolled_back":
+                tag = rollback(self.store.game_dir, act.get("baseline"), "; ".join(g["regressions"])[:300])
+                restore_checks(self.store.dir, self.rdir(r))
+                g["restored_as"] = tag
+                self.log(f"round {r}: ROLLED BACK to {act.get('baseline')} ({tag}): {'; '.join(g['regressions'])[:200]}")
+                _write(self.rdir(r) / "batch.json", g)
+            else:
+                tag = snapshot_if_dirty(self.store.game_dir, f"autopilot round {r}: kept ("
+                                        + ("; ".join(g["improvements"]) or "no regression")[:200] + ")")
+                after["version"] = tag or after.get("version")
+                self.commit(after, r, "after")
+                g["version"] = after["version"]
+                self.log(f"round {r}: KEPT {after['version']}: " + ("; ".join(g["improvements"]) or "no regression"))
+        blame = self.blame(r, act, before, g, units) if g["verdict"] == "rolled_back" else None
+        if blame:
+            m = blame.pop("measurement")
+            g["blame"] = blame
+            if blame["kept"]:
+                self.commit(m, r, "kept")
+                g["verdict"], g["version"] = "partial", m["version"]
+                self.log(f"round {r}: PARTIAL {m['version']}: kept {', '.join(blame['kept'])} after per-job blame")
+        g["jobs"] = fix_labels(act, g, units)
+        self.promote_checks(r, g["jobs"])
         _write(p, g)
         return g
+
+    def job_units(self, r: int, act: dict) -> list[dict] | None:
+        """Each done build job's own edits, from the trees recorded around it (rounds/<r>/jobs/, _JobChanges):
+        [{id (the decision), job, from, to, paths, t0, score, check}], jobs that changed nothing left out. None when
+        a done job has no record (it ran before the recorder, e.g. in an older session). A file another job (done
+        or failed) held the lock on while both ran is that job's."""
+        from forge.versions import GameVersions
+
+        dec = {d["id"]: d for d in (_read(self.rdir(r) / "decide.json", {}) or {}).get("decisions") or []}
+        recs, done = [], set()
+        for j in act.get("jobs") or []:
+            if j.get("kind") not in ("fix", "feature", "visual"):
+                continue
+            rec = _read(self.rdir(r) / "jobs" / f"{j['id']}.json")
+            ok = bool(rec and rec.get("to"))
+            if j.get("status") == "done":
+                if not ok:
+                    return None
+                done.add(j["id"])
+            if ok:
+                recs.append(rec)
+        gv = GameVersions(self.store.game_dir)
+        units = []
+        for rec in recs:
+            if rec["id"] not in done:
+                continue
+            others = {o.get("path") for o in recs if o is not rec and o.get("path")
+                      and o["t0"] < rec["t1"] and rec["t0"] < o["t1"]}
+            paths = [x for x in gv.changed_between(rec["from"], rec["to"]) if x not in others]
+            d = dec.get(rec.get("gap")) or {}
+            if paths:
+                units.append({"id": rec.get("gap"), "job": rec["id"], "from": rec["from"], "to": rec["to"],
+                              "paths": paths, "t0": rec["t0"], "score": d.get("score"), "check": d.get("check")})
+        return units
+
+    def must_pass(self, r: int, act: dict, units: list[dict] | None) -> list[str]:
+        """The reproducing checks of this round's fix jobs that ran and changed code: each must pass after them."""
+        if units is not None:
+            return [u["check"] for u in units if u.get("check")]
+        done = {j.get("gap") for j in act.get("jobs") or [] if j.get("status") == "done"}
+        return [d["check"] for d in (_read(self.rdir(r) / "decide.json", {}) or {}).get("decisions") or []
+                if d.get("picked") and d.get("check") and d["id"] in done]
+
+    def judge(self, before: dict, after: dict, *, must_pass: list[str] | None = None) -> dict:
+        """gate() of the files on disk now, after settle_checks, so a check that flips on the same code is soft."""
+        self.settle_checks(before, after)
+        after = self.settle_journey(before, after)
+        return gate(before, after, must_pass=must_pass, flaky=self.state.get("flaky"))
+
+    def settle_journey(self, before: dict, after: dict) -> dict:
+        """A journey step that passed in `before` and fails in a headless `after` runs once more (journeyer): a
+        journey looks for an effect in a few one-second windows, so one miss can be timing. A step stays lost only
+        when the second run fails it too (fjourney.confirm). Returns `after` with the confirmed journey."""
+        bj, aj = before.get("journey") or {}, after.get("journey") or {}
+        lost = set(bj.get("passing") or []) & set(aj.get("failing") or [])
+        if not lost or after.get("engine") != "headless":
+            return after
+        again = self.journeyer(self, int(self.state.get("round") or 0))
+        if again is None:
+            return after
+        self.log(f"journey steps {', '.join(sorted(lost))} failed once; ran the journey again to confirm")
+        return {**after, "journey": fjourney.confirm(aj, again)}
+
+    def settle_checks(self, before: dict, after: dict) -> None:
+        """A check that passed in `before` and fails in `after` is run again on the same files (rechecker, up to
+        RECHECKS times). One pass means it flips on unchanged code (the funfair obby's obby-movers-carry failed 2 of 6
+        headless runs of one version): not deterministic evidence, so it gates soft from then on (state["flaky"]).
+        A re-run that cannot judge it here (no engine, unknown, needs Studio) leaves the failure hard."""
+        flaky = set(self.state.get("flaky") or [])
+        lost = sorted(set((before.get("checks") or {}).get("passing") or [])
+                      & set((after.get("checks") or {}).get("failing") or []) - flaky)
+        flips = []
+        for cid in lost:
+            for _ in range(RECHECKS):
+                verdict = self.rechecker(self, cid)
+                if verdict == "pass":
+                    flips.append(cid)
+                if verdict != "fail":
+                    break
+        if flips:
+            self.state["flaky"] = sorted(flaky | set(flips))
+            self.save_state()
+            self.log(f"checks that flip on the same code (soft from now on): {', '.join(flips)}")
+
+    def blame(self, r: int, act: dict, before: dict, batch: dict, units: list[dict] | None) -> dict | None:
+        """Fix B: the batch failed the gate, so find which jobs did it. Each job's own edits are re-applied alone on
+        the round's baseline (GameVersions.apply, so the baseline is back between jobs) and gated alone against the
+        baseline measured the same way first (tag job-baseline). BLAME_TAGS measurements are cheap (the checks and
+        the scripted smoke play: no QA, swarm or critic) and always headless, so a trial is never compared with a
+        Studio measurement. Jobs that pass alone are combined, best first; one that only fails together with the
+        kept ones is a conflict, not a bad fix. Edits no done job made (a failed job's leftovers) are never
+        re-applied. What passes is measured once more the way the batch was and gated against the round's `before`
+        (confirm_kept) before it is kept. None when there is nothing to tell apart (one job and nothing else edited,
+        or a job's edits were not recorded). -> {labels: {id: {fix_label, why, conflict_with?, blame?}}, kept, alone,
+        unattributed, version, measurement}"""
+        base = act.get("baseline")
+        if not units or not base:
+            return None
+        unattributed = sorted(set(batch.get("changed") or []) - {x for u in units for x in u["paths"]})
+        if len(units) < 2 and not unattributed:
+            return None  # one job is its own batch
+        from forge.versions import GameVersions, VersionError
+
+        gv = GameVersions(self.store.game_dir)
+        focus = act.get("focus") or self.opts.goal
+
+        def put(us: list[dict], tag: str) -> dict | None:
+            ids = [u["id"] for u in us]
+            try:
+                gv.apply(base, [(u["from"], u["to"], u["paths"]) for u in sorted(us, key=lambda u: u["t0"])],
+                         f"autopilot round {r} blame: {' + '.join(ids) or 'the baseline'}"[:300])
+            except VersionError as e:
+                self.log(f"round {r}: blame: {' + '.join(ids)} does not apply on {base}: {_clip(e, 160)}")
+                return None
+            return self.measure(r, tag, focus)
+
+        ref = put([], "job-baseline")
+        if ref is None:
+            return None
+
+        def trial(us: list[dict], tag: str) -> dict | None:
+            m = put(us, tag)
+            return None if m is None else self.judge(ref, m, must_pass=[u["check"] for u in us if u.get("check")])
+
+        ranked = sorted(units, key=lambda u: -float(u.get("score") or 0))
+        alone = {u["id"]: trial([u], f"job-{u['id']}") for u in ranked}
+        labels: dict[str, dict] = {}
+        kept: list[dict] = []
+        for u in ranked:
+            g1 = alone[u["id"]]
+            if g1 is not None and g1["verdict"] == "rolled_back":
+                labels[u["id"]] = {"fix_label": "rolled_back", "why": "fails alone: " + "; ".join(g1["regressions"])}
+            elif g1 is not None and not kept:
+                kept = [u]
+            else:
+                g2 = trial(kept + [u], f"combo-{u['id']}") if kept else None
+                if g2 is not None and g2["verdict"] == "kept":
+                    kept = kept + [u]
+                    continue
+                on = ", ".join(k["id"] for k in kept) or "the baseline alone"
+                labels[u["id"]] = {"fix_label": "conflict", "conflict_with": [k["id"] for k in kept], "why": _clip(
+                    ("passes alone" if g1 is not None else "does not apply alone") + f"; with {on}: "
+                    + ("; ".join(g2["regressions"]) if g2 is not None else "does not apply"), 300)}
+        version, m = self.confirm_kept(r, act, before, kept, labels)
+        for k, v in labels.items():
+            self.log(f"round {r}: blame [{k}] {v['fix_label'] or v.get('blame')}: {v['why'][:140]}")
+        return {"labels": labels, "kept": [u["id"] for u in kept] if m else [], "version": version, "measurement": m,
+                "unattributed": unattributed,
+                "alone": {k: (g["regressions"] if g is not None else "does not apply") for k, g in alone.items()}}
+
+    def confirm_kept(self, r: int, act: dict, before: dict, kept: list[dict], labels: dict[str, dict]
+                     ) -> tuple[str, dict | None]:
+        """The jobs per-job blame would keep, measured the way the batch was (tag "kept" is not cheap: in Studio when
+        the round is, with QA, swarm and critics) and gated against the round's `before`, so the version committed
+        as current is like for like with the next round's gate. Passes -> each is labelled kept, even when every
+        job had passed alone and together (the batch's failure did not recur). Fails -> nothing is kept: one job
+        fails alone (rolled_back); several cannot be told apart (no fix label, blame inconclusive): a batch
+        failure the cheap measurements could not reproduce is never a negative label. -> (version now on disk,
+        the measurement to commit | None)"""
+        from forge.versions import GameVersions
+
+        gv = GameVersions(self.store.game_dir)
+        base = act["baseline"]
+        if kept:
+            ids = [u["id"] for u in kept]
+            version = gv.apply(base, [(u["from"], u["to"], u["paths"]) for u in sorted(kept, key=lambda u: u["t0"])],
+                               f"autopilot round {r}: kept after per-job blame: {', '.join(ids)}"[:300])
+            m = self.measure(r, "kept", act.get("focus") or self.opts.goal)
+            g = self.judge(before, m, must_pass=[u["check"] for u in kept if u.get("check")])
+            if g["verdict"] == "kept":
+                m.update(label=f"ap{r}k", version=version)
+                _write(self.rdir(r) / "measure-kept.json", m)
+                why = "; ".join(g["improvements"]) or "no hard regression alone" + (" or together" if len(kept) > 1 else "")
+                labels.update({i: {"fix_label": "kept", "why": why} for i in ids})
+                return version, m
+            regs = "; ".join(g["regressions"])
+            if len(kept) == 1:
+                labels[ids[0]] = {"fix_label": "rolled_back", "why": _clip(f"fails alone, measured like the batch: {regs}",
+                                                                           300)}
+            else:
+                labels.update({i: {"fix_label": None, "blame": "inconclusive", "why": _clip(
+                    f"{' + '.join(ids)} pass the cheap blame measurements alone and together, but fail measured like "
+                    f"the batch: {regs}", 300)} for i in ids})
+        version = gv.restore(base, f"autopilot round {r}: per-job blame kept no job")
+        restore_checks(self.store.dir, self.rdir(r))
+        return version, None
+
+    def promote_checks(self, r: int, labels: dict[str, dict]) -> None:
+        """A kept fix's reproducing check joins the suite as a regression guard (forge/repro.py); a fix that was not
+        kept leaves it pending: the bug is still there."""
+        from forge import repro as frepro
+
+        dec = {d["id"]: d for d in (_read(self.rdir(r) / "decide.json", {}) or {}).get("decisions") or []}
+        for k, v in labels.items():
+            cid = (dec.get(k) or {}).get("check")
+            check = frepro.find(self.store.dir, cid) if cid and v.get("fix_label") == "kept" else None
+            if check is not None:
+                frepro.promote(self.store.dir, check)
 
     def commit(self, m: dict, r: int, tag: str) -> None:
         """A measurement becomes the current version: an iteration record (report.json, critique.json,
@@ -1042,33 +1466,49 @@ class Autopilot:
         ver = _read(self.rdir(r) / "verify.json", {}) or {}
         obs = _read(self.rdir(r) / "observe.json", {}) or {}
         jobs = {j.get("gap"): j for j in act.get("jobs") or []}
+        labels = ver.get("jobs")  # fix labels by decision id (fix_labels); absent when no file changed
         entries = []
         for d in dec.get("decisions") or []:
+            fix = None
             if not d.get("picked"):
-                outcome, why = "skipped", d.get("reason")
+                outcome = "not_reproduced" if d.get("detector_label") == "not_reproduced" else "skipped"
+                why = d.get("reason")
             elif d["kind"] == "test":
                 outcome, why = "tested", f"focused QA ran on it: {act.get('focus', '')[:160]}"
             else:
                 j = jobs.get(d["id"]) or {}
                 if j.get("status") != "done":
                     outcome, why = "failed", f"job {j.get('status')}: {j.get('error')}"
-                elif ver.get("verdict") == "rolled_back":
-                    outcome, why = "rolled_back", "; ".join(ver.get("regressions") or [])
-                elif ver.get("verdict") == "kept":
-                    outcome, why = "kept", "; ".join(ver.get("improvements") or []) or "no regression"
+                elif labels is not None and d["id"] in labels:  # fix_label None: blame was inconclusive, no label
+                    fix = labels[d["id"]]["fix_label"]
+                    outcome = fix or labels[d["id"]].get("blame") or "inconclusive"
+                    why = labels[d["id"]].get("why")
+                elif labels is None and ver.get("verdict") in ("kept", "rolled_back"):  # verify.json of older code
+                    fix = outcome = ver["verdict"]
+                    why = "; ".join(ver.get("improvements" if fix == "kept" else "regressions") or []) or "no regression"
                 else:
-                    outcome, why = "no_change", ver.get("why") or "no file changed"
+                    outcome, why = "no_change", ver.get("why") or "it changed no file"
             e = {"ts": now_iso(), "round": r, "id": d["id"], "title": d["title"], "kind": d["kind"],
                  "source": d.get("source"), "sources": d.get("sources"), "request_id": d.get("request_id"),
-                 "score": d.get("score"), "outcome": outcome, "why": _clip(why, 300)}
+                 "score": d.get("score"), "outcome": outcome, "why": _clip(why, 300),
+                 # the detector is labelled by reproduction, the fixer by the gate (fix C): never one by the other
+                 "detector_label": d.get("detector_label"), "detector_why": d.get("detector_why"), "fix_label": fix,
+                 **({"check": d["check"]} if d.get("check") else {}),
+                 **({"gap_kind": d["gap_kind"]} if d.get("gap_kind") else {})}
             entries.append(e)
-            if outcome != "skipped":
+            if outcome != "skipped" or e["detector_label"]:
                 _append(self.dir / "learn.jsonl", e)
         kept = [e for e in entries if e["outcome"] == "kept"]
         rolled = [e for e in entries if e["outcome"] == "rolled_back"]
+        conflicts = [e for e in entries if e["outcome"] == "conflict"]
         verdict = ver.get("verdict") or "no_change"
-        what = ("; ".join(ver.get("improvements") or []) if verdict == "kept" else
-                "nothing kept: " + "; ".join(ver.get("regressions") or [ver.get("why") or "no change"]))
+        if verdict == "kept":
+            what = "; ".join(ver.get("improvements") or [])
+        elif verdict == "partial":
+            what = (f"per-job blame kept {', '.join(e['title'] for e in kept)}; the batch failed on: "
+                    + "; ".join(ver.get("regressions") or []))
+        else:
+            what = "nothing kept: " + "; ".join(ver.get("regressions") or [ver.get("why") or "no change"])
         why = "; ".join(f"{e['title']} ({e['outcome']})" for e in entries if e["outcome"] not in ("skipped",)) or \
             "no job was picked"
         summary = {"round": r, "ts": now_iso(), "verdict": verdict, "version": ver.get("version") or obs.get("version"),
@@ -1082,15 +1522,20 @@ class Autopilot:
                                  | {"outcome": next((e["outcome"] for e in entries if e["id"] == d["id"]), None)}
                                  for d in dec.get("decisions") or []],
                    "jobs": act.get("jobs") or [], "kept": len(kept), "rolled_back": len(rolled),
-                   "regressions": ver.get("regressions") or [], "improvements": ver.get("improvements") or [],
+                   "conflicts": len(conflicts), "regressions": ver.get("regressions") or [],
+                   "soft": ver.get("soft") or [], "improvements": ver.get("improvements") or [],
                    "scores": {"before": ver.get("before"), "after": ver.get("after")},
                    "what_improved": what, "why": why, "budget": self.budget(),
                    "request_ids": {"anomaly_detector": det.get("request_id"), "gap_finder": det.get("gap_request_id")}}
         rounds = [x for x in _read(self.dir / "rounds.json", []) or [] if x.get("round") != r] + [summary]
         _write(self.dir / "rounds.json", sorted(rounds, key=lambda x: x["round"]))
+        soft = "; ".join(ver.get("soft") or []) + (
+            f" (confirming measurement: {'; '.join(ver['confirmed']['second']) or 'it moved again'})"
+            if ver.get("confirmed") else "")
         with (self.dir / "journal.md").open("a", encoding="utf-8") as f:
             f.write(f"## Round {r}: {verdict}\n- What improved: {what}\n- Why: {why}\n"
-                    f"- Evidence: {obs.get('evidence_items')} items {obs.get('counts')}; "
+                    + (f"- Soft signals (journal and detector evidence, no rollback): {soft}\n" if soft else "")
+                    + f"- Evidence: {obs.get('evidence_items')} items {obs.get('counts')}; "
                     f"{len(det.get('anomalies') or [])} anomalies, {len(det.get('gaps') or [])} gaps\n"
                     f"- Budget: {self.budget()}\n\n")
         _write(p, summary)
@@ -1194,28 +1639,65 @@ class Autopilot:
 
 
 def kept_measurements(ap_dir: Path, exclude: str | None = None) -> list[dict]:
-    """Measurements of versions that exist: each round's baseline and every kept 'after', oldest first."""
+    """Measurements of versions that exist: each round's baseline, every kept 'after' and the version per-job
+    blame kept ('kept', when its confirmation passed: verdict partial), oldest first."""
     out = []
     for r in sorted(int(p.name) for p in (ap_dir / "rounds").glob("*") if p.name.isdigit()):
         rd = ap_dir / "rounds" / str(r)
-        for tag in ("baseline", "after"):
+        for tag in ("baseline", "after", "kept"):
             m = _read(rd / f"measure-{tag}.json")
             if not m or m.get("label") == exclude:
                 continue
-            if tag == "after" and (_read(rd / "verify.json", {}) or {}).get("verdict") != "kept":
+            verdict = (_read(rd / "verify.json", {}) or {}).get("verdict")
+            if (tag == "after" and verdict != "kept") or (tag == "kept" and verdict != "partial"):
                 continue
             out.append(m)
     return out
 
 
 def rejected_after(ap_dir: Path, since: float) -> float | None:
-    """Start time of the first rolled-back measurement after `since` (tests after it saw rejected code)."""
+    """Start time of the first rolled-back measurement after `since` (tests after it saw rejected code; a partial
+    round's batch was rolled back too)."""
     ts = []
     for rd in (ap_dir / "rounds").glob("*"):
         m = _read(rd / "measure-after.json")
-        if m and float(m.get("t0") or 0) > since and (_read(rd / "verify.json", {}) or {}).get("verdict") == "rolled_back":
+        if m and float(m.get("t0") or 0) > since and (_read(rd / "verify.json", {}) or {}).get("verdict") in (
+                "rolled_back", "partial"):
             ts.append(float(m["t0"]) - 1)
     return min(ts) if ts else None
+
+
+class _JobChanges:
+    """The job runner (forge/orchestrator.py) wrapped so each build job's own edits are known: the game's files as
+    a git tree when the job starts and when it ends (GameVersions.tree) -> rounds/<r>/jobs/<job id>.json. A retried
+    job keeps the tree of its first start. Per-job blame (Autopilot.blame) replays one job's edits from these."""
+
+    def __init__(self, inner: Any, game_dir: Path, out_dir: Path) -> None:
+        from forge.versions import GameVersions
+
+        self.inner, self.gv, self.out = inner, GameVersions(game_dir), out_dir
+        self.lock = threading.Lock()  # one git index: the tree captures of parallel jobs take turns
+
+    def _tree(self) -> str | None:
+        from forge.versions import VersionError
+
+        try:
+            return self.gv.tree()
+        except (OSError, VersionError):
+            return None  # no record: blame falls back to the batch verdict for the round
+
+    def __call__(self, job: dict, env: dict, should_stop: Callable[[], bool], beat: Callable[[], None]) -> Any:
+        p = self.out / f"{job['id']}.json"
+        with self.lock:
+            rec = _read(p) or {"id": job["id"], "gap": job.get("gap"), "kind": job["kind"],
+                               "path": (job.get("args") or {}).get("path"), "t0": time.time(), "from": self._tree()}
+        try:
+            return self.inner(job, env, should_stop, beat)
+        finally:
+            with self.lock:
+                to = self._tree()
+                if rec.get("from") and to:
+                    _write(p, {**rec, "t1": time.time(), "to": to})
 
 
 class _KeepOpen:
@@ -1340,11 +1822,17 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
     Headless by default (forge/headless.py, --studio auto|never): the playtest, the checks, QA and the swarm
     run on the headless engine with simulated players, no Studio lease. Studio is used only for the final
     verify (tag "final", --studio auto) and for every measurement with --studio always: then the playtest
-    gets a screenshot, failed checks are re-run in Studio and the testers' visual judge sees screenshots."""
+    gets a screenshot, failed checks are re-run in Studio and the testers' visual judge sees screenshots.
+
+    The checks include the pending ones (proven bugs, forge/repro.py): a fix job is judged by its check passing.
+    A per-job blame measurement (tag in BLAME_TAGS) is the hard evidence only: compile, boot, checks and the headless
+    playtest with its scripted smoke play; no QA, swarm or critic, so no LLM call."""
     from forge import checks as chk
     from forge import headless as hl
+    from forge import repro as frepro
     from forge.loop import _load_check_fn
     s, store = ap.s, ap.store
+    cheap = tag.startswith(BLAME_TAGS)
     out_dir = ap.rdir(r) / tag
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -1352,15 +1840,16 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
     boot = chk.boot_offline(store.game_dir) if chk.headless_available() else {}
     llm = ap.get_llm()
     existing = chk.load_checks(store.dir)
-    if not existing and ap.opts.plan_checks and not compile_errors:
+    if not existing and ap.opts.plan_checks and not compile_errors and not cheap:
         try:
             from forge.scenarios import plan_checks
             plan_checks(s, ap.slug, llm=llm, max_checks=ap.opts.plan_checks, log=ap.log)
             existing = chk.load_checks(store.dir)
         except Exception as e:  # noqa: BLE001
             ap.log(f"check planning failed: {type(e).__name__}: {_clip(e, 120)}")
+    existing = existing + frepro.load_pending(store.dir)
     mode = hl.studio_mode()
-    in_studio = (ap.opts.use_studio and bool(ap.opts.studios) and not compile_errors
+    in_studio = (ap.opts.use_studio and bool(ap.opts.studios) and not compile_errors and not cheap
                  and (mode == "always" or (mode == "auto" and tag == "final")))
     passed, rest = chk.triage(store.game_dir, existing, mode="auto" if in_studio else "never") if existing else ([], [])
     results = [{**x, "verdict": x.get("verdict") or "pass", "source": "headless"} for x in passed]
@@ -1376,7 +1865,7 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
             m = {}
     elif not compile_errors and hl.available():
         try:
-            m, console = asyncio.run(_headless_part(ap, r, tag, focus, out_dir))
+            m, console = asyncio.run(_headless_part(ap, r, tag, focus, out_dir, cheap=cheap))
         except BudgetSpent:
             raise
         except Exception as e:  # noqa: BLE001
@@ -1403,7 +1892,7 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
         m["dead"] = None if dead.get("ok") is None else len(interactions.as_anomalies(dead))
     m["declared"] = evm.declared_counters(gapmod.game_sources(store.game_dir), _read(store.spec_path, {}) or {})
     m["bridge_events"] = [e for e in evm.bridge_events() if float(e.get("time") or 0) >= t0 - 1]
-    if ap.opts.critic and not compile_errors and (ap.calls_left() is None or ap.calls_left() > 4):
+    if ap.opts.critic and not compile_errors and not cheap and (ap.calls_left() is None or ap.calls_left() > 4):
         files = gapmod.game_sources(store.game_dir)
         spec = _read(store.spec_path, {}) or {}
         probe = {k: m.get(k) for k in ("counters", "errors", "warnings", "instances", "players")}
@@ -1423,15 +1912,70 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
     return m
 
 
-async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Path) -> tuple[dict, str]:
-    """The measurement without Studio: a headless playtest (probe report + census), then a focused QA run and
-    a short swarm on headless sessions (simulated players; no screenshots, so no visual judge)."""
+def headless_reproduce(ap: Autopilot, r: int, anomaly: dict) -> dict | None:
+    """The reproducer (forge/repro.py, Mubit task `reproducer`) on a headless session of the current version ->
+    repro.reproduce()'s {proven, check, result, attempts}; None when no engine here can run a check (the luau CLI
+    is missing), so the finding stays unlabelled instead of looking unreproducible. A proven check must also fail
+    the way the gate will run it (checks.run_check_offline, as in studio_measure): one only Studio can judge stays
+    unlabelled, or every fix of that bug would be rolled back for a check the gate can never see pass."""
+    from forge import checks as chk
     from forge import headless as hl
+    from forge import repro as frepro
+
+    if not chk.headless_available():
+        return None
+
+    async def go() -> dict:
+        hs = hl.HeadlessStudio(ap.store.game_dir, players=1, slug=ap.slug, kind="repro")
+        try:
+            await hs.play()
+            return await frepro.reproduce(ap.s, ap.slug, anomaly, None, llm=ap.get_llm(), studio=hs,
+                                          session_id=ap.slug, log=ap.log)
+        finally:
+            await hs.stop()
+
+    res = asyncio.run(go())
+    if res.get("proven") and res.get("check") is not None:
+        offline = chk.run_check_offline(ap.store.game_dir, res["check"])
+        if offline.get("verdict") != "fail":
+            ap.log(f"round {r}: {res['check'].id} fails in the session but is {offline.get('verdict')} where the gate "
+                   "runs checks: not labelled")
+            return None
+    return res
+
+
+def headless_recheck(ap: Autopilot, check_id: str) -> str | None:
+    """One saved check (suite or pending) run once more headless on the current files, the way a measurement
+    runs it (checks.run_check_offline) -> its checks.verdict: pass | fail | unknown | needs_studio. None when it
+    cannot run here: no luau CLI, no such check, or a check marked `-- needs: studio` (no headless verdict counts)."""
+    from forge import checks as chk
+    from forge import repro as frepro
+
+    if not chk.headless_available():
+        return None
+    check = frepro.find(ap.store.dir, check_id)
+    if check is None or check.needs == "studio":
+        return None
+    return chk.run_check_offline(ap.store.game_dir, check).get("verdict")
+
+
+async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Path, *,
+                         cheap: bool = False) -> tuple[dict, str]:
+    """The measurement without Studio: a headless playtest (probe report + census), then a focused QA run and
+    a short swarm on headless sessions (simulated players; no screenshots, so no visual judge). The playtest
+    plays the scripted smoke play as a fixed play (SMOKE_SEED, and the bot stages of the version this one is
+    compared with), so its counters are like for like and may gate (evidence.HARD_SOURCES). cheap (per-job
+    blame): the playtest only."""
+    from forge import headless as hl
+    from forge import smoke
     s, store = ap.s, ap.store
     t0 = time.time()
     spec = _read(store.spec_path, {}) or {}
+    stages = ((ap.state.get("current") or {}).get("smoke") or {}).get("stages")
     report = await hl.playtest(store.game_dir, play=30.0, players=max(1, ap.opts.swarm_players or 1),
-                               start_round=bool((spec.get("playtest") or {}).get("start_round")), slug=ap.slug)
+                               start_round=bool((spec.get("playtest") or {}).get("start_round")), slug=ap.slug,
+                               during=lambda hs: smoke.smoke_play(hs, spec, store.game_dir, budget_s=smoke.smoke_seconds(),
+                                                                  seed=SMOKE_SEED, stages=stages))
     steps = [{"step": "playtest", "ok": "error" not in report, "engine": "headless", "secs": report.get("wall")}]
     m = evm.measurement_from_probe(report, label=f"ap{r}{tag[:1]}", studio=False, playtest_steps=steps)
     m["census"] = report.get("census") or {}
@@ -1451,7 +1995,7 @@ async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: P
             ap.log(f"journey (headless) failed: {type(e).__name__}: {_clip(e, 160)}")
     llm = ap.get_llm()
     gsettings = dataclasses.replace(s, base_game_dir=store.game_dir)
-    if ap.opts.qa_steps and (ap.calls_left() is None or ap.calls_left() > 12):
+    if ap.opts.qa_steps and not cheap and (ap.calls_left() is None or ap.calls_left() > 12):
         hs = hl.HeadlessStudio(store.game_dir, players=1, slug=ap.slug, kind="qa")
         try:
             from mubit_tester.protocol import qa_test
@@ -1463,7 +2007,7 @@ async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: P
             ap.log(f"QA (headless) failed: {type(e).__name__}: {_clip(e, 160)}")
         finally:
             await hs.stop()
-    if ap.opts.swarm_players and (ap.calls_left() is None or ap.calls_left() > 20):
+    if ap.opts.swarm_players and not cheap and (ap.calls_left() is None or ap.calls_left() > 20):
         hs = hl.HeadlessStudio(store.game_dir, players=ap.opts.swarm_players, slug=ap.slug, kind="swarm")
         try:
             from mubit_tester.swarm import run_swarm

@@ -15,6 +15,11 @@ counters in the report include what was played; report["smoke"] says what that w
               all in one `multi` call; then the player touches one KillPart: death, respawn at their checkpoint;
   5. other    games without checkpoints: go_use the nearest prompt, else go_touch the nearest touchable.
 Never raises: a failure is a recorded step. Budget: FORGE_SMOKE_SECONDS (default 45 s, 0 = off).
+
+Fixed play (`seed`, `stages`), for the autopilot's regression gate: the server's math.random is seeded before the
+player moves, every walk and obby run gets its full timeout (never one shortened by the wall-clock budget), the bot
+testers run the given start stages, and the record says what was cut for budget. Two fixed plays of the same seed
+and stages on the headless engine (a simulated clock) are like for like, so their counters may gate a rollback.
 """
 
 from __future__ import annotations
@@ -160,8 +165,10 @@ def _sample(reply: Any, start: int, by: str, zones: dict[int, Any]) -> dict:
 
 
 class _Smoke:
-    def __init__(self, studio: Any, spec: dict, game_dir: Path | str | None, budget: float, out: dict):
+    def __init__(self, studio: Any, spec: dict, game_dir: Path | str | None, budget: float, out: dict,
+                 seed: int | None = None, stages: list[int] | None = None):
         self.studio, self.spec, self.game_dir, self.out = studio, spec or {}, game_dir, out
+        self.seed, self.stages = seed, stages
         self.deadline = time.monotonic() + budget
         self.h: Any = None
         self.uid: Any = None
@@ -178,8 +185,23 @@ class _Smoke:
                                   "secs": round(time.monotonic() - t0, 1)})
 
     def skip(self, what: str, why: str) -> None:
+        if why == "budget":
+            self.cut(what)
         self.out["steps"].append({"what": what, "ok": False, "skipped": True, "detail": _clip("skipped: " + why, 400),
                                   "secs": 0.0})
+
+    def cut(self, what: str) -> None:
+        """Part of the play was left out for the wall-clock budget: this record is not like for like with another."""
+        self.out.setdefault("cut", []).append(what)
+
+    async def seed_rng(self) -> None:
+        try:
+            await asyncio.wait_for(self.studio.execute_luau(f"math.randomseed({int(self.seed)})\nreturn 'seeded'",
+                                                            "Server"), timeout=CALL_TIMEOUT)
+            self.out["seeded"] = True
+        except Exception as e:  # noqa: BLE001 - an unseeded play is still a play, just not a fixed one
+            self.out["seeded"] = False
+            self.out.setdefault("notes", []).append("seed: " + _err(e))
 
     async def counters(self) -> dict | None:
         try:
@@ -220,6 +242,11 @@ class _Smoke:
         from mubit_tester.harness import Harness
 
         self.h = Harness(self.studio, timeout=CALL_TIMEOUT)
+        if self.seed is not None:
+            # debt: seeded once play starts, so randomness the game used while booting is not fixed. ceiling: a game
+            # that randomises its layout at boot plays differently per run. upgrade: when such a game shows up, seed
+            # the headless bundle before boot (checks.bundle opts).
+            await self.seed_rng()
         self.c0 = await self.counters()
         obs = await self.find_player()
         if obs is None:
@@ -312,6 +339,7 @@ class _Smoke:
             room = end - time.monotonic()
             if room < 3:
                 notes.append(f"{s['name']}: not pressed (budget)")
+                self.cut("ui")
                 continue
             try:
                 recs += await asyncio.wait_for(ai.ui_pass(self.h, [s], roster), timeout=room)
@@ -341,9 +369,11 @@ class _Smoke:
         end = time.monotonic() + max(0.0, min(PICKUPS_MAX, self.left() - reserve))
         hits, notes = 0, []
         for x in targets:
-            room = min(PICKUP_TIMEOUT, end - time.monotonic())
-            if room < 2:
+            left = end - time.monotonic()
+            room = PICKUP_TIMEOUT if self.seed is not None else min(PICKUP_TIMEOUT, left)
+            if left < 2:
                 notes.append(f"{_tail(x['path'])}: not tried (budget)")
+                self.cut("pickups")
                 continue
             if kind == "Coin":
                 # walk_to by position inside repeat x1: the repeat macro adds the effect diff (counters, leaderstats);
@@ -376,9 +406,10 @@ class _Smoke:
         t0 = time.monotonic()
         if self.left() < 10:
             return self.skip("obby", "budget")
-        samples = sample_stages(int(_num(ob.get("max_stage")) or 0))
+        samples = list(self.stages) if self.stages is not None else sample_stages(int(_num(ob.get("max_stage")) or 0))
+        self.out["stages"] = samples
         zones = await self.zones()
-        per = max(3.0, min(RUN_TIMEOUT, (self.left() - 10) / ATTEMPTS))
+        per = RUN_TIMEOUT if self.seed is not None else max(3.0, min(RUN_TIMEOUT, (self.left() - 10) / ATTEMPTS))
         bots: list[dict] = []
         if samples:
             try:
@@ -499,19 +530,26 @@ class _Smoke:
                   f"{_clip(res.get('detail'), 200)}{_effect(res)}", t0)
 
 
-async def smoke_play(studio: Any, spec: dict, game_dir: Path | str | None, *, budget_s: float = DEFAULT_SECONDS) -> dict:
+async def smoke_play(studio: Any, spec: dict, game_dir: Path | str | None, *, budget_s: float = DEFAULT_SECONDS,
+                     seed: int | None = None, stages: list[int] | None = None) -> dict:
     """Play the running game for at most ~budget_s seconds with the ForgeTest harness, no LLM. Never raises.
+    `seed` makes it a fixed play and `stages` fixes the bot testers' start stages (module docstring).
     -> {budget_s, secs, steps: [{what, ok, detail, secs, skipped?}], obby: {samples: [{from, to, by, result, where,
-    secs, zone?}], reached, total, player_stage, zones_sampled, zones_reached} | None, counters_delta, error?}"""
+    secs, zone?}], reached, total, player_stage, zones_sampled, zones_reached} | None, counters_delta, seed, stages
+    (the start stages run, or the ones asked for when the play stopped before the obby; None without either), engine
+    (headless | studio), seeded?, cut? [steps cut for budget; "play" when the whole play ran out of time], error?}"""
     t0 = time.monotonic()
-    out: dict = {"budget_s": budget_s, "steps": [], "obby": None, "counters_delta": {}}
+    out: dict = {"budget_s": budget_s, "steps": [], "obby": None, "counters_delta": {}, "seed": seed,
+                 "stages": None if stages is None else list(stages),
+                 "engine": "headless" if getattr(studio, "headless", False) else "studio"}
     if budget_s <= 0:
         out["skipped"] = "off (FORGE_SMOKE_SECONDS=0)"
         return out
-    s = _Smoke(studio, spec, game_dir, budget_s, out)
+    s = _Smoke(studio, spec, game_dir, budget_s, out, seed=seed, stages=stages)
     try:
         await asyncio.wait_for(s.run(), timeout=budget_s + OVERRUN)
     except asyncio.TimeoutError:
+        s.cut("play")  # the wall clock ran out: a budget cut, not a play that failed
         out["error"] = f"cut after {budget_s + OVERRUN:.0f}s (budget {budget_s:g}s)"
     except Exception as e:  # noqa: BLE001 - never fail the playtest
         out["error"] = _err(e)

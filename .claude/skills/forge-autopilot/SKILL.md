@@ -20,15 +20,26 @@ One self-driving loop. Every round is evidence-driven and every decision cites e
    checklist and spec). Unknown evidence ids are dropped.
 4. **Decide**: merge the anomalies and gaps (both detectors agreeing raises confidence), then score each
    one as impact x confidence (x0.5 with no evidence, x1.25 when corroborated). Pick up to `--per-round`
-   jobs within the call budget. Every candidate gets a reason, picked or skipped.
+   jobs within the call budget. Every candidate gets a reason, picked or skipped. A bug (a fix job) is
+   reproduced first: the `reproducer` writes a check that must fail while the bug exists. A bug whose check
+   ran and passed gets no job. When no check could run cleanly (the Mubit call failed, the check errored or
+   could not set up, or the engine could not boot the game), the bug gets no label and its job goes ahead.
+   Missing features skip this step.
 5. **Act**: the jobs run through the orchestrator's queue, broker and workers (`forge correct`,
    `forge feature`), in parallel where the leases allow.
-6. **Verify**: re-measure, then gate the result against the previous version. Any of these rolls the
-   round back (`GameVersions.restore`): a compile error, more boot errors, a new runtime error, a check
-   that passed now failing, a core counter dying, critic or fun down by 1 or more, or more physics flags.
-   Otherwise the round is kept as a new version and an iteration record.
-7. **Learn**: each outcome goes into `learn.jsonl`. The next detector and gap-finder calls carry the
-   outcomes (same Mubit tasks, logged as corrections). `rounds.json` and `journal.md` record what
+6. **Verify**: re-measure, then gate the result against the previous version on deterministic evidence.
+   Any of these rolls the round back (`GameVersions.restore`): a compile error, more boot errors, a new
+   runtime error, a check that passed now failing, a fix's reproducing check still failing, more physics
+   flags, or a counter of the fixed (seeded) smoke play dying, or that play no longer running. Critic and fun
+   scores and the other counters are soft: they go into the journal and the detector's evidence and never
+   roll back alone. A check that newly fails is run again on the same files; if it passes, it flips on
+   unchanged code and is soft from then on. When a batch fails, the baseline and then each job alone are
+   measured the same cheap way and compared. Jobs that pass, alone and then together, are measured once more
+   like the batch was and kept if that passes (verdict `partial`). Jobs that only fail together are a
+   `conflict`. When the failure can't be pinned on one job, nothing is kept and no job gets a label.
+7. **Learn**: each decision goes into `learn.jsonl` with a `detector_label` (confirmed or not_reproduced)
+   and a `fix_label` (kept, rolled_back or conflict; none when blame was inconclusive). The detector only
+   hears its reproduction results; a fix result never reaches it. `rounds.json` and `journal.md` record what
    improved and why.
 
 It stops when `forge done` is green and critic and fun reach `--target`, when the budget runs out, when

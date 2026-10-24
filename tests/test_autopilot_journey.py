@@ -106,5 +106,3 @@ def test_confirm_keeps_a_step_failing_only_when_it_failed_both_times():
     got = fjourney.confirm({"ok": False, "passing": ["join"], "failing": ["prompts", "costume"]},
                            {"ok": False, "passing": ["join", "prompts"], "failing": ["costume"]})
     assert got["failing"] == ["costume"] and got["passing"] == ["join", "prompts"]
-    assert ap.only_noisy({"regressions": [f"{ap.JOURNEY_LOST}: prompts", f"{ap.DEAD_COUNTERS}: x"]})
-    assert not ap.only_noisy({"regressions": [f"{ap.JOURNEY_LOST}: prompts", "1 new runtime errors: y"]})

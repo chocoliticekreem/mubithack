@@ -27,11 +27,14 @@ class GameVersions:
         self.dir = Path(game_dir)
 
     def _git(self, *args: str, check: bool = True) -> str:
+        return self._run(*args, check=check).strip()
+
+    def _run(self, *args: str, check: bool = True, stdin: str | None = None) -> str:
         res = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", *args],
-                             cwd=self.dir, capture_output=True, text=True, env={**os.environ, **_ENV})
+                             cwd=self.dir, capture_output=True, text=True, env={**os.environ, **_ENV}, input=stdin)
         if check and res.returncode != 0:
             raise VersionError(f"git {' '.join(args)}: {res.stderr.strip() or res.stdout.strip()}")
-        return res.stdout.strip()
+        return res.stdout
 
     def exists(self) -> bool:
         return (self.dir / ".git").exists()
@@ -83,3 +86,27 @@ class GameVersions:
 
     def changed_files(self, since: str) -> list[str]:
         return [p for p in self._git("diff", "--name-only", since, "HEAD").splitlines() if p.endswith(".luau")]
+
+    def tree(self) -> str:
+        """The current files as a git tree id, without making a version: what a job started or ended with."""
+        self.ensure()
+        self._git("add", "-A")
+        return self._git("write-tree")
+
+    def changed_between(self, a: str, b: str) -> list[str]:
+        """Every path that differs between two trees, versions or commits (added, edited or deleted)."""
+        return [p for p in self._git("diff", "--name-only", a, b).splitlines() if p]
+
+    def apply(self, base: str, changes: list[tuple[str, str, list[str]]], message: str) -> str:
+        """`base`'s files with each change (from_tree, to_tree, paths) replayed on top as a patch, in order, recorded
+        as a new version. Per-job blame (forge/autopilot.py) re-applies one job's own edits on the round's baseline
+        this way. VersionError when a change does not apply there (it built on another job's edits)."""
+        if base not in self.tags():
+            raise VersionError(f"no version {base!r}; have {', '.join(self.tags()) or 'none'}")
+        self._git("add", "-A")
+        self._git("read-tree", "-u", "--reset", base)
+        for frm, to, paths in changes:
+            patch = self._run("diff", "--binary", frm, to, "--", *paths) if paths else ""
+            if patch.strip():
+                self._run("apply", "--whitespace=nowarn", "-", stdin=patch)
+        return self.snapshot(message)
