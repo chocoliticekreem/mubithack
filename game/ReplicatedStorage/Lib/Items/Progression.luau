@@ -18,6 +18,15 @@
 --   Progression.swingCooldown(base, id) -> number
 --   Progression.kickChance(level, tries) -> number           -- 0..1, better with level and each retry
 --   Progression.smokeHeatMultiplier(masked, air) -> number   -- HeatService gain factor
+-- The station LOCKER (one shared cabinet that opens a menu: GearService + GearController):
+--   Progression.lockerItems() -> { id }                      -- the cards, GearOrder order (no fixtures)
+--   Progression.lockerState(id, level) -> "open" | "locked" | "truck"   -- truck = lives on the fire truck
+--   Progression.lockReason(id) -> string                     -- "Reach Level 4!" on a locked card
+--   Progression.slotFor(id, want) -> "hand" | "back" | "face" | nil     -- where a tap puts it (nil = can't)
+--   Progression.lockerTake(eq, id, want) -> (ok, eq', why?)   -- eq = { hand, back, face } (ids or nil)
+--   Progression.lockerSwap(eq) -> (ok, eq', why?)            -- hand <-> back
+--   Progression.lockerOff(eq, slot) -> (ok, eq')             -- put that slot back in the locker
+--   Progression.sanitizeEquipped(raw, level) -> eq           -- saved loadout: only open, slot-legal ids
 -- In Roblox `script` exists; the luau CLI (specs) has no `script` and resolves the relative path.
 local ItemDefs = if (script :: any) ~= nil
 	then require((script :: any).Parent:WaitForChild("ItemDefs")) :: any
@@ -137,6 +146,147 @@ function Progression.smokeHeatMultiplier(masked: boolean, air: number?): number
 		return Progression.Mask.WithAir
 	end
 	return Progression.Mask.Smoke
+end
+
+-- the locker ----------------------------------------------------------------------------------------
+export type Equipped = { hand: string?, back: string?, face: string? }
+
+function Progression.lockerItems(): { string }
+	local out = {}
+	for _, id in ItemDefs.GearOrder do
+		local def = ItemDefs.get(id)
+		if def and not def.fixture then
+			table.insert(out, id)
+		end
+	end
+	return out
+end
+
+function Progression.lockerState(id: string, level: number): string
+	local def = ItemDefs.get(id)
+	if not def or def.fixture then
+		return "locked"
+	end
+	if def.tethered then
+		return "truck"
+	end
+	if not Progression.isUnlocked(id, level) then
+		return "locked"
+	end
+	return "open"
+end
+
+function Progression.lockReason(id: string): string
+	local at = Progression.unlockLevel(id)
+	if at == math.huge then
+		return "Not in the locker"
+	end
+	return `Reach Level {at}!`
+end
+
+function Progression.slotFor(id: string, want: string?): string?
+	local def = ItemDefs.get(id)
+	if not def or def.fixture or def.tethered then
+		return nil
+	end
+	if def.wear == "face" then
+		return "face"
+	end
+	if want == "back" then
+		return if def.backable then "back" else nil
+	end
+	return "hand"
+end
+
+local function eqCopy(eq: any): Equipped
+	local e = if type(eq) == "table" then eq else {}
+	local function v(x: any): string?
+		return if type(x) == "string" and x ~= "" then x else nil
+	end
+	return { hand = v(e.hand), back = v(e.back), face = v(e.face) }
+end
+
+local function backable(id: string?): boolean
+	local def = ItemDefs.get(id)
+	return def ~= nil and def.backable == true
+end
+
+-- Tap a card: the item goes in your HAND (or on your BACK with want = "back"; a mask always on your face).
+-- What was in that slot goes back in the locker. Taking the item that sits in the OTHER slot swaps the
+-- two (the old hand item goes on the back only if it fits there, else back in the locker).
+function Progression.lockerTake(eq: any, id: string, want: string?): (boolean, Equipped, string?)
+	local e = eqCopy(eq)
+	local slot = Progression.slotFor(id, want)
+	if not slot then
+		local def = ItemDefs.get(id)
+		if def and def.tethered then
+			return false, e, "truck"
+		end
+		if def and want == "back" then
+			return false, e, "not backable"
+		end
+		return false, e, "unknown"
+	end
+	if slot == "face" then
+		e.face = id
+		return true, e, nil
+	end
+	if slot == "hand" then
+		if e.hand == id then
+			return true, e, nil
+		end
+		if e.back == id then
+			e.back = if backable(e.hand) then e.hand else nil
+		end
+		e.hand = id
+		return true, e, nil
+	end
+	if e.back == id then
+		return true, e, nil
+	end
+	if e.hand == id then
+		e.hand = e.back
+	end
+	e.back = id
+	return true, e, nil
+end
+
+function Progression.lockerSwap(eq: any): (boolean, Equipped, string?)
+	local e = eqCopy(eq)
+	if e.hand == nil and e.back == nil then
+		return false, e, "empty"
+	end
+	if e.hand ~= nil and not backable(e.hand) then
+		return false, e, "not backable"
+	end
+	e.hand, e.back = e.back, e.hand
+	return true, e, nil
+end
+
+function Progression.lockerOff(eq: any, slot: string): (boolean, Equipped)
+	local e = eqCopy(eq)
+	if slot ~= "hand" and slot ~= "back" and slot ~= "face" then
+		return false, e
+	end
+	local had = (e :: any)[slot] ~= nil;
+	(e :: any)[slot] = nil
+	return had, e
+end
+
+function Progression.sanitizeEquipped(raw: any, level: number): Equipped
+	local e = eqCopy(raw)
+	local out: Equipped = {}
+	for _, slot in { "hand", "back", "face" } do
+		local id = (e :: any)[slot]
+		local want = if slot == "back" then "back" else "hand"
+		if id and Progression.lockerState(id, level) == "open" and Progression.slotFor(id, want) == slot then
+			(out :: any)[slot] = id
+		end
+	end
+	if out.hand ~= nil and out.hand == out.back then
+		out.back = nil
+	end
+	return out
 end
 
 return Progression

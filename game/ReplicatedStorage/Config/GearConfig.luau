@@ -59,7 +59,10 @@ return Config.define({
 	BreathVolume = 0.35,
 	MuffleHighGain = -18, -- dB on the world's highs while masked (EqualizerSoundEffect)
 
-	-- locker / rack pegs
-	PegRestockSeconds = 0.3, -- infinite stock
-	LockerDistance = 9,
+	-- the station LOCKER (one shared cabinet, a menu; GearService + GearController)
+	LockerTag = "StationLocker", -- StationBuilder tags the cabinet's body part
+	LockerDistance = 12, -- its prompt's reach (big, so little kids find it); the server allows a bit more
+	LockerCooldown = 0.25, -- s between two locker requests from one player
+	RestoreDelay = 1, -- s after a spawn before the saved loadout goes back on (InventoryService sets up first)
+	LockerCloseDistance = 24, -- walk this far from the locker and the menu closes
 })

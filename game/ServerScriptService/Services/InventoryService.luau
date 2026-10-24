@@ -17,6 +17,8 @@
 --   InventoryService:GetHand(player): string?   GetBack(player): string?   GetFace(player): string?
 --   InventoryService:Clear(player)                      -- silently empties every slot (no drops)
 --   InventoryService:TakeHand(player, id): boolean      -- gear: the hand item was used up (placed ladder)
+--   InventoryService:Equip(player, { hand, back, face }): (boolean, reason?)  -- the station LOCKER menu
+--                                                       (GearService): exact slots, silent, no drops
 -- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),
 --          Fumbled(player, itemId: string), SupplyRipped(driver: Player, hydrant: BasePart)
 -- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),
@@ -45,7 +47,7 @@
 -- Calls (nil-guarded): ToolService:CreateTool, ToolService.WaterUsed, HeatService:GetHeat/Cool,
 --   Lib/Tools/HoseLine attach/detach, Shared/Ragdoll.
 -- Counters: inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,
---   inv_hose_stowed, inv_supply_lines, inv_supply_snaps, inv_props_carried, inv_restocks
+--   inv_hose_stowed, inv_supply_lines, inv_supply_snaps, inv_props_carried, inv_restocks, inv_locker_equips
 -- Thrown: Cfg.ThrowSpinItems (axes, bars) tomahawk end over end at Cfg.AxeThrowSpin rad/s; the rest tumble.
 -- One hand Tool at a time: any other inventory Tool (attr InvItem) under the character or in the
 --   Backpack is destroyed on every apply; a Tool knocked into the Backpack (UnequipTools) comes back to
@@ -2161,6 +2163,45 @@ function InventoryService:TakeHand(player: Player, id: string): boolean
 	ps.hand = nil
 	apply(player, ps)
 	return true
+end
+
+-- The station LOCKER (GearService validates ids, unlocks and the cooldown): set the hand / back / face
+-- slots to exactly `eq` ({ hand, back, face }, nil = empty). Silent: whatever leaves a slot goes back in
+-- the locker (no drop), an item that stays (or moves hand <-> back) keeps its charge. Refused while
+-- downed, carrying a person, or holding the hose / supply line (that goes back to the truck / hydrant).
+function InventoryService:Equip(player: Player, eq: { hand: string?, back: string?, face: string? }): (boolean, string?)
+	local ps = stateOf(player)
+	if busyHands(player) then
+		return false, "busy"
+	end
+	syncHeld(player, ps)
+	local cur = ps.hand
+	if cur and (cur.id == "Hose" or cur.id == SUPPLY) and eq.hand ~= cur.id then
+		return false, "hose"
+	end
+	local pool: { [string]: Held } = {}
+	for _, h in { ps.hand, ps.back, ps.face } do
+		if h and not pool[h.id] then
+			pool[h.id] = h
+		end
+	end
+	local function pick(id: string?): Held?
+		if not id or not ItemDefs.get(id) then
+			return nil
+		end
+		local h = pool[id]
+		if h then
+			pool[id] = nil
+			return h
+		end
+		return { id = id, data = fresh(id) }
+	end
+	ps.hand = pick(eq.hand)
+	ps.back = pick(eq.back)
+	ps.face = pick(eq.face)
+	apply(player, ps)
+	Telemetry.count("inv_locker_equips")
+	return true, nil
 end
 
 function InventoryService:GetFace(player: Player): string?
