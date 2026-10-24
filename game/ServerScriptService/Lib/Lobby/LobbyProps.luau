@@ -8,12 +8,15 @@
 --   local built = LobbyProps.build(parent, stationOrigin, padCount)
 --   LobbyProps.renderBoard(built.boardGui, rows)   -- rows: { BoardRow }
 --   LobbyProps.renderPad(built.pads[i], view)      -- view: PadView
+--   LobbyProps.setLocked(built.pads[i], on)         -- LOCKED IN: the pad's fence goes solid + the glow
+--                                                     column pulses (LobbyService, last 5 s of a countdown)
 -- Coordinates are StationBuilder's local studs (station v2): the plaza in front of the west wing is
 -- X -60..-22, Z 30..64 (the bays' apron X -22..62 stays clear for the trucks). The station origin is
 -- the station model's "StationOrigin" attribute when present (StationBuilder places the station at
 -- CityConfig.StationOrigin), else the origin LobbyService passes.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
@@ -54,6 +57,9 @@ export type PadRec = {
 	count: TextLabel,
 	names: TextLabel,
 	prompt: ProximityPrompt,
+	fence: { BasePart }, -- invisible wall ring, CanCollide only while locked
+	lockGlow: BasePart, -- see-through neon column, shown (pulsing) while locked
+	lockTween: Tween?,
 }
 
 export type Built = {
@@ -281,6 +287,26 @@ local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: nu
 	local names = text(bb, "Names", UDim2.fromScale(0, 0.84), UDim2.fromScale(1, 0.14), "", C.Cream, Enum.Font.GothamBold)
 	stroke(names, 1)
 
+	-- LOCK IN: a ring of invisible walls just outside the pad (off until the last 5 s) and a see-through
+	-- glowing column over it that pulses while the squad is locked in
+	local fence: { BasePart } = {}
+	local fenceR, segs = 7.7, 18
+	local segW = 2 * math.pi * fenceR / segs + 0.5
+	for k = 1, segs do
+		local a = (k - 0.5) * 2 * math.pi / segs
+		local cf = base * CFrame.Angles(0, a, 0) * CFrame.new(0, 7, -fenceR)
+		local w = part(model, `PadFence{padId}`, cf, Vector3.new(segW, 14, 0.6), C.PadHot, { collide = false, query = false, shadow = false, transparency = 1 })
+		table.insert(fence, w)
+	end
+	local glow = part(model, `PadLockGlow{padId}`, base * CFrame.new(0, 3.2, 0) * CFrame.Angles(0, 0, math.rad(90)), Vector3.new(6.2, 15.6, 15.6), C.PadHot, {
+		shape = Enum.PartType.Cylinder,
+		material = Enum.Material.ForceField,
+		collide = false,
+		query = false,
+		shadow = false,
+		transparency = 1,
+	})
+
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "PadPrompt"
 	prompt.ActionText = "Change call"
@@ -302,7 +328,29 @@ local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: nu
 		count = count,
 		names = names,
 		prompt = prompt,
+		fence = fence,
+		lockGlow = glow,
+		lockTween = nil,
 	}
+end
+
+function LobbyProps.setLocked(rec: PadRec, on: boolean)
+	for _, w in rec.fence do
+		w.CanCollide = on
+	end
+	if rec.lockTween then
+		rec.lockTween:Cancel()
+		rec.lockTween = nil
+	end
+	local g = rec.lockGlow
+	if on then
+		g.Transparency = 0.15
+		local tw = TweenService:Create(g, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.7 })
+		tw:Play()
+		rec.lockTween = tw
+	else
+		g.Transparency = 1
+	end
 end
 
 function LobbyProps.renderPad(rec: PadRec, view: PadView)

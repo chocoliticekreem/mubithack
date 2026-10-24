@@ -55,14 +55,14 @@ local function m(state: string?, opts: { [string]: boolean }?)
 	}
 end
 
-Spec.test("dispatched on foot: open the door, then hop in", function()
-	Spec.eq(Flow.missionHint(m("Dispatched")), "door")
+Spec.test("got out on the way: hop back in, door shut or open (the door no longer gates it)", function()
+	Spec.eq(Flow.missionHint(m("Dispatched")), "seat")
 	Spec.eq(Flow.missionHint(m("Dispatched", { doorOpen = true })), "seat")
 end)
 
-Spec.test("driving shows the drive hint; riding shotgun shows nothing", function()
+Spec.test("boarded at launch: the driver follows the GPS, riders are told they're in", function()
 	Spec.eq(Flow.missionHint(m("Dispatched", { seated = true, driving = true })), "drive")
-	Spec.eq(Flow.missionHint(m("Dispatched", { seated = true })), nil)
+	Spec.eq(Flow.missionHint(m("Dispatched", { seated = true })), "ride")
 end)
 
 Spec.test("no hints outside dispatch, after arrival, or without a truck", function()

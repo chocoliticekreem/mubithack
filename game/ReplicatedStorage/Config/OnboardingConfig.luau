@@ -18,14 +18,16 @@ return Config.define({
 		gear = { head = "GRAB YOUR GEAR", sub = "Your rack is #{rack} in the locker room. Walk up and press E." },
 		board = { head = "CHECK THE MISSION BOARD", sub = "Out front by the bays. Press E to pick a call." },
 		pad = { head = "STEP ON A GLOWING PAD", sub = "Bring friends! Everyone on the pad rolls out together." },
-		wait = { head = "ROLLING OUT SOON", sub = "Friends can still hop on your pad. Leader can hit GO NOW." },
+		wait = { head = "ROLLING OUT SOON", sub = "Stay on the pad: at 0 you start IN your fire truck. Leader can hit GO NOW." },
 	},
 	Hints = {
-		-- touch: one tap on the truck sits you in (Controllers/TapUseController), no door to open first
-		door = { head = "RUN TO BAY {bay}", sub = "Open YOUR truck's door (E)", subTouch = "Tap YOUR truck to hop in" },
-		seat = { head = "HOP IN!", sub = "Driver's seat: press {enter}", subTouch = "Tap the truck to hop in" },
+		-- The squad starts IN its truck (LobbyService boards everyone at launch): no bay run, no door.
+		-- "seat" is only for someone who got out on the way. Touch: one tap on the truck sits you in
+		-- (Controllers/TapUseController); keyboard: the seat prompt, no door to open first.
+		seat = { head = "HOP BACK IN!", sub = "Walk up to the truck and press {enter}", subTouch = "Tap the truck to hop in" },
+		ride = { head = "YOU'RE IN THE TRUCK!", sub = "Your driver follows the GPS. Hang on!" },
 		drive = {
-			head = "FOLLOW THE GPS",
+			head = "YOU'RE IN! FOLLOW THE GPS",
 			sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn",
 			-- phones / gamepads (ClientLib/InputHints): the truck's own on-screen buttons
 			subTouch = "Stick to drive  -  SIREN and HONK buttons",
@@ -33,8 +35,8 @@ return Config.define({
 		},
 	},
 	DriveHintSeconds = 8,
-	ArrivedStuds = 150, -- within this of the GPS waypoint = at the scene: the RUN TO BAY / HOP IN cards stop
-	DispatchHintDelay = 3.5, -- s after dispatch before "RUN TO BAY n" (the HUD ALARM banner goes first)
+	ArrivedStuds = 150, -- within this of the GPS waypoint = at the scene: the IN THE TRUCK / HOP BACK IN cards stop
+	DispatchHintDelay = 1.5, -- s after dispatch before the truck card (the boarding fade goes first)
 	HelpKey = "H", -- replay the tutorial / show controls
 	BoardLookDistance = 16, -- studs: close enough to "look at" the board
 	BoardLookDot = 0.75, -- camera look . (board - camera) to count as looking at it

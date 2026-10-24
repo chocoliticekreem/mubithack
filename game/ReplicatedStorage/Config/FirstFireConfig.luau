@@ -31,6 +31,7 @@ return Config.define({
 	AutoQueueDelay = 3, -- s after the fire is out (the reward pop owns the screen first)
 	FirstCall = "house_fire", -- the plain core loop (spray fires, carry people out): gas_leak's valves + tanker countdown was too much for a first call
 	QueueCountdown = 12, -- s on the pad before it rolls: time to read the card and pick GO NOW / NOT YET
+	QueueRetries = 2, -- the first call's squad dissolved while you were still queued: queue you again this often
 	CelebrateSeconds = 3, -- the client's "FIRE OUT!" card
 	-- client copy
 	FireCard = {
@@ -41,7 +42,10 @@ return Config.define({
 	},
 	DoneCard = { head = "FIRE OUT! +{xp} XP", sub = "You're a natural. A real call is coming in..." },
 	-- on the pad for the auto-queued first call ({title} = the call, {secs} = countdown)
-	CallCard = { head = "YOUR FIRST CALL: {title}", sub = "Your fire truck leaves in {secs}. Ready?" },
+	-- you stay on the pad (no walking off by accident); at 0 you're put straight into your truck
+	CallCard = { head = "YOUR FIRST CALL: {title}", sub = "You'll be IN your fire truck in {secs}. Ready?" },
+	-- the last LobbyConfig.LockSeconds: no NOT YET any more
+	LockedCard = { head = "LOCKED IN! {secs}", sub = "Hold on: you're about to be in your truck!" },
 	CallGo = "GO NOW!",
 	CallWait = "NOT YET",
 	-- after the first call, still out at the scene: what's next (OnboardingController)

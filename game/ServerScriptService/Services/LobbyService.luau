@@ -10,6 +10,16 @@
 -- heroes (mostly)"). Idle fun: slide the fire pole, ring the bell, honk truck 67; standing still
 -- labels you "on coffee break". Queue/countdown rules live in the pure ReplicatedStorage/Lobby/LobbyQueue.
 -- LobbyConfig.UseLobby = false keeps v1's single auto-round (remotes are still declared).
+-- LOCK IN (last LobbyConfig.LockSeconds of a countdown): the pad's invisible fence goes solid, a glowing
+-- column pulses over it, the sign reads "LOCKED IN! 4", members get Player attr PadLocked = true and
+-- anyone outside LockRadius is pulled back onto the pad (server-side clamp). Leave / NOT YET are refused
+-- while locked; before that, stepping off leaves as always. A "short" reset (too few players) unlocks.
+-- BOARD (LobbyConfig.BoardIntoTruck): at 0, once the dispatch run exists, every member is put straight
+-- into a seat of the squad's truck (the leader's own truck, VehicleService:GetTruck; the leader takes the
+-- DriveSeat, the rest shotgun + the benches). More riders than seats: the next member's truck (its owner
+-- drives), then standing beside the truck. Lobby/Fx "board" (true = fade out, false = fade back in)
+-- wraps the teleport. Then the normal GPS drive + arrival. Counters lobby_locks, squad_boarded,
+-- squad_board_beside, squad_board_no_truck.
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10 "v1.5 additions"):
 --   LobbyService:GetSquads(): { Types.Squad }
@@ -26,7 +36,9 @@
 -- Remotes: Lobby/Board (S->C all: squads: { Types.Squad }), Lobby/Choose (C->S missionId: string, 2/s),
 --          Lobby/Launch (C->S none, 1/s; leader only: cuts the countdown to LaunchCountdown)
 --          added: Lobby/Countdown (S->C squad: padId: number, seconds: number (-1 = cancel), title: string)
---                 Lobby/Fx (S->C one: kind: "slide" | "welcome" | "toast", ...args)
+--                 Lobby/Fx (S->C one: kind: "slide" | "welcome" | "toast" | "board", ...args)
+--                   "board", on: boolean -- true: fade to black (seat teleport coming), false: fade back in
+--                 Lobby/Alive (C->S none, 0.5/s): the client saw input (AFK tag off, timer reset)
 -- Writes: Player attrs SquadId ("" = none), InstanceId ("" = in the lobby); Workspace.Map.Station.Lobby;
 --         counters squads_launched, lobby_joins, lobby_returns, lobby_bell, lobby_honk, lobby_pole, lobby_afk
 -- Test hooks (DevHook only): _join(player, padId), _launch(squadId, missionId), _selftest()
@@ -64,10 +76,14 @@ local built: any = nil -- LobbyProps.Built
 local stationModel: Model? = nil
 local active: { [string]: ActiveSquad } = {} -- launched squads (InMission), by squadId
 local remotes: { [string]: RemoteEvent } = {}
-local afk: { [Player]: { pos: Vector3, t: number, tagged: boolean } } = {}
+type Afk = { pos: Vector3, t: number, tagged: boolean, look: Vector3? }
+local afk: { [Player]: Afk } = {}
 local cooldown: { [string]: number } = {}
 local fallbackSeq = 0
 local launching: { [number]: boolean } = {} -- userIds between countdown 0 and InstanceId being set
+local lockedPads: { [number]: boolean } = {} -- padIds whose fence is up (LOCKED IN)
+local lastOnPad: { [number]: { padId: number, t: number } } = {} -- userId -> last time seen on a pad (grace)
+local LOCK_ATTR = "PadLocked" -- Player attr: true while locked in on a pad (clients hide NOT YET / leave UI)
 
 local function count(name: string, n: number?)
 	pcall(function()
@@ -244,13 +260,17 @@ local function renderPad(padId: number)
 		table.insert(names, if p then p.DisplayName else "?")
 	end
 	local hot = secs ~= nil and secs <= LobbyConfig.AlarmFromSeconds
+	local locked = LobbyQueue.isLocked(q, padId)
 	LobbyProps.renderPad(rec, {
 		mission = title(pad.missionId),
 		ready = LobbyQueue.readyText(#pad.members, cap),
-		count = if secs then `ROLLING IN {secs}` elseif #pad.members == 0 then "STEP ON TO JOIN" else "",
+		count = if locked and secs then `{LobbyConfig.LockText} {secs}`
+			elseif secs then `ROLLING IN {secs}`
+			elseif #pad.members == 0 then "STEP ON TO JOIN"
+			else "",
 		names = table.concat(names, "  "),
-		color = if hot then C.PadHot elseif #pad.members > 0 then C.PadForming else C.PadIdle,
-		hot = hot,
+		color = if hot or locked then C.PadHot elseif #pad.members > 0 then C.PadForming else C.PadIdle,
+		hot = hot or locked,
 	})
 end
 
@@ -374,6 +394,248 @@ local function missionSpawn(model: Model): CFrame
 	return model:GetPivot() * CFrame.new(0, 6, 0)
 end
 
+------------------------------------------------------------------ lock in (last LockSeconds)
+
+local lockMembers: { [number]: { number } } = {} -- padId -> userIds carrying the PadLocked attr
+
+local function setLockAttr(uid: number, on: boolean)
+	local p = playerById(uid)
+	if p and (p:GetAttribute(LOCK_ATTR) == true) ~= on then
+		p:SetAttribute(LOCK_ATTR, if on then true else nil)
+	end
+end
+
+-- Pull a locked member who got off the pad (jumped the fence, respawned, lagged through) back onto it.
+local function clampToPad(player: Player, center: Vector3)
+	local char = player.Character
+	local root = rootOf(player)
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not char or not root or not hum or hum.Health <= 0 or hum.SeatPart then
+		return
+	end
+	local d = root.Position - center
+	local flat = Vector3.new(d.X, 0, d.Z)
+	if flat.Magnitude <= LobbyConfig.LockRadius and d.Y > -2 and d.Y < LobbyConfig.PadHeight + 6 then
+		return
+	end
+	local dir = if flat.Magnitude > 0.1 then flat.Unit else Vector3.new(0, 0, 1)
+	local at = center + dir * 4 + Vector3.new(0, 3.5, 0)
+	char:PivotTo(CFrame.lookAt(at, at - dir))
+	count("lobby_lock_pullbacks")
+end
+
+local function updateLocks()
+	local q = queue
+	if not q or not built then
+		return
+	end
+	local LobbyProps = require(ServerScriptService.Lib.Lobby.LobbyProps :: ModuleScript) :: any
+	for _, pad in q.pads do
+		local padId = pad.padId
+		local on = LobbyQueue.isLocked(q, padId)
+		local rec = built.pads[padId]
+		if on ~= (lockedPads[padId] == true) then
+			lockedPads[padId] = if on then true else nil
+			if rec then
+				LobbyProps.setLocked(rec, on)
+			end
+			if on then
+				count("lobby_locks")
+			end
+			renderPad(padId)
+		end
+		local now: { number } = if on then table.clone(pad.members) else {}
+		for _, uid in lockMembers[padId] or {} do
+			if not table.find(now, uid) then
+				setLockAttr(uid, false)
+			end
+		end
+		for _, uid in now do
+			setLockAttr(uid, true)
+		end
+		lockMembers[padId] = now
+		-- locked pad: everyone on it; otherwise only held members (the auto-queued first call)
+		if rec then
+			for _, uid in pad.members do
+				local p = playerById(uid)
+				if p and (on or LobbyQueue.isHeld(q, uid)) and not launching[uid] then
+					clampToPad(p, rec.part.Position)
+				end
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------ board the truck (at 0)
+
+local function boardFx(players: { Player }, on: boolean)
+	local r = remotes.Fx
+	if not r then
+		return
+	end
+	for _, p in players do
+		if p.Parent == Players then
+			r:FireClient(p, "board", on)
+		end
+	end
+end
+
+local function truckOf(player: Player): Model?
+	local V = services.VehicleService
+	if not V or type(V.GetTruck) ~= "function" then
+		return nil
+	end
+	local ok, m = pcall(V.GetTruck, V, player)
+	if ok and typeof(m) == "Instance" and m:IsA("Model") and m.PrimaryPart and m.Parent then
+		return m
+	end
+	return nil
+end
+
+-- Put `player` in `seat`: next to it first (streaming + no weld across the map), then Seat:Sit.
+local function seatIn(player: Player, seat: Seat | VehicleSeat): boolean
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not char or not hum or hum.Health <= 0 or seat.Occupant or player:GetAttribute(Names.Attr.Downed) == true then
+		return false
+	end
+	local cur = hum.SeatPart
+	if cur then
+		local w = cur:FindFirstChild("SeatWeld")
+		if w then
+			w:Destroy()
+		end
+		hum.Sit = false
+	end
+	char:PivotTo(seat.CFrame * CFrame.new(0, 2.5, 0))
+	seat:Sit(hum)
+	return true
+end
+
+local PASSENGER_SEATS = { "CrewSeat_5", "CrewSeat_1", "CrewSeat_2", "CrewSeat_3", "CrewSeat_4" } -- shotgun first
+
+local function passengerSeats(truck: Model): { Seat }
+	local out: { Seat } = {}
+	for _, name in PASSENGER_SEATS do
+		local s = truck:FindFirstChild(name)
+		if s and s:IsA("Seat") and not s.Occupant then
+			table.insert(out, s)
+		end
+	end
+	return out
+end
+
+-- Everyone into the squad's truck: the leader's own truck (they drive), the others in shotgun + the
+-- benches. More riders than seats: the next member who has a truck drives it with the overflow; anyone
+-- still left stands beside the first truck. No truck at all after TruckWaitSeconds: the old run-to-bay.
+local function boardSquad(squad: ActiveSquad, players: { Player })
+	local order: { Player } = {}
+	local leader = playerById(squad.leader or 0)
+	if leader and table.find(players, leader) then
+		table.insert(order, leader)
+	end
+	for _, p in players do
+		if p ~= leader then
+			table.insert(order, p)
+		end
+	end
+	local fadeAt = os.clock()
+	boardFx(order, true)
+	local first: Model?, firstOwner: Player? = nil, nil
+	local t0 = os.clock()
+	while true do
+		for _, p in order do
+			local m = truckOf(p)
+			if m then
+				first, firstOwner = m, p
+				break
+			end
+		end
+		if first or os.clock() - t0 > LobbyConfig.TruckWaitSeconds then
+			break
+		end
+		task.wait(0.25)
+	end
+	local waitLeft = LobbyConfig.BoardFadeSeconds - (os.clock() - fadeAt)
+	if waitLeft > 0 then
+		task.wait(waitLeft) -- the screen is black before anyone moves
+	end
+	if not first then
+		count("squad_board_no_truck")
+		for _, p in order do
+			Net.notify(p, "Run to your truck in the station!", "info")
+		end
+		boardFx(order, false)
+		return
+	end
+	local V = services.VehicleService
+	local remaining = table.clone(order)
+	local used: { [Model]: boolean } = {}
+	local seated, beside = 0, 0
+	local truck: Model?, owner: Player? = first, firstOwner
+	while truck and #remaining > 0 do
+		local m = truck :: Model
+		used[m] = true
+		-- nobody at the wheel: back to its bay first if it was left out in the city
+		local drv = m:GetAttribute("Driver")
+		if (drv == nil or drv == 0) and owner and V and type(V.ParkAt) == "function" then
+			pcall(V.ParkAt, V, owner)
+		end
+		local drive = m:FindFirstChild("DriveSeat")
+		local oi = owner and table.find(remaining, owner)
+		if owner and oi and drive and drive:IsA("VehicleSeat") and not drive.Occupant then
+			table.remove(remaining, oi)
+			if seatIn(owner, drive) then
+				seated += 1
+			end
+		end
+		local seats = passengerSeats(m)
+		local nextTruck: Model?, nextOwner: Player? = nil, nil
+		if #remaining > #seats then
+			-- overflow: keep one member with a truck of their own back to drive the rest
+			for i = #remaining, 1, -1 do
+				local t2 = truckOf(remaining[i])
+				if t2 and not used[t2] then
+					nextTruck, nextOwner = t2, remaining[i]
+					table.remove(remaining, i)
+					break
+				end
+			end
+		end
+		for _, seat in seats do
+			local p = table.remove(remaining, 1)
+			if not p then
+				break
+			end
+			if seatIn(p, seat) then
+				seated += 1
+			end
+		end
+		if nextOwner then
+			table.insert(remaining, 1, nextOwner)
+		end
+		truck, owner = nextTruck, nextOwner
+	end
+	-- nowhere left to sit: line up beside the first truck's cab
+	local c = (first :: Model).PrimaryPart
+	for i, p in remaining do
+		local char = p.Character
+		if char and c then
+			local pos = c.CFrame * Vector3.new(-8, 1.5, -6 + (i - 1) * 3)
+			char:PivotTo(CFrame.lookAt(pos, pos + c.CFrame.RightVector))
+			beside += 1
+			Net.notify(p, "Truck's full! Tap it to grab a seat when one frees up.", "info")
+		end
+	end
+	count("squad_boarded", seated)
+	if beside > 0 then
+		count("squad_board_beside", beside)
+	end
+	task.wait(0.15)
+	boardFx(order, false)
+	print(`[LobbyService] squad {squad.id}: {seated} seated, {beside} beside the truck`)
+end
+
 ------------------------------------------------------------------ public API
 
 function LobbyService:Join(player: Player, padId: number): string?
@@ -434,6 +696,8 @@ function LobbyService:QuickJoin(player: Player, missionId: string?, seconds: num
 		end
 	end
 	local pid = padId :: number
+	-- the auto-queued first call: walking off (or jumping, a bump) must never cancel it; only NOT YET
+	LobbyQueue.hold(q, player.UserId)
 	if type(seconds) == "number" and LobbyQueue.hurry(q, pid, seconds) then
 		local pad = q.pads[pid]
 		toMembers(pad.members, pid, LobbyQueue.secondsLeft(q, pid) or -1, title(pad.missionId))
@@ -449,6 +713,10 @@ function LobbyService:Leave(player: Player)
 	end
 	local padId = LobbyQueue.padOf(q, player.UserId)
 	if not padId then
+		return
+	end
+	if LobbyQueue.isLocked(q, padId) then
+		Net.notify(player, `{LobbyConfig.LockText} Rolling out in {LobbyQueue.secondsLeft(q, padId) or 0}...`, "info")
 		return
 	end
 	local sid = q.pads[padId].squadId
@@ -631,6 +899,17 @@ function LobbyService:Launch(squadId: string, missionId: string): string?
 	end
 	done()
 	count("squads_launched")
+	-- v2 dispatch (a Workspace.Runs.<id> run, nobody teleported to the scene): straight into the truck
+	local runs = workspace:FindFirstChild("Runs")
+	if LobbyConfig.BoardIntoTruck and not s.fallback and runs and runs:FindFirstChild(iid) then
+		task.spawn(function()
+			local ok, err = pcall(boardSquad, s, players)
+			if not ok then
+				warn(`[LobbyService] boarding {squadId} failed: {err}`)
+				boardFx(players, false)
+			end
+		end)
+	end
 	LobbyService.Launched:Fire(squadId, missionId, iid)
 	LobbyService.SquadChanged:Fire(squadId)
 	renderBoard()
@@ -668,7 +947,7 @@ function LobbyService:ReturnToLobby(players: { Player })
 				LobbyService.SquadChanged:Fire(sid)
 			end
 		end
-		afk[p] = { pos = Vector3.zero, t = os.clock(), tagged = false }
+		afk[p] = { pos = Vector3.zero, t = os.clock(), tagged = false, look = nil }
 	end
 	broadcast()
 end
@@ -831,12 +1110,18 @@ local function updateAfk(now: number)
 		end
 		local a = afk[p]
 		if not a then
-			a = { pos = root.Position, t = now, tagged = false }
+			a = { pos = root.Position, t = now, tagged = false, look = root.CFrame.LookVector }
 			afk[p] = a
 		end
-		local rec = a :: { pos: Vector3, t: number, tagged: boolean }
-		if (root.Position - rec.pos).Magnitude > 0.4 or not inLobby(p) then
+		local rec = a :: Afk
+		-- activity = walking, jumping / falling (any velocity), turning (first person / shift lock turns the
+		-- body with the camera), or the client's Lobby/Alive ping (any input, camera drags included)
+		local look = root.CFrame.LookVector
+		local turned = rec.look ~= nil and look:Dot(rec.look :: Vector3) < 0.996
+		local moving = root.AssemblyLinearVelocity.Magnitude > 1.5
+		if (root.Position - rec.pos).Magnitude > 0.4 or moving or turned or not inLobby(p) then
 			rec.pos = root.Position
+			rec.look = look
 			rec.t = now
 			if rec.tagged then
 				rec.tagged = false
@@ -868,11 +1153,23 @@ local function poll(dt: number)
 		if not root or not hum or hum.Health <= 0 then
 			continue
 		end
+		-- horizontal distance only: jumping, flying off a bump or ragdolling over the pad still counts
 		for _, rec in built.pads do
 			local d = root.Position - rec.part.Position
-			if Vector3.new(d.X, 0, d.Z).Magnitude <= LobbyConfig.PadRadius and d.Y > -1 and d.Y < LobbyConfig.PadHeight then
+			if Vector3.new(d.X, 0, d.Z).Magnitude <= LobbyConfig.PadRadius and d.Y > -4 and d.Y < LobbyConfig.PadHeight then
 				onPad[p.UserId] = rec.padId
 				break
+			end
+		end
+		-- grace: off the pad for less than PadGraceSeconds still counts as on it (a stumble, a knockback)
+		local now = os.clock()
+		local seen = onPad[p.UserId]
+		if seen then
+			lastOnPad[p.UserId] = { padId = seen, t = now }
+		else
+			local last = lastOnPad[p.UserId]
+			if last and now - last.t <= LobbyConfig.PadGraceSeconds and LobbyQueue.padOf(q, p.UserId) == last.padId then
+				onPad[p.UserId] = last.padId
 			end
 		end
 	end
@@ -956,6 +1253,7 @@ local function poll(dt: number)
 			end)
 		end
 	end
+	updateLocks()
 end
 
 ------------------------------------------------------------------ lifecycle
@@ -1056,6 +1354,7 @@ function LobbyService:Start()
 	remotes.Launch = Net.event("Lobby", "Launch")
 	remotes.Countdown = Net.event("Lobby", "Countdown")
 	remotes.Fx = Net.event("Lobby", "Fx")
+	remotes.Alive = Net.event("Lobby", "Alive")
 	if not LobbyConfig.UseLobby then
 		return
 	end
@@ -1066,6 +1365,7 @@ function LobbyService:Start()
 		countdown = LobbyConfig.CountdownSeconds,
 		fullCountdown = LobbyConfig.FullCountdownSeconds,
 		defaultMission = firstEnabled(),
+		lockSeconds = LobbyConfig.LockSeconds,
 		limits = function(id: string): (number, number)
 			local m = byId[id]
 			if m and m.players then
@@ -1080,6 +1380,17 @@ function LobbyService:Start()
 			return
 		end
 		LobbyService:Choose(player, missionId)
+	end)
+	-- any input on the client (camera drags, jumps, taps) = not on coffee break
+	Net.onServer(remotes.Alive, { rate = 0.5, burst = 2 }, function(player: Player)
+		local a = afk[player]
+		if a then
+			a.t = os.clock()
+			if a.tagged then
+				a.tagged = false
+				setAfkTag(player, false)
+			end
+		end
 	end)
 	Net.onServer(remotes.Launch, { rate = 1, burst = 1 }, function(player: Player)
 		local q = queue
