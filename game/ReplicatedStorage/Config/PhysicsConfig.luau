@@ -107,7 +107,7 @@ return Config.define({
 	-- comedic pops
 	PopsPerSecond = 8, -- server-wide cap
 	PopSeconds = 0.9,
-	PopSoundId = "", -- rbxassetid://N for the boing; "" = silent (AudioController owns the stingers)
+	PopSoundId = "rbxassetid://131916027000817", -- rbxassetid://N for the boing; "" = silent (AudioController owns the stingers)
 	PopMaxDistance = 220, -- clients skip pops farther than this from the camera
 	PopMaxOnScreen = 12,
 })

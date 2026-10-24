@@ -124,7 +124,7 @@ return Config.define({
 	RemoteStaleSeconds = 1.0,
 
 	-- sounds (rbxassetid://N; "" = silent)
-	SoundSlap = "",
+	SoundSlap = "rbxassetid://511340819",
 	SoundGrab = "",
-	SoundThunk = "",
+	SoundThunk = "rbxassetid://9113225734", -- (PSE) wood impact
 })

@@ -43,7 +43,7 @@ return Config.define({
 	-- Sound ids are unverified, so they default to "" (silent). Set rbxassetid://... to enable.
 	Sounds = {
 		Alarm = "",
-		Countdown = "",
+		Countdown = "rbxassetid://7743999789",
 		RollOut = "",
 		Success = "",
 		Fail = "",

@@ -11,16 +11,16 @@ return Config.define({
 	KillFeedRepeatSeconds = 4, -- the same (event, actor, victim) line is not repeated within this many seconds
 	CarryTickSeconds = 1, -- how often carry time is sampled for "Lift With Your Legs"
 	Sounds = {
-		Tick = "", -- count-up tick
-		CardFlip = "",
-		Stamp = "", -- BLAME! stamp thud
-		Star = "",
+		Tick = "rbxassetid://134410911353980", -- count-up tick
+		CardFlip = "rbxassetid://3456145589",
+		Stamp = "rbxassetid://9114026047", -- BLAME! stamp thud (PSE date stamp)
+		Star = "rbxassetid://6786936397",
 		Fanfare = "", -- mission complete
 		Trombone = "", -- time's up
-		Click = "",
-		Toast = "", -- HUD toast pop
+		Click = "rbxassetid://87437544236708",
+		Toast = "rbxassetid://140323850218372", -- HUD toast pop
 		BlameToast = "", -- HUD blame callout (record scratch)
-		TimerTick = "", -- HUD under 30 s
-		HeatAlarm = "", -- HUD heat >= 85
+		TimerTick = "rbxassetid://7743999789", -- HUD under 30 s
+		HeatAlarm = "rbxassetid://117751546358455", -- HUD heat >= 85
 	},
 })

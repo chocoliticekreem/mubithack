@@ -58,8 +58,8 @@ return Config.define({
 	-- UI (client)
 	HotbarSlotSize = 72, -- keeps the row under HudController's toast stack
 	HighlightColor = Color3.fromHex("#FFE15A"),
-	SoundGrab = "", -- rbxassetid://... (unverified ids stay empty)
-	SoundDrop = "",
-	SoundThrow = "",
-	SoundBonk = "",
+	SoundGrab = "rbxassetid://2575934454", -- item pickup blip
+	SoundDrop = "rbxasset://sounds/action_jump_land.mp3", -- built-in
+	SoundThrow = "rbxassetid://9120972444", -- (PSE) whoosh
+	SoundBonk = "rbxassetid://3765689841", -- cartoon bonk
 })

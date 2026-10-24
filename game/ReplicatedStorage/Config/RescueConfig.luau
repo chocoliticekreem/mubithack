@@ -68,14 +68,14 @@ return Config.define({
 	LandInFireDamage = 30, -- HP lost when yeeted into a burning spot
 	TickHz = 8, -- AI / fire / delivery tick
 	-- sounds (client side; "" = silent)
-	SoundScream = "",
-	SoundWoof = "",
-	SoundMeow = "",
+	SoundScream = "rbxassetid://9125905021", -- (PSE) scream pass-by
+	SoundWoof = "rbxassetid://135016436724006",
+	SoundMeow = "rbxassetid://134699420140804",
 	SoundPanda = "",
-	SoundCheer = "",
-	SoundWhoosh = "",
-	SoundThud = "",
-	SoundSizzle = "",
+	SoundCheer = "rbxassetid://113203014154811", -- "woohoo!"
+	SoundWhoosh = "rbxassetid://9120972321", -- (PSE) wood whoosh
+	SoundThud = "rbxassetid://9113479635", -- (PSE) body fall on carpet
+	SoundSizzle = "rbxassetid://4772620521", -- steam hiss (same as AudioConfig.Steam)
 	VoiceInterval = 1.6, -- s between screams while carried / flying
 	Confetti = 90, -- particles in the delivery burst
 })

@@ -51,7 +51,7 @@ return Config.define({
 	BeamSegments = 8, -- curve resolution per segment
 	KinkWidthScale = 0.45, -- a kinked segment pinches to this fraction of the width
 	YankFov = 8, -- FOV punch on a yank
-	SoundYank = "", -- rbxassetid://... (unverified ids stay empty)
-	SoundTrip = "",
-	SoundKink = "",
+	SoundYank = "rbxassetid://9113611449", -- (PSE) whip swish
+	SoundTrip = "rbxassetid://2772396665", -- cartoon boing
+	SoundKink = "rbxassetid://9118737438", -- (PSE) rubber squeak
 })

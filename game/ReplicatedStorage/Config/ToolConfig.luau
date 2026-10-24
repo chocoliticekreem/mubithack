@@ -66,10 +66,10 @@ return Config.define({
 	-- sounds (rbxassetid://N; "" = silent)
 	SoundHoseLoop = "",
 	SoundSplash = "",
-	SoundAxeWhoosh = "",
-	SoundAxeThunk = "",
-	SoundDoorCrash = "",
-	SoundBonk = "",
+	SoundAxeWhoosh = "rbxassetid://9120972444", -- (PSE) wood whoosh, quick swing
+	SoundAxeThunk = "rbxassetid://9113225734", -- (PSE) axe impact on wood
+	SoundDoorCrash = "rbxassetid://9113225986", -- (PSE) giant thuddy axe hit (door cracked, not broken)
+	SoundBonk = "rbxassetid://3765689841", -- cartoon bonk
 	SoundFoam = "",
-	SoundRefill = "",
+	SoundRefill = "rbxassetid://9126206853", -- (PSE) water sloshing in bucket
 })
