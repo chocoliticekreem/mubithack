@@ -1138,6 +1138,7 @@ end
 
 function ForestBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	model:SetAttribute("DisplayName", "Pine Ridge Forest")
+	model:SetAttribute("InteriorOrigin", origin) -- Lib/Map/Interiors/Districts dresses the interiors per run
 	model:SetAttribute("AtmospherePreset", "FireGlow") -- AtmosphereConfig's "Burning Forest" preset
 	model:SetAttribute("SmokeHeavy", true)
 	ground(model, origin, rng)

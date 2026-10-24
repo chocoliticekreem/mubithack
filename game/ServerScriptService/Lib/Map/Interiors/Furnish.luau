@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
 local Plan = require(script.Parent:WaitForChild("Plan") :: ModuleScript)
 local Kit = require(script.Parent:WaitForChild("Kit") :: ModuleScript)
+local Districts = require(script.Parent:WaitForChild("Districts") :: ModuleScript) :: any
 
 local Furnish = {}
 Furnish.Layouts = {} :: { [string]: (any) -> () }
@@ -327,15 +328,25 @@ function Furnish.site(site: Model): (number, number)
 	else
 		local loc = site:GetAttribute(Names.Attr.LocationId)
 		local b = if type(loc) == "string" and loc ~= "City" then locationBuilder(loc) else nil
+		local origin = site:GetAttribute("InteriorOrigin")
 		if b and type(b.Furnish) == "function" then
 			local ok, res = pcall(b.Furnish, site)
 			if not ok then
 				warn(`[Furnish] {loc}Builder.Furnish failed: {res}`)
 			end
-			local root = site:FindFirstChild("Interior")
-			if root then
-				parts = stampBuilding(root, site.Name)
+		elseif type(loc) == "string" and type(Districts[loc]) == "function" and typeof(origin) == "CFrame" then
+			-- Interiors/Districts: dressing for a builder without a Furnish of its own
+			local root = Instance.new("Model")
+			root.Name = "Interior"
+			local ok, res = pcall(Districts[loc], site, origin, root, Random.new(hash(site.Name) + 67))
+			if not ok then
+				warn(`[Furnish] Districts.{loc} failed: {res}`)
 			end
+			root.Parent = site
+		end
+		local root = site:FindFirstChild("Interior")
+		if root then
+			parts = stampBuilding(root, site.Name)
 		end
 	end
 	site:SetAttribute("Furnished", true)
