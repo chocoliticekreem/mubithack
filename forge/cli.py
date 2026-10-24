@@ -694,6 +694,106 @@ def cmd_promote(args) -> int:
 
 # ---------------------------------------------------------------- main
 
+# ---------------------------------------------------------------- Studio plugin bridge
+
+def cmd_plugin(args) -> int:
+    from forge import bridge as fb
+    s = load_settings()
+    root = s.repo_root
+    args.port = args.port or fb.DEFAULT_PORT
+    places = args.place or ([os.environ["FORGE_STUDIO"]] if os.environ.get("FORGE_STUDIO") else [])
+    if args.action in ("install", "build", "serve") and not places:
+        print(f"error: name the place(s) the plugin may bind to: forge plugin {args.action} --place Forge-agents-25",
+              file=sys.stderr)
+        return 2
+    if args.action == "install":
+        out = fb.install_plugin(root, places, Path(args.plugins_dir) if args.plugins_dir else None, args.port)
+        print(f"installed {out} (binds only: {', '.join(places)})")
+        print("It does nothing until `forge plugin serve --place <PlaceName>` is running for that place.")
+        return 0
+    if args.action == "build":
+        out = Path(args.out or fb.store_dir(root) / "ForgeBridge.lua")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(fb.build_plugin(root, fb.load_token(fb.store_dir(root)), args.port, places))
+        print(f"built {out}")
+        return 0
+    if args.action == "serve":
+        if not places:
+            print("error: name the place(s) to bind: forge plugin serve --place Forge-agents-25", file=sys.stderr)
+            return 2
+        fb.serve_forever(root, places, args.port, args.scenario)
+        return 0
+    if args.action == "status":
+        try:
+            print(json.dumps(fb.BridgeClient(args.port).status(), indent=1))
+        except fb.BridgeError as e:
+            print(f"bridge not running: {e}")
+            return 1
+        return 0
+    if args.action == "events":
+        client, since = fb.BridgeClient(args.port), args.since
+        while True:
+            res = client.events(since, None, 200, 15 if args.follow else 0)
+            for e in res["events"]:
+                print(fb._fmt_event(e), flush=True)
+            since = res["next"]
+            if not args.follow:
+                return 0
+    if args.action == "load":
+        return asyncio.run(_plugin_load(s, args))
+    if args.action == "bench":
+        return asyncio.run(_plugin_bench(s, args))
+    return 2
+
+
+async def _plugin_load(s, args) -> int:
+    """Live-load the plugin into ONE Studio window over StudioMCP (no file in the Plugins folder)."""
+    from forge import bridge as fb
+    from forge.studio import Studio
+    places = args.place or [args.studio]
+    src = fb.build_plugin(s.repo_root, fb.load_token(fb.store_dir(s.repo_root)), args.port, places)
+    code = "local plugin = PluginManager():CreatePlugin()\n" + src + "\nreturn 'ForgeBridge loaded'"
+    async with Studio(s, call_timeout=45) as st:
+        await st.select(args.studio)
+        state = await st.state()
+        dms = ["Server", "Client"] if state.get("playing") else ["Edit"]
+        for dm in dms:
+            print(f"{dm}: {await st.execute_luau(code, dm)}")
+    return 0
+
+
+async def _plugin_bench(s, args) -> int:
+    """Round-trip latency of the same tiny Luau call: bridge vs StudioMCP execute_luau."""
+    import statistics
+    import time as _t
+
+    from forge import bridge as fb
+    from forge.studio import Studio
+    client = fb.BridgeClient(args.port)
+    code = "return 1 + 1"
+    rows = {}
+    bridge_ms = []
+    for _ in range(args.n):
+        t0 = _t.perf_counter()
+        client.luau(code, args.datamodel)
+        bridge_ms.append((_t.perf_counter() - t0) * 1000)
+    rows["bridge"] = bridge_ms
+    t0 = _t.perf_counter()
+    async with Studio(s, call_timeout=45) as st:
+        await st.select(args.studio)
+        rows["mcp_connect"] = [(_t.perf_counter() - t0) * 1000]
+        mcp_ms = []
+        for _ in range(args.n):
+            t1 = _t.perf_counter()
+            await st.call("execute_luau", code=code, datamodel_type=args.datamodel)
+            mcp_ms.append((_t.perf_counter() - t1) * 1000)
+        rows["studiomcp"] = mcp_ms
+    for name, xs in rows.items():
+        print(f"{name:12s} n={len(xs):3d}  median {statistics.median(xs):8.1f} ms  "
+              f"min {min(xs):8.1f}  max {max(xs):8.1f}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="forge", description="Idea -> Roblox game, every LLM call through Mubit.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -888,6 +988,19 @@ def build_parser() -> argparse.ArgumentParser:
     ck.add_argument("--headless-first", action="store_true",
                     help="with --run: run checks headless first (checks.triage); only the rest go to Studio")
 
+    pg_ = sub.add_parser("plugin", help="ForgeBridge Studio plugin: install, serve the bridge, status, events, bench")
+    pg_.add_argument("action", choices=["install", "build", "serve", "status", "events", "load", "bench"])
+    pg_.add_argument("--port", type=int, default=None, help="bridge port (default 34880 / FORGE_BRIDGE_PORT)")
+    pg_.add_argument("--place", action="append", help="install/build/serve: place name the plugin may bind to (repeatable; default FORGE_STUDIO)")
+    pg_.add_argument("--plugins-dir", help="install: Studio Plugins folder (default ~/Documents/Roblox/Plugins)")
+    pg_.add_argument("--out", help="build: output file")
+    pg_.add_argument("--scenario", default="smoke", help="serve: scenario the Run tests button runs")
+    pg_.add_argument("--studio", help="load/bench: Studio name part or id")
+    pg_.add_argument("--since", type=int, default=0, help="events: start after this seq")
+    pg_.add_argument("--follow", action="store_true", help="events: keep streaming")
+    pg_.add_argument("-n", type=int, default=20, help="bench: calls per path")
+    pg_.add_argument("--datamodel", default="Edit", help="bench: Edit/Server/Client")
+
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
 
@@ -934,7 +1047,8 @@ def main(argv: list[str] | None = None) -> int:
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,
-               "orchestrate": cmd_orchestrate, "gaps": cmd_gaps, "queue": cmd_queue}[args.cmd]
+               "orchestrate": cmd_orchestrate, "gaps": cmd_gaps, "queue": cmd_queue,
+               "plugin": cmd_plugin}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

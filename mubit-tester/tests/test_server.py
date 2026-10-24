@@ -107,8 +107,10 @@ CONTRACT_TOOLS = [
 
 
 async def test_tools_registered():
+    from mubit_tester import studio_bridge  # extension tools (forge/bridge.py) come on top of the contract
     names = [t.name for t in await ms.mcp.list_tools()]
-    assert sorted(names) == sorted(CONTRACT_TOOLS)
+    assert "mubit_tester.studio_bridge" in ms.LOADED_EXTENSIONS
+    assert sorted(names) == sorted(CONTRACT_TOOLS + list(studio_bridge.TOOLS))
     assert sorted(ms.TOOL_NAMES) == sorted(CONTRACT_TOOLS)
     schemas = {t.name: t.input_schema for t in await ms.mcp.list_tools()}
     assert schemas["playtest"]["required"] == ["goal"]
@@ -464,7 +466,7 @@ async def test_stdio_server_lists_and_calls_tools(tmp_path):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 names = {t.name for t in (await session.list_tools()).tools}
-                assert names == set(CONTRACT_TOOLS)
+                assert names == set(CONTRACT_TOOLS) | {"studio_status", "studio_events", "studio_run"}  # + studio_bridge extension
                 res = await session.call_tool("report", {"run_id": "pt-20261023-abc"})
                 assert not res.is_error
                 assert "Hose prompt missing" in _text(res)
