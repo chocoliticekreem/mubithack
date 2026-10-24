@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from forge.config import Settings
-from forge.fun import FUN_BAR, static_census, visual_checks
+from forge.fun import FUN_BAR, SOUND_KEYS, static_census, visual_checks
 from forge.memory import RunStore
 
 CRITIC_BAR = 8.0
@@ -142,8 +142,9 @@ def _polish(run: Path, game_dir: Path) -> list[dict]:
         grey = f"{c.get('colour_sites', 0)} colour sets for {c.get('part_sites', 0)} part sites"
     hud = (f"{c.get('screen_guis')} ScreenGuis" if "screen_guis" in c
            else f"{c.get('screen_gui_sites', 0)} ScreenGui sites")
-    if "sounds" in c or "client_sounds" in c:
-        snd = f"{int(c.get('sounds') or 0) + int(c.get('client_sounds') or 0)} sounds"
+    if any(k in c for k in SOUND_KEYS):
+        snd = (f"{int(c.get('sounds') or 0) + int(c.get('client_sounds') or 0)} sounds live, "
+               f"{max(int(c.get('sounds_played') or 0), int(c.get('client_sounds_played') or 0))} played")
     else:
         snd = f"{c.get('sound_sites', 0)} sound sites"
 
