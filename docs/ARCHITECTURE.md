@@ -146,27 +146,77 @@ forge/                 Python package (uv), entry point `forge`
                        <file>:"<text>"` -> <file>:<line>; __EXPECTED_STAGES__ from spec levels), kit_api_block(spec) in every
                        coder user message (roles.code_module), protected_paths (kit + level data) never go to the fixer
                        (Run.base_files), ensure_kit(spec, game_dir, names) for games built before the kit
-  obby.py              obby levels as data: KINDS (11 kinds, defaults/limits), layout(stage) -> surfaces in the course frame,
+  obby.py              obby levels as data: KINDS (11 kinds, defaults/limits; platform shape block|round|cylinder|wedge-ramp),
+                       layout(stage) -> surfaces in the stage frame (stage `turn` -90..90 on its start pad: a turn that is not
+                       a multiple of 90 judges the pad as its inscribed disc for jumps and its rotated box for movers; a
+                       cylinder is a log across the course whose standable strip is half its diameter, LOG_DROP of the radius
+                       under the crown; a wedge-ramp lands at its low near edge and takes off from its top),
                        validate_stage / validate_zone -> exact "stage N ...: gap 12.0 at rise 0.0 > max 10.0" problems (jump
                        envelope of the default character: walk 16, jump height 7.2, gravity 196.2, reach(rise) = 16 * airtime
                        + 1.3, rise <= 6, calibrated live; jumppad/trampoline launches; movers sampled over 24 s; tile
-                       timing; lava at floor level; crush; pendulum clearance), fallback_stage, kinds_doc, limits_doc,
-                       render_zone_luau -> ReplicatedStorage/Levels/ZoneNN.luau. ObbyKit's LevelBuilder runs the same rules
-                       (tests/test_obby.py: same messages for the same data)
-  kit/modules/ObbyKit.luau  ObbyKit.start(opts) builds every Levels zone from the start pad and runs checkpoints (Stage
-                       leaderstat, DataStore / Studio memory, SavedStage), respawn, kill parts, falls, coins, jump pads,
-                       trampolines, conveyors; one Heartbeat loop drives movers near players; Obstacles.<kind>(parent, cf,
-                       params); LevelBuilder.build/validate/validateZone/audit; tags Checkpoint, ObbyStart, ObbyStage,
-                       KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline, Conveyor
+                       timing; lava at floor level; crush counts body thickness; pendulum clearance), fallback_stage (four
+                       varied layouts), kinds_doc, limits_doc, render_zone_luau -> ReplicatedStorage/Levels/ZoneNN.luau
+                       (theme_id, turn); a turned stage's piece level with its start pad may not start inside the turned
+                       pad's corners (param). ObbyKit's LevelBuilder runs the same rules (tests/test_obby.py: same messages
+                       for the same data). Design-time zone rules (Python only): zone_rules(zone, first, count, theme) /
+                       rule_problems / rule_stats: a stage at most 50% plain block platforms, an obstacle per stage, no two
+                       stages with the same kind sequence, >= 4 kinds a zone (finale: 6), the theme's SIGNATURES (THEMES:
+                       entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale) and turns each in
+                       share_need(count) stages (30%: 6 of 20), the zone climbs CLIMB_PER_STAGE per stage and each run of the
+                       route at most RUN_CLIMB_MAX 12 (run_climbs / run_climb_problems: the corners lift the levels),
+                       footprint_problems:
+                       every piece, mover's path and jump inside the zone's plot (PLOT_HALF_WIDTH 38 each side of the start
+                       line, PLOT_BACK 10 behind the start pad to PLOT_LENGTH 450 ahead: the corridor WorldKit keeps clear in
+                       its 1600-stud park), and course_layout (stage frames in the zone frame) never crosses itself
+                       (crossing_problems: pieces and jump gaps of different stages within CLEARANCE). Forge owns the turns:
+                       route_plan(count) -> [{role run|corner, turn, run, dir out|back}] is a switchback (runs out and back
+                       in two lanes, at most MAX_RUN_STAGES out; between runs a corner stage turns CORNER_TURN -90, left,
+                       CORNER_LENGTH long, lifting CORNER_LIFT, and the next run's first stage turns -90 again; the first run
+                       out is a stage longer than any run back), apply_route writes its turns into a zone; stage_length,
+                       extent; THEME_PALETTES (each theme's landmark colours, mains delta E >= 25 apart); fallback_stage(...,
+                       corner=True) is one of three short lifts
+  kit/modules/ObbyKit.luau  ObbyKit.start(opts) builds every Levels zone and runs checkpoints (Stage leaderstat, DataStore /
+                       Studio memory, SavedStage), respawn, kill parts, falls (per stage frame: FALL_DEPTH under the stage, or
+                       standing on anything off the course under it past its start pad, e.g. the park's ground), coins, jump pads, trampolines,
+                       conveyors; one Heartbeat loop drives movers near players; Obstacles.<kind>(parent, cf, params; piece k takes
+                       the zone's palette rotated by k);
+                       LevelBuilder.build/validate/validateZone/audit (turned stages and shapes rebuilt from parts). v2:
+                       opts.anchors ({[zone | theme id | name] = CFrame}, WorldKit.buildPark): zone 1 starts at its anchor,
+                       later zones on their own start pads (ObbyZoneStart), the zone before ends in a ride gate (RideGate:
+                       RidePad touch pad tagged RideGatePad + 'Ride to <zone>' prompt, both connected: save the stage,
+                       teleport to the next zone's start; a player at a zone's last stage respawns there); each stage's frame
+                       turns by its `turn`; opts.themes (ObbyThemes): dress(kind, model, params, theme, rng) per piece and
+                       stageDecor(stage, theme, rng, n) per stage, pcall-guarded, every part they add made non-colliding,
+                       non-touching, non-query, massless and untagged; opts.gates (WorldKit's, same keys as anchors): a ride
+                       entrance on the ground to every later zone with its own start pad (RideEntrance, attrs Zone, Stage =
+                       the stage it needs, LastStage, FromZoneName; EntrancePad tagged RideEntrancePad + prompt: a player who
+                       finished the zone before rides to that zone, to their own checkpoint while inside it; others get a
+                       3 s "Finish <zone> first" BillboardGui in their PlayerGui and the RideNotice attribute); opts.spawn
+                       (the park spawn; with it or with anchors the course is in a world): a player who has not stood on the
+                       course yet (start pad, checkpoint, ride gate, a fall off it: player attribute OnCourse) starts and
+                       respawns there instead of on the start pad; every pad floating over open ground (raycast from inside
+                       it: a pad over the course or on a WorldKit tower gets none) stands on a non-colliding Support column
+                       and Footing (workspace.Obby.Supports); tags Checkpoint, ObbyStart, ObbyZoneStart, RideGate, RideGatePad,
+                       RideEntrance, RideEntrancePad, ObbyStage, KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline,
+                       Conveyor
   levels.py            `forge levels <slug> [--zones a-b] [--stages-per-zone 20] [--total-zones N]`: per zone one
-                       level_designer call (game, zone, difficulty per stage, mechanics schedule, kinds, limits in the user
-                       message) -> validate -> up to CORRECTIONS (2) corrections in the same task with the exact errors ->
-                       fallback stages for the rest -> runs/<slug>/levels/zone-NN.json + log.jsonl and the Levels module;
-                       resumable (valid zones skipped); spec["levels"] = {zones, stages_per_zone, plan[...]}
-  prompts/level_designer.md  Mubit task: one zone -> {zone, name, theme, palette, material, stages[{stage, name, pieces}]}
+                       level_designer call (game, zone, park theme (zone_theme: plan theme_id, planned name words, else the
+                       park order for an amusement-park game) + THEME_NOTES + signature kinds introduced early, difficulty per
+                       stage, mechanics schedule, the zone rules in words, route_doc (obby.route_plan stage by stage, run and
+                       corner lengths, lane width, CORNER_EXAMPLE), kinds, limits and one valid EXAMPLES run stage per theme in
+                       the user message) -> forge_owned (the route's turns, and THEME_PALETTES[theme] for a park theme) ->
+                       validate_zone + zone_rules -> up to CORRECTIONS (2) corrections in the same task with the exact errors
+                       (plus a one-line-per-stage zone overview when zone rules fail: route role, turn, heading, length, where
+                       its checkpoint ends) -> fallback stages for unreachable ones (a corner's is a short lift) ->
+                       runs/<slug>/levels/zone-NN.json (theme_id) + log.jsonl and the
+                       Levels module; resumable (zones passing both validators skipped); spec["levels"] = {zones,
+                       stages_per_zone, plan[{..., theme_id, rules_left, stats}]}; ok also needs no zone rule left broken
+  prompts/level_designer.md  Mubit task: one zone -> {zone, name, theme, palette, material, stages[{stage, name, turn, pieces}]}
   genre_checks/obby/*.luau   prebuilt obby checks: stage count vs spec, one checkpoint per stage, checkpoint saves + respawn,
                        kill parts kill, falls return to the checkpoint, reachability (data + built parts), coins collectible,
-                       jump envelope (a live R15 runner), movers carry; each check's waits stay under the 30 s execute_luau limit
+                       jump envelope (a live R15 runner), movers carry, ride gates (wired, riding one lands on the next
+                       zone's start, and that zone's ground entrance is shut one stage short and rides up at the zone's last
+                       stage); each check's waits stay under the 30 s execute_luau limit
   fun.py               quality brain 2 (`forge fun <slug>`): census(studio) (server + client scene census during play,
                        stored as report["census"]), static_census(files), fun_critique(llm, spec, files, report, *,
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,

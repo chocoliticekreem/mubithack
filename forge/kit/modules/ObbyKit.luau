@@ -4,6 +4,9 @@
 -- ten obstacle kinds driven by ONE Heartbeat loop, and LevelBuilder, which builds stages from level data
 -- (ReplicatedStorage/Levels/ZoneNN.luau, written by `forge levels`) and checks every jump with the same
 -- rules as forge/obby.py. Everything is tagged (CollectionService) and attributed so checks can find it.
+-- v2: the course lives in the world. Each zone can start at its own anchor (WorldKit.buildPark), stages turn
+-- on their start pads, the last checkpoint of a zone has a ride gate (touch pad + prompt) to the next zone's
+-- start, and an optional themes module (ObbyThemes) dresses every piece and stage without touching collision.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
@@ -11,7 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local ObbyKit = {}
-ObbyKit.VERSION = 1
+ObbyKit.VERSION = 2
 
 -- ============================================================== rules (mirror forge/obby.py)
 
@@ -38,8 +41,13 @@ local R = {
 	HOP_TIME = 0.6,
 	CRUSH_HEIGHT = 5,
 	BALL_CLEARANCE = 3,
+	MAX_TURN = 90,
+	LOG_MAX_DIAMETER = 8,
+	LOG_STRIP = 0.5,
+	RAMP_MAX_CLIMB = 8,
 }
 R.JUMP_SPEED = math.sqrt(2 * R.GRAVITY * R.JUMP_HEIGHT)
+R.LOG_DROP = 1 - math.sqrt(3) / 2
 ObbyKit.Rules = R
 
 local P = R.PAD_SIZE
@@ -55,7 +63,10 @@ local KIND_NAMES = {
 	"pendulum", "lava",
 }
 local KINDS = {
-	platform = { size = { 8, 1, 8 }, min = { 2, 0.5, 2 }, max = { 40, 4, 40 }, params = { { "shape", "block", { "block", "round" } } } },
+	platform = {
+		size = { 8, 1, 8 }, min = { 2, 0.5, 2 }, max = { 40, 4, 40 },
+		params = { { "shape", "block", { "block", "round", "cylinder", "wedge-ramp" } } },
+	},
 	checkpoint = { size = { P, R.PAD_THICK, P }, min = { P, R.PAD_THICK, P }, max = { P, R.PAD_THICK, P }, params = {} },
 	moving = {
 		size = { 7, 1, 7 }, min = { 5, 0.5, 5 }, max = { 16, 2, 16 },
@@ -147,6 +158,8 @@ local function normalizePiece(raw: any): { [string]: any }
 	end
 	if spec.round or out.shape == "round" then
 		out.size[3] = out.size[1]
+	elseif out.shape == "cylinder" then
+		out.size[2] = out.size[3]
 	end
 	return out
 end
@@ -156,6 +169,7 @@ local function normalizeStage(raw: any, number: number): { [string]: any }
 	local out: { [string]: any } = {
 		stage = trunc(num(raw.stage, number)),
 		name = string.sub(strip(tostring(raw.name or "")), 1, 60),
+		turn = num(raw.turn, 0),
 		pieces = {},
 	}
 	if raw.fallback == true then
@@ -167,11 +181,39 @@ local function normalizeStage(raw: any, number: number): { [string]: any }
 	return out
 end
 
+-- landDrop / offDrop: where a jump lands on / leaves this surface sits that far under `top` (a ramp's low edge,
+-- a log's strip); h: body thickness under `top`; bw, bl: body footprint when wider than the standable one.
 local function newSurface(piece, kind, x, z, top, w, l, rnd, standable)
 	return {
 		piece = piece, kind = kind, x = x, z = z, top = top, w = w, l = l, round = rnd, standable = standable,
 		tile = -1, move = nil, period = 0, phase = 0, launch = R.JUMP_SPEED, walk = R.WALK_SPEED, launched = false,
+		landDrop = 0, offDrop = 0, h = 0, bw = w, bl = l,
 	}
+end
+
+-- The pad a stage starts on, in the stage's (turned) frame: a turn that is not a multiple of 90 judges jumps from
+-- the pad's inscribed disc and movers against its rotated bounding box.
+local function padSurface(turn: number)
+	local s = newSurface(0, "pad", 0, 0, 0, P, P, false, true)
+	s.h = R.PAD_THICK
+	if math.abs(turn) % 90 >= 1e-9 then
+		local a = math.rad(turn)
+		local box = P * (math.abs(math.cos(a)) + math.abs(math.sin(a)))
+		s.round, s.bw, s.bl = true, box, box
+	end
+	return s
+end
+
+-- {min, max} per size axis (width, height, length); false = not checked (a log's height is its diameter).
+local function sizeLimits(p)
+	local spec = KINDS[p.kind]
+	local lim = { { spec.min[1], spec.max[1] }, { spec.min[2], spec.max[2] }, { spec.min[3], spec.max[3] } }
+	if p.shape == "cylinder" then
+		lim[2], lim[3] = false, { spec.min[3], R.LOG_MAX_DIAMETER }
+	elseif p.shape == "wedge-ramp" then
+		lim[2] = { spec.min[2], R.RAMP_MAX_CLIMB }
+	end
+	return lim
 end
 
 local function label(s): string
@@ -198,6 +240,36 @@ end
 
 local function problem(stage, piece, code, text)
 	return { stage = stage, piece = piece, code = code, text = "stage " .. tostring(stage) .. " " .. text }
+end
+
+-- Under a turn that is not a multiple of 90 the start pad's corners reach past P / 2: a still piece whose body is level
+-- with the pad must not start inside it (separating axes: the stage's x/z, then the pad's own).
+local function padOverlaps(n, surfaces, turn, out)
+	local a = math.rad(turn)
+	local c, s = math.cos(a), math.sin(a)
+	local half = P / 2
+	local reach = half * (math.abs(c) + math.abs(s))
+	local seen = {}
+	for k = 2, #surfaces do
+		local sf = surfaces[k]
+		if sf.move ~= nil or seen[sf.piece] or not (sf.top - sf.h < 0 and sf.top > -R.PAD_THICK) then
+			continue
+		end
+		local hx, hz = sf.bw / 2, sf.bl / 2
+		if math.abs(sf.x) >= reach + hx or math.abs(sf.z) >= reach + hz then
+			continue
+		end
+		if math.abs(sf.x * c + sf.z * s) >= half + hx * math.abs(c) + hz * math.abs(s) then
+			continue
+		end
+		if math.abs(-sf.x * s + sf.z * c) >= half + hx * math.abs(s) + hz * math.abs(c) then
+			continue
+		end
+		seen[sf.piece] = true
+		table.insert(out, problem(n, sf.piece, "param", string.format(
+			"%s overlaps the start pad, whose corners reach %s studs forward after the turn of %s: start it further out",
+			label(sf), f1(reach), g(turn))))
+	end
 end
 
 local function tileTiming(n, i, p, out)
@@ -234,12 +306,17 @@ local function checkParams(n, i, p, out)
 		end
 	end
 	if kind ~= "checkpoint" then
+		local lims = sizeLimits(p)
 		for axis, name in { "width", "height", "length" } do
-			local v, lo, hi = p.size[axis], spec.min[axis], spec.max[axis]
-			if not (lo <= v and v <= hi) then
-				table.insert(out, problem(n, i, "param", where .. " size " .. name .. " " .. g(v) .. " out of range " .. rangeText(lo, hi)))
+			local v, lim = p.size[axis], lims[axis]
+			if lim and not (lim[1] <= v and v <= lim[2]) then
+				table.insert(out, problem(n, i, "param", where .. " size " .. name .. " " .. g(v) .. " out of range " .. rangeText(lim[1], lim[2])))
 			end
 		end
+	end
+	if p.shape == "wedge-ramp" and p.size[2] > p.size[3] then
+		table.insert(out, problem(n, i, "param", where .. " wedge-ramp climbs " .. g(p.size[2]) .. " over length " .. g(p.size[3])
+			.. "; keep its height at most its length (45 degrees)"))
 	end
 	for _, d in spec.params do
 		local name = d[1]
@@ -285,7 +362,11 @@ local function layout(stage)
 		table.insert(problems, problem(n, 0, "structure", string.format("has %d pieces; use %d to %d (the checkpoint included)",
 			#pieces, R.MIN_PIECES, R.MAX_PIECES)))
 	end
-	local surfaces = { newSurface(0, "pad", 0, 0, 0, P, P, false, true) }
+	local turn = num(stage.turn, 0)
+	if not (-R.MAX_TURN <= turn and turn <= R.MAX_TURN) then
+		table.insert(problems, problem(n, 0, "param", "turn " .. g(turn) .. " out of range " .. rangeText(-R.MAX_TURN, R.MAX_TURN)))
+	end
+	local surfaces = { padSurface(turn) }
 	local cursorZ, cursorTop = P / 2, 0
 	local checkpoints = 0
 	for i, p in pieces do
@@ -308,16 +389,26 @@ local function layout(stage)
 		local standable = spec.standable ~= false
 		local top = cursorTop + p.rise
 		local near = cursorZ + p.gap
+		local function shaped(s)
+			s.h = if kind == "checkpoint" then R.PAD_THICK else p.size[2]
+			if p.shape == "cylinder" then
+				s.l, s.bl = l * R.LOG_STRIP, l
+				s.landDrop, s.offDrop = l / 2 * R.LOG_DROP, l / 2 * R.LOG_DROP
+			elseif p.shape == "wedge-ramp" then
+				s.landDrop = p.size[2]
+			end
+			return s
+		end
 		if kind == "disappearing" then
 			for j = 0, trunc(p.count) - 1 do
-				local s = newSurface(i, kind, p.side, near + l / 2, top, w, l, rnd, standable)
+				local s = shaped(newSurface(i, kind, p.side, near + l / 2, top, w, l, rnd, standable))
 				s.tile = j
 				table.insert(surfaces, s)
 				near = near + l + p.spacing
 			end
 			cursorZ = near - p.spacing
 		else
-			local s = newSurface(i, kind, p.side, near + l / 2, top, w, l, rnd, standable)
+			local s = shaped(newSurface(i, kind, p.side, near + l / 2, top, w, l, rnd, standable))
 			if kind == "moving" then
 				s.move, s.period, s.phase = { p.move[1], p.move[2], p.move[3] }, p.period, p.phase
 			elseif kind == "jumppad" then
@@ -340,6 +431,9 @@ local function layout(stage)
 	end
 	if cursorZ > R.MAX_STAGE_LENGTH then
 		table.insert(problems, problem(n, 0, "length", "is " .. f1(cursorZ) .. " studs long; keep it under " .. g(R.MAX_STAGE_LENGTH)))
+	end
+	if math.abs(turn) % 90 >= 1e-9 then
+		padOverlaps(n, surfaces, turn, problems)
 	end
 	return surfaces, problems
 end
@@ -388,7 +482,7 @@ local function jumpAt(a, b, t)
 	local ax, ay, az = at(a, t)
 	local bx, by, bz = at(b, t)
 	local gap = footprintGap(a, ax, az, b, bx, bz)
-	local rise = by - ay
+	local rise = (by - b.landDrop) - (ay - a.offDrop)
 	local lim = if rise >= R.MIN_RISE then reach(a, rise) else nil
 	return lim ~= nil and gap <= lim, gap, rise, lim
 end
@@ -442,9 +536,9 @@ local function crushProblems(n, surfaces, out)
 			for k = 0, R.SAMPLES - 1, 2 do
 				local mx, my, mz = at(m, k * R.SAMPLE_DT)
 				local ox, oy, oz = at(o, k * R.SAMPLE_DT)
-				local dx = math.abs(mx - ox) - (m.w + o.w) / 2
-				local dz = math.abs(mz - oz) - (m.l + o.l) / 2
-				if dx < 0 and dz < 0 and math.abs(my - oy) < R.CRUSH_HEIGHT then
+				local dx = math.abs(mx - ox) - (m.bw + o.bw) / 2
+				local dz = math.abs(mz - oz) - (m.bl + o.bl) / 2
+				if dx < 0 and dz < 0 and my - m.h < oy + R.CRUSH_HEIGHT and oy - o.h < my + R.CRUSH_HEIGHT then
 					table.insert(out, problem(n, m.piece, "mover", string.format("piece %d (moving) passes through %s", m.piece, label(o))))
 					break
 				end
@@ -473,9 +567,11 @@ local function lavaProblems(n, surfaces, out)
 		end
 		local floor = s.top
 		if prev and nxt then
-			floor = math.min(prev.top, nxt.top)
-		elseif prev or nxt then
-			floor = (prev or nxt).top
+			floor = math.min(prev.top - prev.offDrop, nxt.top - nxt.landDrop)
+		elseif prev then
+			floor = prev.top - prev.offDrop
+		elseif nxt then
+			floor = nxt.top - nxt.landDrop
 		end
 		if s.top > floor + 0.5 then
 			table.insert(out, problem(n, s.piece, "lava", string.format("piece %d (lava): top %s is above the floor around it (%s); kill parts lie at floor level",
@@ -635,7 +731,10 @@ local PALETTES = {
 }
 
 local function hex(s: any, fallback: Color3): Color3
-	local ok, c = pcall(Color3.fromHex, tostring(s))
+	if type(s) ~= "string" then
+		return fallback
+	end
+	local ok, c = pcall(Color3.fromHex, s)
 	return if ok and c then c else fallback
 end
 
@@ -654,6 +753,14 @@ local function theme(zone: number?, palette: any, material: any)
 		highlight = hex(pal[3], Color3.fromHex(base[3])),
 		material = mat,
 	}
+end
+
+-- Piece k of a stage takes the zone's three colours rotated by k, so neighbouring pieces never share a colour and no
+-- stage reads as one slab of the zone's main colour.
+local function rotated(look, k: number)
+	local c = { look.main, look.accent, look.highlight }
+	local i = (k - 1) % 3
+	return { main = c[i + 1], accent = c[(i + 1) % 3 + 1], highlight = c[(i + 2) % 3 + 1], material = look.material }
 end
 
 local function newPart(props: { [string]: any }): Part
@@ -826,9 +933,21 @@ function Obstacles.platform(parent, cf: CFrame, raw, look)
 	local part
 	if p.shape == "round" then
 		part = disc("Platform", p.size[1], p.size[2], cf, th.main, th.material, m)
+	elseif p.shape == "cylinder" then -- a log across the course: its axis (a Cylinder's local X) runs sideways
+		local d = p.size[3]
+		part = newPart({ Name = "Platform", Shape = Enum.PartType.Cylinder, Size = Vector3.new(p.size[1], d, d),
+			CFrame = cf * CFrame.new(0, -d / 2, 0), Color = th.main, Material = th.material, Parent = m })
+	elseif p.shape == "wedge-ramp" then -- a WedgePart rises toward its back (+Z): turned so it climbs along the course
+		part = Instance.new("WedgePart")
+		part.Name, part.Anchored = "Platform", true
+		part.Size = Vector3.new(p.size[1], p.size[2], p.size[3])
+		part.CFrame = cf * CFrame.new(0, -p.size[2] / 2, 0) * CFrame.Angles(0, math.pi, 0)
+		part.Color, part.Material = th.main, th.material
+		part.Parent = m
 	else
 		part = block("Platform", p.size, cf, th.main, th.material, m)
 	end
+	part:SetAttribute("Shape", p.shape)
 	standable(part)
 	return m
 end
@@ -1058,10 +1177,39 @@ end
 
 -- ============================================================== LevelBuilder.build
 
-local course = { origin = nil, stages = 0, info = {}, checkpoints = {}, coins = 0, folder = nil, start = nil, errors = {} }
+-- info[n] = { zone, zoneName, theme, origin = the stage's (turned) frame, its corridor in that frame };
+-- nextStart[n] = the next zone's start pad when stage n ends a zone; gates[zone] = that zone's ride gate.
+-- world: the course stands in a world (anchors or a park spawn given): a player who has not reached the course yet
+-- starts and respawns at `spawn` (the park's lobby), not on the start pad.
+local course = { origin = nil, stages = 0, info = {}, checkpoints = {}, coins = 0, folder = nil, start = nil, errors = {},
+	zoneStarts = {}, nextStart = {}, gates = {}, anchors = nil, themes = nil, zones = {}, entrances = {}, supports = 0,
+	world = false, spawn = nil }
 
--- Build one stage from data at `origin` (the TOP CENTER of the pad it starts on, LookVector = forward).
--- opts: { parent, zone, zoneName, palette, material, validate = true }.
+-- Decoration a themes module adds may never change what players collide with, stand on or touch: every part
+-- it adds to `root` loses collision, touch and query and its mass (the validated footprint stays exact).
+local function dressed(root: Instance, fn, ...)
+	local before = {}
+	for _, d in root:GetDescendants() do
+		before[d] = true
+	end
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		warn("[ObbyKit] themes: " .. tostring(err))
+	end
+	for _, d in root:GetDescendants() do
+		if not before[d] and d:IsA("BasePart") then
+			d.CanCollide, d.CanTouch, d.CanQuery, d.Massless = false, false, false, true
+			for _, tag in { "ObbyStandable", "KillPart", "Checkpoint", "JumpPad", "Trampoline", "Conveyor", "Coin" } do
+				CollectionService:RemoveTag(d, tag)
+			end
+		end
+	end
+end
+
+-- Build one stage from data at `origin` (the TOP CENTER of the pad it starts on, LookVector = forward). The
+-- stage's turn is the caller's (buildLevels turns `origin` before calling); it is recorded for the audit.
+-- opts: { parent, zone, zoneName, palette, material, validate = true, themes, theme, rng }: themes.dress(kind,
+-- model, params, theme, rng) runs on every piece and themes.stageDecor(stage, theme, rng, n) on the stage.
 -- Returns the stage Model, its checkpoint Part (nil if the data has none) and the path points (rest top centers).
 function LevelBuilder.build(stageData, origin: CFrame, opts: { [string]: any }?)
 	assert(RunService:IsServer(), "ObbyKit.LevelBuilder.build runs on the server")
@@ -1070,6 +1218,8 @@ function LevelBuilder.build(stageData, origin: CFrame, opts: { [string]: any }?)
 	local n = st.stage
 	local surfaces = layout(st)
 	local look = theme(opts.zone, opts.palette, opts.material)
+	local themes = if type(opts.themes) == "table" then opts.themes else nil
+	local rng = opts.rng or Random.new(n * 7919 + 17)
 	local model = Instance.new("Model")
 	model.Name = string.format("Stage%03d", n)
 	model:SetAttribute("Stage", n)
@@ -1077,6 +1227,10 @@ function LevelBuilder.build(stageData, origin: CFrame, opts: { [string]: any }?)
 	model:SetAttribute("Zone", opts.zone or 0)
 	model:SetAttribute("ZoneName", opts.zoneName or "")
 	model:SetAttribute("Origin", origin)
+	model:SetAttribute("Turn", st.turn)
+	if opts.theme then
+		model:SetAttribute("Theme", opts.theme)
+	end
 	CollectionService:AddTag(model, "ObbyStage")
 	local checkpoint, points, done = nil, {}, {}
 	for _, s in surfaces do
@@ -1095,7 +1249,7 @@ function LevelBuilder.build(stageData, origin: CFrame, opts: { [string]: any }?)
 			raw = { stage = n }
 		end
 		local cf = origin * CFrame.new(s.x, s.top, -s.z)
-		local m = builder(model, cf, raw, look)
+		local m = builder(model, cf, raw, rotated(look, s.piece))
 		m.Name = string.format("%02d_%s", s.piece, piece.kind)
 		m:SetAttribute("Stage", n)
 		m:SetAttribute("Piece", s.piece)
@@ -1112,6 +1266,12 @@ function LevelBuilder.build(stageData, origin: CFrame, opts: { [string]: any }?)
 			coin(m, (cf * CFrame.new(0, 3.2, (k - (coins + 1) / 2) * 2.6)).Position, cf.Rotation)
 			course.coins += 1
 		end
+		if themes and type(themes.dress) == "function" then
+			dressed(m, themes.dress, piece.kind, m, piece, opts.theme, rng)
+		end
+	end
+	if themes and type(themes.stageDecor) == "function" then
+		dressed(model, themes.stageDecor, model, opts.theme, rng, n)
 	end
 	if opts.validate ~= false then
 		local errors = LevelBuilder.validate(st, n)
@@ -1127,17 +1287,25 @@ end
 
 local function surfaceOf(part: BasePart, origin: CFrame)
 	local cf = part:GetAttribute("Rest") or part.CFrame
-	local isCyl = part:IsA("Part") and part.Shape == Enum.PartType.Cylinder
-	local thick = if isCyl then part.Size.X else part.Size.Y
+	local shape = part:GetAttribute("Shape")
+	local isDisc = part:IsA("Part") and part.Shape == Enum.PartType.Cylinder and shape ~= "cylinder"
+	local thick = if isDisc then part.Size.X else part.Size.Y
 	local lp = origin:PointToObjectSpace(cf.Position + origin.UpVector * (thick / 2))
 	local w, l = part.Size.X, part.Size.Z
-	if isCyl then
+	if isDisc then
 		w, l = part.Size.Y, part.Size.Y
 	end
 	local model = part:FindFirstAncestorOfClass("Model")
 	local kind = model and model:GetAttribute("Kind") or "?"
-	local s = newSurface(part:GetAttribute("Piece") or 0, kind, lp.X, -lp.Z, lp.Y, w, l, isCyl,
+	local s = newSurface(part:GetAttribute("Piece") or 0, kind, lp.X, -lp.Z, lp.Y, w, l, isDisc,
 		CollectionService:HasTag(part, "ObbyStandable"))
+	s.h = thick
+	if shape == "cylinder" then
+		s.l, s.bl = l * R.LOG_STRIP, l
+		s.landDrop, s.offDrop = l / 2 * R.LOG_DROP, l / 2 * R.LOG_DROP
+	elseif shape == "wedge-ramp" then
+		s.landDrop = thick
+	end
 	s.tile = part:GetAttribute("Tile") or -1
 	local move = part:GetAttribute("Move")
 	if typeof(move) == "Vector3" and part:GetAttribute("Period") then
@@ -1167,7 +1335,7 @@ function LevelBuilder.audit(root: Instance?): { string }
 			continue
 		end
 		local n = model:GetAttribute("Stage") or 0
-		local surfaces = { newSurface(0, "pad", 0, 0, 0, P, P, false, true) }
+		local surfaces = { padSurface(model:GetAttribute("Turn") or 0) }
 		for _, d in model:GetDescendants() do
 			if d:IsA("BasePart") and d:GetAttribute("Piece") and (CollectionService:HasTag(d, "ObbyStandable") or d.Name == "Lava") then
 				table.insert(surfaces, surfaceOf(d, origin))
@@ -1199,16 +1367,26 @@ local started = false
 local SAVE_EVERY = 6
 local FALL_DEPTH = 25
 
+-- The pad a player at `stage` stands on: the pad stage+1 starts on (the next zone's start pad after a zone's last
+-- checkpoint), facing the way that stage runs.
+local function spawnPad(stage: number): BasePart?
+	if stage <= 0 then
+		return course.start
+	end
+	return course.nextStart[stage] or course.checkpoints[stage]
+end
+
 local function spawnFrame(stage: number): CFrame?
-	local cp = course.checkpoints[stage]
-	local pad = if stage > 0 then cp else course.start
+	local pad = spawnPad(stage)
 	if not pad then
 		return nil
 	end
 	local top = pad.CFrame * CFrame.new(0, pad.Size.Y / 2, 0)
-	local fwd = if course.origin then course.origin.LookVector else top.LookVector
+	local nxt = course.info[stage + 1]
+	local fwd = if nxt then nxt.origin.LookVector elseif course.origin then course.origin.LookVector else top.LookVector
+	local flat = Vector3.new(fwd.X, 0, fwd.Z)
 	local pos = top.Position + Vector3.new(0, 3.2, 0)
-	return CFrame.lookAt(pos, pos + Vector3.new(fwd.X, 0, fwd.Z))
+	return CFrame.lookAt(pos, pos + (if flat.Magnitude > 1e-3 then flat else Vector3.new(0, 0, -1)))
 end
 
 local function zoneFor(stage: number)
@@ -1319,9 +1497,8 @@ local function setStage(player: Player, n: number, reached: boolean?)
 	end
 end
 
-local function respawn(player: Player)
+local function teleport(player: Player, cf: CFrame?)
 	local char = player.Character
-	local cf = spawnFrame((data[player] and data[player].stage) or 0)
 	if char and cf then
 		if workspace.StreamingEnabled then -- the checkpoint may not be streamed in on that client yet
 			pcall(function()
@@ -1333,6 +1510,38 @@ local function respawn(player: Player)
 		if hrp then
 			hrp.AssemblyLinearVelocity = Vector3.zero
 		end
+	end
+end
+
+-- Where a respawn puts this player: their checkpoint (the start pad at stage 0), except in a world for a player who
+-- has not reached the course yet: the park spawn, so they walk in through the entrance and lobby (nil without one:
+-- the character stays where Roblox spawned it).
+local function homeFrame(player: Player): CFrame?
+	local d = data[player]
+	local stage = d and d.stage or 0
+	if stage > 0 or not course.world or (d and d.started) then
+		return spawnFrame(stage)
+	end
+	local at = course.spawn
+	if typeof(at) ~= "CFrame" then
+		return nil
+	end
+	local pos = at.Position + Vector3.new(0, 3.2, 0)
+	local look = Vector3.new(at.LookVector.X, 0, at.LookVector.Z)
+	return CFrame.lookAt(pos, pos + (if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)))
+end
+
+local function respawn(player: Player)
+	teleport(player, homeFrame(player))
+end
+
+-- The player stood on the course (a start pad, a checkpoint, a ride gate) or fell off it: from now on a stage-0
+-- respawn goes to the start pad.
+local function onCourse(player: Player?)
+	local d = player and data[player]
+	if d and not d.started then
+		d.started = true
+		player:SetAttribute("OnCourse", true)
 	end
 end
 
@@ -1363,7 +1572,7 @@ local function setupPlayer(player: Player)
 	if data[player] then
 		return
 	end
-	data[player] = { stage = 0, coins = 0, finishes = 0, loaded = false }
+	data[player] = { stage = 0, coins = 0, finishes = 0, loaded = false, started = false }
 	local ls = player:FindFirstChild("leaderstats")
 	if not ls then
 		ls = Instance.new("Folder")
@@ -1518,12 +1727,130 @@ local function onCheckpoint(part, hit)
 	if not d or not d.loaded or not hum or hum.Health <= 0 then
 		return
 	end
+	onCourse(player)
 	local n = part:GetAttribute("Stage")
 	if type(n) ~= "number" or n <= d.stage then
 		return
 	end
 	if n == d.stage + 1 or opts0.allowSkip then
 		setStage(player, n, true)
+	end
+end
+
+-- A ride gate at a zone's last checkpoint (touch pad or prompt): saves the stage and sends the player to the
+-- next zone's start pad. A player one stage short is standing past the zone's last jump: that counts as reaching it.
+local function rideGate(player: Player, gate: Instance)
+	local d = data[player]
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not d or not d.loaded or not hum or hum.Health <= 0 or not debounce(char, "ride", 1.5) then
+		return
+	end
+	local last = gate:GetAttribute("Stage")
+	if type(last) ~= "number" then
+		return
+	end
+	if d.stage < last then
+		if d.stage ~= last - 1 and not opts0.allowSkip then
+			return
+		end
+		setStage(player, last, true)
+	end
+	onCourse(player)
+	save(player, true)
+	count("ride_gate_used")
+	play("Whoosh", gate:FindFirstChild("RidePad"))
+	teleport(player, spawnFrame(last))
+	player:SetAttribute("LastRide", gate:GetAttribute("NextZone"))
+end
+
+local function onRideGate(part, hit)
+	local player = playerFromHit(hit)
+	local gate = part:FindFirstAncestorOfClass("Model")
+	if player and gate then
+		rideGate(player, gate)
+	end
+end
+
+local function onStartPad(_, hit)
+	local player, hum = playerFromHit(hit)
+	if player and hum and hum.Health > 0 then
+		onCourse(player)
+	end
+end
+
+-- A short message over `adornee` that only this player sees (a BillboardGui in their PlayerGui), for 3 seconds.
+local function notify(player: Player, adornee: BasePart?, text: string)
+	player:SetAttribute("RideNotice", text)
+	local gui = player:FindFirstChildOfClass("PlayerGui")
+	if not gui or not adornee then
+		return
+	end
+	local old = gui:FindFirstChild("ObbyNotice")
+	if old then
+		old:Destroy()
+	end
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "ObbyNotice"
+	bb.Adornee = adornee
+	bb.Size = UDim2.fromOffset(340, 60)
+	bb.StudsOffset = Vector3.new(0, 7, 0)
+	bb.AlwaysOnTop = true
+	bb.LightInfluence = 0
+	bb.MaxDistance = 120
+	bb.ResetOnSpawn = false
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundColor3 = COLORS.dark
+	t.BackgroundTransparency = 0.2
+	t.Font = Enum.Font.FredokaOne
+	t.TextScaled = true
+	t.Text = text
+	t.TextColor3 = COLORS.warn
+	t.Parent = bb
+	local round = Instance.new("UICorner")
+	round.CornerRadius = UDim.new(0, 14)
+	round.Parent = t
+	bb.Parent = gui
+	task.delay(3, function()
+		if bb.Parent then
+			bb:Destroy()
+		end
+	end)
+end
+
+-- A ride entrance on the park's ground (WorldKit's gates[z], for z >= 2): a player who has finished the zone before it
+-- rides up to zone z, to their own checkpoint while they are inside zone z, else to its start pad. Anyone else sees
+-- which zone to finish first.
+local function rideEntrance(player: Player, gate: Instance)
+	local d = data[player]
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not d or not d.loaded or not hum or hum.Health <= 0 or not debounce(char, "entrance", 1.5) then
+		return
+	end
+	local need, last = gate:GetAttribute("Stage"), gate:GetAttribute("LastStage")
+	if type(need) ~= "number" or type(last) ~= "number" then
+		return
+	end
+	local pad = gate:FindFirstChild("EntrancePad")
+	if d.stage < need and not opts0.allowSkip then
+		count("ride_entrance_locked")
+		notify(player, pad, "Finish " .. tostring(gate:GetAttribute("FromZoneName") or "the zone before") .. " first")
+		return
+	end
+	onCourse(player)
+	count("ride_entrance_used")
+	play("Whoosh", pad)
+	teleport(player, spawnFrame(if d.stage < last then math.max(d.stage, need) else need))
+	player:SetAttribute("LastRide", gate:GetAttribute("Zone"))
+end
+
+local function onRideEntrance(part, hit)
+	local player = playerFromHit(hit)
+	local gate = part:FindFirstAncestorOfClass("Model")
+	if player and gate then
+		rideEntrance(player, gate)
 	end
 end
 
@@ -1538,9 +1865,40 @@ local function ensureRuntime()
 	wireTag("JumpPad", onJumpPad)
 	wireTag("Trampoline", onTrampoline)
 	wireTag("Coin", onCoin)
+	wireTag("RideGatePad", onRideGate)
+	wireTag("RideEntrancePad", onRideEntrance)
+	wireTag("ObbyStart", onStartPad)
+	wireTag("ObbyZoneStart", onStartPad)
 end
 
--- Falls: a player below the stage they're on (inside its corridor) goes back to their checkpoint.
+-- Standing on something that is not the player's own part of the course: the park's ground, a stall roof, or, where
+-- the route's runs stack, a stage of the run below (stage numbers other than `a` and `b`). In a world a fall often
+-- ends there, long before FALL_DEPTH.
+local function offCourse(hrp: BasePart, hum: Humanoid, a: number, b: number): boolean
+	if hum.FloorMaterial == Enum.Material.Air then
+		return false
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { hrp.Parent }
+	local hit = workspace:Raycast(hrp.Position, Vector3.new(0, -8, 0), params)
+	if hit == nil then
+		return false
+	end
+	if not (course.folder and hit.Instance:IsDescendantOf(course.folder)) then
+		return true
+	end
+	local stage = hit.Instance:FindFirstAncestorWhichIsA("Model")
+	while stage and not CollectionService:HasTag(stage, "ObbyStage") do
+		stage = stage:FindFirstAncestorWhichIsA("Model")
+	end
+	local n = stage and stage:GetAttribute("Stage")
+	return type(n) == "number" and n ~= a and n ~= b
+end
+
+-- Falls: a player below the stage they're on (inside its corridor, in that stage's own frame) goes back to their
+-- checkpoint: FALL_DEPTH under its lowest piece, or standing anywhere under it past its start pad on something that is
+-- not their stage (the ground, the run below).
 local function catchFalls()
 	if not course.origin then
 		return
@@ -1552,13 +1910,16 @@ local function catchFalls()
 		if not (d.loaded and hrp and hum and hum.Health > 0) then
 			continue
 		end
-		local lp = course.origin:PointToObjectSpace(hrp.Position)
-		local x, y, z = lp.X, lp.Y, -lp.Z
-		for _, s in { d.stage, d.stage + 1 } do
+		for _, s in { d.stage + 1, d.stage } do
 			local info = course.info[s]
+			local lp = info and info.origin:PointToObjectSpace(hrp.Position)
+			local x, y, z = if lp then lp.X else 0, if lp then lp.Y else 0, if lp then -lp.Z else 0
 			if info and z >= info.zMin - 20 and z <= info.zMax + 20 and x >= info.xMin - 30 and x <= info.xMax + 30 then
-				if y < info.minTop - FALL_DEPTH and not d.returning then
+				local deep = y < info.minTop - FALL_DEPTH
+				local grounded = not deep and z > P / 2 and y < info.minTop - 2 and offCourse(hrp, hum, d.stage, d.stage + 1)
+				if (deep or grounded) and not d.returning then
 					count("player_fell")
+					onCourse(player)
 					d.returning = true
 					task.spawn(function()
 						respawn(player)
@@ -1615,26 +1976,197 @@ local function zoneGate(parent: Instance, origin: CFrame, zone: number, name: st
 	billboard(beam, "ZONE " .. zone .. (if name ~= "" then ": " .. name else ""), Color3.new(1, 1, 1), 3, 260)
 end
 
--- Build every zone (ReplicatedStorage.Levels ModuleScripts, or a list of zone tables) end to end from the
--- start pad. -> { stages = n, errors = { ... } }. Called by ObbyKit.start unless opts.levels == false.
+-- The same spot, level and facing the same way (anchors may come tilted; a course always runs level).
+local function levelFrame(cf: CFrame): CFrame
+	local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+	if look.Magnitude < 1e-3 then
+		return CFrame.new(cf.Position)
+	end
+	return CFrame.lookAt(cf.Position, cf.Position + look)
+end
+
+-- anchors[zone number], else anchors[theme id], else anchors[zone name] (WorldKit.buildPark's anchors).
+local function anchorFor(anchors: any, n: number, zd): CFrame?
+	if type(anchors) ~= "table" then
+		return nil
+	end
+	for _, key in { n, zd.theme_id, zd.name } do
+		local a = if key ~= nil then anchors[key] else nil
+		if typeof(a) == "CFrame" then
+			return a
+		end
+	end
+	return nil
+end
+
+local function startPad(parent: Instance, cf: CFrame, look, name: string): BasePart
+	local m = Obstacles.checkpoint(parent, cf, { stage = 0 }, look)
+	m.Name = name
+	local pad = m:FindFirstChild("Checkpoint")
+	CollectionService:RemoveTag(pad, "Checkpoint")
+	pad.Color = COLORS.start
+	pad.Name = "StartPad"
+	return pad
+end
+
+-- The ride gate on a zone's last checkpoint: a touch pad just past it (in the last stage's direction) under an
+-- arch in the next zone's colours, and a prompt on the pad. Both call rideGate.
+local function rideGateModel(parent: Instance, cp: BasePart, frame: CFrame, from, to): Model
+	local top = cp.CFrame * CFrame.new(0, cp.Size.Y / 2, 0)
+	local cf = CFrame.new(top.Position) * frame.Rotation * CFrame.new(0, 0, -(P / 2 + 4))
+	local title = if to.name ~= "" then to.name else "Zone " .. to.n
+	local m = Instance.new("Model")
+	m.Name = "RideGate"
+	m:SetAttribute("Zone", from.n)
+	m:SetAttribute("Stage", from.last)
+	m:SetAttribute("NextZone", to.n)
+	m:SetAttribute("NextZoneName", to.name)
+	CollectionService:AddTag(m, "RideGate")
+	local pad = block("RidePad", { 8, 1, 8 }, cf, to.look.accent, Enum.Material.Neon, m)
+	CollectionService:AddTag(pad, "RideGatePad")
+	local light = Instance.new("PointLight")
+	light.Color, light.Range, light.Brightness = to.look.highlight, 16, 1.5
+	light.Parent = pad
+	for k = -1, 1 do
+		for s = -1, 1, 2 do
+			decor({ Name = "Chevron", Size = Vector3.new(0.4, 0.08, 2.4), Color = Color3.new(1, 1, 1), Material = Enum.Material.Neon,
+				CFrame = cf * CFrame.new(s * 0.75, 0.05, -k * 2.3) * CFrame.Angles(0, s * math.rad(-40), 0), Parent = m })
+		end
+	end
+	for s = -1, 1, 2 do
+		decor({ Name = "GatePost", Size = Vector3.new(1.2, 12, 1.2), CFrame = cf * CFrame.new(s * 4.6, 6, 0), Color = to.look.main,
+			Material = Enum.Material.SmoothPlastic, Parent = m })
+		decor({ Name = "GateLamp", Shape = Enum.PartType.Ball, Size = Vector3.new(2, 2, 2), CFrame = cf * CFrame.new(s * 4.6, 12.8, 0),
+			Color = to.look.highlight, Material = Enum.Material.Neon, Parent = m })
+	end
+	local beam = decor({ Name = "GateBeam", Size = Vector3.new(10.4, 2.2, 1.2), CFrame = cf * CFrame.new(0, 11.4, 0),
+		Color = to.look.highlight, Material = Enum.Material.Neon, Parent = m })
+	billboard(beam, "RIDE TO " .. string.upper(title), Color3.new(1, 1, 1), 3, 220)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "RidePrompt"
+	prompt.ActionText = "Ride to " .. title
+	prompt.ObjectText = "Ride gate"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = pad
+	prompt.Triggered:Connect(function(player)
+		rideGate(player, m)
+	end)
+	m.Parent = parent
+	return m
+end
+
+-- The ride entrance to zone `to` on the park's ground at `cf` (WorldKit's gates[z], in front of the ride's arch): a
+-- glowing pad with chevrons under a label, and a prompt on it. Both call rideEntrance.
+local function rideEntranceModel(parent: Instance, cf: CFrame, from, to): Model
+	local title = if to.name ~= "" then to.name else "Zone " .. to.n
+	local m = Instance.new("Model")
+	m.Name = string.format("Zone%02dEntrance", to.n)
+	m:SetAttribute("Zone", to.n)
+	m:SetAttribute("ZoneName", to.name)
+	m:SetAttribute("Stage", from.last)
+	m:SetAttribute("LastStage", to.last)
+	m:SetAttribute("FromZone", from.n)
+	m:SetAttribute("FromZoneName", if from.name ~= "" then from.name else "Zone " .. from.n)
+	CollectionService:AddTag(m, "RideEntrance")
+	local at = levelFrame(cf)
+	local pad = block("EntrancePad", { 8, 1, 8 }, at, to.look.accent, Enum.Material.Neon, m)
+	CollectionService:AddTag(pad, "RideEntrancePad")
+	local light = Instance.new("PointLight")
+	light.Color, light.Range, light.Brightness = to.look.highlight, 14, 1.2
+	light.Parent = pad
+	for k = -1, 1 do
+		for s = -1, 1, 2 do
+			decor({ Name = "Chevron", Size = Vector3.new(0.4, 0.08, 2.4), Color = Color3.new(1, 1, 1), Material = Enum.Material.Neon,
+				CFrame = at * CFrame.new(s * 0.75, 0.05, -k * 2.3) * CFrame.Angles(0, s * math.rad(-40), 0), Parent = m })
+		end
+	end
+	billboard(pad, "RIDE TO " .. string.upper(title), Color3.new(1, 1, 1), 5, 160)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "RidePrompt"
+	prompt.ActionText = "Ride to " .. title
+	prompt.ObjectText = "Ride gate"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = pad
+	prompt.Triggered:Connect(function(player)
+		rideEntrance(player, m)
+	end)
+	m.Parent = parent
+	return m
+end
+
+-- A column under a pad that floats over open ground, from its underside down to whatever is below (the park's
+-- ground), on a footing; decoration only. A pad over another part of the course (the column would stand on it or pass
+-- beside it: 8 rays round the column's edge must reach the same ground), or one already sitting on something (a
+-- WorldKit course tower), gets none. -> whether it built one.
+local SUPPORT_REACH = 600
+local SUPPORT_WIDTH = 2.4
+local function support(pad: BasePart?, color: Color3, parent: Instance): boolean
+	if not pad then
+		return false
+	end
+	local bottom = pad.Position - Vector3.new(0, pad.Size.Y / 2, 0)
+	local skip = { pad }
+	for _, pl in Players:GetPlayers() do
+		if pl.Character then
+			table.insert(skip, pl.Character)
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = skip
+	local function courseHit(hit)
+		return hit ~= nil and hit.Instance:IsDescendantOf(course.folder)
+	end
+	local hit = workspace:Raycast(pad.Position, Vector3.new(0, -SUPPORT_REACH, 0), params) -- from inside: a tower flush under it counts
+	if not hit or courseHit(hit) or bottom.Y - hit.Position.Y < 2 then
+		return false
+	end
+	local reach = Vector3.new(0, -(bottom.Y - hit.Position.Y + 1), 0)
+	for k = 0, 7 do
+		local a = k * math.pi / 4
+		local edge = bottom + Vector3.new(math.cos(a), 0, math.sin(a)) * (SUPPORT_WIDTH / 2 + 1) + Vector3.new(0, -0.1, 0)
+		if courseHit(workspace:Raycast(edge, reach, params)) then
+			return false
+		end
+	end
+	local len = bottom.Y - hit.Position.Y
+	decor({ Name = "Support", Shape = Enum.PartType.Cylinder, Size = Vector3.new(len, SUPPORT_WIDTH, SUPPORT_WIDTH),
+		CFrame = CFrame.new(bottom.X, (bottom.Y + hit.Position.Y) / 2, bottom.Z) * CYL, Color = color, Parent = parent })
+	decor({ Name = "Footing", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.8, 5.2, 5.2),
+		CFrame = CFrame.new(hit.Position + Vector3.new(0, 0.4, 0)) * CYL, Color = Color3.fromRGB(232, 224, 208), Parent = parent })
+	return true
+end
+
+-- Build every zone (ReplicatedStorage.Levels ModuleScripts, or a list of zone tables). opts: origin (the start
+-- pad's top center), anchors ({[zone number | theme id | zone name] = CFrame}: a zone with one starts there on its
+-- own start pad, the zone before it ends in a ride gate; a zone without one continues from the previous
+-- checkpoint), gates (the same keys: a ride entrance on the ground to each zone with its own start pad, after the
+-- first), themes (ObbyThemes), validate, parent. Each stage turns its frame by its `turn` on its start pad; every pad
+-- floating over open ground gets a support column. Build the world first: the columns stand on what is under them.
+-- -> { stages = n, built, errors = { ... }, zones, gates, entrances, supports }. Called by ObbyKit.start unless
+-- opts.levels == false.
 function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 	assert(RunService:IsServer(), "ObbyKit.buildLevels runs on the server")
 	opts = opts or {}
 	ensureRuntime()
-	local origin = opts.origin or course.origin or CFrame.new(0, 60, 0)
+	local zones = loadZones(source)
+	local anchors = if type(opts.anchors) == "table" then opts.anchors else course.anchors
+	local themes = if type(opts.themes) == "table" then opts.themes else course.themes
+	course.anchors, course.themes = anchors, themes
+	local firstAnchor = if zones[1] then anchorFor(anchors, zones[1].n, zones[1].data) else nil
+	local origin = levelFrame(firstAnchor or opts.origin or course.origin or CFrame.new(0, 60, 0))
 	course.origin = origin
 	local folder = course.folder or Instance.new("Folder")
 	folder.Name = "Obby"
 	folder.Parent = opts.parent or workspace
 	course.folder = folder
 	if not course.start then
-		local startModel = Obstacles.checkpoint(folder, origin, { stage = 0 }, theme(1))
-		startModel.Name = "Start"
-		local pad = startModel:FindFirstChild("Checkpoint")
-		CollectionService:RemoveTag(pad, "Checkpoint")
+		local pad = startPad(folder, origin, theme(1), "Start")
 		CollectionService:AddTag(pad, "ObbyStart")
-		pad.Color = COLORS.start
-		pad.Name = "StartPad"
 		course.start = pad
 	end
 	local stagesFolder = folder:FindFirstChild("Stages") or Instance.new("Folder")
@@ -1642,14 +2174,32 @@ function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 	stagesFolder.Parent = folder
 	local cursor = origin
 	local built = 0
-	for _, z in loadZones(source) do
+	local list = {}
+	for zi, z in zones do
 		local zd = z.data
 		local look = theme(z.n, zd.palette, zd.material)
 		local name = tostring(zd.name or "")
+		local themeId = if type(zd.theme_id) == "string" and zd.theme_id ~= "" then zd.theme_id else nil
+		local anchor = if zi > 1 then anchorFor(anchors, z.n, zd) else nil
+		local entry = { n = z.n, name = name, look = look, first = course.stages + 1, last = course.stages, data = zd }
+		if anchor then
+			cursor = levelFrame(anchor)
+			local starts = folder:FindFirstChild("ZoneStarts") or Instance.new("Folder")
+			starts.Name = "ZoneStarts"
+			starts.Parent = folder
+			local own = startPad(starts, cursor, look, string.format("Zone%02dStart", z.n))
+			own:SetAttribute("Stage", nil)
+			own:SetAttribute("Zone", z.n)
+			own:SetAttribute("AfterStage", course.stages)
+			CollectionService:AddTag(own, "ObbyZoneStart")
+			course.zoneStarts[z.n] = own
+			entry.start = own
+		end
 		for i, raw in (if type(zd.stages) == "table" then zd.stages else {}) do
 			local expect = course.stages + 1
-			local model, cp = LevelBuilder.build(raw, cursor, { parent = stagesFolder, zone = z.n, zoneName = name,
-				palette = zd.palette, material = zd.material, validate = opts.validate })
+			local frame = cursor * CFrame.Angles(0, -math.rad(num(type(raw) == "table" and raw.turn, 0)), 0)
+			local model, cp = LevelBuilder.build(raw, frame, { parent = stagesFolder, zone = z.n, zoneName = name,
+				palette = zd.palette, material = zd.material, validate = opts.validate, themes = themes, theme = themeId })
 			local n = model:GetAttribute("Stage")
 			if n ~= expect then
 				local msg = string.format("stage %s follows stage %d (expected %d)", tostring(n), course.stages, expect)
@@ -1657,21 +2207,19 @@ function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 				table.insert(course.errors, msg)
 			end
 			if i == 1 then
-				zoneGate(model, cursor, z.n, name, look)
+				zoneGate(model, frame, z.n, name, look)
 			end
-			local lp = { zMin = math.huge, zMax = -math.huge, xMin = math.huge, xMax = -math.huge, minTop = math.huge }
+			local lp = { zMin = 0, zMax = 0, xMin = 0, xMax = 0, minTop = 0 } -- the start pad is the frame's origin
 			for _, d in model:GetDescendants() do
 				if d:IsA("BasePart") and CollectionService:HasTag(d, "ObbyStandable") then
-					local p = origin:PointToObjectSpace((d:GetAttribute("Rest") or d.CFrame).Position)
+					local p = frame:PointToObjectSpace((d:GetAttribute("Rest") or d.CFrame).Position)
 					lp.zMin, lp.zMax = math.min(lp.zMin, -p.Z), math.max(lp.zMax, -p.Z)
 					lp.xMin, lp.xMax = math.min(lp.xMin, p.X), math.max(lp.xMax, p.X)
 					lp.minTop = math.min(lp.minTop, p.Y)
 				end
 			end
-			local o = origin:PointToObjectSpace(cursor.Position)
-			lp.zMin, lp.minTop = math.min(lp.zMin, -o.Z), math.min(lp.minTop, o.Y)
-			course.info[n] = { zone = z.n, zoneName = name, zMin = lp.zMin, zMax = lp.zMax, xMin = lp.xMin, xMax = lp.xMax,
-				minTop = lp.minTop }
+			course.info[n] = { zone = z.n, zoneName = name, theme = themeId, origin = frame, zMin = lp.zMin, zMax = lp.zMax,
+				xMin = lp.xMin, xMax = lp.xMax, minTop = lp.minTop }
 			if model:GetAttribute("Valid") == false then
 				for _, e in string.split(model:GetAttribute("Errors") or "", "\n") do
 					table.insert(course.errors, e)
@@ -1679,27 +2227,78 @@ function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 			end
 			if cp then
 				course.checkpoints[n] = cp
-				cursor = cp.CFrame * CFrame.new(0, cp.Size.Y / 2, 0)
-				cursor = CFrame.new(cursor.Position) * origin.Rotation
+				local top = cp.CFrame * CFrame.new(0, cp.Size.Y / 2, 0)
+				cursor = CFrame.new(top.Position) * frame.Rotation
 			end
 			course.stages = math.max(course.stages, n)
+			entry.last, entry.frame, entry.model = course.stages, frame, model
 			built += 1
 			if built % 5 == 0 then
 				task.wait()
 			end
 		end
+		table.insert(list, entry)
 	end
+	local gates = 0
+	for k = 1, #list - 1 do
+		local a, b = list[k], list[k + 1]
+		local cp = course.checkpoints[a.last]
+		if b.start and cp and a.model then
+			b.start:SetAttribute("AfterStage", a.last)
+			course.nextStart[a.last] = b.start
+			course.gates[a.n] = rideGateModel(a.model, cp, a.frame, a, b)
+			gates += 1
+		end
+	end
+	local ground = if type(opts.gates) == "table" then opts.gates else nil
+	local entrances = 0
+	for k = 2, #list do
+		local a, b = list[k - 1], list[k]
+		local at = anchorFor(ground, b.n, b.data)
+		if at and b.start and course.nextStart[a.last] == b.start then
+			course.entrances[b.n] = rideEntranceModel(folder, at, a, b)
+			entrances += 1
+		end
+	end
+	local supports = folder:FindFirstChild("Supports") or Instance.new("Folder")
+	supports.Name = "Supports"
+	supports.Parent = folder
+	local columns = 0
+	for k, e in list do
+		local pads = { if k == 1 then course.start else e.start }
+		for n = e.first, e.last do
+			table.insert(pads, course.checkpoints[n])
+		end
+		local gate = course.gates[e.n]
+		table.insert(pads, gate and gate:FindFirstChild("RidePad"))
+		for _, pad in pads do
+			if support(pad, e.look.main, supports) then
+				columns += 1
+			end
+		end
+	end
+	course.zones, course.supports = list, columns
 	folder:SetAttribute("Stages", course.stages)
+	folder:SetAttribute("Zones", #list)
+	folder:SetAttribute("RideGates", gates)
+	folder:SetAttribute("RideEntrances", entrances)
+	folder:SetAttribute("Supports", columns)
 	folder:SetAttribute("Invalid", #course.errors)
 	count("stages_built", built)
-	return { stages = course.stages, built = built, errors = course.errors }
+	return { stages = course.stages, built = built, errors = course.errors, zones = #list, gates = gates,
+		entrances = entrances, supports = columns }
 end
 
 -- ============================================================== public API
 
 -- Call once from one server Script. opts: origin (CFrame of the START pad's top center; the course runs along its
--- LookVector; default CFrame.new(0, 60, 0)), levels (Folder or zone tables; false = build nothing), respawnTime (1.5),
--- allowSkip (false), dataStore ("ObbyKit"), coinRespawn (20). -> { stages, built, errors }
+-- LookVector; default CFrame.new(0, 60, 0)), anchors ({[zone] = CFrame} from WorldKit.buildPark: zone 1 starts at its
+-- anchor instead of origin, every later zone with one on its own start pad, reached by the ride gate on the zone
+-- before), gates ({[zone] = CFrame}, WorldKit's: a ride entrance on the ground to every later zone), spawn (CFrame,
+-- WorldKit's park spawn: with it, or with anchors, a player who has not reached the course yet starts and respawns
+-- there instead of on the start pad), themes (the ObbyThemes module: dress + stageDecor, each call pcall-guarded),
+-- levels (Folder or zone tables; false = build nothing), respawnTime (1.5), allowSkip (false), dataStore ("ObbyKit"),
+-- coinRespawn (20). -> { stages, built, errors, zones, gates, entrances, supports }
 function ObbyKit.start(opts: { [string]: any }?)
 	assert(RunService:IsServer(), "ObbyKit.start runs on the server")
 	opts = opts or {}
@@ -1721,9 +2320,12 @@ function ObbyKit.start(opts: { [string]: any }?)
 	end
 	ensureRuntime()
 	course.origin = opts.origin or CFrame.new(0, 60, 0)
+	course.spawn = if typeof(opts.spawn) == "CFrame" then opts.spawn else nil
+	course.world = course.spawn ~= nil or type(opts.anchors) == "table"
 	local info = { stages = 0, built = 0, errors = {} }
 	if opts.levels ~= false then
-		info = ObbyKit.buildLevels(opts.levels, { origin = course.origin })
+		info = ObbyKit.buildLevels(opts.levels, { origin = course.origin, anchors = opts.anchors, gates = opts.gates,
+			themes = opts.themes })
 	end
 	if not RunService:IsStudio() or opts.saveInStudio then
 		local ok, ds = pcall(function()
