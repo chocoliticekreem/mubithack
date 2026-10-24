@@ -1089,7 +1089,7 @@ def result_view(run_dir: Path, game: dict, team: dict) -> dict:
         n = team["critic_shots"][-1]["n"]
         p = run_dir / "iterations" / str(n) / "screenshot.png"
         shots.append((p.stat().st_mtime if p.exists() else 0, team["critic_shots"][-1]["shot"], f"critic, build round {n}"))
-    for t in team["testers"]:
+    for t in team["testers"] if not shots else []:  # a round's own screenshot beats a QA bot's close-up
         last = next((s for s in t["steps"][::-1] if s["shot"]), None)
         if last:
             shots.append((t["updated"], last["shot"], f"{t['label']}, step {last['n']}"))

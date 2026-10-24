@@ -834,7 +834,32 @@ function renderGame(g) {
       <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
         <span class="chip">${g.versions.length} versions</span><span class="chip">${(g.agents || []).length} agents</span></div></div>
     ${resultBlock(g, false)}</div>
-    ${(g.team?.testers?.length || g.team?.critic_shots?.length) ? `<div class="card"><div class="sec-head"><h2>Screenshots</h2><span class="sub">one per round, plus a look at each zone in Studio · tap to enlarge</span></div>${renderFeed(g)}</div>` : ""}`);
+    ${renderShots(g)}`);
+}
+
+// the main view's pictures: the first round next to the latest one, then this round's QA bots, which play at once
+function renderShots(g) {
+  const T = g.team?.testers || [], C = g.team?.critic_shots || [];
+  const qa = T.filter(t => /^\d+-qa-/.test(t.run));
+  const rounds = [...new Set(qa.map(t => t.run.split("-")[0]))].sort();
+  const first = rounds[0], last = rounds[rounds.length - 1];
+  const before = Object.fromEntries(qa.filter(t => t.run.startsWith(first + "-")).map(t => [t.label, t]));
+  const tile = (c, what) => shotTile({run: "critic", label: "Round screenshot", goal: ""},
+    {n: c.n, action: what, shot: c.shot, ok: null, assertions: [], reason: "", result: ""});
+  const pair = C.length > 1 ? `<div class="tester"><div class="row"><span class="nm">Before → after</span>
+      <span class="small muted">round ${C[0].n} next to round ${C[C.length - 1].n}, the same spot in Studio</span></div>
+      <div class="strip">${tile(C[0], `before · round ${C[0].n}`)}${tile(C[C.length - 1], `after · round ${C[C.length - 1].n}`)}</div></div>` : "";
+  const mark = ok => ok === true ? `<span class="ok">✓</span>` : ok === false ? `<span class="bad">✗</span>` : "·";
+  const bots = qa.filter(t => t.run.startsWith(last + "-")).map(t => {
+    const was = first !== last ? before[t.label] : null;
+    return `<div class="tester"><div class="row"><span class="nm">${esc(t.label)}</span>${mark(t.goal_met)}
+      <span class="small muted">${esc((t.summary || "").replace(/ after 1 attempt\(s\); last:/, ":").replace(/; last groun.*$/, "").replace(/ at \[[^\]]*\]/, "").slice(0, 110))}${was ? ` · round ${+first}: ${mark(was.goal_met)} → now ${mark(t.goal_met)}` : ""}</span></div>
+      <div class="strip">${t.steps.map(s => shotTile(t, s)).join("")}</div></div>`;
+  }).join("");
+  if (!pair && !bots) return "";
+  const passed = qa.filter(t => t.run.startsWith(last + "-") && t.goal_met).length;
+  const total = qa.filter(t => t.run.startsWith(last + "-")).length;
+  return `<div class="card"><div class="sec-head"><h2>Screenshots</h2><span class="sub">${total ? `round ${+last}: ${total} QA bots played at once, ${passed} reached the next checkpoint · ` : ""}tap to enlarge</span></div>${pair}${bots}</div>`;
 }
 
 function renderAgents(g) {
