@@ -56,6 +56,16 @@ LEARN    every call above is an example in its role's Mubit task; corrections (m
 | triage | Turns a human tester's words into anomalies backed by telemetry |
 | player, judge, explorer | mubit-tester's AI playtesters and their judge |
 
+### UI kit
+
+Agent-built UI follows a house style: chunky stroked text, one palette, glossy gradient buttons with
+press squish, Back-eased pops, ticking currency counters, toasts and reward popups. The rules and 10
+paste-in Luau snippets live in `forge/ui_library/` (sources in its README). For UI work (client HUD,
+shop, popup, BillboardGui) `forge/ui_kit.py` adds a `## UI kit` block with the rules and the 2 to 4
+matching snippets to the coder, fixer or patcher **user message**, under a size budget. Server data
+modules get nothing. Add a snippet: drop the `.luau` in, add it to `index.json`, run
+`.venv/bin/python -m pytest -q tests/test_ui_kit.py`.
+
 ## Using it from Claude Code
 
 The `forge` plugin's tools:

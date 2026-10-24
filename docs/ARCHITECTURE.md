@@ -93,6 +93,8 @@ game/                  the Roblox place, file-mapped like Script Sync
 runs/<game>/           per-game state, gitignored
   spec.json  state.json  calls.jsonl  iterations/<n>/{report.json,critique.json,screenshot.png}
 runs/lessons.md        shared lessons, injected into every coder/fixer user message
+forge/ui_kit.py        picks UI kit rules + snippets for UI work (user message only)        [owner: llm]
+forge/ui_library/      the UI kit: README.md (rules + sources), index.json, *.luau snippets
 ```
 
 Generated games live in `runs/<game>/game/` (same layout as `game/`). The base `game/` folder holds
@@ -154,6 +156,24 @@ def reflect(llm, lessons: str, iteration_summary: str, *, session_id) -> str   #
 ```
 Code replies: the model returns the full file in one ```luau fenced block; `extract_luau(text)`
 returns its body (raise if missing).
+
+### ui_kit.py (forge/ui_library: house UI style for agent-built games)
+```python
+MAX_CHARS = 9000                       # coder budget; roles.FIX_UI_KIT_CHARS = 6000, PATCH_UI_KIT_CHARS = 3500
+def kind(path, text, *, path_words=True) -> "screen" | "world" | None
+    # client path + any UI word, or a ReplicatedStorage module + a screen word -> "screen" (full kit);
+    # BillboardGui / price tag words anywhere -> "world" (server-safe snippets only); else None
+def select(path, text, *, path_words=True, limit=4) -> list[dict]   # Theme first, then by keyword hits
+def block(path, text, budget=MAX_CHARS, *, path_words=True) -> str  # "## UI kit ..." or ""
+def designer_block() -> str            # one line per snippet, so the designer names them in purposes
+```
+`index.json`: `[{name, file, when_to_use, keywords, needs_theme, always?}]`. Snippets are paste-in Luau
+(Theme first), not modules: they compile alone and concatenated (tests/test_ui_kit.py).
+Where it lands, always in the **user message** (system prompts stay frozen for Mubit):
+- `code_module`: `block(path, purpose)` before the closing instruction, shrunk to fit `MAX_USER_CHARS`.
+- `fix_file` / `patch_file`: `block(path, problem, path_words=False)` only when the problem is UI;
+  never for `luau-compile` problems. A tight budget degrades to rules only.
+- `design`: `designer_block()` every call.
 
 Spec (designer output):
 ```json
