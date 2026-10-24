@@ -68,6 +68,7 @@ type Npc = {
 	kind: string,
 	scope: string,
 	spawnPos: Vector3?, -- where it was trapped (the outside-is-safe rule measures from here)
+	indoors: boolean?, -- trapped under a roof? only then does "get them outside" rescue them
 	model: Model,
 	root: BasePart,
 	prompt: ProximityPrompt,
@@ -284,8 +285,32 @@ local function streetLevel(pos: Vector3): number?
 	return best
 end
 
+local function underOpenSky(pos: Vector3): boolean
+	local rp = solidParams()
+	local from = pos + Vector3.new(0, 3, 0)
+	for _ = 1, 4 do
+		local hit = workspace:Raycast(from, Vector3.new(0, 120, 0), rp)
+		if not hit then
+			return true
+		end
+		if not isTreeish(hit.Instance) then
+			return false
+		end
+		from = hit.Position + Vector3.new(0, 0.5, 0)
+	end
+	return true
+end
+
 local function outsideSafe(npc: Npc, pos: Vector3): boolean
 	if RescueConfig.SafeOutside == false or not npc.spawnPos then
+		return false
+	end
+	if npc.indoors == nil then
+		-- decided once, from where it was trapped: outdoor rescues (zoo, forest, farm, crashes) must
+		-- still be brought to the truck, or they'd count as saved after 10 steps
+		npc.indoors = not underOpenSky(npc.spawnPos :: Vector3)
+	end
+	if not npc.indoors then
 		return false
 	end
 	local sp = npc.spawnPos :: Vector3
@@ -297,19 +322,7 @@ local function outsideSafe(npc: Npc, pos: Vector3): boolean
 	if street and pos.Y - street > (RescueConfig.SafeMaxAboveStreet or 9) then
 		return false -- up on a roof / balcony / upper floor
 	end
-	local rp = solidParams()
-	local from = pos + Vector3.new(0, 3, 0)
-	for _ = 1, 4 do
-		local hit = workspace:Raycast(from, Vector3.new(0, 120, 0), rp)
-		if not hit then
-			return true -- open sky
-		end
-		if not isTreeish(hit.Instance) then
-			return false -- a roof / ceiling: still inside
-		end
-		from = hit.Position + Vector3.new(0, 0.5, 0)
-	end
-	return true
+	return underOpenSky(pos)
 end
 
 -- a big green "SAFE" zone flashes on the ground where the rescue counted
