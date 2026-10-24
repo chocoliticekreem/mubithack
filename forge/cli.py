@@ -429,6 +429,14 @@ def default_goal(spec: dict) -> str:
     return f"Play the game as a real player would and use its main mechanics: {pitch}"[:400]
 
 
+def cmd_promote_game(args) -> int:
+    from forge.games import promote_game
+    dest = promote_game(load_settings(), args.slug)
+    print(f"promoted -> {dest}")
+    print(f"next: git switch -c gf/game-{args.slug} && git add {dest} && gh pr create --fill")
+    return 0
+
+
 def cmd_fix(args) -> int:
     _sigterm_as_interrupt()  # a killed run still restores the file it was testing
     asyncio.run(_improve(args, faults_on=False, fix=True))
@@ -627,6 +635,9 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("slug")
     po.add_argument("--cycles", type=int, default=3)
 
+    pg = sub.add_parser("promote-game", help="copy a finished agent-built game into games/<slug>/ (code, spec, README)")
+    pg.add_argument("slug")
+
     ve = sub.add_parser("versions", help="every saved version of a game (builds, iterations, fixes, rollbacks)")
     ve.add_argument("slug")
 
@@ -661,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
