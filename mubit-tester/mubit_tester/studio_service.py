@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from forge.config import load_settings
+from forge.memory import RunStore
 from forge.studio import Studio, extract_json
 from mubit_tester.harness import Harness, _long_bracket
 from mubit_tester.scenario import list_scenarios, load_scenario, run_scenario
@@ -105,6 +106,51 @@ class ProgressHarness(Harness):
         if cmd not in {"players", "events", "counters", "query", "observe", "ping"}:
             self.emit(f"{cmd}: {args.get('action', '')}".strip())
         return await super().call(cmd, **args)
+
+
+TOUR_LUAU = r"""
+local out = {}
+local stages = workspace:FindFirstChild("Obby") and workspace.Obby:FindFirstChild("Stages")
+if stages then
+    local cfg = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"))
+    local per = math.max(1, math.floor(#stages:GetChildren() / math.max(1, #(cfg.Zones or {}))))
+    for i, z in cfg.Zones or {} do
+        local first = (i - 1) * per + 1
+        local s = stages:FindFirstChild(string.format("Stage%03d", first))
+        if s then
+            local p = if s:IsA("Model") then s:GetPivot().Position else s.Position
+            table.insert(out, {name = z.name or ("Zone " .. i), stage = first, x = p.X, y = p.Y, z = p.Z})
+        end
+    end
+end
+return game:GetService("HttpService"):JSONEncode(out)
+"""
+TOUR_SHOTS = 7  # zones photographed per round (the dashboard feed shows the newest 8 steps)
+
+
+async def studio_tour(studio, store, round_n):
+    """One screenshot per zone from above, saved as a dashboard "Studio tour" run under runs/<slug>/tests/."""
+    try:
+        zones = extract_json(await studio.execute_luau(TOUR_LUAU, "Server")) or []
+    except Exception:  # noqa: BLE001 - not an obby, or no Config: no tour
+        return
+    if not isinstance(zones, list) or not zones:
+        return
+    pick = zones if len(zones) <= TOUR_SHOTS else [zones[round(i * (len(zones) - 1) / (TOUR_SHOTS - 1))]
+                                                     for i in range(TOUR_SHOTS)]
+    rdir = store.dir / "tests" / f"{round_n:02d}-studio-tour-{time.strftime('%H%M%S')}"
+    started, steps = time.time(), []
+    for n, z in enumerate(pick, 1):
+        at = (z["x"], z["y"], z["z"])
+        got = await studio.screenshot(rdir / f"step-{n:02d}.png", camera=(at[0] + 45, at[1] + 35, at[2] + 45),
+                                      look_at=at)
+        steps.append({"n": n, "action": {"action": "look at", "args": {"target": z["name"]}}, "ok": got is not None,
+                      "result": f"stage {z['stage']}" + ("" if got else ": no image came back"), "ts": time.time()})
+    report = {"tester": "Studio tour", "goal": f"Round {round_n}: one look at each zone, in Studio", "steps": steps,
+              "started": started, "ended": time.time(),
+              "summary": f"{sum(1 for s in steps if s['ok'])} zones photographed"}
+    rdir.mkdir(parents=True, exist_ok=True)
+    (rdir / "report.json").write_text(json.dumps(report, indent=1))
 
 
 class Companion:
@@ -340,7 +386,19 @@ class Companion:
                             if job["marker"] in self.sessions:
                                 self.sessions[job["marker"]]["game_slug"] = slug
                             return installed
-                        job["result"] = await finish_draft(self.settings, draft, emit, install=install, on_progress=progress)
+                        async def show(slug, keep):
+                            store = RunStore(self.settings, slug)
+                            its = store.load_state().get('iterations') or []
+                            shot = store.dir / 'iterations' / str((its[-1].get('n') if its else None) or 0) / 'screenshot.png'
+                            await studio.play(ready_timeout=45)
+                            await asyncio.sleep(2)  # the park and HUD finish building after the character spawns
+                            path = await studio.screenshot(shot)
+                            await studio_tour(studio, store, len(its))
+                            if not keep:
+                                await studio.stop()
+                            return path
+                        job["result"] = await finish_draft(self.settings, draft, emit, install=install, on_progress=progress,
+                                                          show=show)
                     elif operation == 'open_game':
                         job['result'] = await describe_draft(self.settings, args['slug'])
                     elif operation in {'iterate_game', 'correct_game'}:

@@ -153,6 +153,29 @@ async def test_no_rounds_when_the_first_playtest_already_meets_the_standard(sett
     assert events[-1] == ('Ready: score 8/10 on the first playtest', True)
 
 
+async def test_each_install_launches_the_game_and_the_last_one_keeps_it_running(settings, monkeypatch):
+    store = big_draft(settings, files=1, size=10)
+    state = store.load_state()
+    state['iterations'] = [iteration(score=8)]
+    store.save_state(state)
+    shows, events = [], []
+
+    async def install(slug):
+        return {'files': 1, 'changed': 1}
+
+    async def show(slug, keep):
+        shows.append(keep)
+        if len(shows) == 1:
+            return store.dir / 'iterations/1/screenshot.png'
+        raise RuntimeError('Studio stayed disconnected')
+    draft = await studio_builder.describe_draft(settings, store.slug)
+    result = await finish_draft(settings, draft, lambda m, ok=None: events.append((m, ok)), install=install, show=show)
+    assert shows == [False, True]
+    assert ('Launched in Studio: new screenshot on the dashboard', True) in events
+    assert ('Could not launch it in Studio: Studio stayed disconnected', False) in events
+    assert result['standard']['ready']  # a screenshot problem never makes a good game "not ready"
+
+
 async def test_studio_refusing_the_install_means_not_ready(settings, monkeypatch):
     store = big_draft(settings, files=1, size=10)
     state = store.load_state()
@@ -186,7 +209,7 @@ async def test_a_failing_round_ends_the_rounds_with_its_reason(settings, monkeyp
     draft = await studio_builder.describe_draft(settings, store.slug)
     result = await finish_draft(settings, draft, lambda *a: None, install=install)
     assert len(calls) == 1
-    assert result['standard'] == {'ready': False, 'reason': 'Round 1 of 5 could not finish: RuntimeError: Mubit is down',
+    assert result['standard'] == {'ready': False, 'reason': 'Round 1 could not finish: RuntimeError: Mubit is down',
                                   'score': 4, 'errors': 0, 'rounds': 0}
 
 

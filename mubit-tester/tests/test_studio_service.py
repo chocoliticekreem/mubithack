@@ -275,8 +275,8 @@ async def test_make_game_builds_installs_improves_and_says_ready(service, monkey
     messages = [e['message'] for e in job['events']]
     flow = [m for m in messages if m.startswith(('Writing', 'Installed', 'Round', 'Ready', 'Not '))]
     assert flow == ['Writing your game code…', 'Installed in Studio: 1 script',
-                    'Round 1 of 5: score 5/10, 0 errors, fixed 2 problems', 'Round 1 of 5 in Studio: 1 script changed',
-                    'Round 2 of 5: score 6/10, 0 errors, fixed 2 problems', 'Round 2 of 5 in Studio: 1 script changed',
+                    'Round 1: score 5/10, 0 errors, fixed 2 problems', 'Round 1 in Studio: 1 script changed',
+                    'Round 2: score 6/10, 0 errors, fixed 2 problems', 'Round 2 in Studio: 1 script changed',
                     'Ready: score 6/10 after 2 rounds']
     assert len(rounds) == 2
     assert len(FakeStudio.synced) == 3 and all(p.name == 'game' for p in FakeStudio.synced)
@@ -297,13 +297,13 @@ async def test_make_game_builds_installs_improves_and_says_ready(service, monkey
 async def test_make_game_not_up_to_standard_still_finishes_in_studio(service, monkeypatch):
     service.settings = replace(service.settings, mubit_api_key='test-only')
     fake_build(monkeypatch)
-    rounds = fake_rounds(monkeypatch, [4, 5, 5, 5, 5, 9])
+    rounds = fake_rounds(monkeypatch, [4] + [5] * 11 + [9])
     job = submit(service, 'make_game', idea='an obby')
     await service.task
     assert job['state'] == 'passed'
-    assert len(rounds) == 5  # capped: the 9 a sixth round would score never happens
-    assert job['result']['standard']['ready'] is False and job['result']['standard']['rounds'] == 5
-    assert job['events'][-1]['message'] == 'Not ready after 5 rounds: score 5/10, needs 6'
+    assert len(rounds) == 12  # the safety cap: the 9 a 13th round would score never happens
+    assert job['result']['standard']['ready'] is False and job['result']['standard']['rounds'] == 12
+    assert job['events'][-1]['message'] == 'Not ready after 12 rounds: score 5/10, needs 6'
     assert job['events'][-1]['ok'] is False
     view = service.snapshot('test-marker')['history'][0]['presentation']
     assert view['status'] == 'In Studio, not up to standard yet'

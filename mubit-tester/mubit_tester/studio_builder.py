@@ -28,7 +28,7 @@ POLL_S = 1.0
 # a make_game job's % : build 0-70, install 70-75, improvement rounds 75-99, ready 100
 BUILD_PCT, INSTALL_PCT, ROUNDS_PCT = 70, 75, 99
 STANDARD_SCORE = 6
-MAX_ROUNDS = 5
+MAX_ROUNDS = 12  # safety cap only: rounds run until the game is up to standard
 HARNESS = re.compile(r'Forge(Test|Probe|TestAgent|Telemetry)\b')
 ROUND_EXPECTED_S = 240.0
 
@@ -387,10 +387,11 @@ class RoundProgress(BuildProgress):
             super().line(tag, label, ok, detail)
 
 
-async def finish_draft(settings, draft, emit, *, install, on_progress=None, llm=None, rounds=MAX_ROUNDS):
+async def finish_draft(settings, draft, emit, *, install, on_progress=None, llm=None, rounds=MAX_ROUNDS, show=None):
     """After the build: install into Studio, then up to `rounds` improvement rounds (headless playtest, critic,
     fix), re-installing after each so the window shows the game changing, until standard() is met.
-    `install(slug)` puts the draft into Studio and returns {"files", "changed"}, or raises to say why not."""
+    `install(slug)` puts the draft into Studio and returns {"files", "changed"}, or raises to say why not.
+    `show(slug, keep)` launches the installed game in Studio and screenshots it (keep=True leaves it running)."""
     slug = draft['slug']
     store = RunStore(settings, slug)
     ui = BuildProgress(emit)
@@ -406,12 +407,12 @@ async def finish_draft(settings, draft, emit, *, install, on_progress=None, llm=
             prog.state['started'] = started  # the ETA counts from the start of the build
         watch = asyncio.create_task(feed.run())
         try:
-            return await _finish(settings, draft, emit, install, prog, feed, llm, rounds)
+            return await _finish(settings, draft, emit, install, prog, feed, llm, rounds, show)
         finally:
             watch.cancel()
 
 
-async def _finish(settings, draft, emit, install, prog, feed, llm, rounds):
+async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=None):
     slug = draft['slug']
     studio = {'in': False, 'current': False, 'problem': None}
 
@@ -430,17 +431,35 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds):
             return
         studio.update(**{'in': True, 'current': True, 'problem': None})
         say(done_text(res), True)
+        await launch(False)
+
+    async def launch(keep):
+        if show is None or not studio['current']:
+            return
+        prog.step('Launching the game in Studio')
+        feed.poll()
+        try:
+            shot = await show(slug, keep)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - a missing screenshot never stops the build
+            say(f"Could not launch it in Studio: {error}"[:300], False)
+            return
+        if keep:
+            say('Playing in Studio now: click the game view, then WASD to move and Space to jump', True)
+        else:
+            say('Launched in Studio' + (': new screenshot on the dashboard' if shot else ''), True)
 
     prog.phase('install', 'Installing in Studio')
     feed.poll()
     await put(lambda r: f"Installed in Studio: {_n(r['files'], 'script')}")
     status = standard(settings, slug, draft)
-    prog.phase('improve', 'Checking the first playtest', items=('improvement rounds', rounds),
-               expected_s=ROUND_EXPECTED_S)
+    prog.phase('improve', 'Checking the first playtest',
+               expected_s=ROUND_EXPECTED_S * 3)  # unknown number of rounds: creep, never a fixed count
     feed.poll()
     done, failure = 0, None
     while not status['ready'] and done < rounds:
-        prefix = f'Round {done + 1} of {rounds}'
+        prefix = f'Round {done + 1}'
         prog.step(f'{prefix}: playtesting, reviewing and fixing')
         feed.poll()
         try:
@@ -471,6 +490,8 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds):
         final = f"Ready: score {status['score']:g}/10 {after}"
     else:
         final = f"Not ready {after}: {reason}"
+    if studio['current']:
+        await launch(True)
     prog.done(final[:300], ready)
     feed.poll()
     result = dict(draft)
