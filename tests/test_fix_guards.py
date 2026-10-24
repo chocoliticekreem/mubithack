@@ -63,21 +63,34 @@ async def test_destructive_fix_is_rejected_unseen_and_the_fixer_is_told_why(sett
     assert "part5 = 6" in (game / HOSE_FILE).read_text()
 
 
-async def test_computed_regression_overrules_a_fixed_verdict(settings):
+async def test_lost_counters_are_flags_not_an_overrule(settings):
     game = _big_game(settings)
     local = BIG.replace("part5 = 5", "part5 = 6")
-    llm = FakeLLM({"auditor": [audit_reply([HOSE])],
-                   "fixer": [f"```luau\n{local}\n```", f"```luau\n{local}\n```"],
-                   "verifier": [json.dumps({"verdict": "fixed", "evidence": "the bug is gone"})] * 2})
-    # before: props 87; after both attempts: props missing
-    cycle, _ = await _cycle(settings, llm, _playtests([{"props": 87}, {"other": 1}, {"other": 1}]))
-    fx = cycle["code_fixes"][0]
-    assert fx["status"] == "rolled_back" and fx["attempts"][0]["status"] == "regression"
-    assert "props went from 87" in fx["attempts"][0]["verdict"]["evidence"]
-    assert (game / HOSE_FILE).read_text() == BIG
-    verifier_msg = next(c.user for c in llm.calls if c.role == "verifier")
-    assert "## Telemetry changes" in verifier_msg and "props: 87 -> absent" in verifier_msg
-    assert "## Flagged regressions" in verifier_msg
+    llm = FakeLLM({"auditor": [audit_reply([HOSE])], "fixer": [f"```luau\n{local}\n```"],
+                   "verifier": [json.dumps({"verdict": "fixed", "evidence": "fire_cap_hit went away, as intended"})]})
+    cycle, _ = await _cycle(settings, llm, _playtests([{"fire_cap_hit": 62}, {"other": 1}]))
+    assert cycle["code_fixes"][0]["status"] == "kept"
+    msg = next(c.user for c in llm.calls if c.role == "verifier")
+    assert "## Flagged changes" in msg and "fire_cap_hit went from 62" in msg
+
+
+async def test_new_server_errors_overrule_a_fixed_verdict(settings):
+    _big_game(settings)
+    local = BIG.replace("part5 = 5", "part5 = 6")
+
+    def rounds():
+        yield {"goal": "g", "counters": {"a": 1}, "probe": {"errors": []}}
+        while True:
+            yield {"goal": "g", "counters": {"a": 1}, "probe": {"errors": [{"message": "boom"}]}}
+    it = rounds()
+
+    async def playtest(settings_, goal, players, steps, *, llm, harness):
+        return next(it)
+
+    llm = FakeLLM({"auditor": [audit_reply([HOSE])], "fixer": [f"```luau\n{local}\n```"] * 2,
+                   "verifier": [json.dumps({"verdict": "fixed", "evidence": "looks fine"})] * 2, "reflector": ["# L\n"]})
+    cycle, _ = await _cycle(settings, llm, playtest)
+    assert cycle["code_fixes"][0]["attempts"][0]["status"] == "regression"
 
 
 def test_telemetry_changes_flags_only_lost_counters_and_new_errors():
