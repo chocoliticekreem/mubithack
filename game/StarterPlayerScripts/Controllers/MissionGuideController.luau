@@ -223,7 +223,7 @@ local function resolve(r: Run, step: Flow.Step): (BasePart?, Instance?)
 			return nil, nil
 		end
 		for _, d in truck:GetDescendants() do
-			if d:HasTag(t.tag) then
+			if d:HasTag(t.tag) and (t.attr == nil or d:GetAttribute(t.attr) == t.value) then
 				local p = firstPart(d)
 				if p then
 					return p, d
@@ -289,6 +289,21 @@ local function resolve(r: Run, step: Flow.Step): (BasePart?, Instance?)
 		end
 		local p = pick(cands, t.highest)
 		return p, p
+	elseif t.kind == "prompt" then
+		if not s then
+			return nil, nil
+		end
+		local cands: { BasePart } = {}
+		for _, d in s:GetDescendants() do
+			if d:IsA("ProximityPrompt") and d.Enabled and d.ActionText == t.action then
+				local p = d.Parent
+				if p and p:IsA("BasePart") then
+					table.insert(cands, p)
+				end
+			end
+		end
+		local p = pick(cands, t.highest)
+		return p, p
 	elseif t.kind == "named" then
 		local inst = s and s:FindFirstChild(t.name, true)
 		local p = firstPart(inst)
@@ -344,7 +359,25 @@ local function evalDone(r: Run, step: Flow.Step, part: BasePart?, model: Instanc
 	local d = step.done
 	local k = d.kind
 	if k == "hand" then
-		return player:GetAttribute("InvHand") == d.item
+		local hand = player:GetAttribute("InvHand")
+		if d.items then
+			return table.find(d.items, hand) ~= nil
+		end
+		return hand == d.item
+	elseif k == "ladder" then
+		local folder = workspace:FindFirstChild("PlacedLadders")
+		if folder then
+			for _, l in folder:GetChildren() do
+				-- yours, and (when the step has a target) stood up next to it, so an old ladder doesn't count
+				if l:GetAttribute("OwnerUserId") == player.UserId and l:IsA("BasePart") then
+					local flat = (l.Position - (if part then part.Position else l.Position)) * Vector3.new(1, 0, 1)
+					if flat.Magnitude <= 30 then
+						return true
+					end
+				end
+			end
+		end
+		return false
 	elseif k == "attr" then
 		local s = site(r)
 		if not s then

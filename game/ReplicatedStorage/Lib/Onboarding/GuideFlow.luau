@@ -34,7 +34,7 @@ export type State = {
 	grace: number,
 }
 
-GuideFlow.TargetKinds = table.freeze({ none = true, truck = true, tag = true, rescue = true, burning = true, named = true })
+GuideFlow.TargetKinds = table.freeze({ none = true, truck = true, tag = true, rescue = true, burning = true, named = true, prompt = true })
 GuideFlow.DoneKinds = table.freeze({
 	hand = true,
 	attr = true,
@@ -49,6 +49,7 @@ GuideFlow.DoneKinds = table.freeze({
 	gone = true,
 	hazard = true,
 	seconds = true,
+	ladder = true,
 })
 
 function GuideFlow.modeFor(seen: { boolean }): string

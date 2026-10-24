@@ -16,14 +16,17 @@
 --   maxSeconds: number?,   -- move on anyway after this long (mechanics that can stall: solo panda)
 -- }
 -- Target kinds (all scoped to YOUR run: its IncidentSite, its rescues, your truck):
---   { kind = "truck", tag = "TruckRefill" | "RescueDropoff" }            -- a tagged part on your truck
+--   { kind = "truck", tag = "TruckRefill" | "RescueDropoff", attr?, value? } -- a tagged part on your truck
+--   { kind = "prompt", action }                                          -- nearest live ProximityPrompt in the
+--        site with this ActionText ("Shut valve", "Pry door", "Slam the lid"): the twist props
 --   { kind = "tag", tag, attr?, value?, notValue?, prompt? }             -- nearest tagged part in the site
 --        (attr/value filter; notValue = skip parts whose attr already equals it; prompt = needs a ProximityPrompt)
 --   { kind = "rescue", rescueKind?, highest? }                           -- nearest (or highest) rescue still to save
 --   { kind = "burning", highest? }                                       -- nearest (or highest) fire at the site
 --   { kind = "named", name }                                             -- a descendant of the site by name
 -- Done kinds:
---   { kind = "hand", item }                 -- your hand slot holds this item (InvHand)
+--   { kind = "hand", item | items }         -- your hand slot holds this item / one of these (InvHand)
+--   { kind = "ladder" }                     -- you stood a ladder up near the target (workspace.PlacedLadders)
 --   { kind = "attr", tag, attr, value }     -- every `tag` part in the site has attr == value
 --   { kind = "carrying", rescueKind? }      -- you are carrying someone (Player attr Carrying)
 --   { kind = "rescued" }                    -- one more of the run's rescues reached a truck
@@ -300,6 +303,102 @@ return {
 					sub = "Drag the hose up (or grab the extinguisher). Let it burn is not a strategy.",
 					target = { kind = "burning", highest = true },
 				},
+			},
+		},
+		-- v3 "crazy calls" (HazardService twists, Lib/Hazard/Twists)
+		diner_grease = {
+			tip = "NO WATER on the deep fryer: extinguisher or slam the lid. Then hose the rest.",
+			steps = {
+				{
+					id = "extinguisher",
+					head = "GRAB THE EXTINGUISHER",
+					sub = "From a locker on your truck (E). Water + grease = fireball.",
+					target = { kind = "truck", tag = "TruckCompartment", attr = "Item", value = "Extinguisher" },
+					done = { kind = "hand", item = "Extinguisher" },
+					optional = true,
+					maxSeconds = 60,
+				},
+				{
+					id = "fryer",
+					head = "SMOTHER THE FRYER",
+					sub = "Spray it with the extinguisher, or hold E to slam the lid. Do NOT hose it.",
+					target = { kind = "prompt", action = "Slam the lid" },
+					done = { kind = "gone" },
+					optional = true,
+					maxSeconds = 90,
+				},
+				"hose",
+				{ use = "spray", sub = "NOW the hose is fine. The rest of the diner, please." },
+				{ use = "carry", sub = "The cook and the customers. E to pick up." },
+				"deliver",
+			},
+		},
+		gas_leak = {
+			tip = "A countdown starts on arrival: split up and shut every pump valve (hold E).",
+			steps = {
+				{
+					id = "valves",
+					head = "SHUT EVERY VALVE",
+					sub = "Hold E on each red valve wheel before the tanker timer hits zero. Split up!",
+					target = { kind = "prompt", action = "Shut valve" },
+					done = { kind = "gone" },
+					optional = true,
+					maxSeconds = 120,
+				},
+				"hose",
+				{ use = "spray", sub = "Knock down the forecourt fires. Keep them off the tanker." },
+				{ use = "carry", sub = "The clerk, the driver and a very confused dog." },
+				"deliver",
+			},
+		},
+		highway_pileup = {
+			tip = "Drivers are pinned: hold a Halligan, crowbar or axe, then hold E on the door.",
+			steps = {
+				{
+					id = "pry",
+					head = "GET A PRY TOOL",
+					sub = "Halligan or crowbar from your locker, or just your axe. In your HAND.",
+					done = { kind = "hand", items = { "Halligan", "Crowbar", "Axe", "FireAxe", "GoldenAxe" } },
+					maxSeconds = 45,
+				},
+				{
+					id = "door",
+					head = "PRY THE JAMMED DOOR",
+					sub = "Walk up to a crumpled car and hold E on its door. Satisfying, right?",
+					target = { kind = "prompt", action = "Pry door" },
+					done = { kind = "prompt" },
+					optional = true,
+					maxSeconds = 90,
+				},
+				{ use = "carry", head = "GRAB THE DRIVER", sub = "Door's off: E to pick them up." },
+				"deliver",
+				"hose",
+				{ use = "spray", head = "HOSE THE BURNING CARS", sub = "At the other end of the lay-by." },
+			},
+		},
+		cat_tree = {
+			tip = "Stand a ladder against the tree trunk, climb, grab the cat. Don't hose the cat.",
+			steps = {
+				{
+					id = "ladder",
+					head = "BRING A LADDER",
+					sub = "Pick it in your locker (R), hold it, face the trunk and click.",
+					target = { kind = "named", name = "CatTree" },
+					done = { kind = "ladder" },
+					maxSeconds = 90,
+				},
+				{
+					use = "carry",
+					id = "cat",
+					head = "GRAB THE CAT",
+					sub = "Climb up, E on the cat. Throw it (gently) to a teammate if you dare.",
+					target = { kind = "rescue", rescueKind = "Cat" },
+					done = { kind = "carrying", rescueKind = "Cat" },
+				},
+				"deliver",
+				{ use = "spray", head = "THE CANDLE FIRE", sub = "Inside the house. Hose it. Not the cat. The fire." },
+				{ use = "carry", head = "GET THE OWNER OUT", sub = "E to pick them up, then the truck." },
+				"deliver",
 			},
 		},
 	},
