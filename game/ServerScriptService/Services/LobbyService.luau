@@ -19,6 +19,9 @@
 --   LobbyService:Choose(player: Player, missionId: string): boolean -- leader only, enabled missions only
 --   LobbyService:Launch(squadId: string, missionId: string): string? -- instanceId (MissionService:StartMission)
 --   LobbyService:ReturnToLobby(players: { Player })               -- back onto station pads, InstanceId = ""
+--   LobbyService:QuickJoin(player, missionId: string?, seconds: number?): string?  -- squadId; puts you on
+--     a pad without walking (an empty one first: your call, else the fullest one with room) and cuts its
+--     countdown to `seconds`. FirstFireService's auto-queued first call.
 -- Signals: SquadChanged(squadId: string), Launched(squadId: string, missionId: string, instanceId: string)
 -- Remotes: Lobby/Board (S->C all: squads: { Types.Squad }), Lobby/Choose (C->S missionId: string, 2/s),
 --          Lobby/Launch (C->S none, 1/s; leader only: cuts the countdown to LaunchCountdown)
@@ -45,6 +48,7 @@ local LobbyConfig = require(ConfigDir:WaitForChild("LobbyConfig") :: ModuleScrip
 local MapConfig = require(ConfigDir:WaitForChild("MapConfig") :: ModuleScript) :: any
 local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: { any }
 local LobbyQueue = require(ReplicatedStorage:WaitForChild("Lobby"):WaitForChild("LobbyQueue") :: ModuleScript)
+local FirstFire = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("FirstFire") :: ModuleScript)
 
 local LobbyService = {}
 LobbyService.Priority = 55
@@ -404,6 +408,38 @@ function LobbyService:Join(player: Player, padId: number): string?
 	renderBoard()
 	broadcast()
 	return q.pads[padId].squadId
+end
+
+function LobbyService:QuickJoin(player: Player, missionId: string?, seconds: number?): string?
+	local q = queue
+	if not q or not inLobby(player) then
+		return nil
+	end
+	local padId = LobbyQueue.padOf(q, player.UserId)
+	if not padId then
+		local infos = {}
+		for _, pad in q.pads do
+			table.insert(infos, { padId = pad.padId, members = #pad.members, capacity = LobbyQueue.capacity(q, pad.padId) })
+		end
+		padId = FirstFire.pickPad(infos)
+		if not padId then
+			return nil
+		end
+		local def = missionId and byId[missionId]
+		if def and def.enabled == true and #q.pads[padId].members == 0 then
+			LobbyQueue.choose(q, player.UserId, def.id) -- remembered, applied as the new squad's call
+		end
+		if not LobbyService:Join(player, padId) then
+			return nil
+		end
+	end
+	local pid = padId :: number
+	if type(seconds) == "number" and LobbyQueue.hurry(q, pid, seconds) then
+		local pad = q.pads[pid]
+		toMembers(pad.members, pid, LobbyQueue.secondsLeft(q, pid) or -1, title(pad.missionId))
+		renderPad(pid)
+	end
+	return q.pads[pid].squadId
 end
 
 function LobbyService:Leave(player: Player)

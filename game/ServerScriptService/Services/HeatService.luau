@@ -1,6 +1,7 @@
 --!strict
 -- HeatService [owner: G1]. Per-player body heat 0..100 (Player attr Heat).
---   Rises near Burning parts: inverse-square-ish, FireLevel weighted, reduced through walls.
+--   Rises near Burning parts: inverse-square-ish, FireLevel weighted, reduced through walls. Parts with
+--   attr NoHeat = true (the first-join training fire) give no heat.
 --   Cools over time; fast while a teammate's hose hits you (ToolService.HoseHit) or in water.
 --   60 = warm (client tint + heavy breathing), 85 = sweaty (client sweat drops + walk slowed here),
 --   100 = Overheated -> SquadService:Down(player, "heat") (nil-guarded), "well done (steak)" toast,
@@ -192,7 +193,8 @@ function HeatService:_tick(dt: number)
 	refreshRayParams()
 	local burning: { BasePart } = {}
 	for _, inst in CollectionService:GetTagged(Names.Tag.Burning) do
-		if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) then
+		-- attr NoHeat: FirstFireService's training fire (a brand-new player must not get downed by it)
+		if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) and inst:GetAttribute("NoHeat") ~= true then
 			table.insert(burning, inst)
 		end
 	end
