@@ -20,9 +20,10 @@ local cfg: SmokeSim.Cfg = {
 	SinkFactor = 0.25,
 	HeatFlowFactor = 0.6,
 	OpenFlowAt = 0.2,
-	PressureSmoke = 0.55,
+	PressureSmoke = 0.4,
 	PressureFire = 3,
-	PressureRate = 0.03,
+	PressureRate = 0.04,
+	PressureFireBoost = 2,
 	PressureDecay = 0.02,
 	VentRelief = 0.25,
 	WarnAt = 0.4,
@@ -43,8 +44,8 @@ local cfg: SmokeSim.Cfg = {
 	ChokeAt = 0.45,
 	ChokeDps = 1.2,
 	LayerMaxFill = 0.9,
-	LayerClear = 0.82,
-	LayerThick = 0.12,
+	LayerClear = 0.6,
+	LayerThick = 0.04,
 }
 
 -- Room 1 (fire) and room 2 joined by a door; room 1 has a window and a front door to the outside.
@@ -127,6 +128,22 @@ Spec.test("sealed + heavy fire builds pressure: warn first, then armed", functio
 	end
 	Spec.truthy(warnAt < armedAt, "warning comes before it's armed")
 	Spec.eq(rooms[1].stage, 2)
+end)
+
+Spec.test("a bigger sealed fire pressurizes faster, capped", function()
+	local function armedAfter(fire: number): number
+		local rooms, links = scene(fire)
+		for n = 1, 900 do
+			SmokeSim.step(rooms, links, 1 / 3, cfg)
+			if rooms[1].stage == 2 then
+				return n / 3
+			end
+		end
+		return math.huge
+	end
+	local small, big, huge = armedAfter(4), armedAfter(18), armedAfter(200)
+	Spec.truthy(big < small, `big {big} s < small {small} s`)
+	Spec.truthy(huge > 10, `still telegraphed ({huge} s)`)
 end)
 
 Spec.test("a vented room never builds pressure", function()

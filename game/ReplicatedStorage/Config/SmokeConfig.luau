@@ -38,9 +38,10 @@ return Config.define({
 	HeatFlowFactor = 0.6, -- heat flows like smoke, a bit slower
 	OpenFlowAt = 0.2, -- a link with at least this conductance counts as "open" (vents / joins rooms)
 	-- backdraft (a sealed room with heavy fire + smoke builds pressure)
-	PressureSmoke = 0.55, -- smoke needed to build pressure
+	PressureSmoke = 0.4, -- smoke needed to build pressure
 	PressureFire = 3, -- FireLevel points needed in the room
-	PressureRate = 0.03, -- pressure / s while sealed (0 -> ArmedAt in 25 s)
+	PressureRate = 0.04, -- pressure / s while sealed (0 -> WarnAt in 10 s, ArmedAt in 19 s; faster for big fires)
+	PressureFireBoost = 2, -- a roaring sealed room (>= 2 x 3 x PressureFire points) pressurizes up to 2x faster
 	PressureDecay = 0.02, -- pressure / s lost when the fire or smoke drops
 	VentRelief = 0.25, -- pressure / s lost while the room is vented
 	WarnAt = 0.4, -- stage 1: doors rattle, puffs from the gaps, creaks, "Something's building up in there..."
@@ -80,9 +81,9 @@ return Config.define({
 	MaxLayerEmitters = 8, -- nearest smoke layers that get a billowing underside
 	MaxLinkFx = 16, -- nearest doors / windows with seep / vent / glow effects
 	LayerMaxFill = 0.9, -- full smoke still leaves a crawl gap at the floor
-	LayerClear = 0.82, -- layer transparency at smoke 0+
-	LayerThick = 0.12, -- layer transparency at smoke 1
-	LayerColor = Color3.fromRGB(38, 36, 38),
+	LayerClear = 0.6, -- layer transparency at smoke 0+
+	LayerThick = 0.04, -- layer transparency at smoke 1
+	LayerColor = Color3.fromRGB(30, 28, 30),
 	ScreenDarkMax = 0.72, -- screen overlay opacity with your head in full smoke (no mask)
 	GlowColor = Color3.fromRGB(255, 120, 40),
 	RattleDegrees = 2.2, -- door wiggle at stage 1 (x2 when armed)

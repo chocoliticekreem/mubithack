@@ -157,7 +157,9 @@ function SmokeSim.step(rooms: { Room }, links: { Link }, dt: number, cfg: Cfg): 
 	for i, r in rooms do
 		local old = r.stage
 		if not r.vented and r.smoke >= cfg.PressureSmoke and r.fire >= cfg.PressureFire then
-			r.pressure += cfg.PressureRate * dt
+			-- a bigger fire in a sealed room pressurizes faster (up to PressureFireBoost x)
+			local boost = math.clamp(r.fire / (cfg.PressureFire * 3), 1, cfg.PressureFireBoost)
+			r.pressure += cfg.PressureRate * boost * dt
 		elseif r.vented then
 			r.pressure -= cfg.VentRelief * dt
 		else
