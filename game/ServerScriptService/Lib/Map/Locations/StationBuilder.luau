@@ -1151,8 +1151,8 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			fallbackLamp(outside, x, WALK_Y, KERB_Z - 2, 1)
 		end)
 	end
-	MapKit.hydrant(outside, O * CFrame.new(-70, WALK_Y, KERB_Z - 2))
-	prop("mailbox", outside, facing(-80, WALK_Y, KERB_Z - 2.5, 0, 1))
+	MapKit.hydrant(outside, O * CFrame.new(-96, WALK_Y, KERB_Z - 2))
+	prop("mailbox", outside, facing(-90, WALK_Y, KERB_Z - 2.5, 0, 1))
 
 	------------------------------------------------------------ the grounds (a real place, no void)
 	local grounds = folder(model, "Grounds")
@@ -1206,13 +1206,14 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	span(grounds, "BorderE", PX1 - 1.2, PX1, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
 	span(grounds, "BorderS", PX0, PX1, APRON_Y, APRON_Y + 0.06, PZ1 - 1.2, PZ1, BRICK_PAVE, { collide = false })
 	-- (no planters / benches on the plaza: it's open space where players spawn and trucks swing through)
-	-- Outside spawn points (tag OutsideSpawn, attr Slot 1..8): two rows of four on the plaza, clear of the
-	-- squad pads. MapService:GetSpawnCFrame uses them first, the locker-room pads only when all are blocked.
+	-- Outside spawn points (tag OutsideSpawn, attr Slot 1..8) on the plaza, clear of LobbyProps' squad pads
+	-- (z 51, radius 7.7), Mission Board (X -46..-34, Z 37-39) and the bushes along the wing (Z 32): five
+	-- between the pads and the sidewalk, three in the gaps between the bushes. MapService:GetSpawnCFrame
+	-- uses them first, the locker-room pads only when all are blocked.
 	local spawnsOut = folder(grounds, "OutsideSpawns")
-	for k = 1, 8 do
-		local row = (k - 1) // 4
-		local x = -53 + ((k - 1) % 4) * 7
-		local z = if row == 0 then 37 else 63
+	local SPAWN_XZ = { { -56, 62.5 }, { -49, 62.5 }, { -42, 62.5 }, { -35, 62.5 }, { -28, 62.5 }, { -52, 34.5 }, { -42, 34.5 }, { -33, 34.5 } }
+	for k, xz in SPAWN_XZ do
+		local x, z = xz[1], xz[2]
 		local sp = part(spawnsOut, `OutsideSpawn{k}`, facing(x, APRON_Y + 0.1, z, 1, 0), V(4, 0.2, 4), C.Line, { transparency = 1, collide = false })
 		sp.CanQuery = false
 		sp.CanTouch = false
@@ -1361,7 +1362,8 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	hedge(-159, -100, 60, 62.5, 2.4)
 	hedge(122, 159, 60, 62.5, 2.4)
 	for x = -150, 150, 50 do
-		if x < -70 or x > 70 then
+		-- (not at x 100: right beside the lot drive, where trucks swing out onto the avenue)
+		if x < -70 or x > 120 then
 			lamp(x, WALK_Y, KERB_Z - 2, 1)
 		end
 	end
