@@ -17,6 +17,8 @@ Standards, is in [RESEARCH.md](RESEARCH.md).
 ## Files (`out/`)
 | File | Hook | What it shows |
 |---|---|---|
+| `icon-final.png` | (icon, live pick) | Variant e with the title: STATION over a huge 67, over the hose-vs-house scene |
+| `icon-final-oneline.png` | (icon) | Same, with "STATION 67" on one line (weaker at 100 px) |
 | `icon-v2.png` | (icon) | Penguin blasting a hose into a burning house (= `icon-v2-a`) |
 | `icon-v2-b.png` | (icon) | Penguin carrying a rescued cat out of the flames |
 | `icon-v2-c.png` | (icon) | Fire-lit close-up of a penguin's face, with the hose jet |
@@ -27,6 +29,9 @@ Standards, is in [RESEARCH.md](RESEARCH.md).
 | `ad-03-save-the-cat.jpg` | SAVE THE CAT! | The "Cat up a tree" mission: scared cat in a tree, penguin with a hose |
 | `ad-04-8-player-squad.jpg` | 8 PLAYER FIRE SQUAD | Number hook: 8 penguin faces in front of a real truck and fire |
 | `ad-05-bring-the-water.jpg` | BRING THE WATER! | A big penguin face lit by the fire, with a water jet into a burning house |
+| `ad-06-ka-boom.jpg` | KA-BOOM! | The "Pump Panic" gas leak: tanker flung by the blast, pump, penguin flying (in-game gas station screenshot behind) |
+| `ad-07-backdraft.jpg` | BACKDRAFT! | Fireball blasting a door off its hinges, sooty penguin blown back |
+| `ad-09-fire-chief.jpg` | BECOME FIRE CHIEF | Battle pass tier 20: the Fire Chief title is free and the white-and-gold helmet is on the premium track |
 | `ad-08-rooftop-rescue.jpg` | ROOFTOP RESCUE! | The Sky Tower mission: ladder truck, burning tower, penguin stranded on the roof |
 
 ## Re-render

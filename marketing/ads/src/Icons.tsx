@@ -118,3 +118,34 @@ export const IconE: React.FC = () => (
     </div>
   </AbsoluteFill>
 );
+
+/* final: variant e with the FIRE! banner replaced by the title, same style and spot */
+const titleStyle = { fill: C.fireCore, layers: [{ stroke: 0.25, color: C.ink }, { stroke: 0.133, color: C.fireEdge }] };
+const T: React.FC<{ size: number; children: React.ReactNode; style?: React.CSSProperties }> = ({ size, children, style }) => (
+  <Outline size={size} fill={titleStyle.fill} layers={titleStyle.layers.map((l) => ({ stroke: l.stroke * size, color: l.color }))} style={style}>
+    {children}
+  </Outline>
+);
+
+// STATION over a huge 67
+export const IconFinal: React.FC = () => (
+  <AbsoluteFill style={{ background: C.ink, overflow: "hidden" }}>
+    <IconA />
+    <div style={{ position: "absolute", left: 0, right: 0, top: 40, display: "flex", flexDirection: "column", alignItems: "center", transform: "rotate(-5deg)" }}>
+      <T size={78}>STATION</T>
+      <T size={150} style={{ marginTop: -16 }}>
+        67
+      </T>
+    </div>
+  </AbsoluteFill>
+);
+
+// STATION 67 on one line
+export const IconFinalLine: React.FC = () => (
+  <AbsoluteFill style={{ background: C.ink, overflow: "hidden" }}>
+    <IconA />
+    <div style={{ position: "absolute", left: 0, right: 0, top: 34, display: "flex", justifyContent: "center", transform: "rotate(-6deg)" }}>
+      <T size={74}>STATION 67</T>
+    </div>
+  </AbsoluteFill>
+);

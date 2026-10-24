@@ -364,7 +364,7 @@ export const ChiefHelmet: React.FC<{ size: number; style?: React.CSSProperties }
       <path d="M 250 20 Q 290 40 286 80 L 250 96 L 214 80 Q 210 40 250 20 Z" fill="url(#chiefgold)" stroke={ink} strokeWidth={10} strokeLinejoin="round" />
       {/* badge */}
       <path d="M 180 110 L 320 110 L 320 180 Q 320 236 250 256 Q 180 236 180 180 Z" fill="url(#chiefgold)" stroke={ink} strokeWidth={12} strokeLinejoin="round" />
-      <text x={250} y={210} textAnchor="middle" fontFamily="Luckiest Guy" fontSize={66} fill={C.red}>
+      <text x={250} y={210} textAnchor="middle" fontFamily="Luckiest Guy" fontSize={52} fill={C.red}>
         CHIEF
       </text>
     </svg>

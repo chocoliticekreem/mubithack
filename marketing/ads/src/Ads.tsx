@@ -323,6 +323,34 @@ export const AdCloseup: React.FC<{ t?: number }> = ({ t = 0 }) => (
 
 /* ------------------------------------------------- 06  KA-BOOM (gas station) */
 
+const Tanker: React.FC<{ width: number }> = ({ width }) => (
+  <svg width={width} height={(width * 300) / 700} viewBox="0 0 700 300" style={{ overflow: "visible" }}>
+    <rect x={20} y={40} width={480} height={170} rx={85} fill="#D8DCE2" stroke={C.ink} strokeWidth={14} />
+    <rect x={20} y={110} width={480} height={34} fill={C.red} stroke={C.ink} strokeWidth={8} />
+    <rect x={70} y={62} width={300} height={22} rx={11} fill="#fff" opacity={0.6} />
+    <path d="M 510 80 L 620 80 Q 660 80 670 120 L 690 200 L 690 230 L 510 230 Z" fill={C.red} stroke={C.ink} strokeWidth={14} strokeLinejoin="round" />
+    <path d="M 540 100 L 610 100 Q 630 100 636 120 L 648 160 L 540 160 Z" fill={C.water} stroke={C.ink} strokeWidth={9} />
+    <rect x={10} y={210} width={690} height={26} fill="#4A4F5A" stroke={C.ink} strokeWidth={10} />
+    {[110, 230, 600].map((x) => (
+      <g key={x}>
+        <circle cx={x} cy={250} r={42} fill={C.ink} />
+        <circle cx={x} cy={250} r={18} fill="#C9CCD0" />
+      </g>
+    ))}
+  </svg>
+);
+
+const Pump: React.FC<{ h: number }> = ({ h }) => (
+  <svg width={(h * 200) / 380} height={h} viewBox="0 0 200 380" style={{ overflow: "visible" }}>
+    <rect x={20} y={20} width={160} height={340} rx={18} fill={C.red} stroke={C.ink} strokeWidth={14} />
+    <rect x={44} y={50} width={112} height={80} rx={8} fill={C.cream} stroke={C.ink} strokeWidth={9} />
+    <rect x={56} y={160} width={88} height={30} rx={6} fill={C.ink} />
+    <path d="M 180 220 Q 250 240 230 320" stroke={C.ink} strokeWidth={22} fill="none" strokeLinecap="round" />
+    <rect x={10} y={350} width={180} height={30} rx={8} fill="#6E7480" stroke={C.ink} strokeWidth={10} />
+    <path d="M 100 70 Q 90 95 100 110 Q 110 95 100 70 Z" fill={C.fireEdge} stroke={C.ink} strokeWidth={5} />
+  </svg>
+);
+
 const Boom: React.FC<{ x: number; y: number; r: number; t?: number }> = ({ x, y, r, t = 0 }) => {
   const spikes = 18;
   const pts = (k: number, rr: number) =>
@@ -347,19 +375,24 @@ export const AdBoom: React.FC<{ t?: number }> = ({ t = 0 }) => (
     <Photo src="gas-dusk" ext="png" scale={1.05} origin="50% 60%" filter="saturate(1.3) contrast(1.1) brightness(0.8)" />
     <Burst a="rgba(255,177,43,0.5)" b="rgba(200,35,43,0.25)" x="58%" y="52%" rays={30} spin={t * 0.5} />
     <Smoke w={900} h={420} seed={51} color="#2E2522" o={0.95} style={{ position: "absolute", left: 640, top: -60 }} />
-    <Boom x={1110} y={560} r={330} t={t} />
+    <Boom x={1110} y={560} r={360} t={t} />
     <Glow x="58%" y="52%" r={60} o={0.9} />
+    <div style={{ position: "absolute", left: 900, top: 300, transform: `rotate(${-8 + t * 0.6}deg)`, filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
+      <Tanker width={620} />
+    </div>
+    <div style={{ position: "absolute", left: 300, top: 470, transform: "rotate(-10deg)", filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
+      <Pump h={380} />
+    </div>
     <Embers w={W} h={H} n={80} seed={51} t={t} size={2.6} />
     <FireFloor h={230} seed={53} t={t} />
     {/* flying penguin */}
-    <div style={{ position: "absolute", left: 1440, top: 160, transform: "rotate(28deg)", filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
+    <div style={{ position: "absolute", left: 1520, top: 50, transform: "rotate(28deg)", filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
       <Face size={300} mood="shock" number="04" />
     </div>
     <div style={{ position: "absolute", left: 150, top: 90, display: "flex", flexDirection: "column", alignItems: "flex-start", transform: "rotate(-5deg)" }}>
       <Head size={250} fill={C.fireCore} rim={C.fireEdge}>
         KA-BOOM!
       </Head>
-      <Bar text="SHUT THE GAS IN TIME" style={{ marginTop: 26, marginLeft: 20 }} size={64} />
     </div>
     <Rim />
   </AbsoluteFill>
@@ -371,25 +404,34 @@ export const AdBackdraft: React.FC<{ t?: number }> = ({ t = 0 }) => (
   <AbsoluteFill style={{ background: C.ink, overflow: "hidden" }}>
     <Photo src="house-fire" scale={1.6} x={0} y={100} origin="50% 50%" filter="saturate(1.4) contrast(1.15) brightness(0.55)" />
     <Burst a="rgba(255,90,31,0.35)" b="rgba(26,18,16,0.0)" x="50%" y="60%" rays={36} spin={t * 0.4} />
-    {/* doorway with fireball blasting out */}
+    {/* fireball behind a wall, blasting out through the doorway */}
+    <Boom x={960} y={640} r={520} t={t} />
     <svg width={W} height={H} style={{ position: "absolute", left: 0, top: 0 }}>
-      <rect x={760} y={330} width={400} height={640} rx={16} fill="#1C0E0A" stroke={C.ink} strokeWidth={20} />
-      <rect x={740} y={310} width={440} height={680} rx={20} fill="none" stroke="#6E3B2A" strokeWidth={26} />
+      <path d="M 520 330 L 1400 330 L 1400 1100 L 520 1100 Z M 770 420 L 770 1100 L 1150 1100 L 1150 420 Z" fill="#B4553A" fillRule="evenodd" stroke={C.ink} strokeWidth={18} />
+      <path d="M 500 300 L 1420 300 L 1420 350 L 500 350 Z" fill="#6E3B2A" stroke={C.ink} strokeWidth={16} />
+      {[0, 1, 2, 3, 4, 5].map((r) => (
+        <line key={r} x1={520} y1={460 + r * 110} x2={770} y2={460 + r * 110} stroke="#8E3E2A" strokeWidth={10} />
+      ))}
+      {[0, 1, 2, 3, 4, 5].map((r) => (
+        <line key={`b${r}`} x1={1150} y1={460 + r * 110} x2={1400} y2={460 + r * 110} stroke="#8E3E2A" strokeWidth={10} />
+      ))}
+      {/* the door, blown off its hinges */}
+      <g transform="rotate(-28 1380 700)">
+        <rect x={1240} y={560} width={300} height={520} rx={14} fill={C.redDark} stroke={C.ink} strokeWidth={16} />
+        <circle cx={1500} cy={830} r={16} fill={C.gold} stroke={C.ink} strokeWidth={6} />
+      </g>
     </svg>
-    <Boom x={960} y={640} r={420} t={t} />
-    <Glow x="50%" y="60%" r={65} o={0.95} />
+    <Boom x={960} y={700} r={300} t={t + 7} />
+    <Glow x="50%" y="62%" r={65} o={0.95} />
     <Embers w={W} h={H} n={90} seed={61} t={t} size={2.8} />
     {/* penguin blown backwards */}
-    <div style={{ position: "absolute", left: 120, top: 520, transform: "rotate(-24deg)", filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
-      <Face size={360} mood="shock" soot number="02" />
+    <div style={{ position: "absolute", left: 90, top: 470, transform: "rotate(-24deg)", filter: `drop-shadow(0 10px 0 ${C.ink})` }}>
+      <Face size={420} mood="shock" soot number="02" />
     </div>
     <div style={{ position: "absolute", left: 0, right: 0, top: 80, display: "flex", justifyContent: "center", transform: "rotate(-3deg)" }}>
       <Head size={260} fill={C.fireCore} rim={C.fireEdge}>
         BACKDRAFT!
       </Head>
-    </div>
-    <div style={{ position: "absolute", right: 170, top: 640, transform: "rotate(5deg)" }}>
-      <Bar text="DON'T OPEN THAT DOOR" bg={C.cream} size={58} />
     </div>
     <Rim />
   </AbsoluteFill>
@@ -464,12 +506,15 @@ export const AdRooftop: React.FC<{ t?: number }> = ({ t = 0 }) => (
 export const AdChief: React.FC<{ t?: number }> = ({ t = 0 }) => (
   <AbsoluteFill style={{ background: C.red, overflow: "hidden" }}>
     <Photo src="house-fire" scale={1.2} filter="blur(8px) saturate(1.3) brightness(0.5)" />
-    <Burst a="rgba(246,196,64,0.55)" b="rgba(200,35,43,0.3)" x="68%" y="46%" rays={28} spin={t * 0.4} />
-    <AbsoluteFill style={{ background: `radial-gradient(circle at 68% 46%, ${C.fireCore} 0%, rgba(255,177,43,0.55) 20%, transparent 48%)` }} />
+    <Burst a="rgba(246,196,64,0.55)" b="rgba(200,35,43,0.3)" x="72%" y="62%" rays={28} spin={t * 0.4} />
+    <AbsoluteFill style={{ background: `radial-gradient(circle at 72% 62%, ${C.fireCore} 0%, rgba(255,177,43,0.55) 20%, transparent 48%)` }} />
     <Halftone opacity={0.12} />
     <FireFloor h={300} seed={81} t={t} />
-    <div style={{ position: "absolute", left: 950, top: 200, filter: `drop-shadow(0 18px 0 ${C.ink})`, transform: "rotate(-6deg)" }}>
+    <div style={{ position: "absolute", left: 1010, top: 400, filter: `drop-shadow(0 18px 0 ${C.ink})`, transform: "rotate(-6deg)" }}>
       <ChiefHelmet size={760} />
+    </div>
+    <div style={{ position: "absolute", left: 300, top: 560, transform: "rotate(-6deg)", filter: `drop-shadow(0 12px 0 ${C.ink})` }}>
+      <Face size={430} mood="brave" look={[22, -8, 20, -10]} />
     </div>
     <div style={{ position: "absolute", left: 150, top: 90, display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
       <Head size={190}>BECOME</Head>
