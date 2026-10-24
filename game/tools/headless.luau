@@ -1179,6 +1179,7 @@ local DEFAULTS: { [string]: any } = {
 	MaxForce = math.huge, Responsiveness = 10, Attachment0 = nil, Attachment1 = nil,
 	CurrentAngle = 0, CurrentPosition = 0, TargetAngle = 0, TargetPosition = 0, AngularSpeed = 0,
 	AngularVelocity = 0, ServoMaxTorque = 0, MotorMaxTorque = 0, LowerAngle = -45, UpperAngle = 45,
+	CollisionGroup = "Default", CollisionGroupId = 0,
 	LimitsEnabled = false, Restitution = 0, Length = 5, Stiffness = 0, Damping = 0, FreeLength = 1,
 }
 
