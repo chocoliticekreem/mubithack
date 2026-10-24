@@ -1,0 +1,20 @@
+[
+  {"name": "MusicPlayer",
+   "path_in_game": "ReplicatedStorage/Kit/MusicPlayer.luau",
+   "genres": ["obby", "tycoon", "simulator"],
+   "keywords": ["music", "soundtrack", "song", "background", "zone", "zones", "area", "areas", "world", "worlds", "lobby", "haunted", "carnival", "amusement", "park", "pirate", "coaster", "mute"],
+   "describe": "Client: looping background music per area with crossfades and a mute button; 16 Studio-verified Roblox-licensed tracks in 8 moods.",
+   "api": "local MusicPlayer = require(game.ReplicatedStorage.Kit.MusicPlayer) -- LocalScript only. MusicPlayer.start({areas = {[areaName] = mood or track name}, attribute = \"Area\", default = \"lobby\", volume = 0.35, fade = 1.5, muteButton = true}) plays the area in the LocalPlayer attribute `attribute` (the server sets player:SetAttribute(\"Area\", name)) and crossfades when it changes; MusicPlayer.setArea(name); MusicPlayer.play(moodOrTrack) e.g. \"victory\" at the finish; setMuted(bool), toggleMute(), isMuted(); current() -> {area, track, muted}. Moods: carnival, pop, lobby, spooky, pirate, intense, victory, water. Area names with words like haunted, coaster, flume, carousel, pirate pick a mood without config. Music plays from SoundService.ForgeMusic; LocalPlayer attributes MusicTrack, MusicArea, MusicMuted (set MusicMuted to mute from your own UI)."},
+  {"name": "Cosmetics",
+   "path_in_game": "ReplicatedStorage/Kit/Cosmetics.luau",
+   "genres": ["obby", "tycoon", "simulator"],
+   "keywords": ["costume", "costumes", "cosmetic", "cosmetics", "hat", "hats", "cape", "capes", "trail", "trails", "outfit", "wardrobe", "skin", "skins", "dress", "changing", "accessory", "avatar"],
+   "describe": "Server: costumes built from parts (hats, capes, trails, body colours), buy/equip/unequip checked on the server, owned + equipped saved, optional changing room of mannequin stands.",
+   "api": "local Cosmetics = require(game.ReplicatedStorage.Kit.Cosmetics) -- server Script. Cosmetics.start({currency = \"Coins\" (leaderstat or player attribute), costumes = {ids, panel order; default all}, prices = {[id] = n} (0 = free), rewards = {ids not for sale}, autoEquip = \"MouseEars\", store = \"ForgeCosmetics\", balance = fn(player) -> number and spend = fn(player, n) -> bool for your own economy}); Cosmetics.buildChangingRoom({cframe = CFrame.lookAt(roomPos, spawnPos), ids, title}) -> Model: mannequin stands with \"Try on\" prompts (tag CostumeStand, attributes Costume, Price, Slot); Cosmetics.buy(player, id) / equip(player, id) -> (ok, err); unequip(player, idOrSlot); grant(player, id) for rewards; owns(player, id); equipped(player) -> {slot = id}; wear(model, id) dresses any rig. Ids: head MouseEars BalloonHat PartyCone ClownWig TopHat Crown AstronautHelmet; back HeroCape StarCape RainbowCape ChampionCape; trail RainbowTrail FireTrail StarTrail; body GoldBody BubblegumBody IceBody. Player attributes CostumeHead, CostumeBack, CostumeTrail, CostumeBody, CostumesOwned; worn parts are welded in character.Costume_<slot> (tag Costume); counters costume_buy, costume_equip. Pair with CosmeticsClient."},
+  {"name": "CosmeticsClient",
+   "path_in_game": "ReplicatedStorage/Kit/CosmeticsClient.luau",
+   "genres": ["obby", "tycoon", "simulator"],
+   "keywords": ["costume", "costumes", "cosmetic", "cosmetics", "hat", "hats", "cape", "capes", "trail", "trails", "outfit", "wardrobe", "skin", "skins", "dress", "changing", "accessory", "avatar"],
+   "describe": "Client: the styled costume panel and HUD button for Cosmetics; opens from changing-room prompts.",
+   "api": "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."}
+]

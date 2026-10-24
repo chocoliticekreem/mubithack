@@ -170,6 +170,8 @@ runs/reflection.md     forge reflect --all
 runs/lessons.md        shared lessons, injected into every coder/fixer user message
 forge/ui_kit.py        picks UI kit rules + snippets for UI work (user message only)        [owner: llm]
 forge/ui_library/      the UI kit: README.md (rules + sources), index.json, *.luau snippets
+forge/kit/             GameAssets.luau template, sounds.json ("sounds" + "music"), modules/ (prebuilt kit
+                       modules, installed as ReplicatedStorage/Kit/<Name>.luau; see "Kit modules" below)
 ```
 
 Generated games live in `runs/<game>/game/` (same layout as `game/`). The base `game/` folder holds
@@ -325,6 +327,22 @@ Where it lands, always in the **user message** (system prompts stay frozen for M
 - `fix_file` / `patch_file`: `block(path, problem, path_words=False)` only when the problem is UI;
   never for `luau-compile` problems. A tight budget degrades to rules only.
 - `design`: `designer_block()` every call.
+
+### Kit modules (forge/kit/modules: prebuilt, generic, required by agent-written code)
+`index.json`: `[{name, path_in_game, genres, keywords, describe, api}]`; each `<name>.luau` installs
+unchanged as `path_in_game` = `ReplicatedStorage/Kit/<name>.luau`, and `api` is the short contract a coder's
+user message lists (tests/test_kit_modules.py).
+- `MusicPlayer` (client): `start({areas, attribute = "Area", default = "lobby", volume = 0.35, fade = 1.5,
+  muteButton})` plays the area in that LocalPlayer attribute, crossfades on change (at most two Sounds, in
+  `SoundService.ForgeMusic`), mute button + `MusicMuted` attribute; `setArea`, `play(mood|track)`, `setMuted`.
+  Tracks = `sounds.json` "music": 16 Roblox-licensed APM ids in 8 moods (carnival, pop, lobby, spooky,
+  pirate, intense, victory, water), each loaded on Client and Server in a Studio playtest (`checked`).
+- `Cosmetics` (server): 17 part-built costumes (7 hats, 4 capes, 3 trails, 3 body colours; no asset ids),
+  `start({currency, costumes, prices, rewards, autoEquip, store, balance?, spend?})`, buy/equip/unequip
+  through `ReplicatedStorage.CosmeticsRemotes.Request` (server checks ownership, price, rate), saved in a
+  DataStore or in memory (unpublished Studio place); `buildChangingRoom({cframe, ids})` puts mannequin
+  stands with "Try on" prompts (tag `CostumeStand`, attributes `Costume`/`Price`/`Slot`).
+- `CosmeticsClient` (client): the house-style costume panel + HUD button; opens from the stand prompts.
 
 Spec (designer output):
 ```json
