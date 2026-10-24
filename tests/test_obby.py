@@ -779,7 +779,12 @@ def test_index_entries_have_the_schema_and_their_files():
 def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     names = lambda t: [e["name"] for e in director.match_kit_modules(t)]  # noqa: E731
     kits = ["ObbyKit", "ObbyThemes"]
-    assert set(names("An amusement-park obby with 200 stages")) >= {*kits, "WorldKit"}  # park words
+    # a park-themed obby gets the ParkObby template (the tested wiring) by its keywords, plus every kit it requires
+    park = set(names("An amusement-park obby with 200 stages"))
+    requires = next(e for e in director.kit_index() if e["name"] == "ParkObby")["requires"]
+    assert park == {"ParkObby", *requires} and {*kits, "WorldKit"} <= park
+    # ParkObby is for obbies only: a funfair tycoon never gets the obby template
+    assert "ParkObby" not in names("a funfair tycoon")
     assert names("a parkour climb") == kits and names("checkpoints every few stages, then a finish") == kits
     assert names("Space obby: hop across asteroids to the mothership") == kits
     assert names("Escape the lava tower obby") == kits and names("Candy obby with 100 stages") == kits
@@ -795,7 +800,7 @@ def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     assert names("a funfair tycoon") == ["WorldKit"]  # a park word picks the park without the obby genre
 
 
-OBBY_DOC = {"fantasy": "Run a giant amusement park obby", "core_loop": "jump -> checkpoint -> next zone",
+OBBY_DOC = {"fantasy": "Run a giant candy obby", "core_loop": "jump -> checkpoint -> next zone",
             "systems": [], "juice": [], "first_60_seconds": [], "visual_style": {"palette": ["#FF8A65"]},
             "sounds": [], "module_budget": 5, "acceptance": []}
 

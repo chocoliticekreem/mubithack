@@ -134,6 +134,44 @@
     "anchors[i] = top centre of zone i's first pad, on a themed tower (zone 1: at the top of the START stairs by the lobby), 32-70 studs above the ground (up to 12 zones at size 1600); LookVector = the course direction, the clockwise tangent with the park on the course's right (a course that folds back turns left, away from the rides). Pass them on: ObbyKit.start({anchors = park.anchors, ...}). gates[i] = on the paving in front of ride i, facing it; gates[1] is at the foot of the START stairs. spawn = the top of ParkSpawn, 44 studs outside the entrance gate and facing it: a player at stage 0 belongs there (they walk in through the gate to the START stairs), not straight on the START pad.",
     "WorldKit.landmark(theme, cframe, palette?) -> Model (cframe = ground centre, LookVector = its front; its rides turn, swing and drop from motion data on their parts, run by WorldKit.client()); WorldKit.dressing(kind, cframe, palette?, text?, seed?) -> Model, kind: stall (text: POPCORN, ICE CREAM, HOT DOGS, CANDY FLOSS, LEMONADE, PRIZES, HOOK A DUCK, BURGERS, RING TOSS), balloon_cluster, balloon_arch, string_lights, bench, tree, cypress, lamp, sign (text), fence, popcorn_cart, flower_bed, flower_garden, picnic, mini_golf, queue_fence, kiddie_ride (the last five stay under 6 studs, so they can stand under a course); its stall type, sizes and colours come from seed (default: from where it stands). Both parent to workspace; no asset ids."
    ]
+  },
+  {
+   "name": "ParkObby",
+   "path_in_game": "ReplicatedStorage/Kit/ParkObby.luau",
+   "genres": [],
+   "keywords": [
+    "amusement park",
+    "theme park",
+    "funfair",
+    "carnival",
+    "fairground",
+    "fun fair",
+    "park obby"
+   ],
+   "describe": "the complete, tested wiring of a themed park obby: WorldKit builds the park (lobby, START stairs, one ride per zone), ObbyKit lays the course into it with ObbyThemes dressing every piece, a working changing room in the lobby, music per zone, and the HUD. The game supplies only content.",
+   "api": [
+    "This game is built on the ParkObby template. Forge renders its Config (ReplicatedStorage/Config.luau: Title, Zones in course order, Costumes, Rewards) and its two bootstraps from the spec, so never write a course, checkpoints, a start gate, a changing room, a coin counter, a music player, a HUD, Config or a bootstrap.",
+    "Config.Zones[i] = { name, theme = 'entrance'|'carousel'|'bumper'|'teacups'|'ferris'|'flume'|'haunted'|'pirate'|'coaster'|'finale', palette = { '#RRGGBB', ... }, mood }: read it with require(ReplicatedStorage.Config).",
+    "Extra feature modules hook the kits: ObbyKit.onStage(fn(player, stage)), ObbyKit.onFinish(fn(player)), ObbyKit.getStage(player), ObbyKit.coins(player), ObbyKit.spend(player, n) -> bool, Cosmetics.grant(player, id)."
+   ],
+   "genres_only": [
+    "obby"
+   ],
+   "requires": [
+    "ObbyKit",
+    "WorldKit",
+    "ObbyThemes",
+    "Cosmetics",
+    "CosmeticsClient",
+    "MusicPlayer"
+   ],
+   "template": {
+    "files": [
+     "ReplicatedStorage/Config.luau",
+     "ServerScriptService/Game.server.luau",
+     "StarterPlayerScripts/Game.client.luau"
+    ]
+   }
   }
  ]
 }
