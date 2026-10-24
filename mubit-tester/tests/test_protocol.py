@@ -418,3 +418,21 @@ def test_acceptance_passes_only_when_every_covering_step_passes(tmp_path):
     targets = {b["title"]: b["fix_target"] for b in rep["bugs"]}
     assert targets["Visual: Pads blend into the floor"] == "ServerScriptService/Tycoon.luau"
     assert targets["Visual: Label clipped"] == "StarterPlayerScripts/Hud.client.luau"
+
+
+def test_dashboard_feed_reads_steps_screenshots_and_assertions(tmp_path):
+    from forge.dashboard import testers_view
+
+    settings, _, _, _, rep = _run(tmp_path)
+    test_dir = Path(rep["test_dir"])
+    side = json.loads((test_dir / "step-03.json").read_text())
+    assert side["ok"] is False and side["assertions"][0]["text"] == "counters.dropper_bought increased"
+    assert side["assertions"][0]["ok"] is False and side["assertions"][-1]["text"].startswith("fail:")
+    assert (test_dir / "step-00.json").exists()
+    view = testers_view(settings.runs_dir / "demo", "demo", 0)
+    run = next(v for v in view if v["run"] == rep["run_id"])
+    assert run["label"] == "QA protocol" and run["status"] == "failed"
+    by_n = {s["n"]: s for s in run["steps"]}
+    assert set(by_n) == {0, 1, 2, 3, 4}
+    assert by_n[1]["ok"] is True and by_n[3]["ok"] is False and by_n[3]["shot"].endswith("step-03.png")
+    assert run["passed"] >= 4 and run["failed"] >= 2

@@ -665,6 +665,7 @@ class _Tester:
         verdict["verdict"] = v if v in VERDICTS else "inconclusive"
         step.setdefault("judge_calls", []).append({"mode": mode, "user": user, "images": [str(p) for p in images],
                                                    "request_id": res.request_id, "reply": verdict,
+                                                   "latency_ms": res.latency_ms,
                                                    "images_seen": seen})
         return verdict
 
@@ -725,6 +726,11 @@ class _Tester:
         out = {"spec": self.spec, "census": census, "files": self.files, "screenshot": shot,
                "baseline": snap, "ms": int((time.monotonic() - t0) * 1000)}
         self.report["understand"] = out
+        if shot:
+            self.sidecar({"n": 0, "action": {"action": "understand"}, "ts": play._now_iso(),
+                          "reason": f"census: {len(census.get('tags') or {})} tags, {len(landmarks)} landmarks, "
+                                    f"{len(self.spec.get('acceptance') or [])} acceptance items",
+                          "latency_ms": out["ms"], "assertions": [], "ok": None, "screenshot": shot})
         self.save()
         return out
 
@@ -779,8 +785,19 @@ class _Tester:
                 await self.investigate(step)
             step["final"] = step.get("investigation", {}).get("verdict") or verdict
             step["ms"] = int((time.monotonic() - t0) * 1000)
+            dashboard_fields(step)
+            self.sidecar(step)
             self.report["steps"].append(step)
             self.save()
+
+    def sidecar(self, step: dict) -> None:
+        """step-NN.json next to step-NN.png, in the dashboard's format (docs/ARCHITECTURE.md)."""
+        keys = ("n", "action", "reason", "result", "latency_ms", "step_ms", "ts", "assertions", "ok", "screenshot")
+        try:
+            (self.dir / f"step-{int(step['n']):02d}.json").write_text(
+                json.dumps({k: step.get(k) for k in keys}, ensure_ascii=False, default=str), encoding="utf-8")
+        except OSError:
+            pass
 
     async def investigate(self, step: dict) -> None:
         """Systematic-debugging mini loop: reproduce -> narrow (probes) -> rule with evidence."""
@@ -820,6 +837,32 @@ class _Tester:
         return {"summary": str(out.get("summary") or ""), "score": out.get("score"), "issues": issues,
                 "screenshots": [s["path"] for s in shots], "images_seen": seen, "user": user,
                 "request_id": res.request_id}
+
+
+def dashboard_fields(step: dict) -> dict:
+    """Fields the dashboard's tester feed reads: reason, ts, latency_ms, step_ms and
+    assertions [{text, ok, detail}] (one per machine check, plus the final verdict)."""
+    final = step.get("final") or {}
+    asserts = []
+    for c in step.get("checks") or []:
+        bare = c.get("op") in ("exists", "missing", "increased", "decreased", "changed", "unchanged")
+        want = "" if bare else f" {_clip(c.get('value'), 40)}"
+        detail = f"before {_clip(c.get('before'), 40)} -> after {_clip(c.get('actual'), 40)}"
+        if c.get("note"):
+            detail += f" ({c['note']})"
+        asserts.append({"text": f"{c.get('path')} {c.get('op')}{want}", "ok": c.get("ok"), "detail": detail})
+    v = final.get("verdict")
+    why = f"{final.get('actual') or ''} ({final.get('decided_by', '')}) {final.get('reason') or ''}"
+    asserts.append({"text": f"{v or '?'}: {_clip(step.get('expect') or step.get('intent') or '', 100)}",
+                    "ok": True if v == "pass" else False if v == "fail" else None, "detail": _clip(why, 300)})
+    step["assertions"] = asserts
+    step["ok"] = True if v == "pass" else False if v == "fail" else None
+    step["reason"] = step.get("intent") or ""
+    step["ts"] = play._now_iso()
+    step["step_ms"] = step.get("ms")
+    judged = [c for c in step.get("judge_calls") or []]
+    step["latency_ms"] = sum(int(c.get("latency_ms") or 0) for c in judged) or int(step.get("act_ms") or 0)
+    return step
 
 
 def normalize_plan(raw: Any, budget: int) -> list[dict]:
@@ -1071,7 +1114,7 @@ async def qa_test(settings: Settings, focus: str | None = None, *, game_dir: Pat
         llm = llm_mod.make_llm(settings, log_path=test_dir / "calls.jsonl")
     spec = load_spec(game_dir)
     report: dict = {
-        "run_id": run_id, "kind": "protocol", "agent_role": "step_judge", "session_id": "qa-" + run_id,
+        "run_id": run_id, "kind": "protocol", "tester": "QA protocol", "agent_role": "step_judge", "session_id": "qa-" + run_id,
         "slug": slug, "game_dir": str(game_dir), "test_dir": str(test_dir), "goal": focus or
         f"QA protocol: verify the acceptance list of {spec.get('title') or slug}", "started": play._now_iso(),
         "ended": None, "max_steps": max_steps, "studio": None, "goal_met": None, "summary": "", "player": None,

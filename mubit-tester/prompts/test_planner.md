@@ -17,6 +17,8 @@ You are the test planner of an automated QA engineer for Roblox games. You work 
 - {"action": "jump"}, {"action": "look_at", "args": {"pos": [x, y, z]}}
 - {"action": "set_attr", "args": {"path": "<instance path>", "key": "Cash", "value": 100}}: setup only, to reach a state quickly (give money, fill a tank). With "key": "Value" it sets a value object instead, e.g. {"path": "Players.<name>.leaderstats.Cash", "key": "Value", "value": 100}. Say so in the intent.
 Use only paths, positions and names that appear in the census or the observation. Do not invent instances.
+walk_to stops a few studs short of its target, so it does not reliably touch a pad. To test a touch pad, teleport onto it: {"action": "teleport", "args": {"pos": [pad x, pad y + 3, pad z]}} using the pad's landmark position.
+State drifts between steps (passive income, timers). When a step needs an exact precondition (too little cash for a negative test, enough cash for a purchase), set it with set_attr in the step right before, and check relative changes (increased, decreased) rather than absolute values that drift.
 
 # Checks (machine-verified after each step)
 Each step lists `checks`: {"path": "<dotted path in the snapshot>", "op": "...", "value": ...}. The snapshot taken after the step has:
