@@ -271,6 +271,33 @@ local function show(payload: Types.ResultsPayload)
 	root.Position = UDim2.fromScale(0.5, 0.5)
 	root.Size = UDim2.fromOffset(1280, 720)
 	root.Parent = screen
+	-- Fit the whole 1280x720 frame on screen, phones included: UiKit's ViewportScale stops at 0.55, which
+	-- pushed BACK TO STATION off a 390 px tall phone (and the sides off 667x375). Its own scale, no floor,
+	-- inside the notch on landscape phones.
+	local vs = screen:FindFirstChild("ViewportScale")
+	if vs then
+		vs:Destroy()
+	end
+	local fit = Instance.new("UIScale")
+	fit.Name = "FitScale"
+	fit.Parent = root
+	local function refit()
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		local v = cam.ViewportSize
+		local side = if math.min(v.X, v.Y) < 500 then 44 else 0 -- notch / rounded corners on phones
+		fit.Scale = math.clamp(math.min((v.X - 2 * side) / 1280, (v.Y - 6) / 720), 0.3, 1.4)
+	end
+	refit()
+	local cam = workspace.CurrentCamera
+	if cam then
+		local conn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(refit)
+		screen.Destroying:Connect(function()
+			conn:Disconnect()
+		end)
+	end
 
 	local title = UiKit.label(root, "Title", "STATION 67", UDim2.new(1, 0, 0, 90), UDim2.fromOffset(0, 10), {
 		font = UiKit.Header,
