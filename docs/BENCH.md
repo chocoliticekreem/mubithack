@@ -67,6 +67,27 @@ Baselines we want to keep go in `evidence/bench/`.
 LLM latency varies a lot between runs (gateway load, retries), so compare wall times over at least 2
 ideas, and treat differences under about 15% as noise.
 
+Two derived speed numbers appear in `--compare`. `LLM s (sum of calls)` adds up the latency of every
+call. `LLM overlap (sum/wall)` divides that by wall time, so it is about 1.0 when every call runs one
+after another and above 1 when calls run concurrently.
+
 ## Results
 
-See the bottom of this file (filled in from `evidence/bench/`).
+### Baseline: main `910ba38`, real mode, compile-only, 2 iterations (`evidence/bench/20261024T023030Z.*`)
+
+| idea | wall s | design | build | iterate | LLM calls (coder/critic/designer/fixer/reflector) | tokens in/out | LLM s sum | 1st-try compile | fixes c/k | critic | done |
+|---|---:|---:|---:|---:|---|---|---:|---:|---|---|---|
+| tycoon (Cube Cash Tycoon) | 302 | 16 | 96 | 189 | 15 (4/2/1/6/2) | 89,811 / 50,423 | 300 | 100% (4/4) | 0/6 | 5 -> 5 | 1/4 |
+| obby (Lava Hop Dash) | 305 | 13 | 91 | 201 | 15 (4/2/1/6/2) | 88,499 / 50,923 | 305 | 100% (4/4) | 0/6 | 5 -> 5 | 1/4 |
+
+What this shows about where we started:
+- **Everything runs one call at a time.** The sum of LLM latencies equals wall time (overlap 0.99),
+  and the coders took 91 to 96 s for 4 modules one after another. The fastest speed-up available is
+  running independent calls concurrently.
+- **About 2/3 of the time goes to iterations** (critic -> 3 fixer calls -> reflector, twice). With no
+  playtest those iterations can't move the score: the critic stays at 5/10 and says the playtest
+  didn't run. Compile-only mode measures speed and code health. Quality needs `--studio`.
+- **Compile health is already good:** every module compiled on the first try, so the compile fixer
+  never ran.
+- **Not ready:** `forge done` is 1/4 (no checks, no fix cycle, critic below 8). The bench build path
+  doesn't plan or run executable checks or fix cycles yet.

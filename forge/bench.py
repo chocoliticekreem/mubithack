@@ -475,6 +475,9 @@ METRICS: list[tuple[str, Callable[[dict], Any], bool, str]] = [
     ("iterate s", lambda i: (i.get("stages") or {}).get("iterate"), False, ".1f"),
     ("playtest s", lambda i: (i.get("stages") or {}).get("playtest"), False, ".1f"),
     ("LLM calls", lambda i: (i.get("llm") or {}).get("calls"), False, "g"),
+    ("LLM s (sum of calls)", lambda i: (i.get("llm") or {}).get("latency_s"), False, ".1f"),
+    ("LLM overlap (sum/wall)", lambda i: round(i["llm"]["latency_s"] / i["wall_s"], 2)
+     if (i.get("llm") or {}).get("latency_s") and i.get("wall_s") else None, True, ".2f"),
     ("tokens", lambda i: ((i.get("llm") or {}).get("input_tokens", 0) + (i.get("llm") or {}).get("output_tokens", 0))
      if i.get("llm") else None, False, "g"),
     ("1st-try compile", lambda i: (i.get("compile_first") or {}).get("pass_rate"), True, ".2f"),
