@@ -336,5 +336,7 @@ Inside this repo both plugins are enabled by `.claude/settings.json`.
 
 **Christopher White** was here!!!
 
+**Min** was here!!
+
 > Why is the game called *Flame and Blame*? Because that's every codebase: something's on fire, and
 > `git blame` says it was you!!!
