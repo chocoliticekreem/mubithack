@@ -604,6 +604,23 @@ def test_game_versions_tag_old_items(tmp_path):
     assert st.render().count("(old: game") == 1
 
 
+def test_advise_compares_a_fresh_probe_only_like_for_like(tmp_path):
+    s = _settings(tmp_path)
+    root = tmp_path / "game"
+    (root / "ServerScriptService").mkdir(parents=True)
+    (root / "ServerScriptService" / "M.server.luau").write_text("return 1\n")
+    imp = tmp_path / "evidence" / "fab" / "improve"
+    imp.mkdir(parents=True)
+    (imp / "1.json").write_text(json.dumps({"ts": "2026-10-23T21:00:00Z", "before": [
+        {"round": 1, "counters": {"missions_started": 1}, "errors": {"count": 0, "first": []}}]}))
+    llm = FakeLLM({}, default=lambda role, user: _anoms() if role == "anomaly_detector" else _gaps())
+    probe = {"label": "now", "studio": True, "counters": {}, "errors": [], "warnings": [], "physics": {"flagged": []}}
+    lobby = apm.advise(s, root, llm=llm, name="fab", fresh={"t0": 0, "probe": {**probe, "comparable": False}})
+    assert not any(c["id"].startswith("stat:regression") for c in lobby["prefilter"])
+    live = apm.advise(s, root, llm=llm, name="fab", fresh={"t0": 0, "probe": {**probe, "comparable": True}})
+    assert any(c["id"] == "stat:regression:missions_started" for c in live["prefilter"])
+
+
 def test_advise_weights_old_claims_down_and_reproduces_with_a_fresh_session(tmp_path):
     s = _settings(tmp_path)
     _git(tmp_path, "init", "-q")

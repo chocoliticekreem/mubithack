@@ -1191,7 +1191,8 @@ def _brief(m: dict | None) -> dict | None:
             "errors": len(m.get("errors") or []), "boot_errors": m.get("boot_errors"),
             "checks": {k: (m.get("checks") or {}).get(k) for k in ("pass", "fail")},
             "physics": len((m.get("physics") or {}).get("flagged") or []), "swarm_high": m.get("swarm_high"),
-            "ttfr_s": m.get("ttfr_s"), "screenshot": m.get("screenshot"), "studio": m.get("studio")}
+            "ttfr_s": m.get("ttfr_s"), "screenshot": m.get("screenshot"), "studio": m.get("studio"),
+            **({"round_started": m["round_started"]} if "round_started" in m else {})}
 
 
 def score_trend(run_dir: Path) -> list[dict]:
@@ -1525,6 +1526,16 @@ async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str
         subprocess.run(["open", "-a", "/Applications/RobloxStudio.app", str(out)], check=False)
 
     keeper = StudioKeeper(settings, slug, slots, log, opener=opener)
+    # testers read the game's spec from <game_dir>/../spec.json: give them runs/<slug>/{spec.json, game -> root}
+    # (a symlink: nothing is copied or written into root)
+    run_dir = settings.runs_dir / slug
+    run_dir.mkdir(parents=True, exist_ok=True)
+    spec = _read(Path(__file__).parent / "seeds" / f"{slug.removeprefix('advise-')}.json", {}) or {}
+    if spec:
+        _write(run_dir / "spec.json", spec)
+    link = run_dir / "game"
+    if not link.exists():
+        link.symlink_to(Path(root).resolve(), target_is_directory=True)
     deadline = time.monotonic() + 1800
     while not (slots.held_by(place) or slots.try_acquire(place)):
         if time.monotonic() > deadline:
@@ -1535,12 +1546,22 @@ async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str
         sid = await asyncio.to_thread(keeper.prepare, place)
         if not sid:
             raise RuntimeError(f"Studio {place} did not connect")
-        gsettings = dataclasses.replace(settings, base_game_dir=Path(root))
+        gsettings = dataclasses.replace(settings, base_game_dir=link)
         async with Studio(settings, studio_id=sid) as st:
             await st.select(sid)
             try:
                 await st.play()
-                await asyncio.sleep(8)
+                round_started = False
+                pt = spec.get("playtest") or {}
+                if pt.get("start_round"):  # measure a live round like the build loop does, not the lobby
+                    from forge.loop import START_ROUND_DELAY
+                    from mubit_tester.harness import build_call_luau
+                    await asyncio.sleep(START_ROUND_DELAY)
+                    args = {"state": "Active", **({"seconds": int(pt["round_seconds"])} if pt.get("round_seconds") else {})}
+                    res = await st.execute_luau(build_call_luau("round", args), "Server")
+                    round_started = "error" not in str(res).lower()
+                    log(f"fresh probe: start round -> {_clip(res, 120)}")
+                await asyncio.sleep(25 if round_started else 8)
                 probe = await st.probe_report()
                 try:
                     probe["census"] = await fun.census(st)
@@ -1548,13 +1569,15 @@ async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str
                     pass
                 shot = await st.screenshot(out_dir / "fresh-screenshot.png")
                 out["probe"] = evm.measurement_from_probe(probe, label="now", studio=True,
-                                                          screenshot=str(shot) if shot else None)
+                                                          screenshot=str(shot) if shot else None,
+                                                          round_started=round_started,
+                                                          comparable=round_started or not pt.get("start_round"))
             finally:
                 await _safe_stop(st)
             if qa_steps:
                 try:
                     from mubit_tester.protocol import qa_test
-                    qa = await qa_test(gsettings, focus, game_dir=Path(root), slug=slug, max_steps=qa_steps, llm=llm,
+                    qa = await qa_test(gsettings, focus, game_dir=link, slug=slug, max_steps=qa_steps, llm=llm,
                                        studio=st, max_investigations=1, key_images=2)
                     out["qa"] = {k: qa.get(k) for k in ("run_id", "goal_met", "test_dir", "summary")}
                     out["qa"]["bugs"] = [b.get("title") for b in qa.get("bugs") or []]
@@ -1644,6 +1667,8 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
                    ts=evm.parse_ts(rp.get("ts")))
         evm.add_calls(st, d)
     for p in sorted((settings.repo_root / "games" / name / "reports").glob("*.md")):
+        if "autopilot" in p.name:  # our own earlier advice is not evidence
+            continue
         ts = _git_ts(p)  # a run report describes the build it was written about
         for i, ln in enumerate(ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()):
             if re.match(r"^(-|\d+\.|\|)", ln) and len(ln) > 12 and not set(ln) <= set("|-: "):
@@ -1669,7 +1694,9 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
         before = set(st.items)
         if fresh.get("probe"):
             evm.add_measurement(st, fresh["probe"], source=LIVE_SOURCE)
-            current, previous = fresh["probe"], (hist[-1] if hist else None)
+            # compare with history only like for like (a lobby probe vs playtests that ran a round says nothing)
+            current = fresh["probe"]
+            previous = (hist[-1] if hist else None) if fresh["probe"].get("comparable", True) else None
         t0 = float(fresh.get("t0") or 0) - 5
         evm.add_tests(st, settings.runs_dir / f"advise-{name}", since=t0, limit=8)
         evm.add_swarm(st, settings.runs_dir / "playtests", f"advise-{name}", since=t0)
@@ -1776,8 +1803,10 @@ def render_advice(rep: dict) -> str:
          "Evidence: " + ", ".join(f"{k} {n}" for k, n in rep["evidence"].items()), ""]
     if rep.get("fresh_probe"):
         fp = rep["fresh_probe"]
-        L += [f"Fresh probe on `{v.get('current')}`: {fp.get('errors')} runtime errors, "
-              f"{fp.get('physics')} physics flags. Screenshot: `{fp.get('screenshot')}`.", ""]
+        L += [f"Fresh probe on `{v.get('current')}`"
+              + (" (a round started through the test harness)" if fp.get("round_started") else " (lobby)")
+              + f": {fp.get('errors')} runtime errors, {fp.get('physics')} physics flags. "
+              f"Screenshot: `{fp.get('screenshot')}`.", ""]
     for status, head in (("verified now", "Verified on the current build"),
                          ("static", "Missing parts (code scan; nothing to reproduce)"),
                          ("unverified (old)", "Unverified (old): from older builds, not reproduced by the fresh session")):

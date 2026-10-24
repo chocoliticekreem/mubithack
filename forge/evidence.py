@@ -89,7 +89,7 @@ def _num(v: Any) -> float | None:
 # go to a harness fix list, not the game's bug list.
 TOOLING_RX = re.compile(r"held,? (?:but )?not triggered|held but never trigger|never triggers? (?:when|on) (?:hold|interact)|"
                         r"\bNoPath\b|no path (?:found|to)|navmesh|pathfinding (?:fail|return|gave)|path ?finding failed|"
-                        r"walk_to (?:timed out|failed)|could not path", re.I)
+                        r"walk_to (?:timed out|failed)|could not path|no instance at path", re.I)
 
 
 def is_tooling(text: Any) -> bool:
