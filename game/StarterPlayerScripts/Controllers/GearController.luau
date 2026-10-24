@@ -28,6 +28,7 @@ local Items = ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items")
 local ItemDefs = require(Items:WaitForChild("ItemDefs") :: ModuleScript) :: any
 local Progression = require(Items:WaitForChild("Progression") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript) :: any
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local GearController = {}
 GearController.Priority = 110
@@ -385,7 +386,7 @@ local function openLocker()
 					then `Unlocks at Lv {Progression.unlockLevel(id)}`
 					elseif not Progression.lockable(id) then "On your truck"
 					elseif picked then "ON RACK"
-					else (def and def.blurb or "")
+					else InputHints.format(def and def.blurb or "")
 				tag.TextColor3 = if not open then Palette.UiRed elseif picked then Color3.fromHex("#2E7D32") else Palette.UiInk
 			end
 		end
@@ -499,7 +500,7 @@ local function unlockBanner(lvl: number, ids: { string })
 		})
 	end
 	local nextId, nextAt = Progression.nextUnlock(lvl)
-	local foot = if #ids > 0 then "Pick it at your rack: LOCKER [R]" elseif nextId then `Next unlock: {(ItemDefs.get(nextId) or {}).name or nextId} at Lv {nextAt}` else "You've unlocked everything!"
+	local foot = if #ids > 0 then InputHints.pick("Pick it at your rack: LOCKER [R]", "Pick it at your rack: tap Open Locker") elseif nextId then `Next unlock: {(ItemDefs.get(nextId) or {}).name or nextId} at Lv {nextAt}` else "You've unlocked everything!"
 	UiKit.label(panel, "Foot", foot, UDim2.new(1, -20, 0, 26), UDim2.new(0, 10, 1, -34), { textSize = 18, color = Palette.UiCream })
 	UiKit.pop(panel, 0.3)
 	task.delay(if #ids > 0 then 6 else 3.5, function()

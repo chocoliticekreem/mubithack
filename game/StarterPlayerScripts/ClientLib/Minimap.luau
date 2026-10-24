@@ -20,6 +20,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local NavigationConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("NavigationConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent:WaitForChild("UiKit") :: ModuleScript)
 local Pathfind = require(script.Parent:WaitForChild("Pathfind") :: ModuleScript)
+local InputHints = require(script.Parent:WaitForChild("InputHints") :: ModuleScript) :: any
 
 export type Marker = {
 	id: string,
@@ -483,6 +484,7 @@ function Minimap.new()
 		align = Enum.TextXAlignment.Left,
 	})
 	help.ZIndex = 5
+	InputHints.setPick(help, help.Text, "drag to pan  ·  pinch to zoom  ·  tap to drop a pin")
 	local view = frame(panel, "View", GROUND)
 	view.Position = UDim2.fromOffset(12, 48)
 	view.Size = UDim2.new(1, -24, 1, -82)

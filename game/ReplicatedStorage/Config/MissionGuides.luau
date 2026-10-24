@@ -191,7 +191,7 @@ return {
 					optional = true,
 					maxSeconds = 90,
 				},
-				{ use = "hose", sub = "Puddles are safe now. T next to your truck grabs the hose." },
+				{ use = "hose", sub = "Puddles are safe now. Next to your truck, press T to grab the hose." },
 				{ use = "spray", sub = "Hit the burning unit low. Water + no electricity = hero." },
 				{ use = "carry", sub = "The night guard and his dog. E to pick them up." },
 				"deliver",

@@ -33,6 +33,7 @@ local AudioOk, Audio = pcall(function()
 	return require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("AudioConfig") :: ModuleScript) :: any
 end)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local InventoryController = {}
 InventoryController.Priority = 65
@@ -122,7 +123,8 @@ local function makeSlot(parent: Instance, key: string, label: string, order: num
 	sizeLimit.MinTextSize = 12
 	sizeLimit.Parent = glyph
 	-- keycap: what this slot's key does (cream chip, ink text, sits on the tile's top edge)
-	chip(tile, "Key", label, UDim2.fromOffset(math.max(30, #label * 8 + 12), 18), UDim2.fromOffset(-4, -9), Palette.UiCream, Palette.UiInk, 12)
+	local keyChip = chip(tile, "Key", label, UDim2.fromOffset(math.max(30, #label * 8 + 12), 18), UDim2.fromOffset(-4, -9), Palette.UiCream, Palette.UiInk, 12)
+	InputHints.setPick(keyChip, label, (string.gsub(label, "^1/2 ", ""))) -- phones: the SWAP button, no keys
 	local bar = Instance.new("Frame")
 	bar.Name = "Gauge"
 	bar.Size = UDim2.new(1, -12, 0, 14)

@@ -31,6 +31,7 @@ local Cfg = require(ConfigDir:WaitForChild("MissionGuides") :: ModuleScript) :: 
 local Catalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: any
 local Flow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("GuideFlow") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local MissionGuideController = {}
@@ -517,7 +518,7 @@ local function build()
 	skip.Font = UiKit.Header
 	skip.TextColor3 = CREAM
 	skip.TextSize = 15
-	skip.Text = `SKIP [{Cfg.SkipKey or "J"}]`
+	InputHints.setChip(skip, Cfg.SkipKey or "J", "SKIP", true)
 	skip.AutoButtonColor = true
 	skip.Parent = card
 	UiKit.corner(skip, 6)
@@ -649,7 +650,7 @@ local function showCard(chip: string, head: string, sub: string, chipColor: Colo
 	ui.stepKey = key
 	ui.chipText.Text = chip
 	ui.head.Text = head
-	ui.sub.Text = sub
+	InputHints.set(ui.sub, sub) -- "Press E" -> "Tap the button" on a phone
 	card.Visible = true
 	ui.scale.Scale = 0.6
 	TweenService:Create(ui.scale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()

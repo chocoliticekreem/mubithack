@@ -26,6 +26,7 @@ local Rules = require(Lib:WaitForChild("Admin"):WaitForChild("AdminRules") :: Mo
 local Commands = require(Lib:WaitForChild("Admin"):WaitForChild("AdminCommands") :: ModuleScript)
 local ItemDefs = require(Lib:WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local AdminController = {}
 AdminController.Priority = 130
@@ -258,7 +259,7 @@ local function chipButton(g: ScreenGui): TextButton
 	b.Font = UiKit.Header
 	b.TextSize = 20
 	b.TextColor3 = Palette.UiWarn
-	b.Text = if UserInputService.KeyboardEnabled then "[;] ADMIN" else "ADMIN"
+	InputHints.setChip(b, ";", "ADMIN")
 	b.AutoButtonColor = true
 	b.Visible = false
 	b.Parent = g

@@ -29,6 +29,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("FeedbackConfig") :: ModuleScript) :: any
 local PopupLogic =
 	require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
+local InputHints = require(script.Parent:WaitForChild("InputHints") :: ModuleScript)
 
 local WorldPopup = {}
 
@@ -155,6 +156,7 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 	if type(text) ~= "string" or text == "" then
 		return false
 	end
+	text = InputHints.format(text) -- server text says "[E]": phones see "(tap)"
 	local cam = workspace.CurrentCamera
 	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
 	if not cam or not pg then

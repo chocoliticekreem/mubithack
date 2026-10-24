@@ -26,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
@@ -661,7 +662,7 @@ local function makeRespawnButton()
 	b.TextColor3 = Color3.fromRGB(255, 244, 196)
 	b.Font = Enum.Font.LuckiestGuy
 	b.TextScaled = true
-	b.Text = `[{VehicleConfig.KeyRespawn}] RESPAWN TRUCK`
+	InputHints.setChip(b, VehicleConfig.KeyRespawn, "RESPAWN TRUCK")
 	b.Visible = false
 	b.AutoButtonColor = true
 	local corner = Instance.new("UICorner")
@@ -954,9 +955,14 @@ local function updateSeated()
 	if hint then
 		hint.Visible = truck ~= nil
 		if isDriver then
-			hint.Text = `{VehicleConfig.KeyExit}: exit   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   SPACE: drift   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`
+			-- touch: the buttons are the ContextAction titles bound above (OUT, SIREN, HONK, DRIFT)
+			hint.Text = InputHints.pick(
+				`{VehicleConfig.KeyExit}: exit   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   SPACE: drift   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
+				"Stick: drive + steer   ·   buttons: OUT  SIREN  HONK  DRIFT",
+				"B: exit   X: siren   Y: horn   A: drift   R3: camera"
+			)
 		elseif truck then
-			hint.Text = `{VehicleConfig.KeyExit}: hop off`
+			hint.Text = InputHints.pick(`{VehicleConfig.KeyExit}: hop off`, "Tap OFF to hop off", "B: hop off")
 		end
 	end
 end
