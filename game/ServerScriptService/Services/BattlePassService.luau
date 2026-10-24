@@ -153,7 +153,14 @@ end
 
 local function pushState(player: Player)
 	local d = data[player]
-	if not d or not stateRemote then
+	if not d then
+		return
+	end
+	-- mirror on the player too (HUD / tests read these; the panel gets the full state below)
+	player:SetAttribute(attrName("Xp", "PassXp"), d.xp)
+	player:SetAttribute(attrName("Tier", "PassTier"), tierOf(d.xp))
+	player:SetAttribute(attrName("Premium", "PassPremium"), isPremium(player))
+	if not stateRemote then
 		return
 	end
 	stateRemote:FireClient(player, {
@@ -388,15 +395,53 @@ function BattlePassService.Start(self: any)
 		end
 	end)
 
-	local function awardTick()
-		if workspace:GetAttribute("RoundState") ~= "Active" then
-			return
+	-- XP for actually playing. v2 missions keep their state per run (workspace.Runs.<id>.RoundState),
+	-- not on workspace, so the old global check never fired and nobody ever earned XP.
+	local function inActiveRun(p: Player): boolean
+		if workspace:GetAttribute("RoundState") == "Active" then
+			return true -- v1 auto-round
 		end
+		local iid = p:GetAttribute("InstanceId")
+		if type(iid) ~= "string" or iid == "" then
+			return false
+		end
+		local runs = workspace:FindFirstChild("Runs")
+		local run = runs and runs:FindFirstChild(iid)
+		return run ~= nil and run:GetAttribute("RoundState") == "Active"
+	end
+	local function awardTick()
 		for _, p in Players:GetPlayers() do
-			if p.Character and data[p] then
+			if p.Character and data[p] and inActiveRun(p) then
 				BattlePassService.AwardXp(p, TICK_XP, "ActiveTick")
 			end
 		end
+	end
+	local Fire = services and services.FireService
+	if Fire and Fire.Extinguished then
+		Fire.Extinguished:Connect(function(_part: BasePart, by: Player?)
+			if by and data[by] then
+				BattlePassService.AwardXp(by, num(Cfg.XpPerFireOut, 5), "FireOut")
+			end
+		end)
+	end
+	local Rescue = services and services.RescueService
+	if Rescue and Rescue.Delivered then
+		Rescue.Delivered:Connect(function(by: Player)
+			if data[by] then
+				BattlePassService.AwardXp(by, num(Cfg.XpBonusRescue, 25), "Rescue")
+			end
+		end)
+	end
+	local Mission = services and services.MissionService
+	if Mission and Mission.MissionEnded then
+		Mission.MissionEnded:Connect(function(instanceId: string, payload: any)
+			local stars = type(payload) == "table" and tonumber(payload.stars) or 0
+			for _, p in Players:GetPlayers() do
+				if data[p] and p:GetAttribute("InstanceId") == instanceId then
+					BattlePassService.AwardXp(p, num(Cfg.XpBonusRoundComplete, 50) + stars * num(Cfg.XpPerStar, 25), "Mission")
+				end
+			end
+		end)
 	end
 
 	workspace:GetAttributeChangedSignal("RoundState"):Connect(awardTick)

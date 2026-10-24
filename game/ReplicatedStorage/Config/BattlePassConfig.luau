@@ -60,6 +60,8 @@ return Config.define({
 	XpRoundStart = 10, -- optional one-time grant when a round goes Active (used if the service reads it)
 	XpBonusRescue = 25,
 	XpBonusRoundComplete = 50,
+	XpPerFireOut = 5, -- each fire you put out
+	XpPerStar = 25, -- per star when a mission ends
 
 	-- Anti-abuse / persistence
 	ClaimCooldownSeconds = 0.4,
