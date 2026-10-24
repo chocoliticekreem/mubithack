@@ -102,7 +102,7 @@ CONTRACT_TOOLS = [
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports", "swarm",
 ]
 
 
@@ -492,7 +492,7 @@ def test_cli_test_mirrors_every_tool():
                "set_attr": ["W.X", "Water", "5"], "config": ["Hose", "Range"], "scenario_run": ["smoke"],
                "queue": ["1"], "mission_end": ["M1"],
                "playtest": ["goal"], "playtest_correct": ["r", "2", "note"], "suggest_fix": ["r"],
-               "report": ["r"], "qa_test": [], "test_feature": ["x"], "bisect_versions": ["g", "c"], "swarm": ["goal"]}.get(name, [])
+               "report": ["r"], "qa_test": [], "test_feature": ["x"], "bisect_versions": ["g", "c"], "swarm": []}.get(name, [])
         a = p.parse_args(["test", name, *req])
         assert a.cmd == "test" and a.tool == name
     a = p.parse_args(["test", "act-all", "use", "--args", '{"seconds": 2}'])

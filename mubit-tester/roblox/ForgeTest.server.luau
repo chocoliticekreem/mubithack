@@ -6,6 +6,8 @@
 --         config, counters, events, reset, round, blame, hook,
 --         ui, ui_target, ui_effect   (the player's GUI buttons; `press` = these + a real click, Python)
 --         squads, instances, queue, launch, mission_start, mission_end   (multiplayer / co-op / squads)
+--         bot_spawn, bots, bot_clear   (swarm: server-driven NPC testers, addressed like players)
+--         multi   ({calls: [{cmd, args}]}: run several commands concurrently in one call)
 --   Players are addressed by `userId` (also `player`): a UserId, a helmet number (1-4), or a name.
 --   players/observe/query/events take an optional `instanceId` (players/events also `squadId`) so
 --   one mission instance can be looked at in isolation while several run at once.
@@ -228,6 +230,11 @@ local function posOf(inst: Instance?): Vector3?
 	if not inst then
 		return nil
 	end
+	if type(inst) == "table" and (inst :: any).IsBot then -- a swarm bot (see botSpawn)
+		local char = (inst :: any).Character
+		local root = char and char.Parent and char:FindFirstChild("HumanoidRootPart")
+		return root and root.Position or nil
+	end
 	if inst:IsA("BasePart") then
 		return inst.Position
 	end
@@ -313,6 +320,48 @@ end
 
 local joinOrder: { Player } = {}
 
+-- Swarm bots: server-driven NPC testers (bot_spawn). Each is a proxy table that quacks like a
+-- Player for the harness (UserId -1001, -1002, ..., Name, Character, GetAttribute), so observe /
+-- act / teleport / players address them by name or UserId. The game only sees their bodies (touch,
+-- physics, collisions), not a Player, so Player-keyed features (leaderstats, GUIs, prompts) ignore them.
+local bots: { any } = {}
+local BotProxy = {}
+BotProxy.__index = BotProxy
+function BotProxy:GetAttribute(k: string): any
+	local m = self.Character
+	return if m and m.Parent then m:GetAttribute(k) else nil
+end
+function BotProxy:SetAttribute(k: string, v: any)
+	if self.Character then
+		self.Character:SetAttribute(k, v)
+	end
+end
+function BotProxy:GetAttributes()
+	return if self.Character then self.Character:GetAttributes() else {}
+end
+function BotProxy:FindFirstChildOfClass(_c: string): Instance?
+	return nil
+end
+function BotProxy:FindFirstChild(_n: string): Instance?
+	return nil
+end
+function BotProxy:IsA(_c: string): boolean
+	return false
+end
+
+local function findBot(id: any): any?
+	if id == nil then
+		return nil
+	end
+	local n, s = tonumber(id), string.lower(tostring(id))
+	for _, b in bots do
+		if (n and b.UserId == n) or string.lower(b.Name) == s then
+			return b
+		end
+	end
+	return nil
+end
+
 local function playerList(): { Player }
 	local out = {}
 	for _, p in joinOrder do
@@ -340,6 +389,13 @@ local function resolvePlayer(id: any): Player
 	end
 	if typeof(id) == "Instance" and id:IsA("Player") then
 		return id
+	end
+	if type(id) == "table" and id.IsBot then
+		return id
+	end
+	local bot = findBot(id)
+	if bot then
+		return bot
 	end
 	local n = tonumber(id)
 	if n then
@@ -863,6 +919,8 @@ local function playerInfo(p: Player)
 		character = char and char:GetFullName() or nil,
 		agent = agents[p] ~= nil,
 		hasCharacter = char ~= nil,
+		bot = if p.IsBot then true else nil,
+		deaths = if p.IsBot then p.deaths else nil,
 	})
 end
 
@@ -1650,7 +1708,8 @@ local function observe(args)
 				end
 			end
 			local owner = d:FindFirstAncestorOfClass("Model")
-			local isCharacter = owner ~= nil and Players:GetPlayerFromCharacter(owner) ~= nil
+			local isCharacter = owner ~= nil
+				and (Players:GetPlayerFromCharacter(owner) ~= nil or owner:GetAttribute("ForgeBot") ~= nil)
 			if (touch or label) and not isCharacter then
 				local dist = origin and (d.Position - origin).Magnitude or 0
 				if dist <= promptRadius then
@@ -1670,6 +1729,12 @@ local function observe(args)
 		table.insert(out.touchables, touchables[i])
 	end
 
+	if p.IsBot then
+		-- no client, so no screen: a bot only sees the world
+		me.bot = true
+		out.hud_error = "bot tester: no screen (HUD and GUI belong to real players)"
+		return out
+	end
 	local ok, hud = invokeClient(p, "hud", {}, HUD_TIMEOUT)
 	if ok and type(hud) == "table" then
 		out.hud = hud
@@ -1691,6 +1756,9 @@ end
 local function agentCmd(name: string)
 	return function(args)
 		local p = playerArg(args)
+		if p.IsBot then
+			error(p.Name .. " is a bot tester: it has no screen, so no GUI (" .. name .. ")")
+		end
 		local a = table.clone(args)
 		a.userId, a.player = nil, nil
 		local ok, res = invokeClient(p, name, a, HUD_TIMEOUT)
@@ -1829,6 +1897,309 @@ end
 
 local actRaw: (args: any) -> any
 
+------------------------------------------------------------------------------- swarm bots
+
+local PathfindingService = game:GetService("PathfindingService")
+local BOT_ID_BASE = 1000
+local BOT_RESPAWN = 3
+local BOT_ARRIVE = 5 -- studs (horizontal) that count as "arrived"
+local botFolder: Folder? = nil
+local nextBotId = 1
+
+local function botParent(): Folder
+	if not botFolder or not botFolder.Parent then
+		local f = workspace:FindFirstChild("ForgeTestBots")
+		if not f then
+			f = Instance.new("Folder")
+			f.Name = "ForgeTestBots"
+			f.Parent = workspace
+		end
+		botFolder = f :: Folder
+	end
+	return botFolder :: Folder
+end
+
+local function botColor(c: any, i: number): Color3
+	if type(c) == "table" and tonumber(c[1]) then
+		return Color3.fromRGB(tonumber(c[1]) or 0, tonumber(c[2]) or 0, tonumber(c[3]) or 0)
+	end
+	return Color3.fromHSV((i * 0.137) % 1, 0.65, 0.95)
+end
+
+-- An R15 rig from a blank HumanoidDescription; if that fails, a one-part rig (a Humanoid with a
+-- HipHeight walks with just a root part).
+local function buildBotModel(name: string, color: Color3): Model
+	local ok, m = pcall(Players.CreateHumanoidModelFromDescription, Players, Instance.new("HumanoidDescription"),
+		Enum.HumanoidRigType.R15)
+	if not ok or not m then
+		m = Instance.new("Model")
+		local root = Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Size = Vector3.new(2, 2, 1)
+		root.Parent = m
+		local head = Instance.new("Part")
+		head.Name = "Head"
+		head.Size = Vector3.new(2, 1, 1)
+		head.CFrame = root.CFrame * CFrame.new(0, 1.5, 0)
+		head.Parent = m
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1 = root, head
+		weld.Parent = root
+		local hum = Instance.new("Humanoid")
+		hum.RigType = Enum.HumanoidRigType.R15
+		hum.HipHeight = 2
+		hum.Parent = m
+		m.PrimaryPart = root
+	end
+	m.Name = name
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+			d.Color = color
+		end
+	end
+	local hum = m:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.DisplayName = name
+		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+		hum.NameDisplayDistance = 150
+	end
+	m:SetAttribute("ForgeBot", name)
+	return m
+end
+
+local attachBot: (b: any) -> ()
+attachBot = function(b)
+	local m = buildBotModel(b.Name, b.color)
+	b.life += 1
+	local life = b.life
+	m:PivotTo(b.spawnCF)
+	m.Parent = botParent()
+	b.Character = m
+	local root = m:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		pcall(root.SetNetworkOwner, root, nil) -- server physics, so MoveTo isn't fought by a client
+	end
+	local function lost(cause: string)
+		if b.life ~= life or b.removed then
+			return
+		end
+		b.life += 1 -- only one respawn per life
+		b.deaths += 1
+		log("player_died", with(who(b), { bot = true, cause = cause, pos = root and v3(root.Position) or nil }))
+		task.delay(BOT_RESPAWN, function()
+			if not b.removed then
+				if m.Parent then
+					m:Destroy()
+				end
+				attachBot(b)
+				log("bot_respawned", who(b))
+			end
+		end)
+	end
+	local hum = m:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.Died:Connect(function()
+			lost("died")
+		end)
+	end
+	m.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			lost("removed")
+		end
+	end)
+	task.spawn(function() -- the void destroys parts, not always the Humanoid
+		while b.life == life and not b.removed do
+			task.wait(0.5)
+			if b.life ~= life then
+				break
+			end
+			if not root or root.Parent == nil or root.Position.Y < workspace.FallenPartsDestroyHeight + 5 then
+				lost("fell out of the world")
+				break
+			end
+		end
+	end)
+end
+
+local function botOrigin(args): Vector3
+	local near = args.near
+	if near ~= nil then
+		local v = toVec(near)
+		if v then
+			return v
+		end
+		local ok, p = pcall(resolvePlayer, near)
+		local pos = ok and posOf(p) or nil
+		if pos then
+			return pos
+		end
+	end
+	for _, p in playerList() do
+		local pos = posOf(p)
+		if pos then
+			return pos
+		end
+	end
+	local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+	return if spawn then spawn.Position + Vector3.new(0, 3, 0) else Vector3.new(0, 5, 0)
+end
+
+-- bot_spawn {names: [string] | n, colors?: [[r,g,b]], near?: pos | player, radius?}: spawn NPC
+-- testers in a ring around `near` (default: the first real player). Returns their players-info.
+local function botSpawn(args)
+	local names = args.names
+	if type(names) ~= "table" then
+		names = {}
+		for i = 1, math.clamp(tonumber(args.n) or 1, 1, 24) do
+			table.insert(names, "Bot" .. (nextBotId + i - 1))
+		end
+	end
+	local origin = botOrigin(args)
+	local radius = tonumber(args.radius) or 10
+	local out = {}
+	for i, name in names do
+		name = tostring(name)
+		if findBot(name) then
+			error("a bot named " .. name .. " already exists (bot_clear first)")
+		end
+		local a = (i - 1) / #names * math.pi * 2
+		local pos = origin + Vector3.new(math.cos(a) * radius, 3, math.sin(a) * radius)
+		local b = setmetatable({
+			IsBot = true, UserId = -(BOT_ID_BASE + nextBotId), Name = name, DisplayName = name,
+			color = botColor(type(args.colors) == "table" and args.colors[i] or nil, nextBotId),
+			spawnCF = CFrame.lookAt(pos, Vector3.new(origin.X, pos.Y, origin.Z)), deaths = 0, life = 0,
+		}, BotProxy)
+		nextBotId += 1
+		table.insert(bots, b)
+		attachBot(b)
+		log("bot_spawned", with(who(b), { pos = v3(pos) }))
+		table.insert(out, playerInfo(b))
+	end
+	return out
+end
+
+local function botClear()
+	local n = #bots
+	for _, b in bots do
+		b.removed = true
+		if b.Character and b.Character.Parent then
+			b.Character:Destroy()
+		end
+	end
+	table.clear(bots)
+	if botFolder and botFolder.Parent then
+		botFolder:Destroy()
+	end
+	botFolder = nil
+	return { removed = n }
+end
+
+local function flat(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+local function botWalk(b, char: Model, hum: Humanoid, root: BasePart, target: Vector3, timeout: number)
+	local t0 = os.clock()
+	local start = root.Position
+	local path = PathfindingService:CreatePath({ AgentRadius = 2, AgentHeight = 5, AgentCanJump = true })
+	local okPath = pcall(path.ComputeAsync, path, start, target)
+	local waypoints: { any } = { { Position = target, Action = Enum.PathWaypointAction.Walk } }
+	local via = "direct"
+	if okPath and path.Status == Enum.PathStatus.Success then
+		waypoints = path:GetWaypoints()
+		via = "path"
+	end
+	for _, wp in waypoints do
+		if os.clock() - t0 > timeout or hum.Health <= 0 or char.Parent == nil then
+			break
+		end
+		if wp.Action == Enum.PathWaypointAction.Jump then
+			hum.Jump = true
+		end
+		hum:MoveTo(wp.Position)
+		local reached = false
+		local conn = hum.MoveToFinished:Connect(function()
+			reached = true
+		end)
+		local w0 = os.clock()
+		while not reached and os.clock() - w0 < 4 and os.clock() - t0 < timeout do
+			task.wait(0.05)
+		end
+		conn:Disconnect()
+	end
+	if char.Parent == nil or hum.Health <= 0 then
+		return { done = false, detail = b.Name .. " died or fell out of the world while walking", dead = true }
+	end
+	local dist = (flat(root.Position) - flat(target)).Magnitude
+	local moved = (root.Position - start).Magnitude
+	local secs = os.clock() - t0
+	if dist <= BOT_ARRIVE then
+		return { done = true, detail = string.format("%s walk: arrived %.1f studs from target in %.1fs", via, dist, secs),
+			dist = r(dist), pos = v3(root.Position) }
+	end
+	return { done = false, dist = r(dist), pos = v3(root.Position), detail = string.format(
+		"%s walk: stopped %.1f studs short after %.1fs, moved %.1f (blocked or unreachable)", via, dist, secs, moved) }
+end
+
+-- The server side of `act` for a bot: walk_to / jump / look_at / say. Tools and ProximityPrompts
+-- are client input, so bots report them as not possible instead of faking them.
+local function botAct(b, action: string, a)
+	local char = b.Character
+	local hum = char and char.Parent and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hum or not root or hum.Health <= 0 then
+		return { done = false, detail = b.Name .. " is dead or respawning" }
+	end
+	local function target(): Vector3
+		local v = toVec(a.pos)
+		if not v and a.path then
+			v = posOf(mustPath(a.path))
+		end
+		if not v then
+			error("pos or path required")
+		end
+		return v :: Vector3
+	end
+	if action == "walk_to" or action == "go_touch" or action == "chase" then
+		local res = botWalk(b, char, hum, root, target(), math.clamp(tonumber(a.timeout) or WALK_TIMEOUT, 1, 60))
+		if action ~= "walk_to" and res.done then
+			task.wait(0.5) -- stand on it so Touched handlers run
+			res.detail = action .. ": touched it (" .. res.detail .. ")"
+		end
+		return res
+	elseif action == "go_use" then
+		local res = botWalk(b, char, hum, root, target(), math.clamp(tonumber(a.timeout) or WALK_TIMEOUT, 1, 60))
+		res.done = false
+		res.detail = res.detail .. "; bot testers can't hold ProximityPrompts (client input), a real player has to"
+		return res
+	elseif action == "jump" then
+		local y0, peak = root.Position.Y, root.Position.Y
+		hum.Jump = true
+		for _ = 1, 14 do
+			task.wait(0.05)
+			peak = math.max(peak, root.Position.Y)
+		end
+		return { done = true, detail = string.format("jumped %.1f studs", peak - y0), pos = v3(root.Position) }
+	elseif action == "look_at" then
+		local t = target()
+		root.CFrame = CFrame.lookAt(root.Position, Vector3.new(t.X, root.Position.Y, t.Z))
+		return { done = true, detail = "facing " .. tostring(v3(t)) }
+	elseif action == "say" then
+		local text = string.sub(tostring(a.text or ""), 1, 120)
+		local head = char:FindFirstChild("Head")
+		if head then
+			pcall(function()
+				game:GetService("Chat"):Chat(head, text, Enum.ChatColor.White)
+			end)
+		end
+		log("say", with(who(b), { text = text, bot = true }))
+		return { done = true, detail = "said: " .. text }
+	elseif action == "interact" then
+		return { done = false, detail = "bot testers can't hold ProximityPrompts (client input); a real player has to" }
+	end
+	return { done = false, detail = "bot testers have no backpack or tools (" .. action .. " needs a real player)" }
+end
+
 local function act(args)
 	local p = playerArg(args)
 	if MACROS[tostring(args.action or "")] then
@@ -1896,6 +2267,9 @@ actRaw = function(args)
 			done = ok == times, times = times, succeeded = ok,
 			detail = string.format("%s x%d, %d done | %s", inner, times, ok, table.concat(notes, " | ")),
 		})
+	end
+	if p.IsBot then
+		return botAct(p, action, a)
 	end
 	-- Paths are resolved on the client, but an Instance can't be passed from JSON, so send strings.
 	local timeout = DEFAULT_ACT_TIMEOUT
@@ -2373,8 +2747,15 @@ local function filterPlayers(args): { Player }
 			table.insert(only :: { Player }, resolvePlayer(id))
 		end
 	end
+	local list = only or playerList()
+	if not only and args.includeBots == true then
+		list = table.clone(list)
+		for _, b in bots do
+			table.insert(list, b)
+		end
+	end
 	local out = {}
-	for _, p in only or playerList() do
+	for _, p in list do
 		if (not iid or nonEmpty(p:GetAttribute("InstanceId")) == iid) and (not sid or nonEmpty(p:GetAttribute("SquadId")) == sid) then
 			table.insert(out, p)
 		end
@@ -2727,6 +3108,7 @@ local commands: { [string]: (any) -> any } = {
 			clock = now(),
 			mapReady = workspace:GetAttribute("MapReady") == true,
 			session = remote:GetAttribute("Session"),
+			bots = #bots,
 		}
 	end,
 	caps = capsCmd,
@@ -2763,6 +3145,56 @@ local commands: { [string]: (any) -> any } = {
 	round = round,
 }
 
+local runCommand: (cmd: any, argsJson: any) -> any -- forward, below
+
+-- multi {calls: [{cmd, args}], timeout?}: run several commands concurrently (one thread each) and
+-- return their replies in order: [{ok, result?, error?}]. One MCP round trip for a whole swarm tick.
+local MULTI_TIMEOUT = 90
+commands.multi = function(args)
+	local calls = args.calls
+	if type(calls) ~= "table" then
+		error("multi needs calls: [{cmd, args}]")
+	end
+	local n = #calls
+	local results = table.create(n)
+	local pending = n
+	for i, c in calls do
+		local cmd = type(c) == "table" and c.cmd or nil
+		if cmd == "multi" then
+			results[i] = { ok = false, error = "multi can't be nested" }
+			pending -= 1
+		else
+			task.spawn(function()
+				local reply = runCommand(cmd, if type(c) == "table" then c.args else nil)
+				if results[i] == nil then
+					results[i] = reply
+					pending -= 1
+				end
+			end)
+		end
+	end
+	local limit = math.clamp(tonumber(args.timeout) or MULTI_TIMEOUT, 1, 300)
+	local t0 = os.clock()
+	while pending > 0 and os.clock() - t0 < limit do
+		task.wait(0.03)
+	end
+	for i = 1, n do
+		if results[i] == nil then
+			results[i] = { ok = false, error = string.format("timed out after %ds in multi", limit) }
+		end
+	end
+	return results
+end
+commands.bot_spawn = botSpawn
+commands.bot_clear = botClear
+commands.bots = function()
+	local out = {}
+	for _, b in bots do
+		table.insert(out, playerInfo(b))
+	end
+	return out
+end
+
 local function decodeArgs(argsJson: any)
 	if type(argsJson) == "table" then
 		return argsJson
@@ -2781,7 +3213,7 @@ local function decodeArgs(argsJson: any)
 end
 
 local bf = getOrCreate(ServerStorage, "ForgeTest", "BindableFunction") :: BindableFunction
-dispatchCommand = function(cmd: any, argsJson: any): string
+runCommand = function(cmd: any, argsJson: any): any
 	local ok, res = pcall(function()
 		local fn = commands[tostring(cmd)]
 		if not fn then
@@ -2794,15 +3226,16 @@ dispatchCommand = function(cmd: any, argsJson: any): string
 		end
 		return fn(decodeArgs(argsJson))
 	end)
-	local reply
 	if ok then
-		reply = { ok = true, result = res }
-	else
-		local msg = tostring(res)
-		-- strip "ServerScriptService.ForgeTest:123: " so errors read cleanly
-		msg = string.gsub(msg, "^[%w%.]+:%d+: ", "")
-		reply = { ok = false, error = msg }
+		return { ok = true, result = res }
 	end
+	local msg = tostring(res)
+	-- strip "ServerScriptService.ForgeTest:123: " so errors read cleanly
+	msg = string.gsub(msg, "^[%w%.]+:%d+: ", "")
+	return { ok = false, error = msg }
+end
+dispatchCommand = function(cmd: any, argsJson: any): string
+	local reply = runCommand(cmd, argsJson)
 	local encOk, json = pcall(encode, reply)
 	if encOk then
 		return json
