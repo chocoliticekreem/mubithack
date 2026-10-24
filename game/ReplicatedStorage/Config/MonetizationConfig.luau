@@ -55,6 +55,7 @@ return Config.define({
 	-- Player attributes MonetizationService writes / reads.
 	Attr = {
 		PassPrefix = "Pass_", -- Pass_<Key> = true when owned (server-authoritative)
+		GiftedPrefix = "PassGifted_", -- owner-gifted in-game entitlement (not the real Roblox pass): the store says GIFTED
 		DebugPrefix = "PassDebug_", -- Studio only: set PassDebug_<Key> = true on the server to fake ownership
 		Donated = "RobuxDonated", -- all-time R$ this player donated (from their profile)
 	},

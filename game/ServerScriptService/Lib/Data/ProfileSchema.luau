@@ -26,6 +26,10 @@
 --   ProfileSchema.hasReceipt(p, purchaseId): boolean         -- v5: donation receipt already applied
 --   ProfileSchema.addDonation(p, purchaseId, robux): boolean -- v5: false = duplicate receipt (idempotent)
 --   p.pass (v6): battle pass season data; BattlePassService owns it through Lib/BattlePass/PassRules
+--   ProfileSchema.giftPass(p, key, byUserId, at): boolean   -- v7: owner-gifted in-game pass entitlement
+--   ProfileSchema.revokePass(p, key): boolean                -- v7: false = wasn't gifted
+--   ProfileSchema.hasGift(p, key): boolean / giftedPasses(p): { string }   -- v7 (MonetizationService)
+--   ProfileSchema.xpForLevel(level): number                  -- lifetime XP at the start of `level`
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
 --   ProfileSchema.ownsLock(envelope, jobId, now): boolean
@@ -52,6 +56,7 @@ export type Profile = {
 	guides: { seen: { [string]: boolean } }, -- v4: MissionCatalog ids whose first-time guide ran (MissionGuideService)
 	donations: Donations, -- v5: Robux donated through developer products (MonetizationService)
 	pass: PassData, -- v6: battle pass (BattlePassService, ReplicatedStorage/Lib/BattlePass/PassRules)
+	gifts: Gifts, -- v7: owner-gifted in-game entitlements (AdminService :giftpass -> MonetizationService)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -60,6 +65,8 @@ export type Profile = {
 export type Donations = { robux: number, count: number, receipts: { string } }
 -- free/premium = claimed tiers; equipped = slot -> reward id; legacy = old BattlePass_S1 store imported
 export type PassData = { season: string, xp: number, free: { number }, premium: { number }, equipped: { [string]: string }, legacy: boolean }
+-- passes[key] = who gifted it and when. An in-game entitlement only: it is not a Roblox game pass.
+export type Gifts = { passes: { [string]: { by: number, at: number } } }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -75,7 +82,7 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 6
+ProfileSchema.Version = 7
 ProfileSchema.MaxReceipts = 50 -- donation PurchaseIds remembered per profile
 ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
@@ -148,6 +155,7 @@ function ProfileSchema.default(now: number): Profile
 		guides = { seen = {} },
 		donations = { robux = 0, count = 0, receipts = {} },
 		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
+		gifts = { passes = {} },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -168,6 +176,17 @@ function ProfileSchema.levelForXp(xp: number): (number, number, number)
 		level += 1
 	end
 	return c.MaxLevel, 0, 0
+end
+
+-- Lifetime XP at the very start of `level` (levelForXp(xpForLevel(L)) == L).
+function ProfileSchema.xpForLevel(level: number): number
+	local c = ProfileSchema.Curve
+	local target = math.clamp(math.floor(num(level, 1)), 1, c.MaxLevel)
+	local xp = 0
+	for l = 1, target - 1 do
+		xp += c.Base + c.Step * (l - 1)
+	end
+	return xp
 end
 
 function ProfileSchema.addXp(p: Profile, amount: number): (number, number)
@@ -251,6 +270,11 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 	[5] = function(t: any, _now: number)
 		t.pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false }
 		t.version = 6
+	end,
+	-- v6 -> v7: owner-gifted pass entitlements (:giftpass). Nobody had a gift before v7.
+	[6] = function(t: any, _now: number)
+		t.gifts = { passes = {} }
+		t.version = 7
 	end,
 }
 
@@ -386,6 +410,17 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 	end
 	pass.equipped = equipped
 	pass.legacy = pass.legacy == true
+
+	fillMap(p, "gifts")
+	local passes: { [string]: { by: number, at: number } } = {}
+	if type(p.gifts.passes) == "table" then
+		for key, g in p.gifts.passes do
+			if type(key) == "string" and key ~= "" and type(g) == "table" then
+				passes[key] = { by = math.floor(num(g.by, 0)), at = math.floor(num(g.at, 0)) }
+			end
+		end
+	end
+	p.gifts.passes = passes
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -666,6 +701,59 @@ function ProfileSchema.addDonation(p: Profile, purchaseId: string, robux: number
 		table.remove(d.receipts, 1)
 	end
 	return true
+end
+
+----------------------------------------------------------------------------------------- gifts
+
+local function giftsOf(p: Profile): { [string]: { by: number, at: number } }
+	local g = (p :: any).gifts
+	if type(g) ~= "table" then
+		g = { passes = {} };
+		(p :: any).gifts = g
+	end
+	if type(g.passes) ~= "table" then
+		g.passes = {}
+	end
+	return g.passes
+end
+
+function ProfileSchema.hasGift(p: Profile, key: string): boolean
+	local g = (p :: any).gifts
+	return type(g) == "table" and type(g.passes) == "table" and g.passes[key] ~= nil
+end
+
+-- true = newly gifted; false = bad key or already gifted.
+function ProfileSchema.giftPass(p: Profile, key: string, byUserId: number, at: number): boolean
+	if type(key) ~= "string" or key == "" then
+		return false
+	end
+	local passes = giftsOf(p)
+	if passes[key] then
+		return false
+	end
+	passes[key] = { by = math.floor(num(byUserId, 0)), at = math.floor(num(at, 0)) }
+	return true
+end
+
+function ProfileSchema.revokePass(p: Profile, key: string): boolean
+	local passes = giftsOf(p)
+	if type(key) ~= "string" or passes[key] == nil then
+		return false
+	end
+	passes[key] = nil
+	return true
+end
+
+function ProfileSchema.giftedPasses(p: Profile): { string }
+	local out: { string } = {}
+	local g = (p :: any).gifts
+	if type(g) == "table" and type(g.passes) == "table" then
+		for key in g.passes do
+			table.insert(out, key)
+		end
+	end
+	table.sort(out)
+	return out
 end
 
 function ProfileSchema.setSetting(p: Profile, key: string, value: any): boolean
