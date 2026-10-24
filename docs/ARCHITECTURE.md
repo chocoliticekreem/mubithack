@@ -315,8 +315,12 @@ player joins, and any `ForgeProbe` attribute counters games set. It exposes
 `ServerStorage.ForgeProbe` (BindableFunction): `Invoke("report")` returns a JSON string:
 ```json
 {"uptime": 12.3, "errors": [{"message": "...", "trace": "...", "script": "..."}],
- "warnings": ["..."], "players": 1, "counters": {"coins_collected": 3}, "instances": 412}
+ "warnings": ["..."], "players": 1, "counters": {"coins_collected": 3}, "instances": 412,
+ "physics": {"flagged": [{"path", "model", "kind": "jitter|drift", "max_speed", "max_angvel", "moved_studs",
+             "windows", "last"}], "watched": 3, "loudest": [{"path", "max_speed", "max_angvel"}]}}
 ```
+`physics` comes from a sampler (every 0.5 s, at most 150 unanchored assembly roots, no Humanoid, no
+occupied seat; details in docs/TESTER.md). `Invoke("physics")` returns just that object.
 Games may call `require(ReplicatedStorage.ForgeTelemetry).count(name, n)` to bump counters
 (ReplicatedStorage/ForgeTelemetry.luau, server side only). Also `ServerStorage.DevHook`
 (BindableFunction) `Invoke(moduleName, method, ...)` to reach live server modules from execute_luau.
