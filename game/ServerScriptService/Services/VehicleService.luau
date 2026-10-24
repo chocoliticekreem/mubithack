@@ -1112,7 +1112,6 @@ end
 -- A new truck for `player` on the lowest free parking spot (or `spot`), owned by them.
 local function build(player: Player, spot: number?): Truck?
 	local m = TruckBuilder.Build(folder(), CFrame.new(0, 2000, 0)) -- built out of sight, then placed
-	m.Name = `FireTruck_{player.UserId}`
 	m:SetAttribute("OwnerUserId", player.UserId)
 	local t = register(m, "", player)
 	if not t then
@@ -1120,6 +1119,7 @@ local function build(player: Player, spot: number?): Truck?
 		return nil
 	end
 	t.spot = spot or freeSpot(t)
+	m.Name = `FireTruck_No{t.spot}` -- by number: trucks change hands, so never by owner
 	setOwner(t, player)
 	local cf = homeCF(t)
 	clearDecor(cf)
@@ -1845,6 +1845,12 @@ function VehicleService:_selftest(): (boolean, string)
 		return false, `no truck for {table.concat(missing, ", ")}`
 	end
 	return true, `{n} player truck(s) live`
+end
+
+-- Test hook: build a truck for `player` on the next free spot, past every cap (parking layout checks)
+function VehicleService:_build(player: Player): string?
+	local t = build(player)
+	return if t then t.model.Name else nil
 end
 
 -- Test hook: { [ownerName]: { "#spot model", ... } } plus totals
