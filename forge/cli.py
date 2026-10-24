@@ -183,6 +183,33 @@ def cmd_sync(args) -> int:
     return 0
 
 
+def _game_root(args) -> Path:
+    s = load_settings()
+    root = Path(args.root) if args.root else s.base_game_dir
+    if args.slug:
+        root = RunStore(s, args.slug).game_dir
+    return root
+
+
+def cmd_bench_io(args) -> int:
+    from forge.bench_io import bench
+    print(bench(_game_root(args), args.studio, offline=args.offline, repeat=args.repeat,
+                out_json=Path(args.json) if args.json else None))
+    return 0
+
+
+def cmd_headless(args) -> int:
+    from forge import checks
+    root = _game_root(args)
+    rep = checks.boot_offline(root, play=args.play)
+    print(json.dumps(rep, indent=1))
+    run_dir = root.parent
+    results = checks.run_checks_offline(root, checks.load_checks(run_dir))
+    if results:
+        print(checks.summary(results))
+    return 1 if rep.get("error") or rep.get("errors") or any(not r.get("ok") for r in results) else 0
+
+
 def cmd_versions(args) -> int:
     from forge.versions import GameVersions
     rows = GameVersions(RunStore(load_settings(), args.slug).game_dir).log()
@@ -701,6 +728,19 @@ def build_parser() -> argparse.ArgumentParser:
     sy.add_argument("--studio", help="pick the Studio whose name contains this")
     sy.add_argument("--prune", action="store_true", help="also delete synced scripts that no longer exist on disk")
 
+    bi = sub.add_parser("bench-io", help="time Studio round trips (sync, play, stop, edits, checks): before vs after")
+    bi.add_argument("slug", nargs="?")
+    bi.add_argument("--root", help="game folder (default game/); benchmarked on a temp copy")
+    bi.add_argument("--studio", help="pick the Studio whose name contains this (use your own window)")
+    bi.add_argument("--offline", action="store_true", help="only the headless rows (no Studio)")
+    bi.add_argument("--repeat", type=int, default=3)
+    bi.add_argument("--json", help="also write the raw timings here")
+
+    hl = sub.add_parser("headless", help="boot a game's server with the luau CLI (no Studio) and run its checks")
+    hl.add_argument("slug", nargs="?")
+    hl.add_argument("--root", help="game folder (default game/)")
+    hl.add_argument("--play", type=float, default=3.0, help="simulated seconds after a player joins")
+
     pl = sub.add_parser("place", help="build a .rbxlx from a game folder (baseplate + spawn + scripts)")
     pl.add_argument("--root", help="game folder (default game/)")
     pl.add_argument("--out", default="place/Forge.rbxlx")
@@ -872,6 +912,7 @@ def main(argv: list[str] | None = None) -> int:
     from forge.bench import cmd_bench
     handler = {"doctor": cmd_doctor, "bench": cmd_bench, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
+               "bench-io": cmd_bench_io, "headless": cmd_headless,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
                "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,

@@ -5,6 +5,8 @@
 --     {"uptime": 12.3, "errors": [{"message", "trace", "script", "count"}], "warnings": ["..."],
 --      "players": 1, "joins": 1, "counters": {"coins_collected": 3}, "instances": 412}
 --   :Invoke("reset")  -> clears errors/warnings, returns "ok"
+--   :Invoke("hotreload", liveModule, cloneWithNewSource) -> "reloaded N" | "error: ..."
+--     copies the clone's functions into the live module table (forge Studio.hot_reload)
 --
 -- ServerStorage.DevHook (BindableFunction)
 --   :Invoke(moduleName, method, ...) -> (true, results...) | (false, err)
@@ -190,7 +192,7 @@ local function getOrCreate(name: string): BindableFunction
 end
 
 local probe = getOrCreate("ForgeProbe")
-probe.OnInvoke = function(cmd: string?)
+probe.OnInvoke = function(cmd: string?, ...)
 	cmd = cmd or "report"
 	if cmd == "report" then
 		local ok, res = pcall(report)
@@ -206,6 +208,27 @@ probe.OnInvoke = function(cmd: string?)
 		droppedErrors, droppedWarnings = 0, 0
 		started = os.clock()
 		return "ok"
+	elseif cmd == "hotreload" then
+		-- (live ModuleScript, clone holding the new source), sent by forge Studio.hot_reload. This
+		-- script shares the game's require cache, so the live table is the one every caller holds:
+		-- copy the clone's functions into it and the next call runs the new code.
+		local live, fresh = ...
+		local ok, res = pcall(function()
+			local old = require(live) :: any
+			local new = require(fresh) :: any
+			if type(old) ~= "table" or type(new) ~= "table" then
+				error("module did not return a table")
+			end
+			local n = 0
+			for k, v in new do
+				if type(v) == "function" or old[k] == nil then
+					old[k] = v
+					n += 1
+				end
+			end
+			return "reloaded " .. n
+		end)
+		return if ok then res else "error: " .. tostring(res)
 	end
 	return HttpService:JSONEncode({ error = "unknown command: " .. tostring(cmd) })
 end

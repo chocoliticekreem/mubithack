@@ -22,12 +22,24 @@ can be tested inside its round; without the harness they raise a "setup: ..." er
 Checks cost no LLM calls to run and give an exact pass/fail, so they are how Forge proves a bug
 (a failing check), proves a fix (the check now passes), and guards against regressions (every
 saved check keeps passing).
+
+Headless (no Studio): game/tools/headless.luau fakes enough of the Roblox engine to run a game's
+server code with the plain `luau` CLI on a simulated clock. `boot_offline(game_dir)` boots every
+server Script, joins a player and returns a ForgeProbe-shaped report (errors, warnings, counters)
+in well under a second; `run_checks_offline(game_dir, checks)` runs checks against that booted fake
+server in parallel. A check that passes offline needs no Studio round trip (`triage`); anything that
+fails or errors offline still goes to Studio, which stays the judge. A check that can only mean
+something in a real engine (physics, rendering, replication) says so with `-- needs: studio`.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,6 +56,7 @@ class Check:
     covers: str
     body: str
     path: Path | None = None
+    needs: str = ""  # "studio": never trust a headless run of this check
 
 
 def check_id(title: str) -> str:
@@ -51,20 +64,23 @@ def check_id(title: str) -> str:
 
 
 def parse(text: str, id: str = "check", path: Path | None = None) -> Check:
-    title = covers = ""
+    title = covers = needs = ""
     for line in text.splitlines()[:6]:
-        m = re.match(r"\s*--\s*(check|covers):\s*(.*)", line)
+        m = re.match(r"\s*--\s*(check|covers|needs):\s*(.*)", line)
         if m and m.group(1) == "check":
             title = m.group(2).strip()
+        elif m and m.group(1) == "needs":
+            needs = m.group(2).strip().lower()
         elif m:
             covers = m.group(2).strip()
-    return Check(id=id, title=title or id, covers=covers, body=text, path=path)
+    return Check(id=id, title=title or id, covers=covers, body=text, path=path, needs=needs)
 
 
 def render(check: Check) -> str:
     body = "\n".join(ln for ln in check.body.splitlines()
-                     if not re.match(r"\s*--\s*(check|covers):", ln)).strip("\n")
-    return f"-- check: {check.title}\n-- covers: {check.covers}\n{body}\n"
+                     if not re.match(r"\s*--\s*(check|covers|needs):", ln)).strip("\n")
+    needs = f"-- needs: {check.needs}\n" if check.needs else ""
+    return f"-- check: {check.title}\n-- covers: {check.covers}\n{needs}{body}\n"
 
 
 def checks_dir(run_dir: Path) -> Path:
@@ -264,3 +280,125 @@ def summary(results: list[dict]) -> str:
 
 def to_json(results: list[dict]) -> str:
     return json.dumps(results, ensure_ascii=False)
+
+
+# ================================================================ headless (no Studio)
+
+OUT_MARK = "@@HEADLESS@@"
+HEADLESS_TIMEOUT = 30.0  # wall seconds per luau process (an infinite loop without task.wait hangs)
+
+
+def headless_available() -> bool:
+    return shutil.which("luau") is not None
+
+
+def _headless_source() -> str:
+    from forge.config import load_settings
+    return (load_settings().base_game_dir / "tools" / "headless.luau").read_text(encoding="utf-8")
+
+
+def bundle(game_dir: Path, opts: dict) -> str:
+    """One self-contained Luau program: the headless engine, every synced file of the game, and
+    H.main(opts). Runs with `luau <file>` (the CLI has no file I/O, so sources are embedded)."""
+    from forge import sync as fsync
+
+    game_dir = Path(game_dir)
+    lines = ["local H = (function()", _headless_source(), "end)()"]
+    for e in fsync.manifest_entries(game_dir):
+        src = (game_dir / e["path"]).read_text(encoding="utf-8", errors="replace")
+        lines.append(f"H.add({json.dumps(e['path'])}, {json.dumps(e['class'])}, {fsync.long_string(src)})")
+    o = dict(opts)
+    check_body = o.pop("check", None)
+    fields = [f"{k} = {json.dumps(v)}" for k, v in sorted(o.items()) if isinstance(v, (int, float, str))]
+    if check_body is not None:
+        fields.append(f"check = {fsync.long_string(check_body)}")
+    lines.append("H.main({ " + ", ".join(fields) + " })")
+    return "\n".join(lines) + "\n"
+
+
+def run_headless(game_dir: Path, opts: dict | None = None, timeout: float = HEADLESS_TIMEOUT) -> dict:
+    """Run the headless engine once -> {"report": {...}, "check"?: {...}} or {"error": ...}."""
+    exe = shutil.which("luau")
+    if not exe:
+        return {"error": "luau CLI not on PATH (brew install luau)"}
+    src = bundle(game_dir, opts or {})
+    with tempfile.NamedTemporaryFile("w", suffix=".luau", delete=False, encoding="utf-8") as f:
+        f.write(src)
+        path = f.name
+    try:
+        r = subprocess.run([exe, path], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"error": f"headless run timed out after {timeout:.0f}s (a loop without task.wait?)"}
+    finally:
+        Path(path).unlink(missing_ok=True)
+    for line in reversed(r.stdout.splitlines()):
+        if line.startswith(OUT_MARK):
+            try:
+                return json.loads(line[len(OUT_MARK):])
+            except ValueError as e:
+                return {"error": f"unreadable headless output: {e}"}
+    return {"error": f"headless run failed (exit {r.returncode}): {(r.stderr or r.stdout)[-800:]}"}
+
+
+def boot_offline(game_dir: Path, boot: float = 2.0, play: float = 3.0, players: int = 1) -> dict:
+    """Boot the game's server headless, join `players`, run `play` simulated seconds.
+    Returns a ForgeProbe-shaped report plus "misses" (engine members the fake doesn't model)."""
+    out = run_headless(game_dir, {"mode": "boot", "boot": boot, "play": play, "players": players})
+    if "error" in out:
+        return {"error": out["error"], "errors": [], "warnings": []}
+    return out.get("report") or {"error": "no report", "errors": [], "warnings": []}
+
+
+def run_check_offline(game_dir: Path, check: Check, timeout: float = CHECK_TIMEOUT) -> dict:
+    """Run one check against a freshly booted headless server -> run_check's shape + where/boot_errors."""
+    out = run_headless(game_dir, {"mode": "check", "check": check.body, "timeout": timeout})
+    if "error" in out:
+        res: dict = {"ok": False, "error": out["error"]}
+    else:
+        res = dict(out.get("check") or {"ok": False, "error": "no check result"})
+        rep = out.get("report") or {}
+        res["boot_errors"] = len(rep.get("errors") or [])
+        if not res.get("ok") and rep.get("misses"):
+            res["misses"] = rep["misses"][:10]
+    return {"id": check.id, "title": check.title, "where": "offline", **res}
+
+
+def run_checks_offline(game_dir: Path, checks: list[Check], timeout: float = CHECK_TIMEOUT,
+                       workers: int = 8) -> list[dict]:
+    """Every check headless, in parallel processes (each gets its own fresh fake server)."""
+    if not checks:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(checks)))) as pool:
+        return list(pool.map(lambda c: run_check_offline(game_dir, c, timeout), checks))
+
+
+def triage(game_dir: Path, checks: list[Check]) -> tuple[list[dict], list[Check]]:
+    """Run what can run without Studio. -> (offline passes, checks that still need Studio).
+    Only a pass is trusted offline; a failure may be the fake engine's gap, so Studio re-runs it."""
+    if not headless_available():
+        return [], list(checks)
+    candidates = [c for c in checks if c.needs != "studio"]
+    results = run_checks_offline(game_dir, candidates)
+    passed = [r for r in results if r.get("ok")]
+    passed_ids = {r["id"] for r in passed}
+    return passed, [c for c in checks if c.id not in passed_ids]
+
+
+def run_specs(spec_dir: Path, timeout: float = HEADLESS_TIMEOUT) -> list[dict]:
+    """Pure-Luau unit specs (*.spec.luau, see game/tests/Spec.luau) with the luau CLI.
+    -> [{id, ok, output}]; a spec fails when luau exits non-zero."""
+    exe = shutil.which("luau")
+    spec_dir = Path(spec_dir)
+    if not exe or not spec_dir.is_dir():
+        return []
+
+    def one(p: Path) -> dict:
+        try:
+            r = subprocess.run([exe, p.name], cwd=spec_dir, capture_output=True, text=True, timeout=timeout)
+            return {"id": p.stem, "ok": r.returncode == 0, "output": (r.stdout + r.stderr)[-1500:]}
+        except subprocess.TimeoutExpired:
+            return {"id": p.stem, "ok": False, "output": f"timed out after {timeout:.0f}s"}
+
+    specs = sorted(spec_dir.glob("*.spec.luau"))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return list(pool.map(one, specs))
