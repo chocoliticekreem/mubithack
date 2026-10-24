@@ -262,6 +262,24 @@ def test_candidates_merge_and_rank():
     assert ds[2]["picked"]
 
 
+def test_candidates_merge_on_shared_specific_evidence():
+    an = [{"id": "an-map-built-twice", "title": "Map built twice", "impact": 8, "confidence": 0.85,
+           "evidence": ["check:01-map", "metric:errors"], "job": {"kind": "fix", "request": "x"}},
+          {"id": "an-player-blocked", "title": "Player blocked before Stage 1", "impact": 10, "confidence": 0.7,
+           "evidence": ["stuck:r@4"], "job": {"kind": "fix", "request": "y"}},
+          {"id": "an-stage-unreachable", "title": "Stage 1 checkpoint unreachable", "impact": 8, "confidence": 0.7,
+           "evidence": ["stuck:r@4", "stat:stuck:r@4"], "job": {"kind": "fix", "request": "z"}}]
+    gaps = [{"id": "map-built-counter-is-2", "title": "map_built counter is 2 instead of 1", "impact": 5,
+             "confidence": 0.9, "evidence": ["check:01-map"], "job": {"kind": "fix", "request": "w"}},
+            {"id": "saving", "title": "No saving", "impact": 5, "confidence": 0.9, "evidence": ["metric:errors"],
+             "job": {"kind": "feature", "request": "v"}}]
+    cands = apm.candidates(an, gaps)
+    titles = [c["title"] for c in cands]
+    assert titles.count("Stage 1 checkpoint unreachable") == 0 and "No saving" in titles  # broad ids don't merge
+    mb = next(c for c in cands if c["title"] == "Map built twice")
+    assert mb["sources"] == ["anomaly_detector", "gap_finder"] and len(cands) == 3
+
+
 def test_parse_anomalies_drops_unknown_evidence_and_bad_paths():
     obj = json.loads(_anoms(("A", 6, "fix", ["made:up"]), ("B", 6, "polish", ["err:1"])))
     obj["anomalies"][0]["job"]["path"] = "Nope.luau"

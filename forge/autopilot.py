@@ -228,11 +228,26 @@ def similar(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb) if ta and tb else 0.0
 
 
+SPECIFIC = ("check:", "stuck:", "err:", "physics:", "bridge:")
+
+
+def specific_refs(refs: list[str]) -> set[str]:
+    """Evidence ids that pin one concrete observation (a failing check, a stuck span, one error, one tester
+    bug): two findings citing the same one are the same problem. Broad ids (metrics, genre, scores) are not."""
+    return {r for r in refs or [] if str(r).startswith(SPECIFIC)
+            or (str(r).startswith(("test:", "swarm:")) and "#" in str(r))}
+
+
 def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
     """Anomalies and gaps as one list. A gap that matches an anomaly (similar title, or the same fix file)
     is merged into it: both detectors agree, so confidence goes up and the evidence is the union."""
     out: list[dict] = []
     for a in anomalies:
+        dup = next((c for c in out if specific_refs(c["evidence"]) & specific_refs(a["evidence"])), None)
+        if dup is not None:  # the detector named one problem twice: keep the higher-ranked wording
+            dup["evidence"] = list(dict.fromkeys(dup["evidence"] + list(a["evidence"])))
+            dup["impact"] = max(dup["impact"], a["impact"])
+            continue
         out.append({"id": a["id"], "source": ROLE, "sources": [ROLE], "title": a["title"],
                     "impact": a["impact"], "confidence": a["confidence"], "severity": a.get("severity"),
                     "evidence": list(a["evidence"]), "why": a.get("why"), "request_id": a.get("request_id"),
@@ -244,7 +259,8 @@ def candidates(anomalies: list[dict], gaps: list[dict]) -> list[dict]:
             if ROLE not in c["sources"]:
                 continue
             same_file = gjob.get("path") and gjob.get("path") == c["job"].get("path")
-            if similar(c["title"], g["title"]) >= 0.5 or same_file:
+            shared = specific_refs(c["evidence"]) & specific_refs(g["evidence"])
+            if similar(c["title"], g["title"]) >= 0.5 or same_file or shared:
                 match = c
                 break
         if match is not None:
