@@ -36,7 +36,8 @@ async def _cycle(settings, llm, playtest, harness=None):
         synced.append(True)
 
     cycle = await run_cycle(settings, "fab", llm=llm, harness=harness or FakeHarness(), playtest=playtest,
-                            faults=[], goal="play", rounds=1, fix=True, resync=resync, log=lambda _: None)
+                            faults=[], goal="play", rounds=1, fix=True, resync=resync, log=lambda _: None,
+                            repro=False)
     return cycle, synced
 
 

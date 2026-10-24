@@ -29,7 +29,7 @@ async def _cycle(settings, llm, playtest=None):
 
     return await run_cycle(settings, "fab", llm=llm, harness=StudioHarness(FakeStudio([])),
                            playtest=playtest or default, faults=[], goal="play", rounds=1, fix=True,
-                           resync=resync, log=lambda _: None, max_fixes=2)
+                           resync=resync, log=lambda _: None, max_fixes=2, repro=False)
 
 
 def test_unproven_markers():
