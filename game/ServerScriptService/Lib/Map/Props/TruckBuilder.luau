@@ -11,8 +11,7 @@
 --   "Locker_<L|R><1..3>" tagged TruckCompartment, attr Item (TruckBuilder.CompartmentItems) -> InventoryService
 --   "DriveSeat" (VehicleSeat, driver side of the cab), "CrewSeat_1..4" (back benches), "CrewSeat_5" (shotgun)
 --   -> VehicleService welds everything to the Chassis when it makes the truck drivable, except parts
---   with attr Jointed = true: the hinged doors ("Door_L"/"Door_R" Models, root "DoorPanel_<s>",
---   HingeConstraint "DoorHinge", handle "DoorHandle_<s>"), the steering wheel (Motor6D "SteeringMotor")
+--   with attr Jointed = true: the steering wheel (Motor6D "SteeringMotor")
 --   and the dash bobblehead (Motor6D "BobbleMotor").
 -- Cab interior: dash with gauges, glowing buttons, radio, siren switch panel, steering wheel, two
 --   cushioned seats, door trims, rear-view mirror, sun visors, dome light ("CabLight"), bobblehead.
@@ -22,7 +21,7 @@
 --     but keep colliding (VisualConfig.Truck.Hide); the visual wheels move onto its two axles; red
 --     plates + our own "67" cover its mirrored "67" (right side + back).
 --   "WheelSkin_<axle>_<s>" (TruckWheel) per wheel, "LightBarSkin" (TruckLightBar) under the flashing
---   neon lights, "DoorSkin_<s>" (TruckDoor) welded to each hinged door panel.
+--   neon lights, "DoorSkin_<s>" (TruckDoor) welded to each (solid, unhinged) door panel.
 --   Skins are MeshParts: CanCollide/CanQuery/CanTouch false, Massless, attr MeshSkin = asset key.
 -- TruckBuilder.Preview (Studio command bar or execute_luau, Edit mode):
 --   local T = require(game.ServerScriptService.Lib.Map.Props.TruckBuilder)
@@ -227,9 +226,9 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	P("ExhaustStack", Vector3.new(5.3, 6.4, -4.95), Vector3.new(6.4, 0.45, 0.45), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal, collide = false }, ROT_Y_AXIS)
 	P("ExhaustCap", Vector3.new(5.3, 9.65, -4.95), Vector3.new(0.1, 0.55, 0.55), Ink, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Y_AXIS)
 
-	-- Doors: each one is its own Model ("Door_L"/"Door_R") welded to DoorPanel_<s>, hinged at its front
-	-- edge to CabSideFront_<s> (HingeConstraint "DoorHinge"). Parts carry attr Jointed = true so
-	-- VehicleService doesn't weld them to the chassis; it sets the hinge limits/servo.
+	-- Doors: each one is its own Model ("Door_L"/"Door_R", root DoorPanel_<s>) but SOLID: no hinge, no
+	-- Jointed attr, so VehicleService welds them to the chassis like the rest of the body. Getting in and
+	-- out is instant (seat prompts / tap, and OUT puts you beside the truck): nothing swings.
 	for _, side in { -1, 1 } do
 		local s = if side < 0 then "L" else "R"
 		local door = Instance.new("Model")
@@ -239,7 +238,6 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		local function D(name: string, pos: Vector3, size: Vector3, color: Color3, opts: MapKit.PartOpts?, rot: CFrame?): Part
 			local part = P(name, pos, size, color, opts, rot)
 			part.Parent = door
-			part:SetAttribute("Jointed", true)
 			return part
 		end
 		local x = side * 4.85
@@ -267,33 +265,12 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 			end
 		end
 		door.PrimaryPart = panel
-		-- Hinge line: front edge of the door, vertical. Primary axis = -Y on the left and +Y on the
-		-- right, so a positive hinge angle swings the door OUT on both sides.
-		local post = m:FindFirstChild(`CabSideFront_{s}`) :: BasePart
-		local hingeWorld = CFrame.fromMatrix((cf * CFrame.new(side * 5.0, 5.3, -8.15)).Position, cf.UpVector * side, cf.LookVector)
-		local a0 = Instance.new("Attachment")
-		a0.Name = "DoorHingeA"
-		a0.Parent = post
-		a0.WorldCFrame = hingeWorld
-		local a1 = Instance.new("Attachment")
-		a1.Name = "DoorHingeB"
-		a1.Parent = panel
-		a1.WorldCFrame = hingeWorld
-		local hinge = Instance.new("HingeConstraint")
-		hinge.Name = "DoorHinge"
-		hinge.Attachment0 = a0
-		hinge.Attachment1 = a1
-		hinge.LimitsEnabled = true
-		hinge.LowerAngle = 0
-		hinge.UpperAngle = 95
-		hinge.Parent = panel
 		-- skin with a generated mesh when the assets lane has one
 		local doorSpec = MeshSkin.spec("TruckDoor")
 		local doorSkin = if doorSpec then MeshSkin.make(doorSpec, `DoorSkin_{s}`, cf, s) else nil
 		if doorSkin then
 			MeshSkin.hide(door:GetChildren())
 			doorSkin.Parent = door
-			doorSkin:SetAttribute("Jointed", true) -- swings with the door (VehicleService skips Jointed parts)
 			local dw = Instance.new("WeldConstraint")
 			dw.Part0 = panel
 			dw.Part1 = doorSkin
