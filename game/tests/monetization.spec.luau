@@ -141,11 +141,11 @@ Spec.test("player absent / ledger down / unknown product -> NotProcessedYet, not
 end)
 
 Spec.test("profile v5: donations default, v4 migrates, receipts capped", function()
-	Spec.eq(Schema.Version, 5)
+	Spec.eq(Schema.Version >= 5, true) -- v6: battle pass
 	local p = Schema.default(NOW)
 	Spec.eq(p.donations.robux, 0)
 	local m = Schema.migrate({ version = 4, xp = 120, guides = { seen = {} } }, NOW) :: any
-	Spec.eq(m.version, 5)
+	Spec.eq(m.version, Schema.Version)
 	Spec.eq(m.donations.robux, 0)
 	Spec.eq(#m.donations.receipts, 0)
 	for i = 1, Schema.MaxReceipts + 5 do

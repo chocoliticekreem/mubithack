@@ -25,6 +25,7 @@
 --   ProfileSchema.markGuideSeen(p, missionId): boolean      -- true = newly marked
 --   ProfileSchema.hasReceipt(p, purchaseId): boolean         -- v5: donation receipt already applied
 --   ProfileSchema.addDonation(p, purchaseId, robux): boolean -- v5: false = duplicate receipt (idempotent)
+--   p.pass (v6): battle pass season data; BattlePassService owns it through Lib/BattlePass/PassRules
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
 --   ProfileSchema.ownsLock(envelope, jobId, now): boolean
@@ -50,12 +51,15 @@ export type Profile = {
 	gear: { unlocked: { [string]: boolean }, loadout: { string } }, -- v3: locker (Lib/Items/Progression)
 	guides: { seen: { [string]: boolean } }, -- v4: MissionCatalog ids whose first-time guide ran (MissionGuideService)
 	donations: Donations, -- v5: Robux donated through developer products (MonetizationService)
+	pass: PassData, -- v6: battle pass (BattlePassService, ReplicatedStorage/Lib/BattlePass/PassRules)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
 -- receipts = the newest MaxReceipts PurchaseIds already applied (oldest first), so a re-sent receipt
 -- is never counted twice even if the global purchase ledger write failed.
 export type Donations = { robux: number, count: number, receipts: { string } }
+-- free/premium = claimed tiers; equipped = slot -> reward id; legacy = old BattlePass_S1 store imported
+export type PassData = { season: string, xp: number, free: { number }, premium: { number }, equipped: { [string]: string }, legacy: boolean }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -71,7 +75,7 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 5
+ProfileSchema.Version = 6
 ProfileSchema.MaxReceipts = 50 -- donation PurchaseIds remembered per profile
 ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
@@ -143,6 +147,7 @@ function ProfileSchema.default(now: number): Profile
 		gear = { unlocked = {}, loadout = {} },
 		guides = { seen = {} },
 		donations = { robux = 0, count = 0, receipts = {} },
+		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -240,6 +245,12 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 	[4] = function(t: any, _now: number)
 		t.donations = { robux = 0, count = 0, receipts = {} }
 		t.version = 5
+	end,
+	-- v5 -> v6: the battle pass moves into the profile (it had its own BattlePass_S1 store, which
+	-- BattlePassService imports once: legacy = false). season "" = "the current one" on first load.
+	[5] = function(t: any, _now: number)
+		t.pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false }
+		t.version = 6
 	end,
 }
 
@@ -349,6 +360,32 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		table.remove(receipts, 1)
 	end
 	p.donations.receipts = receipts
+
+	fillMap(p, "pass")
+	local pass = p.pass
+	pass.season = if type(pass.season) == "string" then pass.season else ""
+	pass.xp = count(pass.xp)
+	for _, key in { "free", "premium" } do
+		local tiers: { number } = {}
+		if type(pass[key]) == "table" then
+			for _, t in pass[key] do
+				if type(t) == "number" and t == t and t % 1 == 0 and t >= 1 and not table.find(tiers, t) then
+					table.insert(tiers, t)
+				end
+			end
+		end
+		pass[key] = tiers
+	end
+	local equipped: { [string]: string } = {}
+	if type(pass.equipped) == "table" then
+		for slot, id in pass.equipped do
+			if type(slot) == "string" and type(id) == "string" then
+				equipped[slot] = id
+			end
+		end
+	end
+	pass.equipped = equipped
+	pass.legacy = pass.legacy == true
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
