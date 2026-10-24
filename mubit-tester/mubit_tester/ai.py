@@ -62,6 +62,16 @@ SQUADS_GUIDE = (
     "then use done.\n"
     "If the lobby isn't implemented yet the harness puts your squad straight into a mission."
 )
+# On-screen UI guidance, also in the USER message (player.md / explorer.md are frozen Mubit prompts).
+UI_GUIDE = (
+    "Your observation's `ui` lists the on-screen buttons you can see (text, path, gui, x/y) and `panels` the "
+    "open windows (title). To use one, reply {\"action\": \"press\", \"args\": {\"path\": \"<path from ui>\"}} "
+    "(or {\"text\": \"Claim\"}). It is a real mouse click; the result says whether the button fired and what "
+    "changed on screen (panels opened or closed, new buttons, HUD text).\n"
+    "Test a feature with a menu (shop, pass, inventory, upgrades, settings) through its buttons: open its "
+    "panel, press its action buttons (Claim, Buy, Equip, ...), then check the result and the next observation "
+    "for the effect. A button that does not fire, or fires and changes nothing, is a bug to report."
+)
 HISTORY = 4
 PROBE_EVERY = 5
 EVENTS_MAX = 12
@@ -193,6 +203,9 @@ def map_action(action: dict) -> tuple[str, dict] | str:
         return "jump", {}
     if name == "say":
         return "say", {"text": _clip(str(args.get("text") or ""), 120)}
+    if name in ("press", "click"):
+        out = {k: str(args[k]) for k in ("path", "text") if args.get(k)}
+        return ("press", out) if out else f"error: {name} needs path or text (from the observation's `ui`)"
     if name == "wait":
         return "wait", {"seconds": max(0.0, min(_num(args.get("seconds"), 2.0), 10.0))}
     if name == "done":
@@ -262,7 +275,7 @@ def _compact_events(events: list) -> list:
 
 def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: list[dict],
                        observation: dict, history: list[dict], events: list,
-                       squad: dict | None = None) -> str:
+                       squad: dict | None = None, pressers: list[str] | None = None) -> str:
     team_text = _clip(_dumps(team), TEAM_CHARS) if team else "none (you are the only test player)"
     who = f"{me['name']} (helmet {me.get('helmet')}); role: {me['role']}"
     if me.get("squad"):
@@ -270,6 +283,15 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
     lines = [
         "## Goal", goal.strip(), "",
         "## You", who, "",
+    ]
+    if "ui" in (observation or {}):
+        guide = UI_GUIDE
+        if not me.get("can_press"):
+            guide += ("\nYou can NOT press UI in this run: presses are real clicks and no Studio window drives "
+                      f"your player. Players who can: {', '.join(pressers or []) or 'none'}. Read `ui` and leave "
+                      "presses to them (say what you see if it helps).")
+        lines += ["## On-screen UI", guide, ""]
+    lines += [
         "## Step", f"{n} of {total}" if total else str(n), "",
         "## Team", team_text, "",
         "## Observation", _dumps(observation), "",
@@ -499,6 +521,19 @@ def blame_from_events(events: list, roster: list[dict]) -> dict:
     return stats
 
 
+def ui_presses(events: list) -> list[dict]:
+    """Real GUI clicks from the harness event log (kind ui_press): who pressed what, and did it work."""
+    out = []
+    for e in events or []:
+        d = e.get("data") if isinstance(e, dict) and e.get("kind") == "ui_press" else None
+        if isinstance(d, dict):
+            out.append({"t": e.get("t"), "player": d.get("name") or d.get("userId"), "text": d.get("text") or "",
+                        "path": d.get("path") or "", "gui": d.get("gui") or "", "fired": d.get("fired") is True,
+                        "changed": d.get("changed") is True,
+                        "effect": {k: v for k, v in (d.get("effect") or {}).items() if v}})
+    return out
+
+
 async def _squads_tick(harness, n: int, roster: list[dict], tick_players: list[dict], observations: dict,
                        phases: dict, lobby_ticks: dict, queued_ticks: dict, started_direct: set,
                        lobby_unsupported: bool, seen_mission: bool, report: dict, contexts: dict,
@@ -628,6 +663,11 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
             report["players"] = roster
             if not roster:
                 raise RuntimeError("no players connected")
+            windows = await _safe(harness.ui_windows) if hasattr(harness, "ui_windows") else {}
+            windows = windows if isinstance(windows, dict) and not _err(windows) else {}
+            for p in roster:
+                p["can_press"] = str(p["userId"]) in windows
+            report["ui_pressers"] = [p["name"] for p in roster if p["can_press"]]
 
             _, since = await _events(harness, None)  # start the event cursor at "now"
             active = {p["userId"] for p in roster}
@@ -667,7 +707,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                     try:
                         user = agent_user_message(goal, p, n, max_ticks if deadline is None else None, team,
                                                   observations[uid], _history(report["steps"], uid, n), events,
-                                                  squad=contexts.get(uid))
+                                                  squad=contexts.get(uid), pressers=report["ui_pressers"])
                         action, res = await play._to_thread(
                             llm.complete_json, agent_role, user, session_id=session_id,
                             required=["action", "reason"], max_tokens=1024,
@@ -720,6 +760,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
         except Exception as e:  # noqa: BLE001
             report["errors"].append(f"{type(e).__name__}: {_clip(str(e), 500)}")
     report["events"] = _compact_events(all_events)[-50:]
+    report["ui_presses"] = ui_presses(all_events)
 
     squads_info = None
     if squads_mode:
@@ -848,7 +889,8 @@ async def correct_step(settings: Settings, run_id: str, step: int, note: str, pl
     user = agent_user_message(report.get("goal", ""), me, step, total, target.get("team") or [],
                               target.get("observation") or {},
                               _history(report.get("steps") or [], target.get("player"), step),
-                              target.get("events") or [], squad=target.get("squad"))
+                              target.get("events") or [], squad=target.get("squad"),
+                              pressers=report.get("ui_pressers"))
     user += "\n\n## Correction from a human tester\n" + note.strip()
     after, res = await play._to_thread(
         llm.complete_json, role, user, session_id=report.get("session_id") or "playtest-" + run_id,

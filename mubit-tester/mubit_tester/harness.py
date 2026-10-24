@@ -32,6 +32,15 @@ READY_POLL = 1.0
 NOT_RUNNING_HINT = ("Is a playtest running (play_start / multiplayer_start) and is "
                     "ServerScriptService/ForgeTest.server.luau synced?")
 UNSUPPORTED = "unsupported:"
+PRESS_WAIT = 0.8      # seconds between the click and reading what changed (tweens, server replies)
+PRESS_TIMEOUT = 20.0
+# Run in a window's Client datamodel: which player it drives, in which ForgeTest session.
+WHO_LUAU = (
+    'local lp = game:GetService("Players").LocalPlayer\n'
+    'local r = game:GetService("ReplicatedStorage"):FindFirstChild("ForgeTestRemote")\n'
+    'return game:GetService("HttpService"):JSONEncode({userId = lp and lp.UserId, '
+    'session = r and r:GetAttribute("Session")})'
+)
 
 
 class HarnessError(RuntimeError):
@@ -105,12 +114,15 @@ class Harness:
     """
 
     def __init__(self, studio: Any, timeout: float = 60.0,
-                 relocate: Callable[[], Awaitable[str | None]] | None = None, mode: str = "server") -> None:
+                 relocate: Callable[[], Awaitable[str | None]] | None = None, mode: str = "server",
+                 client_windows: list[str] | None = None) -> None:
         self.studio = studio
         self.timeout = timeout
         self.started_play = False
         self.relocate = relocate
         self.mode = mode  # "server" (execute in the Server datamodel) | "client" (relay)
+        self.client_windows = list(client_windows or [])  # Client windows of a multiplayer test
+        self._ui_windows: tuple[Any, dict[str, str]] | None = None  # (session, {userId: studio_id})
 
     async def _once(self, cmd: str, args: dict) -> Any:
         if self.mode == "client":
@@ -178,7 +190,101 @@ class Harness:
         return await self.call("observe", **args)
 
     async def act(self, user_id: Any, action: str, **args: Any) -> dict:
+        if action == "press":
+            return await self.press(user_id, path=args.get("path"), text=args.get("text"))
         return await self.call("act", userId=user_id, action=action, args=args)
+
+    # ---- on-screen UI: a real mouse click through Studio MCP
+
+    async def ui(self, user_id: Any, max: int | None = None) -> dict:
+        return await self.call("ui", **_clean({"userId": user_id, "max": max})) or {}
+
+    async def _window_player(self, studio_id: str) -> dict | None:
+        try:
+            text = await asyncio.wait_for(
+                self.studio.call("execute_luau", code=WHO_LUAU, datamodel_type="Client", studio_id=studio_id),
+                PRESS_TIMEOUT)
+        except Exception:  # noqa: BLE001 - no Client datamodel in that window
+            return None
+        obj = extract_json(text if isinstance(text, str) else str(text))
+        return obj if isinstance(obj, dict) and obj.get("userId") is not None else None
+
+    async def ui_windows(self) -> dict[str, str]:
+        """{str(userId): studio_id} for the players a Studio window drives in THIS test. Only the
+        harness's own window and the client windows it was given are asked; the ForgeTest session
+        token must match, so another Studio's playtest is never clicked."""
+        session = None
+        try:
+            session = ((await self.ping()) or {}).get("session")
+        except HarnessError:
+            pass
+        if self._ui_windows is not None and self._ui_windows[0] == session:
+            return self._ui_windows[1]
+        found: dict[str, str] = {}
+        own = getattr(self.studio, "studio_id", None)
+        for sid in [own, *self.client_windows]:
+            if not sid or sid in found.values():
+                continue
+            who = await self._window_player(sid)
+            if who and (session is None or who.get("session") == session):
+                found.setdefault(str(who["userId"]), sid)
+        if found:
+            self._ui_windows = (session, found)
+        return found
+
+    async def press(self, user_id: Any, path: str | None = None, text: str | None = None,
+                    wait: float | None = None) -> dict:
+        """Click one of the player's GUI buttons with the real mouse, then report what changed.
+        Only players driven by a Studio window can be clicked: a LocalScript can't fake input, and
+        firing the game's remotes would skip the UI under test."""
+        if not path and not text:
+            return {"done": False, "detail": "press needs path or text (from the observation's `ui`)"}
+        windows = await self.ui_windows()
+        uid = await self._user_id(user_id)
+        sid = windows.get(str(uid))
+        if sid is None:
+            names = ", ".join(windows) or "none"
+            return {"done": False, "pressable": False,
+                    "detail": f"can't press UI for player {user_id}: no Studio window drives it (UserIds with a "
+                              f"window: {names}). UI presses are real mouse clicks, so only those players can press."}
+        target = await self.call("ui_target", **_clean({"userId": user_id, "path": path, "text": text}))
+        move = ({"action": "moveTo", "instance_path": target["instance_path"]} if target.get("instance_path")
+                else {"action": "moveTo", "x": target["x"], "y": target["y"]})
+        actions = [move, {"action": "wait", "wait_time_ms": 120},
+                   {"action": "mouseButtonClick", "mouse_button": "left"}]
+        click_error = None
+        try:
+            await asyncio.wait_for(self.studio.call("user_mouse_input", datamodel_type="Client", actions=actions,
+                                                    studio_id=sid), PRESS_TIMEOUT)
+        except Exception as e:  # noqa: BLE001 - still read the effect, so the listener is released
+            click_error = f"{type(e).__name__}: {e}"
+        await asyncio.sleep(PRESS_WAIT if wait is None else wait)
+        effect = await self.call("ui_effect", userId=user_id) or {}
+        changes = {k: v for k, v in (effect.get("effect") or {}).items() if v}
+        label = effect.get("text") or effect.get("path")
+        if effect.get("fired"):
+            detail = f"clicked '{label}' ({effect.get('path')}): button fired"
+        else:
+            detail = f"clicked '{label}' at {target['x']},{target['y']} but the button did NOT fire"
+            if target.get("covered_by"):
+                detail += f" (covered by {target['covered_by']})"
+        detail += "; changed: " + (json.dumps(changes, ensure_ascii=False) if changes else "nothing on screen")
+        if click_error:
+            detail += f"; mouse error: {click_error[:200]}"
+        return {"done": bool(effect.get("fired")), "detail": detail, "path": effect.get("path"),
+                "text": effect.get("text"), "fired": bool(effect.get("fired")), "changed": bool(effect.get("changed")),
+                "effect": changes, "at": [target["x"], target["y"]]}
+
+    async def _user_id(self, who: Any) -> Any:
+        """A name / helmet / UserId -> the UserId (ui_windows is keyed by it)."""
+        try:
+            for p in await self.players():
+                if any(str(p.get(k, "")).lower() == str(who).lower() for k in ("userId", "name", "helmet")
+                       if p.get(k) is not None):
+                    return p.get("userId")
+        except HarnessError:
+            pass
+        return who
 
     async def act_all(self, action: str, **args: Any) -> dict[str, Any]:
         """Run one action on every connected player concurrently -> {name: result | {"error"}}."""

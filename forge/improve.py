@@ -31,6 +31,7 @@ VERIFY_KEYS = ["verdict", "evidence"]
 VERDICTS = ("fixed", "not_fixed", "regression", "inconclusive")
 FAULTS_DIR = Path(__file__).parent / "faults"
 MAX_ROUND_ERRORS = 3
+MAX_UI_PRESSES = 8
 
 Playtest = Callable[..., Awaitable[dict]]
 
@@ -54,6 +55,9 @@ def round_digest(report: dict, n: int) -> dict:
         "bugs": [{"title": b.get("title", ""), "severity": b.get("severity", "")}
                  for b in (report.get("bugs") or []) if isinstance(b, dict)],
         "events": dict(kinds),
+        # real GUI clicks by testers: a feature with a menu is only proven when someone used it
+        "ui_presses": [{k: p.get(k) for k in ("player", "text", "path", "fired", "changed", "effect")}
+                       for p in (report.get("ui_presses") or [])[-MAX_UI_PRESSES:] if isinstance(p, dict)],
     }
 
 

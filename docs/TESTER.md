@@ -39,7 +39,9 @@ Commands (args are a JSON object):
 |---|---|---|
 | `ping` | `{}` | `{version, players, studio, time}` |
 | `players` | `{}` | `[{userId, name, helmet, pos, health, maxHealth, attrs, tool, backpack, carrying, downed}]` |
-| `observe` | `{userId, radius?=120, max?=12}` | same shape as play.py's OBSERVE (`me`, `world`, `things`, `prompts`, plus `hud` fetched from that client by remote) |
+| `observe` | `{userId, radius?=120, max?=12}` | same shape as play.py's OBSERVE (`me`, `world`, `things`, `prompts`, plus `hud`, `ui` and `panels` fetched from that client by remote) |
+| `ui` | `{userId, max?=10}` | `{buttons: [{text, path, gui, x, y, w, h}], panels: [{gui, path, title}], total}`: visible, interactable GuiButtons in PlayerGui (path below PlayerGui, `[n]` for same-named siblings; x/y = center in Studio MCP mouse coordinates) |
+| `ui_target` / `ui_effect` | `{userId, path? \| text?}` / `{userId}` | arm a listener on one button and return where to click / after the click: `{fired, changed, effect}` (panels and GUIs opened/closed, buttons new/gone, HUD text new/gone); logs a `ui_press` event |
 | `act` | `{userId, action, args}` | `{done, detail}`; actions below |
 | `query` | `{tag?, near?: [x,y,z] \| userId, radius?, attrs?: [..], limit?=25}` | `[{path, name, tags, pos, dist, attrs}]` |
 | `inspect` | `{path}` | `{class, name, pos, size, attrs, tags, children: [names]}` |
@@ -61,6 +63,14 @@ distance), `jump`, `interact {path?}` (nearest enabled ProximityPrompt, or the o
 also fires `Net.Tool.Spray` with the aim direction while held if that remote exists), `look_at
 {pos | path}`, `say {text}` (bubble chat, for demo readability), `wait {seconds}`.
 
+`press {path | text}` is handled in Python (`Harness.press`), because a LocalScript can't fake a
+click and firing the game's remotes would skip the UI under test: `ui_target` → a real
+`user_mouse_input` click (instance path, else x/y) in the Studio window that drives that player →
+`ui_effect`. Only players with a window can press: the harness's own window and the client
+windows it was given (`Harness(studio, client_windows=[...])`), matched by UserId and the
+`ForgeTestRemote` `Session` attribute, so another Studio's playtest is never clicked. Other players
+get `{done: false, pressable: false}`.
+
 Event log (server): player added/removed/died, tool equipped/activated, ProximityPrompt triggered
 (prompt path + player), tag added/removed for `Burning`/`Rescuable`, attribute changes for
 `RoundState`, `Water`, `Carrying`, `Downed`, `RescueState`, and every `ForgeTelemetry.count`.
@@ -70,7 +80,8 @@ Event log (server): player added/removed/died, tool equipped/activated, Proximit
 ```python
 # forge/tester/harness.py
 class Harness:                                   # wraps a forge.studio.Studio
-    def __init__(self, studio): ...
+    def __init__(self, studio, *, client_windows=None): ...   # client_windows: Client studio ids of a multiplayer test
+    async def press(self, user_id, path=None, text=None) -> dict  # real GUI click: {done, fired, changed, effect, detail}
     async def call(self, cmd: str, **args) -> Any        # raises HarnessError on ok=false
     async def ensure_ready(self, timeout=30) -> dict      # play running + ping ok (starts solo play if not playing)
     # thin helpers: players(), observe(user_id), act(user_id, action, **args), query(...), events(since), counters()

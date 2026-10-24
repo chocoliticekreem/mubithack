@@ -4,6 +4,7 @@
 --   :Invoke(cmd: string, argsJson: string?) -> JSON string {"ok": bool, "result": any, "error": string?}
 --   cmds: ping, caps, players, observe, act, query, inspect, set_attr, ignite, extinguish, teleport,
 --         config, counters, events, reset, round, blame, hook,
+--         ui, ui_target, ui_effect   (the player's GUI buttons; `press` = these + a real click, Python)
 --         squads, instances, queue, launch, mission_start, mission_end   (multiplayer / co-op / squads)
 --   Players are addressed by `userId` (also `player`): a UserId, a helmet number (1-4), or a name.
 --   players/observe/query/events take an optional `instanceId` (players/events also `squadId`) so
@@ -734,6 +735,9 @@ local function relayAllowed(player: Player): boolean
 end
 
 local remote = getOrCreate(ReplicatedStorage, "ForgeTestRemote", "RemoteFunction") :: RemoteFunction
+-- Replicates to every client of THIS test, so Python can tell which Studio window drives which
+-- player of this session (and never click into an unrelated playtest).
+remote:SetAttribute("Session", HttpService:GenerateGUID(false))
 remote.OnServerInvoke = function(player: Player, tag: any, cmd: any, hcmd: any, argsJson: any)
 	if tag ~= "ForgeTest" then
 		return false
@@ -741,6 +745,15 @@ remote.OnServerInvoke = function(player: Player, tag: any, cmd: any, hcmd: any, 
 	if cmd == "hello" then
 		agents[player] = now()
 		log("agent_ready", who(player))
+		return true
+	end
+	if cmd == "event" and hcmd == "ui_press" and type(argsJson) == "table" then
+		-- a real click on a GUI button, reported by ForgeTestAgent after Harness.press
+		local d = argsJson
+		log("ui_press", with(who(player), {
+			path = tostring(d.path or ""), text = tostring(d.text or ""), gui = d.gui, fired = d.fired == true,
+			changed = d.changed == true, effect = if type(d.effect) == "table" then d.effect else nil,
+		}))
 		return true
 	end
 	if cmd == "event" and hcmd == "countdown" and type(argsJson) == "table" then
@@ -1658,7 +1671,29 @@ local function observe(args)
 	else
 		out.hud_error = tostring(hud)
 	end
+	local uiOk, ui = invokeClient(p, "ui", {}, HUD_TIMEOUT)
+	if uiOk and type(ui) == "table" then
+		out.ui = ui.buttons or {}
+		out.panels = ui.panels or {}
+	else
+		out.ui_error = tostring(ui)
+	end
 	return out
+end
+
+-- GUI commands run on the player's own client (ForgeTestAgent). The click between ui_target and
+-- ui_effect is a real mouse click sent by the Python side (Harness.press) through Studio MCP.
+local function agentCmd(name: string)
+	return function(args)
+		local p = playerArg(args)
+		local a = table.clone(args)
+		a.userId, a.player = nil, nil
+		local ok, res = invokeClient(p, name, a, HUD_TIMEOUT)
+		if not ok then
+			error(res)
+		end
+		return res
+	end
 end
 
 local function act(args)
@@ -2524,6 +2559,7 @@ local commands: { [string]: (any) -> any } = {
 			time = workspace:GetServerTimeNow(),
 			clock = now(),
 			mapReady = workspace:GetAttribute("MapReady") == true,
+			session = remote:GetAttribute("Session"),
 		}
 	end,
 	caps = capsCmd,
@@ -2544,6 +2580,9 @@ local commands: { [string]: (any) -> any } = {
 	hook = hookCmd,
 	observe = observe,
 	act = act,
+	ui = agentCmd("ui"),
+	ui_target = agentCmd("ui_target"),
+	ui_effect = agentCmd("ui_effect"),
 	query = query,
 	inspect = inspect,
 	set_attr = setAttr,

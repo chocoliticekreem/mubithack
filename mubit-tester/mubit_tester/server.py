@@ -388,7 +388,8 @@ async def _relocate(studio: Any) -> str | None:
 @contextlib.asynccontextmanager
 async def _harness() -> AsyncIterator[Harness]:
     async with open_studio() as studio:
-        yield Harness(studio, relocate=lambda: _relocate(studio), mode=STATE.get("mode") or "server")
+        yield Harness(studio, relocate=lambda: _relocate(studio), mode=STATE.get("mode") or "server",
+                      client_windows=STATE.get("clients"))
 
 
 def _play():
@@ -423,7 +424,8 @@ async def run_playtest(goal: str, steps: int = 20, studio: str | None = None,
         ai = _ai()
         async with open_studio() as st:
             if ai is not None and hasattr(ai, "multi_playtest"):
-                h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server")
+                h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server",
+                            client_windows=STATE.get("clients"))
                 kw: dict = {"studio": st, "harness": h}
                 if mode != "free":
                     kw.update(mode=mode, squads=squads)
@@ -488,7 +490,8 @@ async def status() -> str:
                 lines.append(f"- play: {'running' if state.get('playing') else 'stopped'}; "
                              f"datamodels {state.get('datamodels')}")
                 if state.get("playing") or STATE.get("mode") == "client":
-                    h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server")
+                    h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server",
+                                client_windows=STATE.get("clients"))
                     try:
                         ping = await h.call("ping")
                         lines.append(f"- harness: ok via {h.mode} {_cell(ping, 200)}")
@@ -770,7 +773,9 @@ async def screenshot(camera: list[float] | None = None, look_at: list[float] | N
 async def act(player: str, action: str, args: dict | None = None) -> str:
     """Make one player do something on their own client. Actions: walk_to {pos|path, timeout?},
     jump, interact {path?}, equip {name|slot}, unequip, use {seconds?, aim?: [x,y,z]|path},
-    look_at {pos|path}, say {text}, wait {seconds}. Returns {done, detail}."""
+    look_at {pos|path}, say {text}, wait {seconds}, press {path|text} (a real mouse click on one of the
+    player's GUI buttons from `observe`'s `ui`; only for a player a Studio window drives; returns whether
+    the button fired and what changed on screen). Returns {done, detail}."""
     with _tool_errors():
         async with _harness() as h:
             return _j(await h.act(player, action, **(args or {})))

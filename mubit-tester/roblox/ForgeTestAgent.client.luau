@@ -6,6 +6,12 @@
 --                       unequip, use {seconds?, aim?}, look_at {pos|path}, say {text, chat?},
 --                       wait {seconds}
 --   hud {}              visible HUD text (same rules as forge/play.py OBSERVE_LUAU), max 10
+--   ui {max?}           {buttons, panels}: visible, interactable GuiButtons in PlayerGui (text, path
+--                       below PlayerGui, gui, center x/y in MCP mouse coordinates, w/h) and open panels
+--   ui_target {path|text}  find one button, arm a listener on it, return where to click it
+--   ui_effect {}        after the real click: did the button fire, and what changed on screen
+-- A LocalScript can't fake a click, so `press` is a real mouse click from Studio MCP (Python
+-- Harness.press) between ui_target and ui_effect.
 --   ping {}             {userId, name}
 -- On start it calls InvokeServer("ForgeTest", "hello") so the server knows the agent is ready.
 
@@ -17,6 +23,7 @@ end
 local Players = game:GetService("Players")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService")
 local TextChatService = game:GetService("TextChatService")
 
 local lp = Players.LocalPlayer
@@ -517,27 +524,31 @@ local ACTIONS = {
 
 ------------------------------------------------------------------------------- hud
 
-local function hud(): { string }
+local function shownIn(pg: Instance, g: Instance): boolean
+	local cur: Instance? = g
+	while cur and cur ~= pg do
+		if cur:IsA("GuiObject") and not cur.Visible then
+			return false
+		end
+		if cur:IsA("LayerCollector") and not cur.Enabled then
+			return false
+		end
+		cur = cur.Parent
+	end
+	return cur == pg
+end
+
+local function hud(limit: number?): { string }
 	local out = {}
 	local pg = lp:FindFirstChildOfClass("PlayerGui")
 	if not pg then
 		return out
 	end
 	local function shown(g: Instance): boolean
-		local cur: Instance? = g
-		while cur and cur ~= pg do
-			if cur:IsA("GuiObject") and not cur.Visible then
-				return false
-			end
-			if cur:IsA("LayerCollector") and not cur.Enabled then
-				return false
-			end
-			cur = cur.Parent
-		end
-		return true
+		return shownIn(pg, g)
 	end
 	for _, g in pg:GetDescendants() do
-		if #out >= 10 then
+		if #out >= (limit or 10) then
 			break
 		end
 		if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.TextTransparency < 1 and shown(g) then
@@ -548,6 +559,354 @@ local function hud(): { string }
 				table.insert(out, string.sub(t, 1, 80))
 			end
 		end
+	end
+	return out
+end
+
+------------------------------------------------------------------------------- ui
+
+local UI_MAX = 10
+local PANEL_MAX = 5
+local PANEL_SHARE = 0.08 -- a frame covering this share of the screen counts as an open panel
+
+local function clean(t: string, n: number): string
+	t = string.gsub(t, "%s+", " ")
+	t = string.match(t, "^%s*(.-)%s*$") or ""
+	return string.sub(t, 1, n)
+end
+
+-- Path below PlayerGui. Same-named siblings get an index ("Panel.TextButton[2]") so every button has
+-- its own path; the second result says whether Studio MCP can address it as an instance path.
+local function relPath(pg: Instance, g: Instance): (string, boolean)
+	local parts = {}
+	local plain = true
+	local cur: Instance? = g
+	while cur and cur ~= pg do
+		local name = cur.Name
+		plain = plain and string.find(name, ".", 1, true) == nil
+		local parent = cur.Parent
+		if parent then
+			local n, idx = 0, 0
+			for _, c in parent:GetChildren() do
+				if c.Name == cur.Name then
+					n += 1
+					if c == cur then
+						idx = n
+					end
+				end
+			end
+			if n > 1 then
+				name ..= "[" .. idx .. "]"
+				plain = false
+			end
+		end
+		table.insert(parts, 1, name)
+		cur = parent
+	end
+	return table.concat(parts, "."), plain
+end
+
+local function firstText(root: Instance, pg: Instance): string
+	for _, d in root:GetDescendants() do
+		if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.TextTransparency < 1 and shownIn(pg, d) then
+			local t = clean(if d.ContentText ~= "" then d.ContentText else d.Text, 40)
+			if t ~= "" then
+				return t
+			end
+		end
+	end
+	return ""
+end
+
+local function buttonText(b: GuiButton, pg: Instance): string
+	local t = ""
+	if b:IsA("TextButton") then
+		t = clean(if b.ContentText ~= "" then b.ContentText else b.Text, 40)
+	end
+	if t == "" then
+		t = firstText(b, pg)
+	end
+	return t
+end
+
+local function interactable(g: GuiObject): boolean
+	local ok, v = pcall(function()
+		return (g :: any).Interactable
+	end)
+	return not ok or v ~= false
+end
+
+local function viewport(): Vector2
+	local cam = workspace.CurrentCamera
+	return if cam then cam.ViewportSize else Vector2.new(1920, 1080)
+end
+
+-- x/y are the button's center in AbsolutePosition space, which is what Studio MCP's
+-- user_mouse_input x/y expect (measured live: it adds the top-bar inset itself).
+local function describe(b: GuiButton, pg: Instance)
+	local c = b.AbsolutePosition + b.AbsoluteSize / 2
+	local sg = b:FindFirstAncestorWhichIsA("LayerCollector")
+	return {
+		text = buttonText(b, pg),
+		path = relPath(pg, b),
+		gui = sg and sg.Name or nil,
+		x = math.floor(c.X + 0.5),
+		y = math.floor(c.Y + 0.5),
+		w = math.floor(b.AbsoluteSize.X + 0.5),
+		h = math.floor(b.AbsoluteSize.Y + 0.5),
+		order = if sg and sg:IsA("ScreenGui") then sg.DisplayOrder else 0,
+	}
+end
+
+local function visibleButtons(pg: Instance): { GuiButton }
+	local vp = viewport()
+	local top = GuiService:GetGuiInset()
+	local out = {}
+	for _, g in pg:GetDescendants() do
+		if g:IsA("GuiButton") and g.AbsoluteSize.X > 1 and g.AbsoluteSize.Y > 1 and interactable(g) and shownIn(pg, g) then
+			local c = g.AbsolutePosition + g.AbsoluteSize / 2
+			if c.X >= 0 and c.Y >= -top.Y and c.X <= vp.X and c.Y <= vp.Y and g:FindFirstAncestorWhichIsA("ScreenGui") then
+				table.insert(out, g)
+			end
+		end
+	end
+	return out
+end
+
+local function panels(pg: Instance): { any }
+	local vp = viewport()
+	local area = vp.X * vp.Y
+	local out = {}
+	for _, sg in pg:GetChildren() do
+		if sg:IsA("ScreenGui") and sg.Enabled then
+			for _, f in sg:GetDescendants() do
+				if #out >= PANEL_MAX then
+					break
+				end
+				if (f:IsA("Frame") or f:IsA("ScrollingFrame") or f:IsA("ImageLabel")) and f.BackgroundTransparency < 1
+					and f.AbsoluteSize.X * f.AbsoluteSize.Y >= area * PANEL_SHARE and shownIn(pg, f) then
+					local parent = f.Parent
+					local nested = parent and parent:IsA("GuiObject")
+						and parent.AbsoluteSize.X * parent.AbsoluteSize.Y >= area * PANEL_SHARE
+					if not nested then
+						table.insert(out, { gui = sg.Name, path = relPath(pg, f), title = firstText(f, pg) })
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+local function uiView(args: any)
+	local pg = lp:FindFirstChildOfClass("PlayerGui")
+	if not pg then
+		return { buttons = {}, panels = {}, total = 0 }
+	end
+	local all = {}
+	for _, b in visibleButtons(pg) do
+		table.insert(all, describe(b, pg))
+	end
+	-- top-most GUIs first (an open panel's buttons), then reading order
+	table.sort(all, function(a, b)
+		if a.order ~= b.order then
+			return a.order > b.order
+		end
+		if math.abs(a.y - b.y) > 4 then
+			return a.y < b.y
+		end
+		return a.x < b.x
+	end)
+	local max = math.clamp(tonumber(args and args.max) or UI_MAX, 1, 50)
+	local buttons = {}
+	for i = 1, math.min(max, #all) do
+		all[i].order = nil
+		table.insert(buttons, all[i])
+	end
+	return { buttons = buttons, panels = panels(pg), total = #all }
+end
+
+-- path: below PlayerGui ("BattlePassGui.PassButton"), or a full path through PlayerGui.
+-- text: the button's text, case-insensitive; exact match first, then contains, then in the path.
+local function findButton(args: any): (GuiButton?, { string })
+	local pg = lp:FindFirstChildOfClass("PlayerGui")
+	if not pg then
+		error("no PlayerGui")
+	end
+	local buttons = visibleButtons(pg)
+	local names = {}
+	for _, b in buttons do
+		local t = buttonText(b, pg)
+		table.insert(names, if t ~= "" then t else relPath(pg, b))
+	end
+	local path = if type(args.path) == "string" then args.path else nil
+	if path and path ~= "" then
+		path = string.match(path, "PlayerGui%.(.+)$") or path
+		for _, b in buttons do
+			if relPath(pg, b) == path then
+				return b, names
+			end
+		end
+		for _, b in buttons do
+			if string.sub(relPath(pg, b), -#path - 1) == "." .. path then
+				return b, names
+			end
+		end
+	end
+	local text = if type(args.text) == "string" then string.lower(clean(args.text, 80)) else nil
+	if text and text ~= "" then
+		for _, b in buttons do
+			if string.lower(buttonText(b, pg)) == text then
+				return b, names
+			end
+		end
+		for _, b in buttons do
+			local bt = string.lower(buttonText(b, pg))
+			if bt ~= "" and string.find(bt, text, 1, true) then
+				return b, names
+			end
+		end
+		for _, b in buttons do
+			if string.find(string.lower((relPath(pg, b))), text, 1, true) then
+				return b, names
+			end
+		end
+	end
+	return nil, names
+end
+
+local pending: any = nil -- {info, conns, fired, before} between ui_target and ui_effect
+
+local function snapshot()
+	local pg = lp:FindFirstChildOfClass("PlayerGui")
+	local view = uiView({ max = 50 })
+	local guis = {}
+	if pg then
+		for _, sg in pg:GetChildren() do
+			if sg:IsA("LayerCollector") and sg.Enabled then
+				guis[sg.Name] = true
+			end
+		end
+	end
+	return { buttons = view.buttons, panels = view.panels, hud = hud(300), guis = guis }
+end
+
+local function disarm()
+	if pending then
+		for _, c in pending.conns do
+			c:Disconnect()
+		end
+	end
+	pending = nil
+end
+
+local function uiTarget(args: any)
+	disarm()
+	local b, names = findButton(args)
+	if not b then
+		local what = if args.path then "path '" .. tostring(args.path) .. "'" else "text '" .. tostring(args.text) .. "'"
+		error("no visible button matches " .. what .. "; visible: [" .. table.concat(names, ", ") .. "]")
+	end
+	local pg = lp:FindFirstChildOfClass("PlayerGui") :: PlayerGui
+	local info = describe(b, pg)
+	info.order = nil
+	-- MCP moves the mouse to an instance path's exact center; otherwise Python clicks x/y
+	local _, plain = relPath(pg, b)
+	info.instance_path = if plain then "LocalPlayer.PlayerGui." .. info.path else nil
+	-- the first input-sinking object at that point (another button or Active frame swallows the click)
+	for _, hit in pg:GetGuiObjectsAtPosition(info.x, info.y) do
+		if hit == b or hit:IsDescendantOf(b) then
+			break
+		end
+		if (hit:IsA("GuiButton") or hit.Active) and interactable(hit) and shownIn(pg, hit) then
+			info.covered_by = relPath(pg, hit)
+			break
+		end
+	end
+	local fired = {}
+	local conns = {
+		b.Activated:Connect(function()
+			table.insert(fired, "Activated")
+		end),
+		b.MouseButton1Click:Connect(function()
+			table.insert(fired, "MouseButton1Click")
+		end),
+	}
+	pending = { info = info, conns = conns, fired = fired, before = snapshot() }
+	return info
+end
+
+local function keyed(list: { any }, key: (any) -> string): { [string]: boolean }
+	local m = {}
+	for _, v in list do
+		m[key(v)] = true
+	end
+	return m
+end
+
+local function added(a: { [string]: boolean }, b: { [string]: boolean }, max: number): { string }
+	local out = {}
+	for k in b do
+		if not a[k] then
+			table.insert(out, k)
+		end
+	end
+	table.sort(out)
+	while #out > max do
+		table.remove(out)
+	end
+	return out
+end
+
+local function uiEffect()
+	local p = pending
+	if not p then
+		error("no armed press (call ui_target first)")
+	end
+	local after = snapshot()
+	local before = p.before
+	local fired = table.clone(p.fired)
+	disarm()
+	local function bkey(x): string
+		return (if x.text ~= "" then x.text else "?") .. " @ " .. x.path
+	end
+	local function pkey(x): string
+		return x.path .. (if x.title ~= "" then " '" .. x.title .. "'" else "")
+	end
+	local function same(x): string
+		return x
+	end
+	local bB, bA = keyed(before.buttons, bkey), keyed(after.buttons, bkey)
+	local pB, pA = keyed(before.panels, pkey), keyed(after.panels, pkey)
+	local hB, hA = keyed(before.hud, same), keyed(after.hud, same)
+	local effect = {
+		guis_opened = added(before.guis, after.guis, 5),
+		guis_closed = added(after.guis, before.guis, 5),
+		panels_opened = added(pB, pA, 5),
+		panels_closed = added(pA, pB, 5),
+		buttons_new = added(bB, bA, 8),
+		buttons_gone = added(bA, bB, 8),
+		hud_new = added(hB, hA, 6),
+		hud_gone = added(hA, hB, 6),
+	}
+	local changed = false
+	for _, v in effect do
+		if #v > 0 then
+			changed = true
+		end
+	end
+	local out = {
+		path = p.info.path,
+		text = p.info.text,
+		gui = p.info.gui,
+		fired = #fired > 0,
+		signals = fired,
+		changed = changed,
+		effect = effect,
+	}
+	local r = ReplicatedStorage:FindFirstChild("ForgeTestRemote")
+	if r and r:IsA("RemoteFunction") then
+		task.spawn(pcall, r.InvokeServer, r, "ForgeTest", "event", "ui_press", out)
 	end
 	return out
 end
@@ -566,6 +925,15 @@ local COMMANDS = {
 	end,
 	hud = function()
 		return hud()
+	end,
+	ui = function(args)
+		return uiView(args)
+	end,
+	ui_target = function(args)
+		return uiTarget(args)
+	end,
+	ui_effect = function()
+		return uiEffect()
 	end,
 	ping = function()
 		return { userId = lp.UserId, name = lp.Name }
