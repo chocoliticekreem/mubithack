@@ -413,11 +413,18 @@ local function buildNozzle(model: Model): Prop
 		table.insert(prop.parts, { part = p, offset = scaled(offset, s), base = p.Color })
 	end
 	local brass = c("BrassCoupling", Color3.fromHex("#C89A3C"))
+	-- battle pass golden nozzle / hose colour (BattlePassService attrs on the local player)
+	local me = game:GetService("Players").LocalPlayer
+	local passNozzle = me and me:GetAttribute("PassNozzle")
+	if typeof(passNozzle) == "Color3" then
+		brass = passNozzle
+	end
+	local passHose = me and me:GetAttribute("PassHose")
 	add(block(model, "NozzleGrip", Vector3.new(0.5, 1.0, 0.5), Color3.fromHex("#2B2B2E")), CFrame.new(0, 0.1, -0.7))
 	add(block(model, "NozzleBody", Vector3.new(1.6, 0.6, 0.6), brass, Enum.Material.Metal, Enum.PartType.Cylinder), CFrame.new(0, 0.65, -1.3) * CFrame.Angles(0, math.rad(90), 0))
 	add(block(model, "NozzleTip", Vector3.new(0.5, 0.8, 0.8), Color3.fromHex("#1E1E22"), Enum.Material.Rubber, Enum.PartType.Cylinder), CFrame.new(0, 0.65, -2.25) * CFrame.Angles(0, math.rad(90), 0))
 	add(block(model, "NozzleBail", Vector3.new(0.15, 0.6, 0.9), Color3.fromHex("#C8231B")), CFrame.new(0.35, 1.0, -1.3))
-	add(block(model, "HoseTail", Vector3.new(2.4, 0.55, 0.55), c("HoseYellow", Color3.fromHex("#E8B83A")), Enum.Material.Fabric, Enum.PartType.Cylinder), CFrame.new(0, 0.55, 0.5) * CFrame.Angles(math.rad(-25), math.rad(90), 0))
+	add(block(model, "HoseTail", Vector3.new(2.4, 0.55, 0.55), if typeof(passHose) == "Color3" then passHose else c("HoseYellow", Color3.fromHex("#E8B83A")), Enum.Material.Fabric, Enum.PartType.Cylinder), CFrame.new(0, 0.55, 0.5) * CFrame.Angles(math.rad(-25), math.rad(90), 0))
 	return prop
 end
 

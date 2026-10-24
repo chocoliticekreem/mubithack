@@ -5,7 +5,7 @@
 --
 -- Passes: ownership is checked on join (UserOwnsGamePassAsync, pcall + retries, cached per session)
 --   and mirrored into Player attrs Pass_<Key> = true (UnlimitedFoam -> ToolService never drains Foam;
---   PremiumPass -> the store shows OWNED; BattlePassService checks its own id, which is the same one).
+--   PremiumPass -> the store shows OWNED; BattlePassService reads Pass_PremiumPass for the premium track).
 --   PromptGamePassPurchaseFinished applies a purchase at once (no rejoin).
 --   Studio only: Player attr PassDebug_<Key> = true (set on the server) fakes ownership.
 -- Donations: MarketplaceService.ProcessReceipt (this is the ONLY script that sets it). Idempotent per
@@ -112,7 +112,7 @@ local function applyAttrs(player: Player)
 		end
 	end
 	-- Studio: faking the premium pass also flips the battle pass's own debug switch, so the premium
-	-- track can be tested end to end (BattlePassService itself is untouched).
+	-- track can be tested end to end.
 	if IS_STUDIO then
 		local dbg = player:GetAttribute(Cfg.Attr.DebugPrefix .. "PremiumPass") == true
 		if dbg then

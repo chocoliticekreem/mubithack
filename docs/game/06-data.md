@@ -15,7 +15,7 @@ lobby plus "+XP" popups.
 | `ReplicatedStorage/Config/DataConfig.luau` | both | every number: store names, timings, XP rewards, blame weights, cosmetics, board placement |
 | `game/tests/data.spec.luau` | CI | 18 specs over ProfileSchema |
 
-## Profile (schema v5)
+## Profile (schema v6)
 
 ```
 version, xp (lifetime), level (derived from xp, stored for readers)
@@ -29,6 +29,7 @@ settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups, ...
 gear = { unlocked[id] = true, loadout = { id } }                  -- v3: locker (GearService)
 guides = { seen[missionId] = true }                              -- v4: first-time mission guide done (MissionGuideService)
 donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux donated (MonetizationService; last 50 receipts)
+pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy }  -- v6: battle pass (BattlePassService)
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
 meta = { created, lastSeen, sessions }
 ```
@@ -45,6 +46,10 @@ v4 added `guides.seen`; the v3 -> v4 migration marks every mission you've alread
 veterans get the one-line tip instead of the full first-time guide.
 v5 added `donations` (all-time R$ donated through developer products). Its `receipts` list keeps
 ProcessReceipt idempotent even when the global purchase ledger write fails.
+v6 added `pass`: the battle pass moved from its own `BattlePass_S1` store into the profile (session
+lock, one save). BattlePassService imports the old store once per player in live games (`legacy`),
+resets the pass when `season` changes, and keeps claims idempotent through
+`ReplicatedStorage/Lib/BattlePass/PassRules` (specs: `game/tests/battlepass.spec.luau`).
 
 ## Session locking and saving
 

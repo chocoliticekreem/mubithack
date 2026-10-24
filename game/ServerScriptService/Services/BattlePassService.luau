@@ -1,460 +1,711 @@
+--!strict
+-- BattlePassService [owner: BattlePass]. The season battle pass: 20 tiers, a free track for everyone and a
+-- premium track for Premium Battle Pass owners (MonetizationConfig.GamePasses.PremiumPass; MonetizationService
+-- sets Player attr Pass_PremiumPass). Rules are pure in ReplicatedStorage/Lib/BattlePass/PassRules; rewards
+-- and tiers in Config/BattlePassConfig; world cosmetics in Lib/BattlePass/PassCosmetics.
+--
+-- Data: the player profile's `pass` (ProfileSchema v6, DataService: DataStore live, memory in Studio,
+--   session-locked). The old BattlePass_S1 store is imported once per player in live games.
+-- XP: every TickSeconds of an Active run (workspace.Runs.<InstanceId>.RoundState), fires you put out
+--   (FireService.Extinguished), rescues you deliver (RescueService.Delivered), mission end + stars
+--   (MissionService.MissionEnded). Premium x PremiumXpMultiplier, claimed boosts add up to BoostCapPct %.
+-- Claims: free rewards auto-claim on tier-up; premium ones wait for a Claim / CLAIM ALL press. Claims
+--   are idempotent (PassRules.claim). New rewards auto-equip into an empty slot for pass owners.
+-- Cosmetics (equipped per slot, saved in the profile): helmet tint on the penguin's helmet, title over
+--   the head (+ squad strip / results via attr PassTitle), hose colour (tool + hose line + viewmodel via
+--   attrs PassHose/PassHoseStripe), golden nozzle (attr PassNozzle), truck underglow, emote [K].
+--
+-- Public API (nil-guarded callers):
+--   BattlePassService:AwardXp(player, amount, reason?) -> number   -- pass XP actually given
+--   BattlePassService:IsPremium(player) -> boolean
+--   BattlePassService:GetState(player) -> table?                   -- the State payload below
+-- Signals: TierUp(player, tier), XpGained(player, amount, reason)
+-- Remotes (BattlePass/*):
+--   State   (S->C owner: state table)          Gain (S->C owner: amount, reason, tier, tiersGained, rewardIds)
+--   Claimed (S->C owner: { {tier, track, id} }) Fx (S->C all: "emote", userId, style)
+--   Request (C->S: "claim", tier, track | "claimAll" | "equip", id | "unequip", slot | "emote" | "state"; 6/s)
+-- Writes: Player attrs BattlePassConfig.Attr.* (PassXp, PassTier, PassPremium, PassXpBoost, PassRunXp,
+--   PassTitle, PassTitleColor, PassHose, PassHoseStripe, PassNozzle, PassClaimable)
+-- Counters: battlepass_xp_awarded, battlepass_tier_up, battlepass_claims, battlepass_equips, battlepass_emotes
+-- Test hooks (DevHook only): _award(player, n, reason?), _setXp(player, xp), _state(player) -> JSON,
+--   _premium(player, on), _claim(player, tier, track), _equip(player, id), _selftest()
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local MarketplaceService = game:GetService("MarketplaceService")
-local DataStoreService = game:GetService("DataStoreService")
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local function safeRequire(label: string, ...: string): any
-	local node: Instance? = ReplicatedStorage
-	for _, name in { ... } do
-		if not node then
-			break
-		end
-		node = node:WaitForChild(name, 10)
-	end
-	if not node or not node:IsA("ModuleScript") then
-		warn("[BattlePassService] missing module " .. label)
-		return nil
-	end
-	local ok, res = pcall(require, node)
-	if not ok then
-		warn("[BattlePassService] failed to require " .. label .. ": " .. tostring(res))
-		return nil
-	end
-	return res
-end
-
-local Cfg: any = safeRequire("Config/BattlePassConfig", "Config", "BattlePassConfig")
-if type(Cfg) ~= "table" then
-	Cfg = {}
-end
-local Net: any = safeRequire("Shared/Net", "Shared", "Net")
-local Telemetry: any = safeRequire("ForgeTelemetry", "ForgeTelemetry")
-if type(Telemetry) ~= "table" or type(Telemetry.count) ~= "function" then
-	Telemetry = { count = function(_name: string, _n: number?) end }
-end
-local Signal: any = safeRequire("Shared/Signal", "Shared", "Signal")
-if type(Signal) ~= "table" or type(Signal.new) ~= "function" then
-	Signal = {
-		new = function()
-			return {
-				Fire = function() end,
-				Connect = function()
-					return { Disconnect = function() end }
-				end,
-			}
-		end,
-	}
-end
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
+local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
+local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BattlePassConfig") :: ModuleScript) :: any
+local DataConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
+local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
+local PassRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassRules") :: ModuleScript)
+local PassCosmetics = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassCosmetics") :: ModuleScript)
 
 local BattlePassService = {}
 BattlePassService.Priority = 50
-BattlePassService.TierUp = Signal.new()
+BattlePassService.TierUp = Signal.new() :: Signal.Signal<Player, number>
+BattlePassService.XpGained = Signal.new() :: Signal.Signal<Player, number, string>
 
-local services: any = nil
-local store: any = nil
-local data: { [Player]: any } = {}
-local premiumOwned: { [Player]: boolean } = {}
-local lastClaim: { [Player]: number } = {}
+type Pass = PassRules.Pass
+
+local services: { [string]: any } = {}
 local stateRemote: RemoteEvent? = nil
+local gainRemote: RemoteEvent? = nil
+local claimedRemote: RemoteEvent? = nil
+local fxRemote: RemoteEvent? = nil
+local legacyStore: any = nil
+local fallback: { [Player]: Pass } = {} -- only when DataService is missing (never in the real game)
+local ready: { [Player]: boolean } = {}
+local starting: { [Player]: boolean } = {}
+local lastEmote: { [Player]: number } = {}
 
-local function num(v: any, d: number): number
-	if type(v) == "number" then
-		return v
+local A = Cfg.Attr
+
+local function opts(): PassRules.Opts
+	return {
+		perTier = Cfg.XpPerTier,
+		maxTier = Cfg.MaxTier,
+		tiers = Cfg.Tiers,
+		rewards = Cfg.Rewards,
+		boostCap = Cfg.BoostCapPct,
+	}
+end
+
+local function data(): any
+	return services.DataService
+end
+
+-- The LIVE pass table (inside the profile). nil until the profile loaded.
+local function passOf(player: Player): Pass?
+	local d = data()
+	if d then
+		local p = d:GetProfile(player)
+		return p and (p :: any).pass
 	end
-	return d
+	return fallback[player]
 end
 
-local SEASON = tostring(Cfg.SeasonId or "S1")
-local GAMEPASS = num(Cfg.GamePassId, 0)
-local XP_PER_TIER = math.max(1, num(Cfg.XpPerTier, 100))
-local MAX_TIER = math.max(1, math.floor(num(Cfg.MaxTier, 20)))
-local PREM_MULT = num(Cfg.PremiumXpMultiplier, 1.5)
-local TICK_XP = num(Cfg.XpPerActiveTick, 10)
-local TICK_SECONDS = math.max(0.5, num(Cfg.TickSeconds, 5))
-local CLAIM_COOLDOWN = num(Cfg.ClaimCooldownSeconds, num(Cfg.ClaimCooldown, 0.25))
-
-local function lookup(tbl: any, key: string, default: string): string?
-	if type(tbl) == "table" and type(tbl[key]) == "string" then
-		return tbl[key]
+-- The only way to change a pass (DataService:Update keeps the profile consistent and saved).
+local function mutate(player: Player, fn: (Pass) -> ()): boolean
+	local d = data()
+	if d then
+		return d:Update(player, function(profile: any)
+			fn(profile.pass)
+		end)
 	end
-	return nil
-end
-
-local function attrName(key: string, default: string): string
-	return lookup(Cfg.RewardAttributes, key, default) or lookup(Cfg.AttributeNames, key, default) or default
-end
-
-local function counterName(key: string, default: string): string
-	return lookup(Cfg.Counters, key, default) or default
-end
-
-local ATTR_TITLE = attrName("Title", "PassTitle")
-local ATTR_TINT = attrName("HelmetTint", "PassHelmetTint")
-local ATTR_BOOST = attrName("XpBoost", "PassXpBoost")
-local ATTR_DEBUG = lookup(Cfg.AttributeNames, "PremiumDebug", "BattlePassPremiumDebug") or "BattlePassPremiumDebug"
-
-local C_XP = counterName("XpAwarded", "battlepass_xp_awarded")
-local C_TIER = counterName("TierUp", "battlepass_tier_up")
-local C_CLAIMS = counterName("Claims", "battlepass_claims")
-local C_PROMPTS = counterName("Prompts", "battlepass_prompts")
-
-local function remoteName(key: string, default: string): string
-	local r = Cfg.Remotes or Cfg.RemoteNames
-	if type(r) == "table" and type(r[key]) == "string" then
-		return r[key]
+	local p = fallback[player]
+	if not p then
+		return false
 	end
-	return default
+	fn(p)
+	return true
 end
 
-local function tierOf(xp: number): number
-	return math.min(MAX_TIER, math.floor(xp / XP_PER_TIER))
+function BattlePassService:IsPremium(player: Player): boolean
+	return player:GetAttribute(Cfg.PremiumAttribute) == true or player:GetAttribute(Cfg.PremiumDebugAttribute) == true
 end
 
 local function isPremium(player: Player): boolean
-	if GAMEPASS == 0 then
-		return player:GetAttribute(ATTR_DEBUG) == true
-	end
-	return premiumOwned[player] == true
+	return BattlePassService:IsPremium(player)
 end
 
-local function rewardFor(tier: number, track: string): any
-	local tiers = Cfg.Tiers
-	if type(tiers) ~= "table" then
+local function inMission(player: Player): boolean
+	local iid = player:GetAttribute("InstanceId")
+	return type(iid) == "string" and iid ~= ""
+end
+
+local function reward(id: string?): { [string]: any }?
+	if type(id) ~= "string" then
 		return nil
 	end
-	local t = tiers[tier]
-	if type(t) ~= "table" then
+	return Cfg.Rewards[id]
+end
+
+-- equipped, minus anything you can't use right now (premium lapsed / not yet confirmed this session)
+local function effective(player: Player, p: Pass): { [string]: { [string]: any } }
+	local owned = PassRules.owned(p, isPremium(player), opts())
+	local out: { [string]: { [string]: any } } = {}
+	for slot, id in p.equipped do
+		local r = reward(id)
+		if r and owned[id] and r.Slot == slot then
+			out[slot] = r
+		end
+	end
+	return out
+end
+
+local function hexColor(v: any): Color3?
+	if type(v) ~= "string" then
 		return nil
 	end
-	return t[track] or t[string.lower(track)]
+	local ok, c = pcall(Color3.fromHex, v)
+	return if ok then c else nil
 end
 
-local function applyReward(player: Player, reward: any)
-	if type(reward) ~= "table" then
-		return
-	end
-	if reward.Kind == "Title" and type(reward.Id) == "string" then
-		player:SetAttribute(ATTR_TITLE, reward.Id)
-	elseif reward.Kind == "HelmetTint" and typeof(reward.Color) == "Color3" then
-		player:SetAttribute(ATTR_TINT, reward.Color)
-	elseif reward.Kind == "XpBoost" and type(reward.Pct) == "number" then
-		local cur = num(player:GetAttribute(ATTR_BOOST), 0)
-		player:SetAttribute(ATTR_BOOST, math.max(cur, reward.Pct))
-	end
-end
+---------------------------------------------------------------------------------- cosmetics
 
-local function toSet(list: { number }): { [string]: boolean }
-	local s = {}
-	for _, t in list do
-		s[tostring(t)] = true
-	end
-	return s
-end
-
-local function pushState(player: Player)
-	local d = data[player]
-	if not d then
-		return
-	end
-	-- mirror on the player too (HUD / tests read these; the panel gets the full state below)
-	player:SetAttribute(attrName("Xp", "PassXp"), d.xp)
-	player:SetAttribute(attrName("Tier", "PassTier"), tierOf(d.xp))
-	player:SetAttribute(attrName("Premium", "PassPremium"), isPremium(player))
-	if not stateRemote then
-		return
-	end
-	stateRemote:FireClient(player, {
-		xp = d.xp,
-		tier = tierOf(d.xp),
-		maxTier = MAX_TIER,
-		xpPerTier = XP_PER_TIER,
-		premium = isPremium(player),
-		claimedFree = toSet(d.free),
-		claimedPremium = toSet(d.premium),
-	})
-end
-
-local function has(list: { number }, tier: number): boolean
-	return table.find(list, tier) ~= nil
-end
-
-local function save(player: Player)
-	local d = data[player]
-	if not d or not store or not d.canSave then
-		return
-	end
-	local key = SEASON .. tostring(player.UserId)
-	pcall(function()
-		store:SetAsync(key, { xp = d.xp, free = d.free, premium = d.premium })
-	end)
-end
-
-local function load(player: Player)
-	local d = { xp = 0, free = {}, premium = {}, canSave = false }
-	data[player] = d
-	if store then
-		local ok, res = pcall(function()
-			return store:GetAsync(SEASON .. tostring(player.UserId))
-		end)
-		if ok then
-			d.canSave = true
-			if type(res) == "table" and player.Parent then
-				-- keep any xp earned while loading
-				d.xp = math.min(MAX_TIER * XP_PER_TIER, math.max(0, num(res.xp, 0)) + d.xp)
-				for _, t in (type(res.free) == "table" and res.free or {}) do
-					if type(t) == "number" and not has(d.free, t) then
-						table.insert(d.free, t)
-					end
-				end
-				for _, t in (type(res.premium) == "table" and res.premium or {}) do
-					if type(t) == "number" and not has(d.premium, t) then
-						table.insert(d.premium, t)
-					end
-				end
+local function applyTools(player: Player, eq: { [string]: { [string]: any } })
+	for _, holder in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+		if holder then
+			local t = holder:FindFirstChild("Hose")
+			if t and t:IsA("Tool") then
+				pcall(PassCosmetics.tool, t, eq.hose, eq.nozzle)
 			end
 		end
 	end
-	if GAMEPASS > 0 then
-		local ok, owns = pcall(function()
-			return MarketplaceService:UserOwnsGamePassAsync(player.UserId, GAMEPASS)
-		end)
-		if ok and owns == true and player.Parent then
-			premiumOwned[player] = true
-		end
-	end
-	if not player.Parent or data[player] ~= d then
-		return
-	end
-	for _, t in d.free do
-		applyReward(player, rewardFor(t, "Free"))
-	end
-	if isPremium(player) then
-		for _, t in d.premium do
-			applyReward(player, rewardFor(t, "Premium"))
-		end
-	end
-	pushState(player)
 end
 
-function BattlePassService.AwardXp(player: Player, amount: number, reason: string?)
-	local d = data[player]
-	if not d or type(amount) ~= "number" or amount ~= amount or amount <= 0 then
+local function applyTruck(player: Player, eq: { [string]: { [string]: any } })
+	local trucks = workspace:FindFirstChild("Trucks")
+	local truck = trucks and trucks:FindFirstChild(`FireTruck_{player.UserId}`)
+	if truck and truck:IsA("Model") then
+		pcall(PassCosmetics.truck, truck, eq.truck)
+	end
+end
+
+local function applyCharacter(player: Player, eq: { [string]: { [string]: any } })
+	local char = player.Character
+	if not char or not char:FindFirstChild("Costume") then
 		return
 	end
-	local mult = 1
-	if isPremium(player) then
-		mult *= PREM_MULT
+	pcall(PassCosmetics.helmet, char, eq.helmet)
+	pcall(PassCosmetics.title, char, eq.title)
+	-- your own title would float in your face in first person (missions); hide it from you there
+	local gui = char:FindFirstChild("PassTitle", true)
+	if gui and gui:IsA("BillboardGui") then
+		gui.PlayerToHideFrom = if inMission(player) then player else nil
 	end
-	mult *= 1 + num(player:GetAttribute(ATTR_BOOST), 0) / 100
-	local gain = math.max(1, math.floor(amount * mult + 0.5))
-	local before = tierOf(d.xp)
-	d.xp = math.min(MAX_TIER * XP_PER_TIER, d.xp + gain)
-	Telemetry.count(C_XP, gain)
-	local after = tierOf(d.xp)
+end
+
+local function applyAttrs(player: Player, eq: { [string]: { [string]: any } })
+	local t = eq.title
+	player:SetAttribute(A.Title, if t then t.Name else "")
+	player:SetAttribute(A.TitleColor, if t then hexColor(t.Color) else nil)
+	player:SetAttribute(A.Hose, if eq.hose then hexColor(eq.hose.Color) else nil)
+	player:SetAttribute(A.HoseStripe, if eq.hose then hexColor(eq.hose.Stripe) else nil)
+	player:SetAttribute(A.Nozzle, if eq.nozzle then hexColor(eq.nozzle.Color) else nil)
+end
+
+local function applyAll(player: Player)
+	local p = passOf(player)
+	if not p or not player.Parent then
+		return
+	end
+	local eq = effective(player, p)
+	applyAttrs(player, eq)
+	applyCharacter(player, eq)
+	applyTools(player, eq)
+	applyTruck(player, eq)
+end
+
+---------------------------------------------------------------------------------- state
+
+function BattlePassService:GetState(player: Player): { [string]: any }?
+	local p = passOf(player)
+	if not p then
+		return nil
+	end
+	local o = opts()
+	local prem = isPremium(player)
+	local tier, into, need = PassRules.progress(p.xp, o)
+	local equipped: { [string]: string } = {}
+	for slot in effective(player, p) do
+		equipped[slot] = p.equipped[slot]
+	end
+	return {
+		season = Cfg.SeasonId,
+		seasonName = Cfg.SeasonName,
+		endsAt = Cfg.SeasonEndsAt,
+		xp = p.xp,
+		tier = tier,
+		into = into,
+		need = need,
+		perTier = o.perTier,
+		maxTier = o.maxTier,
+		premium = prem,
+		free = table.clone(p.free),
+		premiumClaimed = table.clone(p.premium),
+		equipped = equipped,
+		boost = PassRules.boostPct(p, prem, o),
+		claimable = PassRules.claimable(p, prem, o),
+		runXp = tonumber(player:GetAttribute(A.RunXp)) or 0,
+	}
+end
+
+local function push(player: Player)
+	local s = BattlePassService:GetState(player)
+	if not s then
+		return
+	end
+	player:SetAttribute(A.Xp, s.xp)
+	player:SetAttribute(A.Tier, s.tier)
+	player:SetAttribute(A.Premium, s.premium)
+	player:SetAttribute(A.Boost, s.boost)
+	player:SetAttribute(A.Claimable, s.claimable)
+	if stateRemote then
+		stateRemote:FireClient(player, s)
+	end
+end
+
+-- New rewards drop into an empty slot (pass owners only: they have the panel to swap them back).
+local function autoEquip(player: Player, p: Pass, ids: { string }): boolean
+	if not isPremium(player) then
+		return false
+	end
+	local changed = false
+	for _, id in ids do
+		local r = reward(id)
+		if r and r.Slot ~= "boost" and p.equipped[r.Slot] == nil then
+			if PassRules.equip(p, id, true, opts()) then
+				changed = true
+			end
+		end
+	end
+	return changed
+end
+
+---------------------------------------------------------------------------------- XP
+
+function BattlePassService:AwardXp(player: Player, amount: number, reason: string?): number
+	local p = passOf(player)
+	if not p or not ready[player] or type(amount) ~= "number" or amount ~= amount or amount <= 0 then
+		return 0
+	end
+	local o = opts()
+	local prem = isPremium(player)
+	local gain = PassRules.gain(amount, prem, Cfg.PremiumXpMultiplier, PassRules.boostPct(p, prem, o))
+	local added, before, after = 0, 0, 0
+	local newIds: { string } = {}
+	local equippedChanged = false
+	mutate(player, function(pass: Pass)
+		added, before, after = PassRules.addXp(pass, gain, o)
+		if after > before then
+			for _, c in PassRules.claimAll(pass, prem, o, true) do
+				table.insert(newIds, c.id)
+			end
+			equippedChanged = autoEquip(player, pass, newIds)
+		end
+	end)
+	if added <= 0 then
+		return 0
+	end
+	local why = reason or "XP"
+	Telemetry.count("battlepass_xp_awarded", added)
+	player:SetAttribute(A.RunXp, (tonumber(player:GetAttribute(A.RunXp)) or 0) + added)
+	BattlePassService.XpGained:Fire(player, added, why)
 	if after > before then
-		Telemetry.count(C_TIER, after - before)
+		Telemetry.count("battlepass_tier_up", after - before)
+		Telemetry.count("battlepass_claims", #newIds)
 		BattlePassService.TierUp:Fire(player, after)
 	end
-	pushState(player)
+	if gainRemote then
+		gainRemote:FireClient(player, added, why, after, after - before, newIds)
+	end
+	push(player)
+	if equippedChanged then
+		applyAll(player)
+	end
+	return added
 end
 
-local function handleClaim(player: Player, tier: any, track: any)
-	local d = data[player]
-	if not d or type(tier) ~= "number" or type(track) ~= "string" then
+---------------------------------------------------------------------------------- requests
+
+local function claimOne(player: Player, tier: any, track: any): boolean
+	local o = opts()
+	local prem = isPremium(player)
+	local ok, why, id = false, nil :: string?, nil :: string?
+	local equipped = false
+	mutate(player, function(pass: Pass)
+		ok, why, id = PassRules.claim(pass, tier, track, prem, o)
+		if ok and id then
+			equipped = autoEquip(player, pass, { id })
+		end
+	end)
+	if not ok then
+		if why == "premium" then
+			Net.notify(player, "Premium Battle Pass needed: get it in the STORE", "bad")
+		elseif why == "locked" then
+			Net.notify(player, `Reach tier {tier} first!`, "bad")
+		end
+		push(player)
+		return false
+	end
+	Telemetry.count("battlepass_claims")
+	local r = reward(id)
+	if r then
+		Net.notify(player, `Unlocked: {r.Name}!`, "good")
+	end
+	if claimedRemote then
+		claimedRemote:FireClient(player, { { tier = tier, track = string.lower(track), id = id } })
+	end
+	push(player)
+	if equipped then
+		applyAll(player)
+	end
+	return true
+end
+
+local function claimAll(player: Player): number
+	local made: { PassRules.Claim } = {}
+	local equipped = false
+	mutate(player, function(pass: Pass)
+		made = PassRules.claimAll(pass, isPremium(player), opts())
+		local ids = {}
+		for _, c in made do
+			table.insert(ids, c.id)
+		end
+		equipped = autoEquip(player, pass, ids)
+	end)
+	if #made > 0 then
+		Telemetry.count("battlepass_claims", #made)
+		Net.notify(player, if #made == 1 then `Unlocked: {(reward(made[1].id) or {}).Name or "a reward"}!` else `Unlocked {#made} rewards!`, "good")
+		if claimedRemote then
+			claimedRemote:FireClient(player, made)
+		end
+	end
+	push(player)
+	if equipped then
+		applyAll(player)
+	end
+	return #made
+end
+
+local function equip(player: Player, id: any): boolean
+	local ok = false
+	mutate(player, function(pass: Pass)
+		ok = PassRules.equip(pass, id, isPremium(player), opts())
+	end)
+	if ok then
+		Telemetry.count("battlepass_equips")
+		applyAll(player)
+	end
+	push(player)
+	return ok
+end
+
+local function unequip(player: Player, slot: any): boolean
+	local ok = false
+	mutate(player, function(pass: Pass)
+		ok = PassRules.unequip(pass, slot)
+	end)
+	if ok then
+		applyAll(player)
+	end
+	push(player)
+	return ok
+end
+
+local function emote(player: Player)
+	local p = passOf(player)
+	if not p then
 		return
 	end
-	if tier ~= tier or tier % 1 ~= 0 or tier < 1 or tier > MAX_TIER then
+	local r = effective(player, p).emote
+	if not r then
+		Net.notify(player, "Equip an emote in the Battle Pass locker", "info")
 		return
 	end
 	local now = os.clock()
-	local last = lastClaim[player]
-	if last and now - last < CLAIM_COOLDOWN then
+	if lastEmote[player] and now - lastEmote[player] < (tonumber(Cfg.EmoteCooldown) or 2.5) then
 		return
 	end
-	lastClaim[player] = now
-	local name = string.lower(track)
-	if name ~= "free" and name ~= "premium" then
+	if player:GetAttribute("Downed") == true then
 		return
 	end
-	if tier > tierOf(d.xp) then
-		return
+	lastEmote[player] = now
+	Telemetry.count("battlepass_emotes")
+	if fxRemote then
+		fxRemote:FireAllClients("emote", player.UserId, r.Style or "spin")
 	end
-	local list = if name == "free" then d.free else d.premium
-	if has(list, tier) then
-		return
-	end
-	if name == "premium" and not isPremium(player) then
-		if Net and type(Net.notify) == "function" then
-			pcall(Net.notify, player, "Premium pass required", "warn")
-		end
-		return
-	end
-	table.insert(list, tier)
-	applyReward(player, rewardFor(tier, if name == "free" then "Free" else "Premium"))
-	Telemetry.count(C_CLAIMS, 1)
-	pushState(player)
 end
 
-local function handleBuy(player: Player)
-	if isPremium(player) then
+local function onRequest(player: Player, kind: any, a: any, b: any)
+	if not ready[player] then
 		return
 	end
-	Telemetry.count(C_PROMPTS, 1)
-	if GAMEPASS == 0 then
+	if kind == "claim" then
+		claimOne(player, a, b)
+	elseif kind == "claimAll" then
+		claimAll(player)
+	elseif kind == "equip" then
+		equip(player, a)
+	elseif kind == "unequip" then
+		unequip(player, a)
+	elseif kind == "emote" then
+		emote(player)
+	elseif kind == "state" then
+		push(player)
+	end
+end
+
+---------------------------------------------------------------------------------- lifecycle
+
+local function importLegacy(player: Player)
+	local p = passOf(player)
+	if not p or p.legacy or not legacyStore then
 		return
 	end
-	pcall(function()
-		MarketplaceService:PromptGamePassPurchase(player, GAMEPASS)
+	local ok, old = pcall(function()
+		return legacyStore:GetAsync(Cfg.SeasonId .. tostring(player.UserId))
+	end)
+	if not ok or not player.Parent then
+		return -- try again next session (legacy stays false)
+	end
+	mutate(player, function(pass: Pass)
+		PassRules.mergeLegacy(pass, old, opts())
 	end)
 end
 
-local function onPlayerAdded(player: Player)
-	if data[player] then
+local function onProfile(player: Player)
+	if ready[player] or starting[player] or not player.Parent then
 		return
 	end
-	player:GetAttributeChangedSignal(ATTR_DEBUG):Connect(function()
-		pushState(player)
-	end)
-	task.spawn(load, player)
-end
-
-function BattlePassService.Init(self: any, svc: any)
-	services = svc
-end
-
-function BattlePassService.Start(self: any)
-	if not Net then
-		warn("[BattlePassService] Net unavailable; battle pass disabled")
-		return
-	end
-
-	-- Studio playtests keep the pass in memory, like DataService's profiles (Studio has no DataStore
-	-- access unless the place enables it, and every GetAsync would log an error)
-	local memoryOnly = false
-	pcall(function()
-		local DataConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
-		memoryOnly = game:GetService("RunService"):IsStudio() and DataConfig.UseMemoryInStudio == true
-	end)
-	if not memoryOnly then
-		local ok, ds = pcall(function()
-			return DataStoreService:GetDataStore("BattlePass_" .. SEASON)
-		end)
-		if ok then
-			store = ds
-		end
-	end
-
-	local ns = if type(Cfg.RemoteNamespace) == "string" then Cfg.RemoteNamespace else "BattlePass"
-	local state = Net.event(ns, remoteName("State", "PassState"))
-	local claim = Net.event(ns, remoteName("Claim", "PassClaim"))
-	local buy = Net.event(ns, remoteName("Buy", "PassBuy"))
-	stateRemote = state
-
-	Net.onServer(claim, { rate = 2, burst = 4 }, function(player: Player, tier: any, track: any)
-		handleClaim(player, tier, track)
-	end)
-	Net.onServer(buy, { rate = 0.5, burst = 2 }, function(player: Player)
-		handleBuy(player)
-	end)
-
-	BattlePassService.TierUp:Connect(function(player: Player, tier: number)
-		local d = data[player]
-		if not d then
-			return
-		end
-		for t = 1, tier do
-			if not has(d.free, t) then
-				table.insert(d.free, t)
-				applyReward(player, rewardFor(t, "Free"))
-				Telemetry.count(C_CLAIMS, 1)
+	starting[player] = true
+	local d = data()
+	if d then
+		d:Update(player, function(profile: any)
+			local fresh, reset = PassRules.reconcile(profile.pass, Cfg.SeasonId)
+			profile.pass = fresh
+			if reset then
+				print(`[BattlePassService] {player.Name}: new season {Cfg.SeasonId}, pass reset`)
 			end
-		end
-		-- no auto "buy premium" prompt on tier-up: the pass is only shown to owners (Store sells it)
+		end)
+	else
+		fallback[player] = PassRules.blank(Cfg.SeasonId)
+	end
+	importLegacy(player)
+	-- free rewards for tiers reached earlier (e.g. the legacy import) are claimed now
+	mutate(player, function(pass: Pass)
+		PassRules.claimAll(pass, isPremium(player), opts(), true)
 	end)
+	ready[player] = true
+	starting[player] = nil
+	player:SetAttribute(A.RunXp, 0)
+	push(player)
+	applyAll(player)
+end
 
-	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, passId: number, purchased: boolean)
-		if purchased and GAMEPASS > 0 and passId == GAMEPASS then
-			premiumOwned[player] = true
-			pushState(player)
+local function watchCharacter(player: Player, char: Model)
+	char.ChildAdded:Connect(function(c)
+		if c.Name == "Costume" then
+			task.defer(applyAll, player) -- CostumeBuilder.dress rebuilt the costume
+		elseif c:IsA("Tool") and c.Name == "Hose" then
+			task.defer(applyAll, player)
 		end
 	end)
+	if char:FindFirstChild("Costume") then
+		task.defer(applyAll, player)
+	end
+end
 
-	Players.PlayerAdded:Connect(onPlayerAdded)
+local function onPlayer(player: Player)
+	player.CharacterAdded:Connect(function(char)
+		watchCharacter(player, char)
+	end)
+	if player.Character then
+		watchCharacter(player, player.Character)
+	end
+	task.spawn(function()
+		local bp = player:WaitForChild("Backpack", 30)
+		if bp then
+			bp.ChildAdded:Connect(function(c)
+				if c:IsA("Tool") and c.Name == "Hose" then
+					task.defer(applyAll, player)
+				end
+			end)
+		end
+	end)
+	for _, attr in { Cfg.PremiumAttribute, Cfg.PremiumDebugAttribute } do
+		player:GetAttributeChangedSignal(attr):Connect(function()
+			if ready[player] then
+				push(player)
+				applyAll(player)
+			end
+		end)
+	end
+	player:GetAttributeChangedSignal("InstanceId"):Connect(function()
+		if inMission(player) then
+			player:SetAttribute(A.RunXp, 0) -- a new run starts counting from zero (Results shows it)
+		end
+		applyAll(player) -- title visibility (first person on missions)
+	end)
+	local d = data()
+	if d then
+		if d:GetProfile(player) then
+			task.spawn(onProfile, player)
+		end
+	else
+		task.spawn(onProfile, player)
+	end
+end
+
+local function inActiveRun(p: Player): boolean
+	if workspace:GetAttribute("RoundState") == "Active" then
+		return true -- v1 auto-round
+	end
+	local iid = p:GetAttribute("InstanceId")
+	if type(iid) ~= "string" or iid == "" then
+		return false
+	end
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(iid)
+	return run ~= nil and run:GetAttribute("RoundState") == "Active"
+end
+
+function BattlePassService:Init(all: { [string]: any })
+	services = all
+end
+
+function BattlePassService:Start()
+	stateRemote = Net.event("BattlePass", "State")
+	gainRemote = Net.event("BattlePass", "Gain")
+	claimedRemote = Net.event("BattlePass", "Claimed")
+	fxRemote = Net.event("BattlePass", "Fx")
+	Net.onServer(Net.event("BattlePass", "Request"), { rate = 6, burst = 10 }, onRequest)
+
+	-- the old standalone store is only read (once per player) in live games
+	local studioMemory = RunService:IsStudio() and DataConfig.UseMemoryInStudio == true
+	if not studioMemory then
+		local ok, ds = pcall(function()
+			return DataStoreService:GetDataStore(Cfg.LegacyStore)
+		end)
+		legacyStore = if ok then ds else nil
+	end
+
+	local d = data()
+	if d and d.ProfileLoaded then
+		d.ProfileLoaded:Connect(function(player: Player)
+			task.spawn(onProfile, player)
+		end)
+	end
+	Players.PlayerAdded:Connect(onPlayer)
 	for _, p in Players:GetPlayers() do
-		onPlayerAdded(p)
+		onPlayer(p)
 	end
 	Players.PlayerRemoving:Connect(function(player: Player)
-		save(player)
-		data[player] = nil
-		premiumOwned[player] = nil
-		lastClaim[player] = nil
-	end)
-	game:BindToClose(function()
-		for _, p in Players:GetPlayers() do
-			save(p)
-		end
+		ready[player] = nil
+		starting[player] = nil
+		fallback[player] = nil
+		lastEmote[player] = nil
 	end)
 
-	-- XP for actually playing. v2 missions keep their state per run (workspace.Runs.<id>.RoundState),
-	-- not on workspace, so the old global check never fired and nobody ever earned XP.
-	local function inActiveRun(p: Player): boolean
-		if workspace:GetAttribute("RoundState") == "Active" then
-			return true -- v1 auto-round
+	-- trucks are rebuilt on respawn / bay changes: re-apply the owner's underglow
+	task.spawn(function()
+		local trucks = workspace:WaitForChild("Trucks", 60)
+		if not trucks then
+			return
 		end
-		local iid = p:GetAttribute("InstanceId")
-		if type(iid) ~= "string" or iid == "" then
-			return false
-		end
-		local runs = workspace:FindFirstChild("Runs")
-		local run = runs and runs:FindFirstChild(iid)
-		return run ~= nil and run:GetAttribute("RoundState") == "Active"
-	end
-	local function awardTick()
-		for _, p in Players:GetPlayers() do
-			if p.Character and data[p] and inActiveRun(p) then
-				BattlePassService.AwardXp(p, TICK_XP, "ActiveTick")
-			end
-		end
-	end
-	local Fire = services and services.FireService
+		trucks.ChildAdded:Connect(function(m)
+			task.delay(0.5, function()
+				local owner = Players:GetPlayerByUserId(tonumber(m:GetAttribute("OwnerUserId")) or 0)
+				if owner and ready[owner] then
+					applyAll(owner)
+				end
+			end)
+		end)
+	end)
+
+	-- XP sources
+	local Fire = services.FireService
 	if Fire and Fire.Extinguished then
 		Fire.Extinguished:Connect(function(_part: BasePart, by: Player?)
-			if by and data[by] then
-				BattlePassService.AwardXp(by, num(Cfg.XpPerFireOut, 5), "FireOut")
+			if by then
+				BattlePassService:AwardXp(by, Cfg.XpPerFireOut, "Fire out")
 			end
 		end)
 	end
-	local Rescue = services and services.RescueService
+	local Rescue = services.RescueService
 	if Rescue and Rescue.Delivered then
 		Rescue.Delivered:Connect(function(by: Player)
-			if data[by] then
-				BattlePassService.AwardXp(by, num(Cfg.XpBonusRescue, 25), "Rescue")
-			end
+			BattlePassService:AwardXp(by, Cfg.XpBonusRescue, "Rescue")
 		end)
 	end
-	local Mission = services and services.MissionService
+	local Mission = services.MissionService
 	if Mission and Mission.MissionEnded then
 		Mission.MissionEnded:Connect(function(instanceId: string, payload: any)
-			local stars = type(payload) == "table" and tonumber(payload.stars) or 0
-			for _, p in Players:GetPlayers() do
-				if data[p] and p:GetAttribute("InstanceId") == instanceId then
-					BattlePassService.AwardXp(p, num(Cfg.XpBonusRoundComplete, 50) + stars * num(Cfg.XpPerStar, 25), "Mission")
+			local stars = if type(payload) == "table" then tonumber(payload.stars) or 0 else 0
+			local amount = Cfg.XpBonusRoundComplete + stars * Cfg.XpPerStar
+			local done: { [Player]: boolean } = {}
+			if type(payload) == "table" and type(payload.stats) == "table" then
+				for _, st in payload.stats do
+					local p = type(st) == "table" and Players:GetPlayerByUserId(tonumber(st.userId) or 0)
+					if p then
+						done[p] = true
+					end
 				end
+			end
+			for _, p in Players:GetPlayers() do
+				if p:GetAttribute("InstanceId") == instanceId then
+					done[p] = true
+				end
+			end
+			for p in done do
+				BattlePassService:AwardXp(p, amount, if stars > 0 then `Mission {string.rep("*", stars)}` else "Mission")
 			end
 		end)
 	end
-
-	workspace:GetAttributeChangedSignal("RoundState"):Connect(awardTick)
 	task.spawn(function()
 		while true do
-			task.wait(TICK_SECONDS)
-			awardTick()
+			task.wait(Cfg.TickSeconds)
+			for _, p in Players:GetPlayers() do
+				if p.Character and ready[p] and inActiveRun(p) then
+					BattlePassService:AwardXp(p, Cfg.XpPerActiveTick, "Active")
+				end
+			end
 		end
 	end)
 end
 
-function BattlePassService._selftest(self: any): (boolean, string)
-	return true, "ok"
+---------------------------------------------------------------------------------- test hooks
+
+function BattlePassService:_award(player: Player, n: number, reason: string?): number
+	return self:AwardXp(player, n, reason or "Test")
+end
+
+function BattlePassService:_setXp(player: Player, xp: number)
+	mutate(player, function(pass: Pass)
+		pass.xp = math.clamp(math.floor(xp), 0, Cfg.XpPerTier * Cfg.MaxTier)
+	end)
+	push(player)
+end
+
+function BattlePassService:_state(player: Player): string
+	return HttpService:JSONEncode(self:GetState(player) or {})
+end
+
+function BattlePassService:_premium(player: Player, on: boolean)
+	player:SetAttribute(Cfg.PremiumDebugAttribute, if on then true else nil)
+end
+
+function BattlePassService:_claim(player: Player, tier: number, track: string): boolean
+	return claimOne(player, tier, track)
+end
+
+function BattlePassService:_equip(player: Player, id: string): boolean
+	return equip(player, id)
+end
+
+function BattlePassService:_selftest(): (boolean, string)
+	local seen: { [string]: number } = {}
+	if #Cfg.Tiers ~= Cfg.MaxTier then
+		return false, `{#Cfg.Tiers} tiers but MaxTier {Cfg.MaxTier}`
+	end
+	for t, row in Cfg.Tiers do
+		for _, id in { row.Free, row.Premium } do
+			if not Cfg.Rewards[id] then
+				return false, `tier {t}: unknown reward {id}`
+			end
+			if seen[id] then
+				return false, `reward {id} used at tiers {seen[id]} and {t}`
+			end
+			seen[id] = t
+		end
+	end
+	return true, `{Cfg.MaxTier} tiers, {#Players:GetPlayers()} players`
 end
 
 return BattlePassService

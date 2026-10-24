@@ -751,6 +751,14 @@ local function squadRow(parent: Instance, p: Player): Frame
 		align = Enum.TextXAlignment.Right,
 	})
 	status.Name = "Status"
+	-- battle pass title (BattlePassService attr PassTitle) under the name; refreshSquad fills it
+	local title = UiKit.label(row, "PassTitle", "", UDim2.new(1, -110, 0, 14), UDim2.fromOffset(45, 24), {
+		font = UiKit.Body,
+		textSize = 12,
+		color = Palette.UiFlameMid,
+		align = Enum.TextXAlignment.Left,
+	})
+	title.Visible = false
 	return row
 end
 
@@ -789,6 +797,17 @@ local function refreshSquad(u: Ui)
 			end
 		end
 		r.BackgroundColor3 = if downedNow then Color3.fromHex("#F2B8B0") else Palette.UiCream
+		local passTitle = p:GetAttribute("PassTitle")
+		local tl = r:FindFirstChild("PassTitle") :: TextLabel?
+		local nameLabel = r:FindFirstChild("Name") :: TextLabel?
+		if tl and nameLabel then
+			local has = type(passTitle) == "string" and passTitle ~= ""
+			tl.Visible = has
+			tl.Text = if has then string.upper(passTitle :: string) else ""
+			local tc = p:GetAttribute("PassTitleColor")
+			tl.TextColor3 = if typeof(tc) == "Color3" and tc ~= Color3.fromHex("#FFF1D6") then (tc :: Color3):Lerp(Palette.UiInk, 0.25) else Palette.UiFlameMid
+			nameLabel.Size = if has then UDim2.new(1, -110, 0, 26) else UDim2.new(1, -110, 1, 0)
+		end
 	end
 	for _, c in u.squad:GetChildren() do
 		if c:IsA("Frame") and not seen[c] then

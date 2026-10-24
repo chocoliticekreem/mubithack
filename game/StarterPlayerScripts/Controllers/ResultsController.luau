@@ -24,6 +24,7 @@ ResultsController.Priority = 60
 local CARD_W, CARD_H = 190, 250
 local gui: ScreenGui? = nil
 local showToken = 0
+local runXp = 0 -- profile XP (Data/XpGained) since this run started; the pass's own is attr PassRunXp
 
 local function sfx(name: string, volume: number?, pitch: number?)
 	local sounds = BlameConfig.Sounds
@@ -127,6 +128,28 @@ local function card(parent: Instance, payload: Types.ResultsPayload, award: Type
 	local s = statOf(payload, award.userId)
 	local helmet = if s then s.helmet else 1
 	UiKit.badge(face, "Helmet", helmet, 64, UDim2.new(0.5, -32, 0, 18))
+	-- battle pass title (BattlePassService attr PassTitle) on a little ink ribbon under the helmet
+	local who = Players:GetPlayerByUserId(award.userId)
+	local passTitle = who and who:GetAttribute("PassTitle")
+	if type(passTitle) == "string" and passTitle ~= "" then
+		local rib = Instance.new("Frame")
+		rib.Name = "PassTitle"
+		rib.AnchorPoint = Vector2.new(0.5, 0)
+		rib.Position = UDim2.new(0.5, 0, 0, 70)
+		rib.Size = UDim2.fromOffset(math.min(w - 20, 40 + #passTitle * 9), 20)
+		rib.BackgroundColor3 = Palette.UiInk
+		rib.BorderSizePixel = 0
+		rib.ZIndex = 4
+		UiKit.corner(rib, 8)
+		rib.Parent = face
+		local tc = who and who:GetAttribute("PassTitleColor")
+		local tl = UiKit.label(rib, "Text", string.upper(passTitle), UDim2.new(1, -8, 1, 0), UDim2.fromOffset(4, 0), {
+			font = UiKit.Header,
+			textSize = 14,
+			color = if typeof(tc) == "Color3" then tc else Palette.UiWarn,
+		})
+		tl.ZIndex = 5
+	end
 
 	UiKit.label(face, "Title", string.upper(award.title), UDim2.new(1, -16, 0, 62), UDim2.fromOffset(8, 86), {
 		font = UiKit.Header,
@@ -300,13 +323,13 @@ local function show(payload: Types.ResultsPayload)
 		end
 	end)
 
-	-- team stats strip: five sticker chips whose numbers count up
+	-- team stats strip: six sticker chips (the last one is the XP you earned)
 	local team = Instance.new("Frame")
 	team.Name = "Team"
 	team.BackgroundTransparency = 1
 	team.AnchorPoint = Vector2.new(0.5, 0)
 	team.Position = UDim2.new(0.5, 0, 0, 166)
-	team.Size = UDim2.fromOffset(5 * 170 + 4 * 14, 88)
+	team.Size = UDim2.fromOffset(6 * 170 + 5 * 14, 88)
 	team.Parent = root
 	local teamLayout = Instance.new("UIListLayout")
 	teamLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -349,6 +372,46 @@ local function show(payload: Types.ResultsPayload)
 		color = Palette.UiWater,
 		stroke = true,
 	})
+
+	-- XP earned this run: profile XP (+ battle pass XP for pass owners). Both arrive just after this screen
+	-- opens (DataService / BattlePassService handle MissionEnded after the results go out), so it ticks up.
+	local me = Players.LocalPlayer
+	local xpChip = UiKit.panel(team, "Chip6", UDim2.fromOffset(170, 84), UDim2.fromScale(0, 0))
+	xpChip.LayoutOrder = 6
+	UiKit.label(xpChip, "Caption", "XP EARNED", UDim2.new(1, -10, 0, 22), UDim2.fromOffset(5, 6), {
+		font = UiKit.Header,
+		textSize = 17,
+	})
+	local xpValue = UiKit.label(xpChip, "Value", "+0", UDim2.new(1, -10, 0, 36), UDim2.fromOffset(5, 26), {
+		font = UiKit.Header,
+		textSize = 36,
+		color = Palette.HelmetShield,
+		stroke = true,
+	})
+	local passValue = UiKit.label(xpChip, "Pass", "", UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, 62), {
+		font = UiKit.Header,
+		textSize = 15,
+		color = Palette.UiWater,
+	})
+	local function passXp(): number
+		local owner = me:GetAttribute("Pass_PremiumPass") == true or me:GetAttribute("BattlePassPremiumDebug") == true
+		return if owner then tonumber(me:GetAttribute("PassRunXp")) or 0 else 0
+	end
+	task.spawn(function()
+		local lastXp, lastPass = -1, -1
+		while token == showToken and xpChip.Parent do
+			local xp, pass = math.floor(runXp), math.floor(passXp())
+			if xp ~= lastXp or pass ~= lastPass then
+				xpValue.Text = `+{xp}`
+				passValue.Text = if pass > 0 then `BATTLE PASS +{pass}` else ""
+				if lastXp >= 0 then
+					UiKit.punch(xpChip, 0.1)
+				end
+				lastXp, lastPass = xp, pass
+			end
+			task.wait(0.25)
+		end
+	end)
 
 	local blameHeader = UiKit.label(root, "BlameHeader", "~ THE BLAME ~", UDim2.new(1, 0, 0, 46), UDim2.fromOffset(0, 266), {
 		font = UiKit.Header,
@@ -468,6 +531,20 @@ function ResultsController:Start()
 		if currentInstance == nil and workspace:GetAttribute(Names.Attr.RoundState) ~= "Results" then
 			hide()
 		end
+	end)
+	-- XP earned per run (the results screen's XP EARNED line)
+	Net.event("Data", "XpGained").OnClientEvent:Connect(function(amount: any)
+		if type(amount) == "number" and amount > 0 then
+			runXp += amount
+		end
+	end)
+	local lastInstance = Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId)
+	Players.LocalPlayer:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
+		local now = Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId)
+		if type(now) == "string" and now ~= "" and now ~= lastInstance then
+			runXp = 0 -- a new run
+		end
+		lastInstance = now
 	end)
 	-- v1.5 instances: hide once we are back in the lobby (InstanceId "") or launched into a new mission
 	Players.LocalPlayer:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
