@@ -68,7 +68,10 @@ return Config.define({
 	DoorTorque = 4000, -- servo torque (low enough that physics hands can yank a door)
 	DoorSwingSpeed = 7, -- studs/s: drive off faster than this with a door open and it swings free...
 	DoorFreeSeconds = 1.4, -- ...then SLAMS shut after this long at most
-	DoorBonkPush = 38, -- studs/s knockback for anyone a slamming door hits
+	DoorBonkPush = 38, -- studs/s knockback for anyone a slamming door hits (only with DoorBonks)
+	DoorBonks = false, -- kids hated it: a swinging / slamming door never ragdolls anyone (still THUNKs)
+	SeatNeedsOpenDoor = false, -- false: the Drive / Ride shotgun prompts show with the door shut (no door
+	--                            dance to get in), and getting out doesn't swing the door open into you
 	DoorBreakDv = 48, -- studs/s sudden speed change (a hard ram) that can knock a door off
 	DoorBreakClosedChance = 0.3, -- chance a CLOSED door also flies off on such a ram (open ones always do)
 	DoorSlamSoundId = "rbxasset://sounds/action_jump_land.mp3", -- built-in; pitched down = THUNK

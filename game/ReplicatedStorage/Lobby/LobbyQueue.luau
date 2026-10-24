@@ -11,6 +11,11 @@
 -- Rules: countdown starts when a pad gets its first member, drops to `fullCountdown` once the squad
 -- is full, keeps running when members join/leave, and resets when the pad empties. Launching frees
 -- the pad at once, so other pads keep counting and launching in parallel.
+-- LOCK: with opts.lockSeconds set, a pad whose countdown is at or under it is LOCKED: `apply` never
+-- takes a member off it for standing elsewhere (LobbyService also walls + clamps them onto the pad),
+-- only for leaving the lobby. Before that, stepping off leaves as usual. A "short" reset unlocks it.
+-- HOLD: LobbyQueue.hold(q, userId) pins ONE member for the whole countdown (the auto-queued first call:
+-- a newbie wandering off must never cancel it); only an explicit leave() (NOT YET) takes them off.
 
 export type Options = {
 	pads: number,
@@ -19,6 +24,7 @@ export type Options = {
 	fullCountdown: number,
 	defaultMission: string?,
 	limits: ((missionId: string) -> (number, number))?, -- (minPlayers, maxPlayers) for a mission
+	lockSeconds: number?, -- at/under this many seconds left the squad is locked onto its pad (nil = never)
 }
 
 export type Pad = {
@@ -35,6 +41,7 @@ export type State = {
 	pads: { Pad },
 	nextSquad: number,
 	prefs: { [number]: string }, -- userId -> mission picked on the board before joining a pad
+	held: { [number]: boolean }, -- userIds pinned to their pad for the whole countdown (hold)
 }
 
 export type Event = {
@@ -53,7 +60,7 @@ function LobbyQueue.new(opts: Options): State
 	for i = 1, opts.pads do
 		pads[i] = { padId = i, squadId = nil, members = {}, leader = nil, missionId = opts.defaultMission, remaining = nil }
 	end
-	return { opts = opts, pads = pads, nextSquad = 0, prefs = {} }
+	return { opts = opts, pads = pads, nextSquad = 0, prefs = {}, held = {} }
 end
 
 local function limits(state: State, missionId: string?): (number, number)
@@ -113,8 +120,37 @@ local function reset(pad: Pad)
 	pad.remaining = nil
 end
 
+-- Is the pad's squad locked in (countdown at/under opts.lockSeconds, someone on it)?
+function LobbyQueue.isLocked(state: State, padId: number): boolean
+	local pad = state.pads[padId]
+	local lock = state.opts.lockSeconds
+	return pad ~= nil and lock ~= nil and pad.remaining ~= nil and #pad.members > 0 and pad.remaining <= lock
+end
+
+-- Pin a member to their pad for the whole countdown (until they leave() or it launches).
+function LobbyQueue.hold(state: State, userId: number): boolean
+	if not LobbyQueue.padOf(state, userId) then
+		return false
+	end
+	state.held[userId] = true
+	return true
+end
+
+-- Is this user kept on their pad right now (held, or the pad is locked)?
+function LobbyQueue.isHeld(state: State, userId: number): boolean
+	local padId = LobbyQueue.padOf(state, userId)
+	return padId ~= nil and (state.held[userId] == true or LobbyQueue.isLocked(state, padId))
+end
+
+-- Is this user on a locked pad?
+function LobbyQueue.isLockedIn(state: State, userId: number): boolean
+	local padId = LobbyQueue.padOf(state, userId)
+	return padId ~= nil and LobbyQueue.isLocked(state, padId)
+end
+
 -- Leave whatever pad `userId` is on. Returns that padId (nil if none).
 function LobbyQueue.leave(state: State, userId: number): number?
+	state.held[userId] = nil
 	for _, pad in state.pads do
 		local i = table.find(pad.members, userId)
 		if i then
@@ -211,6 +247,9 @@ function LobbyQueue.apply(state: State, onPad: { [number]: number }, present: { 
 		seen[uid] = true
 		local want = onPad[uid]
 		local have = LobbyQueue.padOf(state, uid)
+		if have and want ~= have and LobbyQueue.isHeld(state, uid) then
+			continue -- locked in / held: standing elsewhere (pulled back) doesn't take you off
+		end
 		if want ~= have then
 			if want then
 				local ok = LobbyQueue.join(state, want, uid)
@@ -262,6 +301,9 @@ function LobbyQueue.tick(state: State, dt: number): { Event }
 					missionId = pad.missionId,
 					seconds = 0,
 				})
+				for _, uid in pad.members do
+					state.held[uid] = nil
+				end
 				reset(pad)
 			end
 		else

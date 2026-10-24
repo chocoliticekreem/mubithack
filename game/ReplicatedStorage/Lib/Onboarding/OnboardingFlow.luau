@@ -12,9 +12,13 @@
 --   OnboardingFlow.missionHint(facts) -> string?  -- contextual mission hint id (or nil = no hint)
 --       facts: { state: string?, hasTruck: boolean, seated: boolean, driving: boolean,
 --                doorOpen: boolean, arrived: boolean }
---       "door"  : dispatched, not in your truck, its door is shut  -> "open your truck door"
---       "seat"  : dispatched, not in your truck, door open         -> "hop in"
---       "drive" : dispatched and driving                           -> "follow the GPS, siren F"
+--       The squad starts IN the truck (LobbyService boards everyone at launch), so these are mostly
+--       "you're in, follow the GPS"; "seat" is only for someone who got out on the way.
+--       "drive" : dispatched and driving                           -> "you're in! follow the GPS"
+--       "ride"  : dispatched, riding (shotgun / benches)           -> "you're in the truck!"
+--       "seat"  : dispatched, not in any truck seat                -> "hop back in" (no door to open:
+--                 the seat prompts / tap-to-board don't need it)
+--       (doorOpen is still accepted and ignored: the door no longer gates getting in)
 --   OnboardingFlow.yawToward(fromX, fromZ, toX, toZ) -> number  -- Y rotation (radians) whose
 --       LookVector (-Z forward) points from -> to on the ground plane.
 local OnboardingFlow = {}
@@ -78,10 +82,13 @@ function OnboardingFlow.missionHint(f: MissionFacts): string?
 	if f.driving then
 		return "drive"
 	end
-	if f.seated or not f.hasTruck then
+	if f.seated then
+		return "ride"
+	end
+	if not f.hasTruck then
 		return nil
 	end
-	return if f.doorOpen then "seat" else "door"
+	return "seat"
 end
 
 function OnboardingFlow.yawToward(fromX: number, fromZ: number, toX: number, toZ: number): number

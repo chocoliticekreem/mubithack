@@ -9,8 +9,9 @@
 --     -> STEP ON A GLOWING PAD (SquadId ~= "") -> ROLLING OUT (countdown). Launch = done
 --     (Onboarding/Done -> settings.onboarded). Each step: a card at the top centre, a bouncing arrow
 --     and a Highlight on the target, and an edge arrow when it's off screen.
---   * Dispatch hints (everyone, every mission): RUN TO BAY n / open YOUR truck's door -> HOP IN ->
---     FOLLOW THE GPS (shown a few seconds), arrow on the door handle / driver seat of your truck.
+--   * Dispatch hints (everyone, every mission): the squad starts IN its truck (LobbyService boards it), so
+--     YOU'RE IN! FOLLOW THE GPS (driver) / YOU'RE IN THE TRUCK! (riders), a few seconds each; got out on
+--     the way: HOP BACK IN with the arrow on the truck you were riding.
 --   * Lobby declutter: the graphics button and emote hint only show with Help open (H).
 --   * Help (H): a scrollable cheat sheet (attr Menu, so the mouse frees in first person): the 3 slots
 --     drawn like the hotbar, grab / swap / drop / throw, carry + rescue, water, ladders, truck. Keys
@@ -86,7 +87,7 @@ local state = {
 	guideKey = "", -- what the card/arrow currently show
 	driveHintUntil = 0,
 	missionSince = 0, -- os.clock() when InstanceId was set (the HUD's ALARM banner owns the screen first)
-	droveAt = 0, -- missionSince of the call you last drove on: no "get in" cards after you hop out mid-route
+	rideTruck = nil :: Model?, -- the truck you last sat in this call (HOP BACK IN points at it)
 	helpOpen = false,
 	callTitle = "", -- Lobby/Countdown title of the pad you're on
 	callEndsAt = 0, -- os.clock() when that countdown hits 0 (0 = no countdown)
@@ -885,6 +886,17 @@ local function firstFireGuide(): Guide?
 	elseif card == "call" then
 		local secs = if state.callEndsAt > 0 then math.max(0, math.ceil(state.callEndsAt - os.clock())) else 0
 		local title = if state.callTitle ~= "" then string.upper(state.callTitle) else "A REAL FIRE"
+		-- LOCKED IN (LobbyService, last 5 s): no GO NOW / NOT YET any more, just the count
+		if player:GetAttribute("PadLocked") == true and FireCfg.LockedCard then
+			return {
+				kind = "firstcalllocked",
+				part = nil,
+				model = nil,
+				head = fill(FireCfg.LockedCard.head, { secs = if secs > 0 then `{secs}` else "" }),
+				sub = FireCfg.LockedCard.sub,
+				chip = if secs > 0 then `{secs}` else "GO!",
+			}
+		end
 		return {
 			kind = "firstcall",
 			part = nil,
@@ -978,6 +990,12 @@ local function currentGuide(): Guide?
 		if seat ~= nil and not seated then
 			seated = true
 		end
+		-- the truck you're riding (LobbyService boards the whole squad into the leader's): if you hop out
+		-- on the way, HOP BACK IN points at THAT truck, not your own parked at the station
+		local rideModel = seat and seat:FindFirstAncestorWhichIsA("Model")
+		if rideModel and rideModel:HasTag(TRUCK_TAG) then
+			state.rideTruck = rideModel
+		end
 		local hint = Flow.missionHint({
 			state = st,
 			hasTruck = truck ~= nil,
@@ -986,15 +1004,7 @@ local function currentGuide(): Guide?
 			doorOpen = doorOpen,
 			arrived = arrived,
 		})
-		if driving then
-			state.droveAt = state.missionSince
-		end
-		-- you already drove this call and hopped out (a hydrant, a shortcut on foot): the RUN TO BAY /
-		-- HOP IN cards would be stale nagging, the GPS still shows the way
-		if (hint == "door" or hint == "seat") and state.droveAt == state.missionSince then
-			return nil
-		end
-		if hint == "drive" then
+		if hint == "drive" or hint == "ride" then
 			if state.driveHintUntil == 0 then
 				state.driveHintUntil = os.clock() + Cfg.DriveHintSeconds
 			end
@@ -1013,20 +1023,23 @@ local function currentGuide(): Guide?
 			enter = VehicleConfig.KeyEnter or "F",
 		}
 		local part: BasePart? = nil
-		if hint == "door" then
-			part = firstPart(truck:FindFirstChild("DoorHandle_L", true)) or firstPart(truck:FindFirstChild("Door_L", true))
-		elseif hint == "seat" then
-			part = driverSeat(truck)
+		local target: Model = truck
+		if hint == "seat" then
+			local rt = state.rideTruck
+			if rt and rt:IsDescendantOf(workspace) and rt.PrimaryPart then
+				target = rt
+			end
+			part = if target == truck then driverSeat(target) else target.PrimaryPart
 		end
 		return {
 			kind = hint,
 			part = part,
-			model = if hint == "drive" then nil else truck,
+			model = if hint == "seat" then target else nil,
 			head = fill(h.head, vars),
 			sub = fill(h.sub, vars),
 			subTouch = h.subTouch and fill(h.subTouch, vars),
 			subPad = h.subPad and fill(h.subPad, vars),
-			chip = if hint == "drive" then "GO!" else "CALL!",
+			chip = if hint == "seat" then "CALL!" else "GO!",
 		}
 	end
 	-- the first call is over but you're still out at the scene (dispatch calls don't teleport you
@@ -1421,6 +1434,7 @@ function OnboardingController:Start()
 	end)
 	player:GetAttributeChangedSignal(Attr.InstanceId):Connect(function()
 		state.driveHintUntil = 0
+		state.rideTruck = nil
 		state.guideKey = ""
 		state.missionSince = os.clock()
 		if inMission() then

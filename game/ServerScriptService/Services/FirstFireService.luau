@@ -49,6 +49,7 @@ type Spot = { index: number, model: Model?, locationId: string, fuels: number, p
 local services: { [string]: any } = {}
 local joinedAt: { [Player]: number } = {}
 local sprayed: { [Player]: boolean } = {}
+local requeues: { [Player]: number } = {} -- safety-net re-queues of the first call (FirstFireConfig.QueueRetries)
 local spotOf: { [Player]: Spot } = {}
 local spots: { [number]: Spot } = {}
 local runs = 0
@@ -400,6 +401,33 @@ local function onPlayer(player: Player)
 			end
 		end)
 	end
+	-- safety net: the auto-queued first call's squad dissolved (a failed dispatch, anything) while you're
+	-- still "queued" in the lobby: queue you again (QueueRetries times), else the board -> pad tutorial
+	-- card ("STEP ON A GLOWING PAD"), so a newbie is never left standing with nothing to do
+	player:GetAttributeChangedSignal(Names.Attr.SquadId):Connect(function()
+		if (player:GetAttribute(Names.Attr.SquadId) or "") ~= "" or player:GetAttribute(Cfg.PhaseAttr) ~= "queued" then
+			return
+		end
+		task.delay(2, function() -- (a launch clears SquadId for a moment before InstanceId lands)
+			if player.Parent ~= Players or inMission(player) or player:GetAttribute(Cfg.PhaseAttr) ~= "queued" then
+				return
+			end
+			if (player:GetAttribute(Names.Attr.SquadId) or "") ~= "" then
+				return
+			end
+			requeues[player] = (requeues[player] or 0) + 1
+			local ok, sid = false, nil
+			if requeues[player] <= (Cfg.QueueRetries or 2) then
+				ok, sid = call("LobbyService", "QuickJoin", player, Cfg.FirstCall, Cfg.QueueCountdown)
+			end
+			if ok and type(sid) == "string" then
+				count("first_call_requeued")
+			else
+				setPhase(player, "open")
+				count("first_call_requeue_failed")
+			end
+		end)
+	end)
 	player:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
 		if inMission(player) then
 			skip(player)
@@ -420,6 +448,9 @@ end
 local function declineCall(player: Player)
 	if player:GetAttribute(Cfg.PhaseAttr) ~= "queued" or inMission(player) then
 		return
+	end
+	if player:GetAttribute("PadLocked") == true then
+		return -- LOCKED IN (last 5 s, LobbyService): too late to back out, you're rolling
 	end
 	setPhase(player, "open") -- the regular tutorial (board -> pad) takes it from here, at their pace
 	local okLeave = call("LobbyService", "Leave", player)
@@ -470,6 +501,7 @@ function FirstFireService:Start()
 		onPlayer(p)
 	end
 	Players.PlayerRemoving:Connect(function(p: Player)
+		requeues[p] = nil
 		leaveSpot(p)
 		joinedAt[p] = nil
 		sprayed[p] = nil

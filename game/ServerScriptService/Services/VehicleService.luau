@@ -4,12 +4,13 @@
 -- Lib/Map/Props/TruckBuilder at the TruckBay whose attr Bay = their Helmet (1-4), or at a reserve
 -- spot in front of the station when that bay is taken / there are no TruckBay parts yet. Trucks live
 -- in Workspace.Trucks (so a station rebuild never eats them) and are destroyed when the owner leaves.
--- Getting in is goofy: the cab doors are PHYSICAL (HingeConstraint "DoorHinge", servo + bouncy limits).
--- "Open door" on the handle (or pull it with physics hands) swings it open with a wobble; only then
--- does the seat prompt on that side show ("Drive" for the owner on the left, "Ride shotgun" on the
--- right). Back benches ("CrewSeat_1..4") have their own "Hop on" prompts. Getting out pops the door
--- open and puts you outside it. Driving off with a door open lets it swing on inertia and SLAM shut,
--- bonking anyone in the way; a hard ram can knock a door clean off (RespawnTruck builds a new truck).
+-- The cab doors are PHYSICAL (HingeConstraint "DoorHinge", servo + bouncy limits): "Open door" on the
+-- handle (or pull it with physics hands) swings it open with a wobble. Getting in no longer needs it
+-- (VehicleConfig.SeatNeedsOpenDoor = false): "Drive" (owner, left) / "Ride shotgun" (right) show with the
+-- door shut, and a door never bonks anyone (DoorBonks = false). LobbyService seats the whole squad at
+-- launch anyway. Back benches ("CrewSeat_1..4") have their own "Hop on" prompts. Getting out puts you
+-- outside the door (it only pops open with SeatNeedsOpenDoor). Driving off with a door open lets it swing on
+-- inertia and SLAM shut (a THUNK, no bonk unless DoorBonks); a hard ram can knock a door clean off (RespawnTruck builds a new truck).
 -- The driver's client owns the truck's physics and VehicleController simulates the goofy suspension.
 -- With nobody driving a truck is anchored (parked), so it never drifts or blocks a round.
 --
@@ -446,7 +447,7 @@ local function refreshPrompts(t: Truck)
 		local free = seat.Occupant == nil
 		local side = seat:GetAttribute("DoorSide")
 		local doorOk = true
-		if type(side) == "string" then
+		if type(side) == "string" and (VehicleConfig :: any).SeatNeedsOpenDoor == true then
 			local d = t.doors[side]
 			doorOk = d == nil or d.open or d.gone
 		end
@@ -481,6 +482,9 @@ local function setDoor(t: Truck, d: Door, open: boolean)
 end
 
 local function bonkNear(t: Truck, d: Door, now: number)
+	if (VehicleConfig :: any).DoorBonks ~= true then
+		return -- no more door ragdolls (getting in must be painless)
+	end
 	local panel = d.panel
 	if not panel.Parent or panel.AssemblyAngularVelocity.Magnitude < 1.5 then
 		return
@@ -714,10 +718,10 @@ local function watchSeat(t: Truck, seat: Seat | VehicleSeat)
 		if was then
 			t.occupants[seat] = nil
 			VehicleService.Exited:Fire(was, t.model)
-			-- getting out of the cab pops that side's door open
+			-- getting out of the cab pops that side's door open (only when the door gates getting in)
 			local side = seat:GetAttribute("DoorSide")
 			local d = if type(side) == "string" then t.doors[side] else nil
-			if d and not d.open and not d.gone then
+			if d and not d.open and not d.gone and (VehicleConfig :: any).SeatNeedsOpenDoor == true then
 				setDoor(t, d, true)
 			end
 			placeOutside(t, seat, was)

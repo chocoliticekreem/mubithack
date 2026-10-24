@@ -179,4 +179,73 @@ Spec.test("board helpers: difficulty, players text, pips", function()
 	end
 end)
 
+Spec.test("at 5 s the squad is locked in: stepping off no longer leaves, before that it does", function()
+	local q = LobbyQueue.new({
+		pads = 3,
+		maxSize = 4,
+		countdown = 15,
+		fullCountdown = 5,
+		defaultMission = "duo_test",
+		lockSeconds = 5,
+		limits = function(id: string): (number, number)
+			local m = byId[id]
+			return m.players.min, m.players.max
+		end,
+	})
+	LobbyQueue.join(q, 1, 101)
+	LobbyQueue.join(q, 1, 102)
+	LobbyQueue.join(q, 1, 103)
+	Spec.eq(LobbyQueue.isLocked(q, 1), false, "15 s left: not locked")
+	-- 103 steps off before the lock: leaves as today
+	LobbyQueue.apply(q, { [101] = 1, [102] = 1 }, { 101, 102, 103 })
+	Spec.eq(#q.pads[1].members, 2, "stepped off before the lock")
+	LobbyQueue.tick(q, 10.2)
+	Spec.eq(LobbyQueue.isLocked(q, 1), true, "4.8 s left: locked")
+	Spec.eq(LobbyQueue.isLockedIn(q, 102), true, "member locked in")
+	Spec.eq(LobbyQueue.isLockedIn(q, 103), false, "the one who left is free")
+	-- 102 is outside the circle for a moment: still in the squad (the server pulls them back)
+	local changed = LobbyQueue.apply(q, { [101] = 1 }, { 101, 102, 103 })
+	Spec.eq(#q.pads[1].members, 2, "locked member stays")
+	Spec.eq(changed[1], nil, "no roster change")
+	-- someone walking onto ANOTHER pad while locked doesn't move them either
+	LobbyQueue.apply(q, { [101] = 1, [102] = 2 }, { 101, 102, 103 })
+	Spec.eq(LobbyQueue.padOf(q, 102), 1, "can't hop pads while locked")
+	-- leaving the game (not in the lobby any more) still frees the slot
+	LobbyQueue.apply(q, { [101] = 1 }, { 101, 103 })
+	Spec.eq(#q.pads[1].members, 1, "left the game")
+	-- too few for the duo call at 0: the clock restarts and the lock lifts
+	local ev = LobbyQueue.tick(q, 5)
+	Spec.eq(kinds(ev, "short")[1] ~= nil, true, "short")
+	Spec.eq(LobbyQueue.isLocked(q, 1), false, "unlocked after the reset")
+end)
+
+Spec.test("hold(): an auto-queued newbie stays on the squad for the WHOLE countdown until leave()", function()
+	local q = fresh()
+	LobbyQueue.join(q, 1, 201)
+	Spec.eq(LobbyQueue.hold(q, 201), true, "held")
+	Spec.eq(LobbyQueue.hold(q, 999), false, "not on a pad: nothing to hold")
+	-- walks 25 studs away at 13 s left: still in the squad
+	LobbyQueue.tick(q, 2)
+	LobbyQueue.apply(q, {}, { 201 })
+	Spec.eq(LobbyQueue.padOf(q, 201), 1, "still on pad 1")
+	-- launches at 0 with them in it
+	local ev = LobbyQueue.tick(q, 13.5)
+	local launch = kinds(ev, "launch")[1]
+	Spec.truthy(launch ~= nil and table.find(launch.members, 201) ~= nil, "launched with the newbie")
+	Spec.eq(q.held[201], nil, "hold cleared at launch")
+	-- NOT YET (explicit leave) still works
+	LobbyQueue.join(q, 2, 202)
+	LobbyQueue.hold(q, 202)
+	LobbyQueue.leave(q, 202)
+	Spec.eq(LobbyQueue.padOf(q, 202), nil, "left")
+	Spec.eq(q.held[202], nil, "hold cleared")
+end)
+
+Spec.test("no lockSeconds = never locked (old behaviour)", function()
+	local q = fresh()
+	LobbyQueue.join(q, 1, 101)
+	LobbyQueue.tick(q, 13)
+	Spec.eq(LobbyQueue.isLocked(q, 1), false)
+end)
+
 return Spec.finish()
