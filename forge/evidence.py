@@ -446,8 +446,19 @@ def add_calls(st: EvidenceStore, run_dir: Path) -> None:
 
 def add_bridge(st: EvidenceStore, events: list[dict], *, place: str | None = None, limit: int = 12) -> dict:
     """Live ForgeBridge events (forge/bridge.py ring): errors and warnings from Studio, play starts/stops."""
-    evs = [e for e in events or [] if isinstance(e, dict)
-           and (not place or not e.get("place") or place in str(e.get("place")))]
+    evs = [e for e in events or [] if isinstance(e, dict)]
+    if place:  # log/error events carry no place: attribute them to our place's play windows (approximate)
+        windows: list[list[float]] = []
+        for e in evs:
+            if e.get("type") == "play" and place in str(e.get("place")):
+                t = float(e.get("time") or 0)
+                if e.get("state") == "started":
+                    windows.append([t, float("inf")])
+                elif windows and windows[-1][1] == float("inf"):
+                    windows[-1][1] = t
+        evs = [e for e in evs if place in str(e.get("place") or "") or (
+            not e.get("place") and e.get("type") in ("log", "error")
+            and any(a <= float(e.get("time") or 0) <= b for a, b in windows))]
     counts: dict[str, int] = {}
     shown = 0
     seen: set[str] = set()

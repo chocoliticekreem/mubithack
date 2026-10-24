@@ -223,6 +223,19 @@ def test_stuck_spans_and_first_reward():
     assert evm.first_reward([{"t": 0, "counters": {"jumps": 3}}]) is None
 
 
+def test_bridge_events_are_attributed_to_our_place():
+    evs = [{"seq": 1, "time": 10, "type": "play", "state": "started", "place": "Forge-agents-35.rbxlx"},
+           {"seq": 2, "time": 11, "type": "error", "dm": "Server", "message": "Coins:12: attempt to index nil"},
+           {"seq": 3, "time": 12, "type": "play", "state": "stopped", "place": "Forge-agents-35.rbxlx"},
+           {"seq": 4, "time": 20, "type": "error", "dm": "Server", "message": "someone else's error"},
+           {"seq": 5, "time": 21, "type": "play", "state": "started", "place": "Forge-agents-34.rbxlx"}]
+    st = evm.EvidenceStore()
+    counts = evm.add_bridge(st, evs, place="Forge-agents-35")
+    assert counts == {"error": 1, "play": 2}
+    shown = [i.text for i in st.of_kind("bridge") if i.id != "bridge:summary"]
+    assert shown == ["[Server] error: Coins:12: attempt to index nil"]
+
+
 # ---------------------------------------------------------------- decide
 
 
