@@ -370,6 +370,7 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
                                 args.only.split(",") if args.only else None)
     store = ImproveStore(s, args.slug)
     llm = make_llm(s, log_path=store.dir / "calls.jsonl")
+    args.goal = args.goal or default_goal(store.run.load_spec() if store.run.spec_path.exists() else {})
     async with Studio(s) as studio:
         await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
         harness = Harness(studio)
@@ -417,6 +418,15 @@ def cmd_polish(args) -> int:
         print(f"cycle {c['cycle']}: open {c['open']}, kept {c['code_kept']}/{len(c.get('code_fixes') or [])}, "
               f"feature counters seen: {c.get('feature_verified')}")
     return 0
+
+
+def default_goal(spec: dict) -> str:
+    """What the AI testers try to do, from the game's own spec (never another game's)."""
+    loop = str(spec.get("core_loop") or "").strip()
+    pitch = str(spec.get("pitch") or spec.get("title") or "").strip()
+    if loop:
+        return f"Play the game as a real player would: {loop}"[:400]
+    return f"Play the game as a real player would and use its main mechanics: {pitch}"[:400]
 
 
 def cmd_fix(args) -> int:
@@ -570,7 +580,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     im = sub.add_parser("improve", help="plant faults -> playtests -> auditor -> fix -> verifier (Mubit)")
     im.add_argument("slug")
-    im.add_argument("--goal", default="Play a full round: put out fires, rescue everyone, refill water")
+    im.add_argument("--goal", default=None, help="tester goal (default: built from the game's spec)")
     im.add_argument("--cycles", type=int, default=1)
     im.add_argument("--rounds", type=int, default=3, help="playtest rounds before the audit")
     im.add_argument("--steps", type=int, default=15, help="AI player steps per round")
@@ -582,7 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     fx = sub.add_parser("fix", help="playtest -> auditor -> fix real anomalies in code -> verify, until clean")
     fx.add_argument("slug")
-    fx.add_argument("--goal", default="Play a full round: put out fires, rescue everyone, refill water")
+    fx.add_argument("--goal", default=None, help="tester goal (default: built from the game's spec)")
     fx.add_argument("--cycles", type=int, default=3, help="stop early once nothing high/medium is open")
     fx.add_argument("--rounds", type=int, default=2, help="playtest rounds before each audit")
     fx.add_argument("--steps", type=int, default=15)
