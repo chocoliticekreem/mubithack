@@ -33,6 +33,16 @@ Standards, is in [RESEARCH.md](RESEARCH.md).
 | `ad-07-backdraft.jpg` | BACKDRAFT! | Fireball blasting a door off its hinges, sooty penguin blown back |
 | `ad-09-fire-chief.jpg` | BECOME FIRE CHIEF | Battle pass tier 20: the Fire Chief title is free and the white-and-gold helmet is on the premium track |
 | `ad-08-rooftop-rescue.jpg` | ROOFTOP RESCUE! | The Sky Tower mission: ladder truck, burning tower, penguin stranded on the roof |
+| `vid-15s-16x9.mp4` | 15 s video | SAVE THEM ALL? → SAVE THE CAT! → KA-BOOM! → WHO STARTED THE FIRE? → 8 PLAYER FIRE SQUAD → STATION 67 end card |
+| `vid-06s-16x9.mp4` | 6 s bumper | SAVE THEM ALL? → KA-BOOM! → end card |
+
+The videos are 1920×1080 H.264 at 30 fps (9 MB and 4 MB). Roblox video ads are 16:9; third-party specs
+say 15–30 s and up to 100 MB. 6 s only fits rewarded video (6–30 s). We made no vertical cut, because
+Roblox documents no 9:16 placement.
+
+**Screenshots:** ads 01, 02, 03, 04, 05 and 07 use real in-game shots behind the cartoon art, and 06
+uses an in-game shot of the gas station. New Studio captures of the gas tanker blast and the Sky Tower
+came out flat, with no visible fire and a marker beam in frame, so we left them out.
 
 ## Re-render
 ```bash
