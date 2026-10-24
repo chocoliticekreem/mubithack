@@ -50,6 +50,8 @@ function GameAssets.play(name: string, parent: Instance?, pitch: number?): Sound
 	if not id or id == "" then
 		return nil
 	end
+	-- counted for Forge's scene census (sounds are cleaned up after a few seconds)
+	SoundService:SetAttribute("ForgeSoundsPlayed", (SoundService:GetAttribute("ForgeSoundsPlayed") or 0) + 1)
 	local s = Instance.new("Sound")
 	s.Name = name
 	s.SoundId = id
@@ -82,6 +84,7 @@ end
 
 -- A one-shot sparkle burst at a part or position.
 function GameAssets.burst(at: BasePart | Vector3, color: Color3?, count: number?)
+	workspace:SetAttribute("ForgeBursts", (workspace:GetAttribute("ForgeBursts") or 0) + 1)
 	local holder: BasePart
 	if typeof(at) == "Vector3" then
 		holder = Instance.new("Part")

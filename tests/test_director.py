@@ -86,8 +86,10 @@ def test_sound_kit_matches_descriptions_and_ids_ship_with_studio():
     assert director.match_sound("big explosion boom") == "Boom"
     assert director.match_sound("zzz") == "Pop"
     for name, s in director.sound_kit().items():
-        assert s["id"] == "" or s["id"].startswith(("rbxasset://sounds/", "rbxassetid://")), name
+        assert s["id"].startswith(("rbxasset://sounds/", "rbxassetid://")), name
         assert s["keywords"] and s["describe"]
+        if s["id"].startswith("rbxassetid://"):  # Creator Store audio: heard in Studio, has a built-in fallback
+            assert s.get("checked") and "fallback" in s, name
 
 
 # ---------------------------------------------------------------- director -> designer
@@ -141,7 +143,8 @@ def test_game_assets_renders_palette_sounds_aliases_and_compiles(tmp_path):
     src = (tmp_path / director.GAME_ASSETS).read_text()
     assert "--[[" not in src
     assert "C1 = Color3.fromRGB(255, 196, 41)" in src and "C3" not in src  # bad hex skipped
-    assert 'Coin = "rbxasset://sounds/' in src
+    assert 'Coin = "rbxassetid://' in src and 'Hurt = "rbxasset://sounds/' in src
+    assert 'SetAttribute("ForgeSoundsPlayed"' in src  # plays are counted for the census
     assert "GameAssets.Sounds.CashDing = GameAssets.Sounds.Coin" in src
     res = subprocess.run([LUAU, "--null", str(tmp_path / director.GAME_ASSETS)], capture_output=True, text=True)
     assert res.returncode == 0, res.stdout + res.stderr
@@ -226,6 +229,15 @@ def test_static_census_and_visual_checks():
     assert fun.visual_checks({"source": "playtest", "parts": 10, "grey": 5, "sounds": 0, "client_sounds": 0,
                               "screen_guis": 0}) == {"grey_ok": False, "hud_ok": False, "sounds_ok": False}
     assert fun.visual_checks({}) == {"grey_ok": None, "hud_ok": None, "sounds_ok": None}
+    # live census from a real Studio playtest (2026-10-24): sounds were played and cleaned up already
+    live = {"source": "playtest", "parts": 9, "grey": 1, "sounds": 0, "sounds_played": 12, "screen_guis": 1,
+            "client_sounds": 0, "client_sounds_played": 13}
+    assert fun.visual_checks(live) == {"grey_ok": True, "hud_ok": True, "sounds_ok": True}
+
+
+def test_census_scripts_skip_core_guis_and_character_sounds():
+    assert "BubbleChat = true" in fun.CENSUS_CLIENT and "inChar(i)" in fun.CENSUS_CLIENT
+    assert 'GetAttribute("ForgeSoundsPlayed")' in fun.CENSUS_SERVER
 
 
 class CensusStudio:

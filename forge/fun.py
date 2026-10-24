@@ -27,6 +27,9 @@ FUN_KEYS = ["scores", "summary", "issues"]
 AXES = ("fun", "juice", "clarity", "visuals")
 FUN_BAR = 8.0
 GREY_MAX = 0.15  # at most this share of world parts may be default grey
+# Sound evidence: live Sound instances (not character sounds) and GameAssets.play counts (they outlive
+# the Sounds, which Debris removes after ~6 s).
+SOUND_KEYS = ("sounds", "client_sounds", "sounds_played", "client_sounds_played")
 
 # Server DM: the world. Characters, the ForgeTest/Forge runtime and invisible parts are not "the world".
 CENSUS_SERVER = r"""-- forge census (server)
@@ -62,8 +65,11 @@ for _, i in workspace:GetDescendants() do
 end
 for _ in colors do out.colors += 1 end
 for _, root in { workspace, game:GetService("SoundService"), game:GetService("ReplicatedStorage") } do
-	for _, i in root:GetDescendants() do if i:IsA("Sound") then out.sounds += 1 end end
+	for _, i in root:GetDescendants() do if i:IsA("Sound") and not inChar(i) then out.sounds += 1 end end
 end
+local SS = game:GetService("SoundService")
+out.sounds_played = SS:GetAttribute("ForgeSoundsPlayed") or 0
+out.bursts = workspace:GetAttribute("ForgeBursts") or 0
 for _, i in game:GetService("Lighting"):GetChildren() do
 	if i:IsA("PostEffect") or i:IsA("Atmosphere") or i:IsA("Sky") then out.lighting_effects += 1 end
 end
@@ -76,10 +82,12 @@ local HttpService = game:GetService("HttpService")
 local lp = game:GetService("Players").LocalPlayer
 local out = { screen_guis = 0, gui_objects = 0, buttons = 0, text_labels = 0, strokes = 0, corners = 0,
 	client_sounds = 0, client_particles = 0, names = {} }
+local CORE = { BubbleChat = true, Chat = true, Freecam = true, TouchGui = true, ControlGui = true,
+	PlayerList = true, RbxCameraUI = true }
 local pg = lp and lp:FindFirstChild("PlayerGui")
 if pg then
 	for _, g in pg:GetChildren() do
-		if g:IsA("ScreenGui") and g.Enabled and not string.match(g.Name, "^Forge") then
+		if g:IsA("ScreenGui") and g.Enabled and not CORE[g.Name] and not string.match(g.Name, "^Forge") then
 			out.screen_guis += 1
 			table.insert(out.names, g.Name)
 			for _, i in g:GetDescendants() do
@@ -92,12 +100,21 @@ if pg then
 		end
 	end
 end
-for _, i in game:GetDescendants() do
-	local ok, isSound = pcall(function() return i:IsA("Sound") end)
-	if ok and isSound then out.client_sounds += 1 end
-	local ok2, isPe = pcall(function() return i:IsA("ParticleEmitter") end)
-	if ok2 and isPe then out.client_particles += 1 end
+-- game sounds only: the default character sounds (Running, Jumping...) are not juice
+local chars = {}
+for _, p in game:GetService("Players"):GetPlayers() do if p.Character then table.insert(chars, p.Character) end end
+local function inChar(i)
+	for _, c in chars do if i:IsDescendantOf(c) then return true end end
+	return false
 end
+for _, root in { workspace, game:GetService("SoundService"), pg } do
+	for _, i in root:GetDescendants() do
+		if inChar(i) then continue end
+		if i:IsA("Sound") then out.client_sounds += 1 end
+		if i:IsA("ParticleEmitter") then out.client_particles += 1 end
+	end
+end
+out.client_sounds_played = game:GetService("SoundService"):GetAttribute("ForgeSoundsPlayed") or 0
 return HttpService:JSONEncode(out)
 """
 
@@ -162,8 +179,8 @@ def visual_checks(c: dict) -> dict:
         hud_ok = c.get("screen_gui_sites", 0) > 0
     else:
         hud_ok = None
-    if "sounds" in c or "client_sounds" in c:
-        sounds_ok = int(c.get("sounds") or 0) + int(c.get("client_sounds") or 0) > 0
+    if any(k in c for k in SOUND_KEYS):
+        sounds_ok = sum(int(c.get(k) or 0) for k in SOUND_KEYS) > 0
     elif c.get("source") == "static":
         sounds_ok = c.get("sound_sites", 0) > 0
     else:
