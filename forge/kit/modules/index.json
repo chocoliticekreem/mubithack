@@ -95,6 +95,27 @@
    "api": [
     "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."
    ]
+  },
+  {
+   "name": "WorldKit",
+   "path_in_game": "ReplicatedStorage/Kit/WorldKit.luau",
+   "genres": [],
+   "keywords": [
+    "park",
+    "amusement",
+    "funfair",
+    "carnival",
+    "theme park",
+    "fairground"
+   ],
+   "describe": "Server + client: builds the whole amusement park the obby runs through (Terrain ground, warm sky, fenced perimeter with trees and hills, a forecourt with the spawn outside the entrance gate, a lobby plaza with a fountain and a park map, one big animated ride per zone, stalls, balloons, string lights, gardens) around the courses themselves: it measures every zone's course from the level data and dresses it from start to end, so no course runs over an empty plain.",
+   "api": [
+    "local WorldKit = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"WorldKit\")) -- server Script: call buildPark ONCE, before ObbyKit.start. LocalScript: call WorldKit.client() ONCE, so every ride moves smoothly on that client (until a client does, the server moves the rides near players, 30 times a second).",
+    "WorldKit.buildPark({zones = {{name, theme, palette = {hex, ...}, length?}, ...} (one per level zone, in zone order), origin = CFrame (the hub on the ground, LookVector into the park; default CFrame.new()), size = 1600, seed, title = \"text on the entrance arch\"}) -> {anchors = {[i] = CFrame}, gates = {[i] = CFrame}, spawn = CFrame, lobby = CFrame, courses = {[i] = {Vector3, ...}}, parts}: builds everything in workspace.Park (replacing the template Baseplate), puts the SpawnLocation ParkSpawn on the forecourt outside the entrance gate, facing it, and sets Lighting (call GameAssets.styleLighting() before it, or not at all). Themes: entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale; any other word picks the closest ride.",
+    "Courses: zone i's course is measured from ReplicatedStorage.Levels zone i with the game's ObbyKit (every stage, its turns included; never write level data yourself); a zone without level data runs `length` studs straight ahead (default 460). courses[i] = that course's centre line (its start pad, then every checkpoint) in world space. The park follows every course to its end: nothing taller than 6 studs within 40 studs of it (from 24 behind its start to 40 past its end), lamps strung with lights, stalls and rides 44-110 studs out on both sides, gardens and café tables under it, and the fence, tree line and hills go round any course that runs beyond the circle.",
+    "anchors[i] = top centre of zone i's first pad, on a themed tower (zone 1: at the top of the START stairs by the lobby), 32-70 studs above the ground (up to 12 zones at size 1600); LookVector = the course direction, the clockwise tangent with the park on the course's right (a course that folds back turns left, away from the rides). Pass them on: ObbyKit.start({anchors = park.anchors, ...}). gates[i] = on the paving in front of ride i, facing it; gates[1] is at the foot of the START stairs. spawn = the top of ParkSpawn, 44 studs outside the entrance gate and facing it: a player at stage 0 belongs there (they walk in through the gate to the START stairs), not straight on the START pad.",
+    "WorldKit.landmark(theme, cframe, palette?) -> Model (cframe = ground centre, LookVector = its front; its rides turn, swing and drop from motion data on their parts, run by WorldKit.client()); WorldKit.dressing(kind, cframe, palette?, text?, seed?) -> Model, kind: stall (text: POPCORN, ICE CREAM, HOT DOGS, CANDY FLOSS, LEMONADE, PRIZES, HOOK A DUCK, BURGERS, RING TOSS), balloon_cluster, balloon_arch, string_lights, bench, tree, cypress, lamp, sign (text), fence, popcorn_cart, flower_bed, flower_garden, picnic, mini_golf, queue_fence, kiddie_ride (the last five stay under 6 studs, so they can stand under a course); its stall type, sizes and colours come from seed (default: from where it stands). Both parent to workspace; no asset ids."
+   ]
   }
  ]
 }
