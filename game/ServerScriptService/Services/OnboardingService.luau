@@ -66,7 +66,7 @@ function OnboardingService:SpawnCFrame(who: any): CFrame?
 	elseif type(who) == "number" then
 		slot = who
 	end
-	slot = ((math.floor(slot) - 1) % 4) + 1
+	slot = ((math.floor(slot) - 1) % 8) + 1 -- 8 racks + spawn pads (squads of up to 8)
 	local Map = services.MapService
 	local ok, cf = pcall(function()
 		return Map and Map:GetSpawnCFrame(slot)
