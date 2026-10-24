@@ -323,7 +323,14 @@ local function applyCameraMode(lock: boolean)
 		local char = player.Character
 		local head = char and char:FindFirstChild("Head") :: BasePart?
 		if cam and head and (cam.CFrame.Position - head.Position).Magnitude < 2 then
-			player.CameraMinZoomDistance = 10
+			-- don't shove the camera through a wall behind you (station spawn pads sit ~8 studs from
+			-- the west wall; a forced 10-stud zoom left the camera stuck inside it until you moved)
+			local back = -cam.CFrame.LookVector * 10
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { char :: Model }
+			local hit = workspace:Raycast(head.Position, back, params)
+			player.CameraMinZoomDistance = if hit then math.clamp(hit.Distance - 1, 2, 10) else 10
 			task.delay(0.1, function()
 				player.CameraMinZoomDistance = 0.5
 			end)

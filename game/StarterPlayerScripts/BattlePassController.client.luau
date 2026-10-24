@@ -64,6 +64,7 @@ local function styled(inst: GuiObject, radius: number, stroke: boolean?)
 		local s = Instance.new("UIStroke")
 		s.Color = Palette.UiInk
 		s.Thickness = 2
+		s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border -- outline the box, not the (ink) text
 		s.Parent = inst
 	end
 end
@@ -86,12 +87,31 @@ passBtn.Name = "PassButton"
 passBtn.Size = UDim2.fromScale(0.08, 0.06)
 passBtn.Position = UDim2.fromScale(0.01, 0.45)
 passBtn.BackgroundColor3 = Palette.UiFlameMid
-passBtn.Text = "Pass"
+passBtn.Text = "PASS"
 passBtn.TextScaled = true
 passBtn.Font = Enum.Font.FredokaOne
 passBtn.TextColor3 = Palette.UiInk
 passBtn.Parent = gui
 styled(passBtn, 10, true)
+do
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0.18, 0)
+	pad.PaddingBottom = UDim.new(0.18, 0)
+	pad.PaddingLeft = UDim.new(0.1, 0)
+	pad.PaddingRight = UDim.new(0.1, 0)
+	pad.Parent = passBtn
+	local cap = Instance.new("UITextSizeConstraint")
+	cap.MaxTextSize = 28
+	cap.Parent = passBtn
+	-- lobby-only: during a call the button sat on top of the left-edge world markers
+	local lp = game:GetService("Players").LocalPlayer
+	local function sync()
+		local iid = lp:GetAttribute("InstanceId")
+		passBtn.Visible = type(iid) ~= "string" or iid == ""
+	end
+	lp:GetAttributeChangedSignal("InstanceId"):Connect(sync)
+	sync()
+end
 
 local panel = Instance.new("Frame")
 panel.Name = "Panel"

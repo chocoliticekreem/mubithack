@@ -177,7 +177,7 @@ function FlareUpService._tick(self: any, rng: Random): string
 	if not self._loggedActive then
 		self._loggedActive = true
 		self._igniteLogs = 0
-		warnOnce(self, "roundActive", "RoundState is Active, MissionId=" .. tostring(id))
+		print("[FlareUpService] RoundState is Active, MissionId=" .. tostring(id)) -- status, not a warning
 	end
 	local services = self._services
 	if type(services) ~= "table" then

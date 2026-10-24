@@ -169,7 +169,7 @@ end
 
 local popupCount = 0
 
-local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number)
+local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number, y: number?)
 	if not popupLayer then
 		return
 	end
@@ -178,7 +178,7 @@ local function popup(text: string, sub: string?, color: Color3, size: number, se
 	local holder = Instance.new("Frame")
 	holder.BackgroundTransparency = 1
 	holder.AnchorPoint = Vector2.new(0.5, 0.5)
-	holder.Position = UDim2.new(0.5, 0, 0.38, slot * 18)
+	holder.Position = UDim2.new(0.5, 0, y or 0.38, slot * 18)
 	holder.Size = UDim2.fromOffset(420, size + 26)
 	holder.Parent = popupLayer
 	local scale = Instance.new("UIScale")
@@ -244,14 +244,14 @@ local function celebrate()
 		c.AnchorPoint = Vector2.new(0.5, 0.5)
 		c.BackgroundColor3 = CONFETTI[(i - 1) % #CONFETTI + 1]
 		c.Size = UDim2.fromOffset(rng:NextInteger(8, 14), rng:NextInteger(5, 9))
-		c.Position = UDim2.fromScale(0.5, 0.4)
+		c.Position = UDim2.fromScale(0.5, 0.62)
 		c.Rotation = rng:NextNumber(0, 360)
 		c.Parent = layer
 		local angle = rng:NextNumber(0, math.pi * 2)
 		local dist = rng:NextNumber(0.12, 0.32)
 		local up = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		TweenService:Create(c, up, {
-			Position = UDim2.fromScale(0.5 + math.cos(angle) * dist, 0.4 + math.sin(angle) * dist * 0.7 - 0.08),
+			Position = UDim2.fromScale(0.5 + math.cos(angle) * dist, 0.62 + math.sin(angle) * dist * 0.7 - 0.08),
 			Rotation = c.Rotation + rng:NextNumber(-220, 220),
 		}):Play()
 		task.delay(0.45, function()
@@ -299,7 +299,8 @@ function ProfileController:Start()
 		popup(`+{math.floor(amount)} XP`, if type(reason) == "string" then reason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
 		if type(levelsGained) == "number" and levelsGained > 0 then
 			task.delay(0.5, function()
-				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds)
+				-- low centre: GearController's "LEVEL n: NEW GEAR!" card owns the middle of the screen
+				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
 				celebrate()
 			end)
 		end

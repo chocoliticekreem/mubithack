@@ -64,6 +64,27 @@ local function inLobby(): boolean
 	return state ~= "Active" and state ~= "Alarm"
 end
 
+-- my call isn't over (not Results / Done). After a squad wipe the round sits in Results with everyone still
+-- Downed: no "crawl to a teammate" banner over the results card.
+local function roundLive(): boolean
+	local iid = LocalPlayer:GetAttribute(Names.Attr.InstanceId)
+	local holder: Instance? = workspace
+	if type(iid) == "string" and iid ~= "" then
+		local folder = workspace:FindFirstChild("Instances")
+		holder = folder and folder:FindFirstChild(iid)
+		if not holder then
+			for _, m in game:GetService("CollectionService"):GetTagged("IncidentSite") do
+				if m:GetAttribute(Names.Attr.InstanceId) == iid then
+					holder = m
+					break
+				end
+			end
+		end
+	end
+	local st = holder and holder:GetAttribute(Names.Attr.RoundState)
+	return st ~= "Results" and st ~= "Done"
+end
+
 local function badgeOf(player: Player): string
 	local n = player:GetAttribute(Names.Attr.Helmet)
 	return string.format("%02d", if type(n) == "number" then n else 1)
@@ -390,7 +411,7 @@ end
 
 local function stepUi()
 	if downedLabel then
-		local isDown = LocalPlayer:GetAttribute(Names.Attr.Downed) == true
+		local isDown = LocalPlayer:GetAttribute(Names.Attr.Downed) == true and roundLive()
 		downedLabel.Visible = isDown
 		if isDown then
 			local untilT = LocalPlayer:GetAttribute(SquadConfig.AttrDownedUntil)
