@@ -67,6 +67,7 @@ type Npc = {
 	id: string,
 	kind: string,
 	scope: string,
+	spawnPos: Vector3?, -- where it was trapped (the outside-is-safe rule measures from here)
 	model: Model,
 	root: BasePart,
 	prompt: ProximityPrompt,
@@ -243,6 +244,107 @@ local function solidParams(): RaycastParams
 	rp.RespectCanCollide = true
 	solidCache, solidAt = rp, now
 	return rp
+end
+
+-- OUTSIDE IS SAFE: carrying someone out of the building rescues them, no need to reach the truck.
+-- "Outside" = open sky above you (no roof; trees / lamps / signs don't count as a roof), at street level
+-- (not up on a roof or balcony), and a few studs away from where they were trapped.
+local TREEISH = { "tree", "bush", "hedge", "canopy", "leaves", "lamp", "light", "sign", "awning", "umbrella", "wire", "cable", "pole" }
+local function isTreeish(inst: Instance): boolean
+	local node: Instance? = inst
+	for _ = 1, 4 do
+		if not node or node == workspace then
+			break
+		end
+		local n = string.lower(node.Name)
+		for _, w in TREEISH do
+			if string.find(n, w, 1, true) then
+				return true
+			end
+		end
+		node = node.Parent
+	end
+	return false
+end
+
+local function streetLevel(pos: Vector3): number?
+	-- the nearest fire truck sits on the street: its chassis bottom is street level
+	local best: number? = nil
+	local bestD = RescueConfig.SafeStreetSearch or 400
+	for _, m in CollectionService:GetTagged(Names.Tag.Truck) do
+		if m:IsA("Model") and m:IsDescendantOf(workspace) then
+			local cf, size = m:GetBoundingBox()
+			local d = (cf.Position - pos).Magnitude
+			if d < bestD then
+				bestD = d
+				best = cf.Position.Y - size.Y / 2
+			end
+		end
+	end
+	return best
+end
+
+local function outsideSafe(npc: Npc, pos: Vector3): boolean
+	if RescueConfig.SafeOutside == false or not npc.spawnPos then
+		return false
+	end
+	local sp = npc.spawnPos :: Vector3
+	local flat = Vector3.new(pos.X - sp.X, 0, pos.Z - sp.Z)
+	if flat.Magnitude < (RescueConfig.SafeMinDistance or 10) then
+		return false
+	end
+	local street = streetLevel(pos)
+	if street and pos.Y - street > (RescueConfig.SafeMaxAboveStreet or 9) then
+		return false -- up on a roof / balcony / upper floor
+	end
+	local rp = solidParams()
+	local from = pos + Vector3.new(0, 3, 0)
+	for _ = 1, 4 do
+		local hit = workspace:Raycast(from, Vector3.new(0, 120, 0), rp)
+		if not hit then
+			return true -- open sky
+		end
+		if not isTreeish(hit.Instance) then
+			return false -- a roof / ceiling: still inside
+		end
+		from = hit.Position + Vector3.new(0, 0.5, 0)
+	end
+	return true
+end
+
+-- a big green "SAFE" zone flashes on the ground where the rescue counted
+local function safeZoneFx(at: Vector3)
+	local ok, groundHit = pcall(function()
+		return workspace:Raycast(at + Vector3.new(0, 3, 0), Vector3.new(0, -20, 0), solidParams())
+	end)
+	local y = if ok and groundHit then groundHit.Position.Y else at.Y - 3
+	local size = RescueConfig.SafeZoneSize or 34
+	local disc = Instance.new("Part")
+	disc.Name = "SafeZoneFx"
+	disc.Shape = Enum.PartType.Cylinder
+	disc.Size = Vector3.new(0.3, 4, 4)
+	disc.CFrame = CFrame.new(at.X, y + 0.2, at.Z) * CFrame.Angles(0, 0, math.pi / 2)
+	disc.Anchored = true
+	disc.CanCollide = false
+	disc.CanQuery = false
+	disc.CanTouch = false
+	disc.CastShadow = false
+	disc.Material = Enum.Material.Neon
+	disc.Color = Color3.fromRGB(80, 230, 110)
+	disc.Transparency = 0.35
+	disc.Parent = workspace
+	local TweenService = game:GetService("TweenService")
+	TweenService:Create(disc, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.3, size, size),
+	}):Play()
+	task.delay(1.2, function()
+		if disc.Parent then
+			TweenService:Create(disc, TweenInfo.new(1.3), { Transparency = 1 }):Play()
+		end
+	end)
+	task.delay(2.8, function()
+		disc:Destroy()
+	end)
 end
 
 local function radiusOf(kind: string): number
@@ -652,7 +754,7 @@ local function throw(player: Player, aim: Vector3, charge: number): boolean
 	return true
 end
 
-local function deliverNpc(npc: Npc, credit: Player?, spot: BasePart?): boolean
+local function deliverNpc(npc: Npc, credit: Player?, spot: BasePart?, here: Vector3?): boolean
 	if npc.state == "Rescued" or npc.state == "Toasted" then
 		return false
 	end
@@ -662,10 +764,13 @@ local function deliverNpc(npc: Npc, credit: Player?, spot: BasePart?): boolean
 	end
 	local who = credit or helpers[1]
 	deliveredCount += 1
-	local at = spot or firstDropoff()
+	local at = if here then nil else (spot or firstDropoff())
 	local feet = if at
 		then at.CFrame * CFrame.new(((deliveredCount - 1) % 3 - 1) * 3, -at.Size.Y / 2, 0)
-		else groundFeet(npc.root.Position, npc.root.CFrame.LookVector)
+		else groundFeet(here or npc.root.Position, npc.root.CFrame.LookVector)
+	if here then
+		safeZoneFx(here)
+	end
 	plant(npc, feet, if npc.kind == "Civilian" then "stand" else "sitting")
 	npc.prompt.Enabled = false
 	setState(npc, "Rescued")
@@ -786,6 +891,7 @@ local function spawnOne(kind: string, feet: CFrame, pose: string, scope: string)
 		id = id,
 		kind = kind,
 		scope = scope,
+		spawnPos = feet.Position,
 		model = model,
 		root = root,
 		prompt = prompt,
@@ -899,6 +1005,10 @@ local function tickCarried(npc: Npc, fires: { Fire }, dt: number)
 			deliverNpc(npc, npc.carriers[1], spot)
 			return
 		end
+		if hrp and outsideSafe(npc, hrp.Position) then
+			deliverNpc(npc, npc.carriers[1], nil, hrp.Position + hrp.CFrame.LookVector * 2)
+			return
+		end
 	end
 	if math.random() < dt / RescueConfig.VoiceInterval then
 		say(npc, "carried") -- keeps screaming / meowing while dangling
@@ -939,6 +1049,10 @@ local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
 	local spot = dropoffAt(npc.root.Position)
 	if spot then
 		deliverNpc(npc, npc.thrower or npc.dropper, spot) -- YEETED into the truck!
+		return
+	end
+	if npc.root.AssemblyLinearVelocity.Magnitude < 6 and outsideSafe(npc, npc.root.Position) then
+		deliverNpc(npc, npc.thrower or npc.dropper, nil, npc.root.Position) -- yeeted / dropped outside: safe
 		return
 	end
 	local speed = npc.root.AssemblyLinearVelocity.Magnitude
