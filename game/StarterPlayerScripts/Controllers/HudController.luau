@@ -38,7 +38,6 @@ local HudController = {}
 HudController.Priority = 50
 
 local player = Players.LocalPlayer
-local STUDS_PER_M = 3.5
 local Attr = Names.Attr :: any
 local Tag = Names.Tag :: any
 local HEAT_ATTR: string = Attr.Heat or "Heat"
@@ -155,7 +154,7 @@ local function marker(parent: Instance, name: string, letter: string, color: Col
 		stroke = true,
 	})
 	icon.ZIndex = 3
-	local dist = UiKit.label(root, "Dist", "0m", UDim2.fromOffset(70, 22), UDim2.new(0.5, -35, 1, 2), {
+	local dist = UiKit.label(root, "Dist", "0 studs", UDim2.fromOffset(110, 22), UDim2.new(0.5, -55, 1, 2), {
 		font = UiKit.Header,
 		textSize = 18,
 		color = Palette.UiCream,
@@ -709,9 +708,9 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	end
 	local vp = cam.ViewportSize
 	local v, onScreen = cam:WorldToViewportPoint(target + Vector3.new(0, 4, 0))
-	local metres = math.floor((target - from).Magnitude / STUDS_PER_M + 0.5)
-	m.dist.Text = `{metres}m`
-	m.root.Visible = metres > 3
+	local studs = math.floor((target - from).Magnitude + 0.5)
+	m.dist.Text = `{studs} studs`
+	m.root.Visible = studs > 10
 	local margin = 40
 	-- keep markers out from under the Roblox top bar (HudMarkers is full-bleed: y = 0 is the screen top)
 	local topClear = GuiService:GetGuiInset().Y + 28
