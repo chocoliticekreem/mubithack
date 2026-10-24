@@ -48,8 +48,8 @@
 --   Remote added: Lobby/BackToStation (C->S, no args, 1/s; ResultsController already fires it).
 --   Counters: missions_dispatched, missions_arrived, missions_fast_arrival, dispatch_no_site, missions_rekindled.
 --   Every mission has something to do at its site: fires.starts "Scripted" lights FireStart markers too
---   (the hazard adds more), a run with nothing burning GameConfig.RekindleSeconds after arrival (and no
---   fire put out yet) lights its FireStart markers once, and a site without RescueSpawn markers gets
+--   (the hazard adds more), a run where nothing has burned GameConfig.RekindleSeconds after arrival
+--   lights its FireStart markers once, and a site without RescueSpawn markers gets
 --   invisible ones by its FireStarts.
 -- Test hooks (DevHook only): _startRound(locationId, seconds), _startMission(userIds|nil, missionId, seconds),
 --   _endMission(instanceId), _selftest()
@@ -106,6 +106,7 @@ type Live = {
 	firesOut: number,
 	firesLit: number,
 	rekindled: boolean?, -- the no-fire safety net already ran (rekindle)
+	sawBurning: boolean?, -- something burned at this site during the run
 	downs: number,
 	payload: Types.ResultsPayload?,
 }
@@ -954,11 +955,15 @@ local function handle(run: Live, events: { string })
 	end
 end
 
--- Safety net: a call must never be "all clear" before anything burned. If nothing is burning a few
--- seconds after arrival and the squad hasn't put a single fire out (the hazard that should light it
+-- Safety net: a call must never be "all clear" before anything burned. If nothing has burned at all a
+-- few seconds after arrival (the hazard that should light it
 -- didn't, or every Ignite failed), light the site's FireStart markers (then random Flammable parts).
 local function rekindle(run: Live, obs: MissionFlow.Obs, t: number)
-	if run.rekindled or obs.burning > 0 or run.firesOut > 0 or not run.model.Parent then
+	if obs.burning > 0 then
+		run.sawBurning = true
+	end
+	-- only when nothing has burned at all: a call the squad (or a tidal wave) put out stays out
+	if run.rekindled or run.sawBurning or run.firesOut > 0 or not run.model.Parent then
 		return
 	end
 	local since = t - (if run.flow.arrivedAt > 0 then run.flow.arrivedAt else run.flow.activeSince)
@@ -979,7 +984,9 @@ local function tickAll()
 		local ok, err = pcall(function()
 			local st = run.flow.state
 			local obs = if st == "Active" or st == "Dispatched" then observe(run) else nil
-			if obs and st == "Active" then
+			if obs and st == "Dispatched" and obs.burning > 0 then
+				run.sawBurning = true
+			elseif obs and st == "Active" then
 				rekindle(run, obs, t)
 			end
 			handle(run, MissionFlow.tick(run.flow, t, obs))
@@ -1366,6 +1373,8 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 	local okBuild, model = pcall(Map.BuildInstance, Map, def.locationId, id)
 	if not okBuild or not model then
 		warn(`[MissionService] StartMission {missionId}: could not build {def.locationId} ({model})`)
+		-- city-only calls (nightclub, skyscraper) have no standalone builder to fall back on
+		notify(players, `Every {def.call or def.title} crew is out right now. Try another call!`, "bad")
 		return nil
 	end
 	local t = now()

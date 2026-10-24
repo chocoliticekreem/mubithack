@@ -100,6 +100,17 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
     `Mission/Alarm` remote, HUD "DISPATCH: House fire at 12 Maple St")
   - sets `RoundState` Dispatched → Active (on arrival) → Results
   - clears the site and resets it with `MapService:RebuildSite(siteId)`, or the per-site reset
+- Every MissionCatalog mission is `enabled` and has city sites (`CityConfig.KindMissions`,
+  `Districts.missionTypesForDistrict`), and every call always has something to do: `fires.starts =
+  "Scripted"` lights the site's FireStart markers too (the hazard adds more), a run where nothing has burned
+  `GameConfig.RekindleSeconds` after arrival lights its FireStart markers once
+  (counter `missions_rekindled`), and a site without RescueSpawn markers gets invisible ones by its
+  FireStarts. `players.min` is 1 everywhere (a solo player can roll out; duo calls are just harder).
+- City-only calls: `nightclub_fire` (BlockFiller `nightclub`: Club Inferno, neon sign, dance floor, DJ
+  booth + fog-machine gas bottle, 9 rescue markers) and `skyscraper_fire` (BlockFiller `skyscraper`:
+  Sky Tower, 6 playable storeys with a stairwell and breakable glass, a tall cheap tower + spire above;
+  fires on floors 3-6, people on floors 2-6 so a Ladder reaches the low ones). Their lots come from
+  `Districts.CorridorSpecial` (hub frontage: skyscraper + nightclub; Apartment frontage: nightclub).
 - `Player.InstanceId` = run id, as before. The HUD and the rest read the run state from
   `Workspace.Runs.<runId>` (a Folder with the attributes the instance Model used to have:
   `MissionId`, `RoundState`, `RoundEndsAt`, `SiteId`, `LocationId`).

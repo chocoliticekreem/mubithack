@@ -1334,6 +1334,13 @@ function Build.nightclub(ctx: any, site: Model, F: CFrame, maxW: number, maxD: n
 	local sign = SK.part(site, "NeonSign", F * CF(0, top + 4.5, -0.9), V(w * 0.8, 6, 0.6), Color3.fromHex("#120C1A"))
 	SK.sign(sign, "CLUB INFERNO", Enum.NormalId.Front, NEON_PINK)
 	SK.part(site, "SignGlow", F * CF(0, top + 1.2, -1.3), V(w * 0.8, 0.5, 0.3), NEON_PINK, { neon = true, collide = false, cast = false })
+	for _, sx in { -1, 1 } do -- neon pilasters on the front corners
+		SK.part(site, "NeonStrip", F * CF(sx * (w / 2 - 0.6), fy + H / 2, -0.7), V(0.6, H, 0.4), if sx < 0 then NEON_CYAN else NEON_PINK, {
+			neon = true,
+			collide = false,
+			cast = false,
+		})
+	end
 	SK.part(site, "Marquee", F * CF(0, fy + 10, -3), V(14, 0.8, 6), Color3.fromHex("#120C1A"))
 	SK.part(site, "MarqueeGlow", F * CF(0, fy + 9.5, -5.9), V(14, 0.5, 0.3), NEON_CYAN, { neon = true, collide = false, cast = false })
 	-- velvet rope + bouncer stand out front
@@ -1460,7 +1467,7 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	-- the cheap tower above (non-flammable, non-queryable scenery): stepped body, glass bands, spire
 	local w2, d2 = math.floor(w * 0.8), math.floor(d * 0.8)
 	local F2 = F * CF(0, 0, (d - d2) / 2)
-	local h2 = 78
+	local h2 = 128 -- taller than every skyline slab round the hub (they top out ~160 total)
 	SK.part(site, "Tower", F2 * CF(0, top + 1 + h2 / 2, d2 / 2), V(w2, h2, d2), body, { query = false })
 	dress(site, F2, w2, d2, h2, rng, { y0 = top + 1, base = 2, band = glass, floor = 7, maxBands = 8, canopy = false, roof = false })
 	local cap = F2 * CF(0, top + 1 + h2, d2 / 2)

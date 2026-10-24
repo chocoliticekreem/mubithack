@@ -22,7 +22,7 @@ return Config.define({
 	UseInstances = false, -- true = v1.5 path (build a copy of the location and teleport the squad)
 	InstanceFallback = true, -- dispatch found no free IncidentSite for the mission: use the v1.5 instance path
 	DispatchFires = 1, -- fires lit at dispatch (smouldering while you drive); the rest flare up on arrival
-	RekindleSeconds = 4, -- nothing burning this long after arrival (and nothing put out yet): light the site's FireStart markers
+	RekindleSeconds = 4, -- nothing has burned at the site this long after arrival: light the site's FireStart markers
 	MinDispatchStuds = 700, -- dispatch prefers sites at least this far from the station (a real drive)
 	SiteTieStuds = 60, -- free sites within this of the nearest one are a tie, picked at random
 	TravelSpeed = 45, -- studs/s used to size the driving allowance added to the timer
