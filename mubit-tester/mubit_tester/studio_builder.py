@@ -5,34 +5,124 @@ import asyncio
 import json
 import re
 import shutil
+import time
 from pathlib import Path
 
-from forge import sync
+from forge import levels, sync
 from forge.loop import UI, new_game, run_game, correct
 from forge.memory import RunStore, unique_slug
 from mubit_tester.harness import _long_bracket
 
 
+DONE = {'director': 'Game design ready', 'designer': 'Game plan ready',
+        'reflector': 'Saved what worked for the next build'}
+DID = {'level_designer': 'Laid out the course:', 'coder': 'Wrote', 'fixer': 'Repaired', 'critic': 'Reviewed',
+       'fun_critic': 'Checked how fun it is:'}
+DOING = {'director': 'the game design', 'designer': 'the game plan', 'level_designer': 'the course',
+         'coder': 'writing', 'fixer': 'repairing', 'critic': 'the review', 'fun_critic': 'the fun check',
+         'reflector': 'saving lessons'}
+PROGRESS_KEYS = ('pct', 'phase', 'step', 'items', 'eta_s')
+POLL_S = 1.0
+
+
 class BuildProgress(UI):
+    # forge reports a call when it finishes, so messages say what was done, not what is starting.
     def __init__(self, emit):
         super().__init__()
-        self.emit = emit
+        self._emit = emit
+        self.slug = None
+        self.sent = set()
+
+    def emit(self, message, ok=None):
+        self.sent.add(message)
+        if ok is None:
+            self._emit(message)
+        else:
+            self._emit(message, ok)
 
     def print(self, line=''):
         pass
 
     def header(self, text):
-        self.emit('Planning your game…' if 'forge new' in text else 'Checking the draft code…')
+        if found := re.match(r'forge new\s+(\S+)', text):
+            self.slug = self.slug or found[1]
+            self.emit('Planning your game…')
+        elif found := re.match(r'build\s+(\d+) modules', text):
+            self.emit(f'Writing {found[1]} game script{"" if found[1] == "1" else "s"}…')
+        else:
+            self.emit('Checking the draft code…')
 
     def call(self, role, label, ok, secs, rid, n_calls=1, err=''):
-        stages = {'designer': 'The game plan is ready.', 'coder': 'Writing your game code…',
-                  'fixer': 'Repairing a problem in the draft…', 'critic': 'Reviewing the game code…',
-                  'reflector': 'Saving what worked for the next build…'}
-        self.emit(stages.get(role, 'Working on your game…') if ok else 'Part of the build could not finish.')
+        label = label.removesuffix(' (cached)')
+        if not ok:
+            self.emit(f'Could not finish {DOING.get(role, role)} ({label}): {err.split(":")[0]}', False)
+        elif role in DONE:
+            self.emit(DONE[role])
+        else:
+            self.emit(f'{DID.get(role, "Finished")} {label}')
 
     def line(self, tag, label, ok=None, detail=''):
-        if tag == 'done':
+        if tag == 'check' and label.startswith('luau-compile'):
+            if ok:
+                self.emit('All game scripts compile')
+            else:
+                self.emit('Some game scripts do not compile yet', False)
+        elif tag == 'done':
             self.emit('Finishing your first draft…')
+
+
+class ProgressFeed:
+    """Relays runs/<slug>/progress.json (written by forge) into job events and a progress summary."""
+
+    def __init__(self, settings, ui, idea, emit, on_progress):
+        self.settings, self.ui, self.idea = settings, ui, idea
+        self.emit, self.on_progress = emit, on_progress
+        self.started = time.time()
+        self.seen, self.last = set(), None
+
+    def slug(self):
+        if self.ui.slug is None and self.settings.runs_dir.is_dir():
+            # The "forge new <slug>" header names the run; if it ever changes, use the run made for this idea.
+            for path in self.settings.runs_dir.iterdir():
+                try:
+                    if (path.stat().st_mtime >= self.started - 1
+                            and json.loads((path / 'state.json').read_text()).get('idea') == self.idea):
+                        self.ui.slug = path.name
+                except (OSError, ValueError, AttributeError):
+                    continue
+        return self.ui.slug
+
+    def poll(self):
+        slug = self.slug()
+        if not slug:
+            return
+        try:
+            data = json.loads((RunStore(self.settings, slug).dir / 'progress.json').read_text())
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        for event in data.get('events') or []:
+            if not isinstance(event, dict) or not isinstance(event.get('text'), str):
+                continue
+            key = (event.get('t'), event['text'])
+            # forge's own event for a call often repeats the line BuildProgress already showed.
+            if key in self.seen or event['text'] in self.ui.sent:
+                continue
+            self.seen.add(key)
+            if event.get('ok') is None:
+                self.emit(event['text'])
+            else:
+                self.emit(event['text'], bool(event['ok']))
+        summary = {k: data.get(k) for k in PROGRESS_KEYS}
+        if self.on_progress and summary != self.last:
+            self.last = summary
+            self.on_progress(summary)
+
+    async def run(self):
+        while True:
+            await asyncio.sleep(POLL_S)
+            self.poll()
 
 
 def draft_store(settings, slug):
@@ -68,6 +158,10 @@ async def describe_draft(settings, slug):
     if not spec.get('modules'):
         missing.append('The plan did not include any game scripts.')
     errors = [f'{path}: {message}' for path, message in failures] + [f'Missing: {p}' for p in missing]
+    built, planned, gone = levels.course_status(spec)
+    if gone:  # the promised content count (docs/GAME_PRODUCTION_GUIDE.md 8.3): a short course is not ready
+        errors.append(f"Course has {built}/{planned} stages (zone{'s' if len(gone) > 1 else ''} "
+                      f"{', '.join(map(str, gone))} failed)")
     state = store.load_state()
     return {'slug': slug, 'title': spec.get('title', 'Your new game'), 'pitch': spec.get('pitch', ''),
             'ready': not errors, 'errors': errors, 'files': [m['path'] for m in spec.get('modules', [])],
@@ -77,9 +171,20 @@ async def describe_draft(settings, slug):
             'calls': [{k: item.get(k) for k in ('role', 'request_id', 'latency_ms')} for item in store.read_calls()[-20:]]}
 
 
-async def build_draft(settings, idea, emit, *, llm=None):
-    slug = await new_game(idea, iterations=1, use_studio=False, settings=settings,
-                          llm=llm, ui=BuildProgress(emit))
+async def build_draft(settings, idea, emit, *, llm=None, on_progress=None):
+    ui = BuildProgress(emit)
+    feed = ProgressFeed(settings, ui, idea, emit, on_progress)
+    watch = asyncio.create_task(feed.run())
+    try:
+        slug = await new_game(idea, iterations=1, use_studio=False, settings=settings, llm=llm, ui=ui)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        feed.poll()
+        raise
+    finally:
+        watch.cancel()
+    feed.poll()
     return await describe_draft(settings, slug)
 
 

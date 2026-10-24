@@ -458,6 +458,27 @@ local resultSummary=section(results,"Summary")
 local resultTitle=text(resultSummary,"Your first draft starts with an idea.")
 local resultStatus=text(resultSummary,"Make a game first, or check the game you already have. Your drafts and playthroughs will appear here.","muted")
 local resultDetail=text(resultSummary,"","muted")
+-- Live build view: built once and updated in place on every poll so it never flickers.
+local buildProgress=section(results,"BuildProgress") buildProgress.Visible=false
+local barRow=Instance.new("Frame") barRow.Name="Bar" barRow.BackgroundTransparency=1 barRow.LayoutOrder=1
+barRow.Size=UDim2.new(1,-4,0,28) barRow.Parent=buildProgress
+local barTrack=Instance.new("Frame") barTrack.Name="Track" barTrack.BackgroundColor3=palette.field barTrack.BorderSizePixel=0
+barTrack.AnchorPoint=Vector2.new(0,0.5) barTrack.Position=UDim2.fromScale(0,0.5) barTrack.Size=UDim2.new(1,-68,0,12)
+barTrack.ClipsDescendants=true barTrack.Parent=barRow round(barTrack,6) outline(barTrack)
+local barFill=Instance.new("Frame") barFill.Name="Fill" barFill.BackgroundColor3=palette.blue barFill.BorderSizePixel=0
+barFill.Size=UDim2.fromScale(0,1) barFill.Parent=barTrack round(barFill,6)
+local barPercent=text(barRow,"0%") barPercent.AutomaticSize=Enum.AutomaticSize.None
+barPercent.Size=UDim2.new(0,60,1,0) barPercent.Position=UDim2.new(1,-60,0,0)
+barPercent.TextXAlignment=Enum.TextXAlignment.Right barPercent.TextYAlignment=Enum.TextYAlignment.Center
+barPercent.Font=fonts.bold barPercent.TextSize=20 barPercent.TextColor3=palette.blue
+local progressStep=text(buildProgress,"") progressStep.Font=fonts.medium progressStep.LayoutOrder=2
+local progressItems=text(buildProgress,"","small") progressItems.LayoutOrder=3
+local progressEta=text(buildProgress,"","small") progressEta.LayoutOrder=4
+local happenedTitle=text(buildProgress,"What happened so far","small") happenedTitle.Font=fonts.medium happenedTitle.LayoutOrder=5
+local happenedRows={}
+for index=1,6 do
+    local row=text(buildProgress,"","muted") row.LayoutOrder=5+index row.Visible=false happenedRows[index]=row
+end
 local checkRows=section(results,"CheckedThings")
 local issueRows=section(results,"PossibleProblems")
 local reportActions=section(results,"NextSteps")
@@ -703,6 +724,43 @@ displayReport=function(job)
     end)
 end
 local historyKey,choicesKey,gamesKey="","",""
+local shownBuild,shownPercent=nil,-1
+local function renderBuild(job)
+    local live=job~=nil and job.operation=="make_game" and selectedJob==job.id
+    buildProgress.Visible=live
+    if not live then return end
+    local progress=type(job.progress)=="table" and job.progress or {}
+    if job.id~=shownBuild then
+        shownBuild,shownPercent=job.id,-1 barFill.Size=UDim2.fromScale(0,1)
+    end
+    barRow.Visible=type(progress.pct)=="number"
+    if barRow.Visible then
+        local percent=math.clamp(math.floor(progress.pct),0,100)
+        if percent~=shownPercent then
+            shownPercent=percent barPercent.Text=percent.."%"
+            game:GetService("TweenService"):Create(barFill,TweenInfo.new(0.6,Enum.EasingStyle.Quad),{Size=UDim2.fromScale(percent/100,1)}):Play()
+        end
+    end
+    progressStep.Text=type(progress.step)=="string" and progress.step or ""
+    progressStep.Visible=progressStep.Text~=""
+    local items=progress.items
+    progressItems.Visible=type(items)=="table" and type(items.done)=="number" and type(items.total)=="number" and items.total>0
+    if progressItems.Visible then progressItems.Text=items.done.." of "..items.total.." "..tostring(items.label or "parts").." done" end
+    local eta=progress.eta_s
+    progressEta.Visible=type(eta)=="number" and eta>0
+    if progressEta.Visible then progressEta.Text=eta<60 and "Less than a minute left" or "About "..math.ceil(eta/60).." min left" end
+    local events=job.events or {}
+    happenedTitle.Visible=#events>0
+    for index,row in happenedRows do
+        local event=events[#events-index+1]
+        row.Visible=event~=nil
+        if event then
+            row.Text=tostring(event.message)
+            row.TextColor3=event.ok==false and palette.red or (index==1 and palette.text or palette.secondary)
+            row.TextTransparency=(index-1)*0.12
+        end
+    end
+end
 render=function(data)
     snapshot=data
     layoutSurface()
@@ -742,13 +800,22 @@ render=function(data)
         elseif message:find("Stopping") then message=active.operation=="make_game" and "Stopping the build. Your draft stays saved." or "Finishing up and stopping play…"
         elseif message:find("Mubit") or message:find("AI decisions") then message="AI is deciding what to try…"
         elseif message:find("Scenario finished") then message="Checking what happened…" end
+        local progress=active.operation=="make_game" and type(active.progress)=="table" and active.progress or nil
+        if progress and active.state~="cancelling" and type(progress.pct)=="number" and type(progress.step)=="string" then
+            message=math.floor(progress.pct).."% · "..progress.step
+        end
         say(message)
         if selectedJob==active.id then
             resultTitle.Text=(active.presentation or {}).title or "Checking your game"
             resultStatus.Text=active.state=="cancelling" and "Stopping…" or (active.operation=="make_game" and "Making your first draft…" or "Working on your game…")
-            resultStatus.TextColor3=palette.blue resultDetail.Text=message
+            resultStatus.TextColor3=palette.blue
+            resultDetail.Text=active.operation=="make_game" and active.state~="cancelling" and "This takes a few minutes. You can press Stop at any time." or message
         end
-    elseif data.history[1] then
+        renderBuild(active)
+    else
+        renderBuild(nil)
+    end
+    if not active and data.history[1] then
         local latest=data.history[1] control:SetAttribute("JobId",latest.id) control:SetAttribute("JobState",latest.state)
         say((latest.presentation or {}).status or "Check finished. Open Results.")
     end

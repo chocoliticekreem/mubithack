@@ -12,6 +12,8 @@ rendered here, which the coder never writes and the fixer never edits.
 from __future__ import annotations
 
 import json
+import math
+import re
 from pathlib import Path
 
 from forge import director
@@ -47,6 +49,25 @@ PARK_COSTUMES = ("MouseEars", "BalloonHat", "PartyCone", "ClownWig", "HeroCape",
                  "RainbowTrail", "Crown", "ChampionCape")
 PARK_REWARD = "ChampionCape"
 PARK_ZONES, PARK_STAGES_PER_ZONE = 6, 10
+# WorldKit's park (size 1600) keeps its rides clear of the courses up to 12 zones; at 13 rides stand on course 2
+MAX_ZONES = 12
+MAX_STAGES = MAX_ZONES * PARK_STAGES_PER_ZONE
+PER_ZONE_CHOICES = (10, 9, 11, 8, 12)  # zone sizes the level designer handles well, closest to 10 first
+_UNITS = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                     "fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_TENS = {w: 10 * i for i, w in enumerate("_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()) if i > 1}
+_WORD_NUM = re.compile(r"\b(?:(a|an|one|two|three|four|five|six|seven|eight|nine|\d+)[\s-]+)?hundred\b"
+                       r"|\b(" + "|".join(_TENS) + r")(?:[\s-]+(" + "|".join(list(_UNITS)[1:10]) + r"))?\b"
+                       r"|\b(" + "|".join(_UNITS) + r")\b")
+_AREA = r"(?:zones?|worlds?|areas?|sections?|parts?|chapters?)"
+_STAGE = r"(?:stages?|levels?)"
+_GRID = re.compile(rf"\b(\d+)\s*{_AREA}\s*(?:(?:of|x|×)\s*(\d+)\s*-?\s*{_STAGE}|with\s*(\d+)\s*{_STAGE}\s*each)")
+_PER_AREA = re.compile(rf"\b(\d+)\s*-?\s*{_STAGE}\s*(?:per|each|in each|a|an|for each)\s*(?:zone|world|area|section|part|chapter)")
+_AREAS = re.compile(rf"\b(\d+)\s*{_AREA}\b")
+_STAGES = re.compile(r"\b(\d+)\s*-?\s*(?:[a-z]+\s+)?stages?\b|\bstages?\s*[:=]\s*(\d+)")
+# "a 3-level castle", "3 levels of difficulty": a level count that is not the course's length
+_LEVELS = re.compile(r"\b(\d+)\s*-?\s*levels?\b(?!\s*(?:of\s+(?:difficulty|challenge)|high|tall|"
+                     r"house|castle|tower|building|mansion|home|school|mall|hotel|dungeon|maze))")
 
 SERVER_BOOT = """-- Rendered by Forge (forge/template.py): the {name} template's server bootstrap. Do not edit.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -58,6 +79,114 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local {name} = require(ReplicatedStorage:WaitForChild("Kit"):WaitForChild("{name}"))
 {name}.startClient(require(ReplicatedStorage:WaitForChild("Config")))
 """
+
+
+def _digits(text: str) -> str:
+    """Thousands separators and number words as digits: "1,000" -> 1000, "a hundred" -> 100, "twenty-five" -> 25."""
+    text = re.sub(r"\b(\d{1,3}(?:,\d{3})+)\b", lambda m: m.group(1).replace(",", ""), text.lower())
+
+    def num(m: re.Match) -> str:
+        if m.group(0).endswith("hundred"):
+            k = m.group(1) or "one"
+            return str(100 * (int(k) if k.isdigit() else _UNITS.get(k, 1)))
+        if m.group(2):
+            return str(_TENS[m.group(2)] + (_UNITS[m.group(3)] if m.group(3) else 0))
+        return str(_UNITS[m.group(4)])
+
+    return _WORD_NUM.sub(num, text)
+
+
+def requested_stages(idea: str) -> int | None:
+    """The course length the idea asks for: "100 stages", "a 100-stage obby", "a hundred levels", "100 obby stages",
+    "stages: 100", "5 zones of 20 stages" (100), "10 levels per world, 8 worlds" (80). A stage count wins over a
+    level count, and a level count that is a building's floors or a difficulty scale is not one."""
+    text = _digits(str(idea or ""))
+    m = _GRID.search(text)
+    if m:
+        return int(m.group(1)) * int(m.group(2) or m.group(3))
+    per, areas = _PER_AREA.search(text), _AREAS.search(text)
+    if per and areas:
+        return int(per.group(1)) * int(areas.group(1))
+    m = _STAGES.search(text) or _LEVELS.search(text)
+    if not m:
+        return None
+    return int(next(g for g in m.groups() if g is not None))
+
+
+def scope_from_idea(idea: str, levels_spec: dict | None) -> tuple[int, int, str | None]:
+    """(zones, stages per zone, note) for a template obby: the idea's own stage count wins, then the director's
+    spec["levels"], then PARK_ZONES x PARK_STAGES_PER_ZONE. The note says when the course differs from what was
+    asked (no exact split into 8-12 stage zones, the 1-200 clamp, themes repeating past 10 zones): reported,
+    never silent (docs/GAME_PRODUCTION_GUIDE.md 8.3)."""
+    asked = requested_stages(idea)
+    lv = levels_spec or {}
+    if asked is None:
+        try:
+            zones, per = int(lv.get("zones") or 0), int(lv.get("stages_per_zone") or 0)
+        except (TypeError, ValueError):
+            zones = per = 0
+        zones, per = (zones, per) if zones > 0 and per > 0 else (PARK_ZONES, PARK_STAGES_PER_ZONE)
+        return zones, per, None
+    notes = []
+    n = min(MAX_STAGES, max(1, asked))
+    if n != asked:
+        notes.append(f"You asked for {asked} stages; Forge builds 1 to {MAX_STAGES}, so the course aims for {n}.")
+    try:
+        planned = int(lv.get("zones") or 0) * int(lv.get("stages_per_zone") or 0)
+    except (TypeError, ValueError):
+        planned = 0
+    if planned > n:
+        notes.append(f"The plan had {planned} stages; the idea asks for {asked}, so the course follows the idea.")
+    per = next((p for p in PER_ZONE_CHOICES if n % p == 0 and n // p <= MAX_ZONES), None)
+    zones = n // per if per else math.ceil(n / PARK_STAGES_PER_ZONE)
+    per = per or PARK_STAGES_PER_ZONE
+    if zones * per != n:
+        notes.append(f"{n} stages do not split into zones of 8-12, so the course has {zones * per} stages "
+                     f"({zones} zone{'s' if zones > 1 else ''} x {per}) instead of {n}.")
+    if zones > len(PARK_THEMES):
+        notes.append(f"{zones} zones is more than the {len(PARK_THEMES)} park themes, so some themes repeat.")
+    return zones, per, " ".join(notes) or None
+
+
+def scope_block(zones: int, per: int) -> str:
+    return (f"## Course scope (Forge builds exactly this)\nIf this game is a stage course: {zones} zones of {per} stages, "
+            f"{zones * per} stages in all. Use these numbers wherever acceptance, systems or progression count zones "
+            "or stages.")
+
+
+_SCOPE_SAID = re.compile(rf"\b(\d+)\s*{_AREA}\s*(?:of|x|×)\s*(\d+)\s*-?\s*stages?\b"
+                         rf"|\b(\d+)\s+(\d+)\s*-\s*stages?\s*{_AREA}")
+
+
+def align_scope(spec: dict, zones: int, per: int) -> bool:
+    """The director's prose keeps its own course numbers ("5 zones of 20 stages") after the idea's count overrides
+    spec["levels"], and the critics grade against acceptance: rewrite its zone and stage counts to the course
+    Forge builds, in acceptance and the director's systems. True when anything changed."""
+    doc = spec.get("director") or {}
+    systems = [x for x in doc.get("systems") or [] if isinstance(x, dict)]
+    texts = [str(a) for a in spec.get("acceptance") or []] + [str(x.get("what") or "") for x in systems]
+    said = next((m for t in texts for m in [_SCOPE_SAID.search(_digits(t))] if m), None)
+    if not said:
+        return False
+    a, b = (int(g) for g in (said.groups()[:2] if said.group(1) else said.groups()[2:]))
+    if (a, b) == (zones, per):
+        return False
+    words = {v: k for k, v in _UNITS.items()}
+    subs = [(rf"\b(?:{a}|{words.get(a, '_')})(\s+(?:\d+\s*-\s*stages?\s+)?{_AREA})", rf"{zones}\1"),
+            (rf"\b(?:{b}|{words.get(b, '_')})(\s*-?\s*stages?\s+(?:each|per|zones?|worlds?|areas?)\b)", rf"{per}\1"),
+            (rf"(\b{_AREA}\s*(?:of|x|×)\s*){b}\b", rf"\g<1>{per}"),
+            (rf"\b(every\s+){b}(\s+stages)\b", rf"\g<1>{per}\2"),
+            (rf"\b{b}(st|nd|rd|th)\s+stage\b", f"{per}th stage")]
+
+    def fix(text: str) -> str:
+        for pat, to in subs:
+            text = re.sub(pat, to, text, flags=re.IGNORECASE)
+        return text
+
+    spec["acceptance"] = [fix(str(t)) for t in spec.get("acceptance") or []]
+    for x in systems:
+        x["what"] = fix(str(x.get("what") or ""))
+    return True
 
 
 def template_of(spec: dict) -> dict | None:
