@@ -253,6 +253,38 @@ local function build()
 	UiKit.corner(dot, 6)
 	stroke(dot, 2)
 	ui.slot, ui.pill, ui.dot = slot, pill, dot
+	-- Narrow screens: if the top-bar box would run under the minimap, the pill shrinks to "911"
+	local wide = if hasKeys then 122 else 92
+	local function fit()
+		local box = slot.Parent
+		local pg = player:FindFirstChild("PlayerGui")
+		local nav = pg and pg:FindFirstChild("NavMinimap")
+		local mm = nav and nav:FindFirstChild("Root")
+		if not (box and box:IsA("GuiObject") and mm and mm:IsA("GuiObject")) then
+			return
+		end
+		local compact = slot.Size.X.Offset < wide
+		local spare = mm.AbsolutePosition.X - 8 - (box.AbsolutePosition.X + box.AbsoluteSize.X)
+		if not compact and spare < 0 then
+			slot.Size = UDim2.new(0, if hasKeys then 74 else 50, 1, 0)
+			InputHints.setChip(pill, Cfg.Keys.Toggle, "911")
+		elseif compact and spare > wide - slot.Size.X.Offset + 16 then
+			slot.Size = UDim2.new(0, wide, 1, 0)
+			InputHints.setChip(pill, Cfg.Keys.Toggle, "DISPATCH")
+		end
+	end
+	slot:GetPropertyChangedSignal("AbsolutePosition"):Connect(fit)
+	local boxF = slot.Parent
+	if boxF and boxF:IsA("GuiObject") then
+		boxF:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	end
+	local cam = workspace.CurrentCamera
+	if cam then
+		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			task.defer(fit)
+		end)
+	end
+	task.delay(2, fit)
 
 	-- INCOMING CALL card (top-centre stack)
 	local card = Instance.new("Frame")
