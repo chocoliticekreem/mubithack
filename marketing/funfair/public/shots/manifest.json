@@ -1,0 +1,18 @@
+[
+  {"file": "hero-gate.png", "what": "Low hero shot of the FUNFAIR FRENZY entrance gate arch from the forecourt spawn pad; the coin trail leads through the arch toward the lobby park map and START stairs.", "quality": "great"},
+  {"file": "hero-gate-wide.png", "what": "Wider symmetric view of the FUNFAIR FRENZY gate arch with pennant flags, string lights, balloons and a food cart; the lobby shows through the arch.", "quality": "good"},
+  {"file": "lobby-plaza.png", "what": "Lobby plaza: fountain, the FUNFAIR FRENZY park map listing all six zones, the changing room, START stairs, balloon arch, a food stall and the zone 1 course behind.", "quality": "good"},
+  {"file": "changing-room.png", "what": "The lobby changing room: a ring of mannequins wearing costumes (Mouse Ears, Party Cone, Clown Wig, Top Hat, Crown, capes, trails) with the Champion Cape shown as the reward.", "quality": "good"},
+  {"file": "ride-bigtop.png", "what": "Zone 1 Grand Gate Plaza: the big top circus tent behind its GRAND GATE PLAZA arch, with the zone's switchback course stacked on columns beside it.", "quality": "great"},
+  {"file": "ride-carousel.png", "what": "Zone 2 Carousel Corner: the carousel with its horses and CAROUSEL CORNER arch; carousel-themed course stages climb on pink columns to the right.", "quality": "good"},
+  {"file": "ride-bumper-cars.png", "what": "Zone 3 Sparkle Bumper Arena: the BUMPER CARS canopy with cars on the floor behind the zone arch; the course runs in stacked layers on blue columns behind it.", "quality": "good"},
+  {"file": "ride-teacups.png", "what": "Zone 4 Twirly Teacup Terrace: pastel teacups around a teapot under a striped canopy, with the zone's START tower and climbing course behind.", "quality": "great"},
+  {"file": "ride-ferris-wheel.png", "what": "Zone 5 Starlight Ferris Wheel: the Ferris wheel with colourful gondolas above its entrance arch; the zone's course layers stack on orange columns to the right.", "quality": "great"},
+  {"file": "ride-fireworks.png", "what": "Zone 6 Skyburst Finale Summit: the FIREWORKS stage with SHOW TONIGHT signs while bursts go off over the stacked course.", "quality": "great"},
+  {"file": "hub-drop-tower.png", "what": "The hub drop tower rising from its fountain plaza, ringed by string lights, umbrellas, balloons and food stalls.", "quality": "good"},
+  {"file": "overview-bigtop-carousel.png", "what": "Medium-high view over Grand Gate Plaza and Carousel Corner: the big top and the carousel with both zones' courses stacked on columns between them.", "quality": "good"},
+  {"file": "action-stage4.png", "what": "The player's character on the stage 4 checkpoint in Grand Gate Plaza, under the stage arch; the LEMONADE LAVA sign and stages 5, 8 and 9 climb ahead, the big top below.", "quality": "great"},
+  {"file": "action-fireworks-stage51.png", "what": "The player in the Party Cone on the stage 51 checkpoint of Skyburst Finale Summit while fireworks burst overhead.", "quality": "great"},
+  {"file": "costume-party-cone.png", "what": "The player wearing the Party Cone, bought with coins from the lobby coin trail, in front of the changing room mannequins.", "quality": "good"},
+  {"file": "ride-gate-zone1.png", "what": "The ride gate at the end of zone 1 reading RIDE TO CAROUSEL CORNER, with the whole Grand Gate Plaza course and the big top behind it.", "quality": "good"}
+]
