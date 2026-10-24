@@ -8,12 +8,15 @@
 -- collider and this rig is drawn on top of it every frame. Rig parts live in the Camera (local,
 -- never simulated, CastShadow off) and move with one workspace:BulkMoveTo per frame.
 --
--- This module is also the simple camera-attached fallback (touch devices, or
--- HandsConfig.Enabled = false):
+-- This module is also the simple camera-attached fallback (HandsConfig.Enabled = false, or the
+-- physics hands failed to build):
 --   local vm = Viewmodel.new()          -- builds the Model (call from Start, never at require time)
 --   vm:SetParent(workspace.CurrentCamera)
---   vm:Update(dt, camCFrame, { pose = "hose", bob = Vector2, sway = Vector2, spraying = bool, dip = number })
---   vm:Swing()                          -- axe swing animation (windup, strike, recover)
+--   vm:Update(dt, camCFrame, { pose = "hose", tool = Tool?, bob = Vector2, sway = Vector2, spraying = bool, dip = number })
+-- Held tools match PhysicsHands: the hose shows the drawn nozzle; any other item (extinguisher,
+-- oxygen tank, halligan...) is a local anchored copy of the real Tool's parts in the right glove (the
+-- real Tool is hidden locally by FirstPersonController). The AXE is never copied: there is ONE axe,
+-- the real Tool on the character's right hand (ClientLib/AxeArm); the right glove is drawn on its grip.
 --   vm:SetSoot(alpha)                   -- 0..1 darkens sleeves/gloves toward CharredWarm
 --   vm:SetVisible(bool)  vm:Destroy()
 --   vm:GetNozzle(): BasePart?           -- the nozzle tip while the hose pose shows (stream origin)
@@ -36,6 +39,7 @@ export type Pose = "empty" | "hose" | "axe" | "carry" | "item"
 
 export type Frame = {
 	pose: Pose,
+	tool: Tool?, -- the equipped Tool (item copy / the real axe's grip)
 	bob: Vector2?, -- studs, already scaled
 	sway: Vector2?, -- radians (pitch, yaw)
 	spraying: boolean?,
@@ -428,24 +432,61 @@ local function buildNozzle(model: Model): Prop
 	return prop
 end
 
-local function buildAxe(model: Model): Prop
-	local prop: Prop = { parts = {}, hand = "R" }
-	local s = scale() * 1.15
-	local function add(p: BasePart, offset: CFrame)
-		p.Size *= s
-		table.insert(prop.parts, { part = p, offset = scaled(offset, s), base = p.Color })
-	end
-	add(block(model, "AxeHandle", Vector3.new(0.32, 3.4, 0.32), Color3.fromHex("#B5793F"), Enum.Material.Wood), CFrame.new(0, 1.2, -0.6))
-	add(block(model, "AxeHead", Vector3.new(0.25, 0.8, 1.25), Color3.fromHex("#C8232B"), Enum.Material.Metal), CFrame.new(0, 2.65, -0.95))
-	add(block(model, "AxeEdge", Vector3.new(0.27, 0.85, 0.2), Color3.fromHex("#D6D8DC"), Enum.Material.Metal), CFrame.new(0, 2.65, -1.62))
-	add(block(model, "AxePick", Vector3.new(0.22, 0.3, 0.6), Color3.fromHex("#5A5A60"), Enum.Material.Metal), CFrame.new(0, 2.65, -0.1))
-	return prop
-end
-
 local function setPartsVisible(parts: { PartRec }, on: boolean)
 	for _, r in parts do
 		r.part.LocalTransparencyModifier = if on then 0 else 1
 	end
+end
+
+-- Where a held Tool's Grip sits in wrist space (the same frame as PhysicsHands' Grip attachment and
+-- the R15 RightGripAttachment: handle Y across the fist toward the thumb, -Z where the knuckles point).
+local function gripInWrist(): CFrame
+	local s = scale()
+	return CFrame.new(0, -0.32 * s, -0.8 * s) * CFrame.Angles(0, 0, math.rad(90))
+end
+Viewmodel.gripInWrist = gripInWrist
+
+local KEEP = { "DataModelMesh", "Decal", "Texture", "SurfaceAppearance" }
+
+-- A local anchored copy of `tool`'s parts, laid out around the right glove's grip.
+local function copyTool(model: Model, tool: Tool): Prop?
+	local handle = tool:FindFirstChild("Handle")
+	if not (handle and handle:IsA("BasePart")) then
+		return nil -- not replicated yet: try again next frame
+	end
+	local prop: Prop = { parts = {}, hand = "R" }
+	local base = gripInWrist() * tool.Grip:Inverse()
+	for _, d in tool:GetDescendants() do
+		if not d:IsA("BasePart") then
+			continue
+		end
+		local c = (d :: BasePart):Clone()
+		if not c then
+			continue -- Archivable = false
+		end
+		for _, ch in c:GetChildren() do
+			local keep = false
+			for _, cls in KEEP do
+				if ch:IsA(cls) then
+					keep = true
+					break
+				end
+			end
+			if not keep then
+				ch:Destroy()
+			end
+		end
+		c.Anchored = true
+		c.CanCollide = false
+		c.CanQuery = false
+		c.CanTouch = false
+		c.CastShadow = false
+		c.Massless = true
+		c.LocalTransparencyModifier = 0
+		c.Parent = model
+		table.insert(prop.parts, { part = c, offset = base * handle.CFrame:ToObjectSpace(d.CFrame), base = c.Color })
+	end
+	return prop
 end
 
 export type Viewmodel = typeof(setmetatable(
@@ -453,9 +494,10 @@ export type Viewmodel = typeof(setmetatable(
 		model: Model,
 		rigs: { [string]: Rig },
 		props: { [string]: Prop },
+		held: Prop?, -- copy of the equipped item Tool (pose "item")
+		heldFor: Tool?,
 		current: { [string]: CFrame },
 		pose: string,
-		swingT: number,
 		visible: boolean,
 		soot: number,
 		t: number,
@@ -470,10 +512,11 @@ function Viewmodel.new(): Viewmodel
 	local self = setmetatable({
 		model = model,
 		rigs = { R = Viewmodel.newRig(model, 1, "Right", s), L = Viewmodel.newRig(model, -1, "Left", s) },
-		props = { hose = buildNozzle(model), axe = buildAxe(model) },
+		props = { hose = buildNozzle(model) },
+		held = nil,
+		heldFor = nil,
 		current = { R = POSES.empty.R, L = POSES.empty.L },
 		pose = "empty",
-		swingT = -1,
 		visible = true,
 		soot = 0,
 		t = 0,
@@ -488,12 +531,6 @@ function Viewmodel.SetParent(self: Viewmodel, parent: Instance?)
 	self.model.Parent = parent
 end
 
-function Viewmodel.Swing(self: Viewmodel)
-	if self.swingT < 0 or self.swingT > 0.3 then
-		self.swingT = 0
-	end
-end
-
 function Viewmodel.SetVisible(self: Viewmodel, on: boolean)
 	if self.visible == on then
 		return
@@ -504,6 +541,30 @@ function Viewmodel.SetVisible(self: Viewmodel, on: boolean)
 	end
 	for name, prop in self.props do
 		setPartsVisible(prop.parts, on and name == self.pose)
+	end
+	if self.held then
+		setPartsVisible(self.held.parts, on and self.pose == "item")
+	end
+end
+
+-- Keep the item copy in step with the equipped Tool (rebuilt when the Tool changes).
+function Viewmodel._syncHeld(self: Viewmodel, pose: string, tool: Tool?)
+	local want = if pose == "item" then tool else nil
+	if self.heldFor == want and (self.held ~= nil or want == nil) then
+		return
+	end
+	if self.held then
+		for _, r in self.held.parts do
+			r.part:Destroy()
+		end
+		self.held = nil
+	end
+	self.heldFor = want
+	if want then
+		self.held = copyTool(self.model, want)
+		if self.held then
+			setPartsVisible(self.held.parts, self.visible)
+		end
 	end
 end
 
@@ -530,24 +591,6 @@ function Viewmodel.GetNozzle(self: Viewmodel): BasePart?
 	return nil
 end
 
--- Axe swing offset for the right wrist: windup (-30 deg, 0.12 s), strike (+50, 0.08 s), recover 0.25 s.
-local function swingOffset(t: number): CFrame
-	if t < 0 then
-		return CFrame.identity
-	end
-	local pitch
-	if t < 0.12 then
-		pitch = 30 * (t / 0.12)
-	elseif t < 0.2 then
-		pitch = 30 - 80 * ((t - 0.12) / 0.08)
-	elseif t < 0.45 then
-		pitch = -50 * (1 - (t - 0.2) / 0.25)
-	else
-		return CFrame.identity
-	end
-	return CFrame.new(0, 0, if pitch < 0 then -0.5 * (-pitch / 50) else 0) * CFrame.Angles(math.rad(pitch), 0, 0)
-end
-
 local parts: { BasePart } = {}
 local cframes: { CFrame } = {}
 
@@ -565,6 +608,7 @@ function Viewmodel.Update(self: Viewmodel, dt: number, cam: CFrame, f: Frame)
 			setPartsVisible(new.parts, self.visible)
 		end
 	end
+	self:_syncHeld(pose, f.tool)
 	if not self.visible then
 		return
 	end
@@ -583,19 +627,16 @@ function Viewmodel.Update(self: Viewmodel, dt: number, cam: CFrame, f: Frame)
 		local x, y, z, pitch = HandsMath.hoseKick(self.t, 1, 0.4)
 		recoil = CFrame.new(x, y, z) * CFrame.Angles(math.rad(pitch), 0, 0)
 	end
-	local swing = CFrame.identity
-	if self.swingT >= 0 then
-		self.swingT += dt
-		swing = swingOffset(self.swingT)
-		if self.swingT > 0.45 then
-			self.swingT = -1
-		end
-	end
-
 	local wrist = {
-		R = root * recoil * self.current.R * (if pose == "axe" then swing else CFrame.identity),
+		R = root * recoil * self.current.R,
 		L = root * recoil * self.current.L,
 	}
+	-- the axe: ONE real Tool on the real right hand (ClientLib/AxeArm swings it); the glove sits on its grip
+	local axeTool = if pose == "axe" then f.tool else nil
+	local axeHandle = if axeTool then axeTool:FindFirstChild("Handle") else nil
+	if axeTool and axeHandle and axeHandle:IsA("BasePart") then
+		wrist.R = axeHandle.CFrame * axeTool.Grip * gripInWrist():Inverse()
+	end
 
 	table.clear(parts)
 	table.clear(cframes)
@@ -607,7 +648,7 @@ function Viewmodel.Update(self: Viewmodel, dt: number, cam: CFrame, f: Frame)
 		local curl = if holding then 0.9 else 0.3 + 0.05 * math.sin(self.t * 1.6 + sign)
 		Viewmodel.poseRig(rig, wrist[side], shoulder, cam.UpVector, curl, parts, cframes)
 	end
-	local prop = self.props[pose]
+	local prop = if pose == "item" then self.held else self.props[pose]
 	if prop then
 		local w = wrist[prop.hand]
 		for _, r in prop.parts do

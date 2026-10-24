@@ -34,6 +34,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
@@ -674,6 +675,17 @@ local function bindTouch(tool: Tool, label: string)
 	ThumbLayout.place(TOUCH_ACTION, "primary")
 end
 
+-- On touch the SPRAY / CHOP button is the ONLY trigger: Roblox also activates the equipped Tool on any
+-- tap on the 3D view, so every camera-drag tap sprayed or chopped (and a button press plus a stray tap
+-- made a double chop). ManualActivationOnly (local; Tool:Activate() still works) turns that off.
+-- Keyboard / gamepad keep the native click / trigger. InputHintsMode = "touch" forces it (playtests).
+local function applyActivationMode(tool: Tool)
+	local manual = InputHints.isTouch()
+	if tool.ManualActivationOnly ~= manual then
+		tool.ManualActivationOnly = manual
+	end
+end
+
 local function unbindTouch(tool: Tool)
 	if touchTool == tool then
 		touchTool = nil
@@ -692,6 +704,13 @@ local function hookTool(inst: Instance)
 	end
 	hookedTools[inst] = true
 	local tool = inst :: Tool
+	applyActivationMode(tool)
+	local modeConn = InputHints.onChanged(function()
+		applyActivationMode(tool)
+	end)
+	tool.Destroying:Connect(function()
+		modeConn:Disconnect()
+	end)
 	local touchLabel = if name == "Axe" then "CHOP" else "SPRAY"
 	tool.Equipped:Connect(function()
 		bindTouch(tool, touchLabel)
