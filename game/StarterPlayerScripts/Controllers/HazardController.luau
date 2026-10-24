@@ -291,11 +291,21 @@ local function onFx(hazardId: string, pos: Vector3, params: { [string]: any }?)
 		local reach = radius * (if p.big then 8 else 5)
 		if d < reach then
 			local k = 1 - d / reach
-			shake(4 * k, 0.8)
-			screenFlash(Color3.new(1, 1, 0.9), 0.85 * k, 0.15)
-			blurPulse(8 * k, 0.3)
+			if p.big then
+				-- the tanker: a white-out flash fading through orange, a long heavy shake, a blur hit
+				shake(3 + 7 * k, 1.8)
+				screenFlash(Color3.new(1, 1, 0.95), math.min(1, 0.4 + 0.7 * k), 0.5)
+				task.delay(0.35, function()
+					screenFlash(ORANGE, 0.45 * k + 0.1, 1.2)
+				end)
+				blurPulse(6 + 18 * k, 1.1)
+			else
+				shake(4 * k, 0.8)
+				screenFlash(Color3.new(1, 1, 0.9), 0.85 * k, 0.15)
+				blurPulse(8 * k, 0.3)
+			end
 		end
-		sparks(pos, ORANGE, 40)
+		sparks(pos, ORANGE, if p.big then 120 else 40)
 	elseif hazardId == "electrocution" then
 		sparks(pos + Vector3.new(0, 1, 0), SHOCK, 25)
 	elseif hazardId == "fire_tornado" then

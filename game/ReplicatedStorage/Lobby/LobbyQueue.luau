@@ -286,13 +286,14 @@ end
 -- 1..5 "chili" rating from a Types.MissionDef: hazards, fire count, co-op requirement, length.
 function LobbyQueue.difficulty(def: any): number
 	local d = 1 + #(def.hazards or {})
-	if def.fires and (def.fires.count or 0) >= 5 then
+	-- (every call is now big and escalating: these thresholds mark the biggest/longest ones)
+	if def.fires and (def.fires.count or 0) >= 7 then
 		d += 1
 	end
 	if def.players and (def.players.min or 1) >= 2 then
 		d += 1
 	end
-	if (def.seconds or 0) >= 300 then
+	if (def.seconds or 0) >= 400 then
 		d += 1
 	end
 	return math.clamp(d, 1, 5)

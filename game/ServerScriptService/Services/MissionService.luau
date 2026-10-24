@@ -51,8 +51,13 @@
 --   (the hazard adds more), a run where nothing has burned GameConfig.RekindleSeconds after arrival
 --   lights its FireStart markers once, and a site without RescueSpawn markers gets
 --   invisible ones by its FireStarts.
+--   ESCALATION: a call grows while the squad works it (catalog `escalation` phases, else
+--   GameConfig.Escalation.Default): more fires on the upper floors, a flashover / explosion / collapse
+--   set piece, extra people at spare RescueSpawn markers, each with a banner. A phase fires `at` s after
+--   arrival or early after a quiet lull; "all clear" can't end the call while one is still to come.
+--   Counter: escalations.
 -- Test hooks (DevHook only): _startRound(locationId, seconds), _startMission(userIds|nil, missionId, seconds),
---   _endMission(instanceId), _selftest()
+--   _endMission(instanceId), _escalate(instanceId), _runInfo(instanceId), _selftest()
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -107,6 +112,10 @@ type Live = {
 	firesLit: number,
 	rekindled: boolean?, -- the no-fire safety net already ran (rekindle)
 	sawBurning: boolean?, -- something burned at this site during the run
+	spareMarkers: { BasePart }?, -- RescueSpawn markers nobody was spawned at (escalation can use them)
+	escFired: number?, -- escalation phases already fired (MissionCatalog `escalation`)
+	escLastAt: number?, -- seconds after arrival when the last phase fired
+	quietSince: number?, -- server time since when nothing has been burning (nil = something burns)
 	downs: number,
 	payload: Types.ResultsPayload?,
 }
@@ -526,6 +535,9 @@ end
 -- `force` overrides the mission's fires.starts. "Scripted" missions (cigarette, campfire) light the
 -- site's FireStart markers like any other call; their hazard adds more fires on top, so a hazard that
 -- never fires (no farmer near the hay, a city site without its prop) can't leave a call with nothing to do.
+type SpreadOpts = { up: boolean?, near: Vector3?, radius: number? }
+local spreadFires: (run: Live, need: number, pool: { BasePart }?, opts: SpreadOpts?) -> number
+
 local function lightFires(run: Live, limit: number?, force: string?): number
 	local Fire = services.FireService
 	if not (Fire and type(Fire.Ignite) == "function") then
@@ -577,11 +589,46 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 	if lit >= want or #pool == 0 then
 		return lit
 	end
+	return lit + spreadFires(run, want - lit, pool, nil)
+end
+
+-- Light `need` fires on Flammable parts spread round the site: far from every fire already burning (so
+-- other rooms / floors), never within GameConfig.FireAvoidRescueStuds of a RescueSpawn.
+--   opts.up: prefer parts well above the lowest fire / the ground floor ("spreading upstairs")
+--   opts.near, opts.radius: only parts within radius of near (a flashover in one room)
+spreadFires = function(run: Live, need: number, pool: { BasePart }?, opts: SpreadOpts?): number
+	local Fire = services.FireService
+	if need <= 0 or not (Fire and type(Fire.Ignite) == "function") then
+		return 0
+	end
+	local o = opts or {}
+	local all = pool or flammables(run.model)
+	local lit = 0
+	local rng = Random.new()
 	-- extra fire zones: spread out, away from the people waiting to be rescued
 	local cands: { BasePart } = {}
-	for _, part in pool do
+	for _, part in all do
 		if not part:HasTag(Names.Tag.Burning) then
+			if o.near and (part.Position - o.near).Magnitude > (o.radius or 20) then
+				continue
+			end
 			table.insert(cands, part)
+		end
+	end
+	if o.up and #cands > 0 then
+		-- "upstairs": parts at least 7 studs above the site's lowest Flammable part
+		local low = math.huge
+		for _, part in all do
+			low = math.min(low, part.Position.Y)
+		end
+		local upper: { BasePart } = {}
+		for _, part in cands do
+			if part.Position.Y >= low + 7 then
+				table.insert(upper, part)
+			end
+		end
+		if #upper >= need then
+			cands = upper
 		end
 	end
 	for i = #cands, 2, -1 do
@@ -593,7 +640,7 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 		table.remove(cands)
 	end
 	local taken: { MissionFlow.P3 } = {}
-	for _, part in pool do
+	for _, part in all do
 		if part:HasTag(Names.Tag.Burning) then
 			table.insert(taken, p3(part.Position))
 		end
@@ -608,10 +655,9 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 	for i, part in cands do
 		pts[i] = p3(part.Position)
 	end
-	local need = want - lit
 	-- ask for a few spares: an Ignite can fail (cap, an odd part)
 	for _, i in MissionFlow.spreadPick(pts, taken, avoid, GameConfig.FireAvoidRescueStuds or 8, need + 4) do
-		if lit >= want then
+		if lit >= need then
 			break
 		end
 		if Fire:Ignite(cands[i], nil) then
@@ -675,11 +721,15 @@ local function spawnRescues(run: Live)
 		for i, m in markers do
 			kinds[i] = tostring(m:GetAttribute(Names.Attr.Kind) or "")
 		end
+		run.spareMarkers = {}
 		for i, kind in MissionFlow.assignRescues(kinds, wanted) do
 			if kind then
 				safe(`Rescue:SpawnAt {kind}`, function()
 					Rescue:SpawnAt(run.id, markers[i], kind)
 				end)
+			elseif markers[i]:IsA("BasePart") then
+				-- left empty: an escalation phase can find someone here later ("someone's still inside!")
+				table.insert(run.spareMarkers :: { BasePart }, markers[i] :: BasePart)
 			end
 		end
 	elseif type(Rescue.Spawn) == "function" then
@@ -749,6 +799,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		elapsed = elapsed,
 		downs = downs,
 		integrity = integrity,
+		firesOut = run.firesOut,
 	})
 	return {
 		locationId = run.locationId,
@@ -1065,6 +1116,143 @@ local function rekindle(run: Live, obs: MissionFlow.Obs, t: number)
 	print(`[MissionService] {run.id} ({run.missionId}): nothing burning {math.floor(since)}s after arrival, lit {lit} fires`)
 end
 
+-- escalation -----------------------------------------------------------------------------------------
+-- A call grows while the squad works it (MissionCatalog `escalation`, else GameConfig.Escalation.Default):
+-- each phase lights more fires (scaled with the squad like the arrival fires), on the upper floors
+-- (`up`) or as a set piece (`setPiece` = "flashover" | "explosion" | "collapse"), can turn up extra
+-- people at RescueSpawn markers nobody was spawned at (`rescue`), and shouts its `text` banner. Phases
+-- fire `at` seconds after arrival, or early once the scene has been quiet for Escalation.LullSeconds.
+-- While a phase is still to come the call can't end "all clear" (obs.held).
+
+local function escalationPhases(run: Live): { any }
+	local e = run.def.escalation
+	if type(e) == "table" then
+		return e
+	end
+	local cfg = GameConfig.Escalation
+	return if type(cfg) == "table" and type(cfg.Default) == "table" then cfg.Default else {}
+end
+
+local function hazardFx(kind: string, pos: Vector3, params: { [string]: any }?)
+	safe("hazard fx", function()
+		Net.event("Hazard", "Fx"):FireAllClients(kind, pos, params or {})
+	end)
+end
+
+-- A burning part to centre a set piece on (Priority / explosion props first), else any Flammable one.
+local function setPieceSpot(run: Live, kind: string): BasePart?
+	if kind == "explosion" then
+		for _, inst in tagged(Names.Tag.Hazard, run.model) do
+			if inst:IsA("BasePart") and inst:GetAttribute(Names.Attr.HazardId) == "explosion" then
+				return inst
+			end
+		end
+	end
+	local burning = tagged(Names.Tag.Burning, run.model)
+	if #burning > 0 then
+		local b = burning[rng:NextInteger(1, #burning)]
+		if b:IsA("BasePart") then
+			return b
+		end
+	end
+	local pool = flammables(run.model)
+	return if #pool > 0 then pool[rng:NextInteger(1, #pool)] else nil
+end
+
+local function escalate(run: Live, phase: any, index: number)
+	if not run.model.Parent then
+		return
+	end
+	local n = MissionFlow.scaledFires(tonumber(phase.fires) or 0, math.max(1, #run.players), GameConfig.FireScalePerPlayer or 0, 0)
+	local lit = 0
+	local kind = phase.setPiece
+	if kind == "flashover" or kind == "explosion" or kind == "collapse" then
+		local spot = setPieceSpot(run, kind)
+		if spot then
+			local pos = spot.Position
+			local Hazard = services.HazardService
+			if kind == "explosion" and Hazard and type(Hazard.Trigger) == "function" then
+				safe("set piece explosion", function()
+					Hazard:Trigger(run.id, "explosion", { position = pos, radius = tonumber(phase.radius) or 18 })
+				end)
+			elseif kind == "collapse" and Hazard and type(Hazard.Trigger) == "function" then
+				safe("set piece collapse", function()
+					if not Hazard:Trigger(run.id, "ceiling_collapse", { position = pos, radius = tonumber(phase.radius) or 18 }) then
+						hazardFx("backdraft", pos)
+					end
+				end)
+			else
+				hazardFx("backdraft", pos)
+			end
+			-- the room around the set piece goes up, then the rest spreads out
+			local cluster = math.ceil(n * 0.6)
+			lit += spreadFires(run, cluster, nil, { near = pos, radius = tonumber(phase.radius) or 22 })
+		end
+	end
+	if lit < n then
+		lit += spreadFires(run, n - lit, nil, { up = phase.up == true })
+	end
+	run.firesLit += lit
+	-- somebody nobody knew about: spawn at markers left empty when the call came in
+	local found = 0
+	local want = tonumber(phase.rescue) or 0
+	local Rescue = services.RescueService
+	if want > 0 and run.spareMarkers and Rescue and type(Rescue.SpawnAt) == "function" then
+		local spare = run.spareMarkers :: { BasePart }
+		while found < want and #spare > 0 do
+			local m = table.remove(spare, rng:NextInteger(1, #spare)) :: BasePart
+			if m.Parent then
+				safe("escalation rescue", function()
+					if Rescue:SpawnAt(run.id, m, tostring(m:GetAttribute(Names.Attr.Kind) or "Civilian")) then
+						found += 1
+					end
+				end)
+			end
+		end
+	end
+	local text = if type(phase.text) == "string" then phase.text else "The fire's spreading!"
+	notify(run.players, text, "bad")
+	if found > 0 then
+		local who = if type(phase.rescueText) == "string" then phase.rescueText else "Someone's still inside!"
+		task.delay(2.5, function()
+			notify(run.players, who, "bad")
+		end)
+	end
+	count("escalations")
+	print(`[MissionService] {run.id} ({run.missionId}) ESCALATION {index}: {lit} fires, {found} more rescues ({tostring(kind or (if phase.up then "up" else "spread"))})`)
+end
+
+-- Fires the next phase when it's due; returns true while a phase is still to come (holds "all clear").
+local function escalationTick(run: Live, obs: MissionFlow.Obs, t: number): boolean
+	local phases = escalationPhases(run)
+	local fired = run.escFired or 0
+	if fired >= #phases then
+		return false
+	end
+	if obs.burning > 0 then
+		run.quietSince = nil
+	elseif run.quietSince == nil then
+		run.quietSince = t
+		if run.firesOut > 0 then
+			notify(run.players, "Looks clear... don't roll up the hose yet. Something's still smouldering.", "info")
+		end
+	end
+	local since = t - (if run.flow.arrivedAt > 0 then run.flow.arrivedAt else run.flow.activeSince)
+	local cfg = GameConfig.Escalation or {}
+	local quiet = if run.quietSince then t - run.quietSince else 0
+	if MissionFlow.escalationDue(phases, fired, since, quiet, run.escLastAt or 0, { lull = cfg.LullSeconds or 8, minGap = cfg.MinGapSeconds or 30 }) then
+		run.escFired = fired + 1
+		run.escLastAt = since
+		run.quietSince = nil
+		escalate(run, phases[fired + 1], fired + 1)
+		obs.burning = burningCount(run)
+		local _, trapped = rescueCounts(run)
+		obs.trapped = trapped
+		return (run.escFired or 0) < #phases
+	end
+	return true
+end
+
 local function tickAll()
 	local t = now()
 	for _, run in runs do
@@ -1075,6 +1263,7 @@ local function tickAll()
 				run.sawBurning = true
 			elseif obs and st == "Active" then
 				rekindle(run, obs, t)
+				obs.held = escalationTick(run, obs, t)
 			end
 			handle(run, MissionFlow.tick(run.flow, t, obs))
 		end)
@@ -1246,6 +1435,8 @@ end
 
 -- The nearest free IncidentSite for the mission (MissionFlow.pickSite), or nil.
 local function chooseSite(missionId: string): (Model?, string?)
+	-- GameConfig.NearDispatch: calls that go to the NEAREST free site (the gas station by the hub)
+	local near = if type(GameConfig.NearDispatch) == "table" then GameConfig.NearDispatch else {}
 	local origin = stationPos()
 	local infos: { MissionFlow.SiteInfo } = {}
 	local byId: { [string]: Model } = {}
@@ -1265,7 +1456,7 @@ local function chooseSite(missionId: string): (Model?, string?)
 	end
 	local sid = MissionFlow.pickSite(infos, missionId, GameConfig.SiteTieStuds, function(n: number): number
 		return rng:NextInteger(1, n)
-	end, GameConfig.MinDispatchStuds)
+	end, if near[missionId] then 0 else GameConfig.MinDispatchStuds)
 	if not sid then
 		return nil, nil
 	end
@@ -1610,6 +1801,46 @@ end
 
 function MissionService:_endMission(instanceId: string)
 	self:EndMission(instanceId, "forced")
+end
+
+-- Fire the run's next escalation phase now. Returns phases fired / total.
+function MissionService:_escalate(instanceId: string): (number, number)
+	local run = runs[instanceId]
+	if not run then
+		return 0, 0
+	end
+	local phases = escalationPhases(run)
+	local fired = run.escFired or 0
+	if fired < #phases then
+		run.escFired = fired + 1
+		run.escLastAt = now() - (if run.flow.arrivedAt > 0 then run.flow.arrivedAt else run.flow.activeSince)
+		escalate(run, phases[fired + 1], fired + 1)
+	end
+	return run.escFired or 0, #phases
+end
+
+-- Debug view of a run: state, seconds left, burning, rescues, escalation progress.
+function MissionService:_runInfo(instanceId: string): { [string]: any }?
+	local run = runs[instanceId]
+	if not run then
+		return nil
+	end
+	local rescued, trapped, lost = rescueCounts(run)
+	return {
+		state = run.flow.state,
+		left = math.floor(run.flow.endsAt - now()),
+		burning = burningCount(run),
+		firesLit = run.firesLit,
+		firesOut = run.firesOut,
+		rescued = rescued,
+		trapped = trapped,
+		lost = lost,
+		escFired = run.escFired or 0,
+		escTotal = #escalationPhases(run),
+		siteId = run.siteId,
+		stars = if run.payload then run.payload.stars else nil,
+		outcome = run.flow.outcome,
+	}
 end
 
 function MissionService:_selftest(): (boolean, string)

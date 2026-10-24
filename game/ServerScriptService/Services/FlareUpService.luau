@@ -1,244 +1,124 @@
 --!strict
--- FlareUpService: periodically ignites a random flammable part during an Active round.
--- Primary path: every INTERVAL seconds pick via MapService:RandomFlammable(id, rng), call FireService:Ignite, count("flareups", 1).
--- Proximity to players is a strong preference: near-player candidates are tried first,
--- far parts are only accepted after every near candidate fails.
--- A full fire cap is not a fault: the cycle is skipped silently (throttled print at most).
+-- FlareUpService: keeps the pressure on during a call. Every INTERVAL seconds, for each ACTIVE run
+-- (MissionService:GetMissions, roundState "Active"), it re-lights a Flammable part next to a fire that
+-- is still burning at THAT run's site (MapService:GetInstance(runId): the bound IncidentSite or the
+-- instance copy). Nothing burns at a site with no active run: districts without a mission (an empty
+-- Apartment, School or Farm while a squad is at the gas station) never catch fire on their own, and a
+-- run whose fires are all out stays out (the escalation phases in MissionService bring the next wave).
+-- Counter: flareups. A full fire cap is not a fault: the cycle is skipped.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
 
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names"))
 
-local INTERVAL = 8
+local INTERVAL = 10
 local FIRST_DELAY = 2
-local MAX_ATTEMPTS = 10 -- max ignite attempts on near candidates
-local FAR_ATTEMPTS = 2 -- max ignite attempts on far candidates (fallback only)
-local SAMPLE_COUNT = 40 -- random picks gathered per cycle
-local MAX_PLAYER_DISTANCE = 140
-local MAX_BACKOFF = 8
-local CAP_MARGIN = 1
-local MAX_IGNITE_LOGS = 3
-local INFO_LOG_COOLDOWN = 30
+local FLARE_RADIUS = 14 -- studs round a burning part
+local MAX_LOGS = 3
 
 local FlareUpService = {}
 FlareUpService.Priority = 60
 FlareUpService._services = nil :: any
 FlareUpService._started = false
-FlareUpService._thread = nil :: thread?
-FlareUpService._telemetry = nil :: any
-FlareUpService._telemetryTried = false
-FlareUpService._warned = {} :: { [string]: boolean }
-FlareUpService._loggedActive = false
-FlareUpService._failStreak = 0
-FlareUpService._igniteLogs = 0
-FlareUpService._lastInfoLog = {} :: { [string]: number }
+FlareUpService._logs = 0
 
 function FlareUpService.Init(self: any, services: any)
 	self._services = services
 end
 
-local function warnOnce(self: any, key: string, msg: string)
-	if self._warned[key] then
-		return
-	end
-	self._warned[key] = true
-	warn("[FlareUpService] " .. msg)
-end
-
--- Throttled non-warning log for expected conditions (cap full, no candidates).
-local function infoThrottled(self: any, key: string, msg: string)
-	local now = os.clock()
-	local last = self._lastInfoLog[key]
-	if last ~= nil and now - last < INFO_LOG_COOLDOWN then
-		return
-	end
-	self._lastInfoLog[key] = now
-	print("[FlareUpService] " .. msg)
-end
-
-local function loadTelemetry(self: any): any?
-	if self._telemetry ~= nil then
-		return self._telemetry
-	end
-	if self._telemetryTried then
-		return nil
-	end
-	self._telemetryTried = true
+local function count(name: string)
 	local mod = ReplicatedStorage:FindFirstChild("ForgeTelemetry")
-	if not mod then
-		mod = ReplicatedStorage:WaitForChild("ForgeTelemetry", 5)
-	end
 	if mod and mod:IsA("ModuleScript") then
-		local ok, result = pcall(require, mod)
-		if ok then
-			self._telemetry = result
-			return result
-		end
-		warnOnce(self, "telemetryRequire", "ForgeTelemetry require failed: " .. tostring(result))
-		return nil
+		pcall(function()
+			(require(mod) :: any).count(name, 1)
+		end)
 	end
-	warnOnce(self, "telemetryMissing", "ForgeTelemetry module not found")
-	return nil
 end
 
-local function getPlayerPositions(): { Vector3 }
-	local list = {}
-	for _, plr in ipairs(Players:GetPlayers()) do
-		local char = plr.Character
-		if char then
-			local root = char:FindFirstChild("HumanoidRootPart")
-			if root and root:IsA("BasePart") then
-				table.insert(list, root.Position)
+-- Active runs and their site models.
+local function activeSites(services: any): { { id: string, site: Instance } }
+	local out = {}
+	local Mission = services.MissionService
+	local Map = services.MapService
+	if not (Mission and Map and type(Mission.GetMissions) == "function" and type(Map.GetInstance) == "function") then
+		return out
+	end
+	local ok, list = pcall(Mission.GetMissions, Mission)
+	if not ok or type(list) ~= "table" then
+		return out
+	end
+	for _, run in list do
+		local raw = run.roundState or run.state
+		if raw == "Active" and type(run.instanceId) == "string" then
+			local okSite, site = pcall(Map.GetInstance, Map, run.instanceId)
+			if okSite and typeof(site) == "Instance" and site.Parent then
+				table.insert(out, { id = run.instanceId, site = site })
 			end
 		end
 	end
-	return list
+	return out
 end
 
-local function isNearPlayer(part: any, positions: { Vector3 }): boolean
-	if typeof(part) ~= "Instance" or not part:IsA("BasePart") then
+local function burningIn(site: Instance): { BasePart }
+	local out = {}
+	for _, d in site:GetDescendants() do
+		if d:IsA("BasePart") and d:HasTag(Names.Tag.Burning) then
+			table.insert(out, d)
+		end
+	end
+	return out
+end
+
+-- One flare-up at this site: a Flammable, unburnt part next to a fire that is still going.
+function FlareUpService._flare(self: any, site: Instance, rng: Random): boolean
+	local Fire = self._services and self._services.FireService
+	if not (Fire and type(Fire.Ignite) == "function") then
 		return false
 	end
-	local pos = part.Position
-	for _, p in ipairs(positions) do
-		if (p - pos).Magnitude <= MAX_PLAYER_DISTANCE then
-			return true
+	local burning = burningIn(site)
+	if #burning == 0 then
+		return false
+	end
+	local op = OverlapParams.new()
+	op.FilterType = Enum.RaycastFilterType.Include
+	op.FilterDescendantsInstances = { site }
+	for _ = 1, 4 do
+		local from = burning[rng:NextInteger(1, #burning)]
+		local near = workspace:GetPartBoundsInRadius(from.Position, FLARE_RADIUS, op)
+		local cands = {}
+		for _, p in near do
+			if p:HasTag(Names.Tag.Flammable) and not p:HasTag(Names.Tag.Burning) and p:GetAttribute(Names.Attr.Charred) ~= true then
+				table.insert(cands, p)
+			end
+		end
+		if #cands > 0 then
+			local part = cands[rng:NextInteger(1, #cands)]
+			local ok, lit = pcall(Fire.Ignite, Fire, part, nil)
+			if ok and lit == true then
+				count("flareups")
+				if self._logs < MAX_LOGS then
+					self._logs += 1
+					print("[FlareUpService] flare-up: " .. part:GetFullName())
+				end
+				return true
+			end
 		end
 	end
 	return false
 end
 
--- Returns true when the fire system looks saturated (best effort, depends on what FireService exposes).
-local function fireSystemSaturated(fireService: any): boolean
-	local getCount = fireService.GetActiveCount
-	if type(getCount) ~= "function" then
-		return false
-	end
-	local okCount, count = pcall(function()
-		return fireService:GetActiveCount()
-	end)
-	if not okCount or type(count) ~= "number" then
-		return false
-	end
-	local cap: any = fireService.MAX_FIRES or fireService.MaxFires
-	if type(cap) ~= "number" then
-		local getMax = fireService.GetMaxFires
-		if type(getMax) == "function" then
-			local okMax, m = pcall(function()
-				return fireService:GetMaxFires()
-			end)
-			if okMax then
-				cap = m
-			end
-		end
-	end
-	if type(cap) ~= "number" then
-		return false
-	end
-	return count >= cap - CAP_MARGIN
-end
-
--- Attempts one ignition; returns true if a fire started.
-local function tryIgnite(self: any, fireService: any, part: any): boolean
-	local okIgnite, ignited = pcall(function()
-		return fireService:Ignite(part, nil)
-	end)
-	if not okIgnite then
-		warnOnce(self, "igniteErr", "Ignite error: " .. tostring(ignited))
-		return false
-	end
-	if ignited ~= true then
-		return false
-	end
-	if self._igniteLogs < MAX_IGNITE_LOGS then
-		self._igniteLogs += 1
-		local name = "?"
-		if typeof(part) == "Instance" then
-			name = part:GetFullName()
-		end
-		print("[FlareUpService] ignited " .. name)
-	end
-	local telemetry = loadTelemetry(self)
-	if telemetry and type(telemetry.count) == "function" then
-		telemetry.count("flareups", 1)
-	end
-	return true
-end
-
--- Returns "ignited", "failed" or "skipped".
-function FlareUpService._tick(self: any, rng: Random): string
-	if workspace:GetAttribute(Names.Attr.RoundState) ~= "Active" then
-		self._loggedActive = false
-		self._failStreak = 0
-		return "skipped"
-	end
-	local id = workspace:GetAttribute(Names.Attr.MissionId)
-	if not self._loggedActive then
-		self._loggedActive = true
-		self._igniteLogs = 0
-		print("[FlareUpService] RoundState is Active, MissionId=" .. tostring(id)) -- status, not a warning
-	end
+function FlareUpService._tick(self: any, rng: Random): number
 	local services = self._services
 	if type(services) ~= "table" then
-		warnOnce(self, "noServices", "services table missing")
-		return "skipped"
+		return 0
 	end
-	local mapService = services.MapService
-	local fireService = services.FireService
-	if mapService == nil or fireService == nil then
-		warnOnce(self, "noDeps", "MapService or FireService is nil")
-		return "skipped"
-	end
-	if fireSystemSaturated(fireService) then
-		return "skipped"
-	end
-
-	local positions = getPlayerPositions()
-	local hasPlayers = #positions > 0
-
-	-- Gather distinct candidates, split into near-player and far.
-	local near: { any } = {}
-	local far: { any } = {}
-	local seen: { [any]: boolean } = {}
-	for _ = 1, SAMPLE_COUNT do
-		local okPick, part = pcall(function()
-			return mapService:RandomFlammable(id, rng)
-		end)
-		if not okPick then
-			warnOnce(self, "pickErr", "RandomFlammable error: " .. tostring(part))
-			break
-		elseif part ~= nil and not seen[part] then
-			seen[part] = true
-			if (not hasPlayers) or isNearPlayer(part, positions) then
-				table.insert(near, part)
-			else
-				table.insert(far, part)
-			end
+	local n = 0
+	for _, entry in activeSites(services) do
+		if self:_flare(entry.site, rng) then
+			n += 1
 		end
 	end
-
-	if #near == 0 and #far == 0 then
-		infoThrottled(self, "noCandidates", "RandomFlammable gave no candidates (MissionId=" .. tostring(id) .. ")")
-		return "skipped"
-	end
-
-	-- Near candidates first.
-	for i = 1, math.min(#near, MAX_ATTEMPTS) do
-		if tryIgnite(self, fireService, near[i]) then
-			return "ignited"
-		end
-	end
-	-- Far candidates only after every near one failed.
-	for i = 1, math.min(#far, FAR_ATTEMPTS) do
-		if tryIgnite(self, fireService, far[i]) then
-			return "ignited"
-		end
-	end
-
-	-- Most likely the global fire cap is full or parts are already burning: not a fault.
-	infoThrottled(self, "noIgnite", "no ignition this cycle (fire cap likely full), skipping")
-	return "skipped"
+	return n
 end
 
 function FlareUpService.Start(self: any)
@@ -247,24 +127,16 @@ function FlareUpService.Start(self: any)
 	end
 	self._started = true
 	local rng = Random.new(os.time())
-	self._thread = task.spawn(function()
+	task.spawn(function()
 		task.wait(FIRST_DELAY)
 		while true do
-			local result = "skipped"
 			local ok, err = pcall(function()
-				result = self:_tick(rng)
+				self:_tick(rng)
 			end)
 			if not ok then
 				warn("[FlareUpService] tick error: " .. tostring(err))
-				result = "failed"
 			end
-			if result == "ignited" then
-				self._failStreak = 0
-			elseif result == "failed" then
-				self._failStreak = math.min(self._failStreak + 1, 4)
-			end
-			local wait = math.min(INTERVAL * (2 ^ self._failStreak), MAX_BACKOFF)
-			task.wait(wait)
+			task.wait(INTERVAL)
 		end
 	end)
 end
