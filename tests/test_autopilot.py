@@ -221,6 +221,8 @@ def test_stuck_spans_and_first_reward():
                       "result": "x"}]
     assert evm.first_reward([{"t": 0, "counters": {"coins": 0}}, {"t": 15, "counters": {"coins": 2}}]) == 15
     assert evm.first_reward([{"t": 0, "counters": {"jumps": 3}}]) is None
+    assert evm.first_reward([{"t": 0, "counters": {"checkpoint_placement_fixed": 1}},
+                             {"t": 9, "counters": {"coin_collected": 1}}]) == 9  # "point" inside a word: no
 
 
 def test_bridge_events_are_attributed_to_our_place():

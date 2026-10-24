@@ -39,7 +39,9 @@ STUCK_STEPS = 3        # this many steps in one place (or one repeated action) =
 STUCK_STUDS = 3.0
 MAX_CANDIDATES = 20
 
-REWARD_RX = re.compile(r"cash|coin|money|reward|xp|earn|collect|gem|point|score|sold|paid|payout|loot", re.I)
+# reward words as whole name parts: "coins_collected" yes, "checkpoint_placement_fixed" no
+REWARD_RX = re.compile(r"(?:^|_)(?:cash|coins?|money|rewards?|xp|earn(?:ed|s)?|collect(?:ed|s)?|gems?|points?|score|"
+                       r"sold|paid|payouts?|loot)(?:_|$)", re.I)
 PERF_RX = re.compile(r"over_budget|overrun|budget_exceeded|lag|slow|throttl|timeout", re.I)
 SETUP_RX = re.compile(r"(^|_)(built|loaded|indexed|registered|parts|sites|graph|ms|rebuilt|init|ready)(_|$)", re.I)
 # counters of bad events: 0 is the good value, so never "untouched", and falling to 0 is no regression
