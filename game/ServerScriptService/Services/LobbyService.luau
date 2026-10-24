@@ -1027,10 +1027,18 @@ local function onPlayer(player: Player)
 	if player.Character then
 		spawnInStation(player, player.Character)
 	end
-	task.delay(1, function()
+	local function sendBoard()
 		local r = remotes.Board
 		if r and player.Parent == Players then
 			r:FireClient(player, LobbyService:GetSquads())
+		end
+	end
+	task.delay(1, sendBoard)
+	-- client handshake (OnboardingService, Player attr ClientReady): a slow phone connects LobbyController
+	-- long after that first push; send the board again once it has
+	player:GetAttributeChangedSignal("ClientReady"):Connect(function()
+		if player:GetAttribute("ClientReady") == true then
+			sendBoard()
 		end
 	end)
 end

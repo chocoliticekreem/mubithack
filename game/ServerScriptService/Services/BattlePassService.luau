@@ -500,6 +500,13 @@ local function watchCharacter(player: Player, char: Model)
 end
 
 local function onPlayer(player: Player)
+	-- client handshake (OnboardingService, Player attr ClientReady): the State pushed at profile load can
+	-- land before a slow phone has connected BattlePassController; push it again once it has
+	player:GetAttributeChangedSignal("ClientReady"):Connect(function()
+		if player:GetAttribute("ClientReady") == true then
+			push(player)
+		end
+	end)
 	player.CharacterAdded:Connect(function(char)
 		watchCharacter(player, char)
 	end)

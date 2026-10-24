@@ -12,13 +12,20 @@
 --      countdown cut to QueueCountdown (FirstFire "queued"). The existing onboarding / dispatch hints
 --      take it from there. Joining a call any other way first ends it quietly (FirstFire "skipped").
 -- Returning players (Onboarded true) never see any of this.
+-- Handshake: nothing lights until the client said it's ready (OnboardingService Onboarding/Ready, Player attr
+-- ClientReady; at most ClientReadyTimeout s): on a slow phone load the whole tutorial used to run (fire, pop,
+-- auto-queue, even the dispatch) before the client had a single handler connected.
+-- The training fire never leaves you stuck: endless foam while it burns, and each fuel item is its own
+-- FireService location (no spread), so whatever you've put out stays out.
+-- Player control: SKIP TUTORIAL (OnboardingService.Skipped) puts the fire away; NOT YET on the first call
+-- (OnboardingService.CallDeclined) steps you off the pad (FirstFire "open": the board -> pad tutorial).
 --
 -- Public API: none (it reacts to OnboardingService's attr, FireService, LobbyService).
 -- Writes: Player attrs FirstFire, FirstFireSpot, FirstFireDoneAt, SecondsToFirstSpray; Workspace.TrainingFires
 -- Counters: first_fire_started, first_fire_spray, first_fire_out, first_fire_out_seconds (sum),
 --   first_fire_skipped, first_call_queued, first_call_queue_failed, first_call_launched, first_spray (everyone),
 --   first_spray_seconds (sum), first_spray_new, first_spray_new_seconds (sum), first_spray_new_le30s,
---   first_spray_new_gt30s, first_spray_returning
+--   first_spray_new_gt30s, first_spray_returning, first_fire_no_handshake, first_call_declined_left
 -- Test hooks (DevHook only): _run(player), _state(player) -> JSON, _selftest()
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -37,7 +44,7 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local FirstFireService = {}
 FirstFireService.Priority = 60 -- after OnboardingService (25), FireService (50)
 
-type Spot = { index: number, model: Model?, locationId: string, players: { [Player]: boolean }, lit: number }
+type Spot = { index: number, model: Model?, locationId: string, fuels: number, players: { [Player]: boolean }, lit: number }
 
 local services: { [string]: any } = {}
 local joinedAt: { [Player]: number } = {}
@@ -85,6 +92,13 @@ local function part(model: Model, name: string, size: Vector3, cf: CFrame, color
 		p.Shape = shape
 	end
 	if flammable then
+		-- each fuel item in its own sub-model = its own FireService location (indexed one by one in
+		-- lightSpot): no neighbours, so a bag you've put out STAYS out instead of catching again from
+		-- the crate next to it while you're still spraying (a kid's "it won't go out!")
+		local holder = Instance.new("Model")
+		holder.Name = `Fuel_{name}`
+		holder.Parent = model
+		model = holder
 		CollectionService:AddTag(p, Names.Tag.Flammable)
 		p:SetAttribute(Names.Attr.Fuel, Cfg.FireFuel)
 		p:SetAttribute("NoHeat", true) -- HeatService: a newbie reading the card must not get cooked
@@ -113,6 +127,19 @@ local function buildProps(index: number, at: Vector3): Model
 	return m
 end
 
+local function burningAt(spot: Spot): number
+	local Fire = services.FireService
+	if not Fire then
+		return 0
+	end
+	local n = 0
+	for k = 1, spot.fuels do
+		local ok, c = pcall(Fire.CountBurning, Fire, `{spot.locationId}:{k}`)
+		n += if ok and type(c) == "number" then c else 0
+	end
+	return n
+end
+
 local function spotDef(index: number): any
 	return (Cfg.Spots :: { any })[index]
 end
@@ -124,12 +151,12 @@ local function lightSpot(index: number): Spot?
 	end
 	local s = spots[index]
 	if not s then
-		s = { index = index, model = nil, locationId = `training:{index}`, players = {}, lit = 0 }
+		s = { index = index, model = nil, locationId = `training:{index}`, fuels = 0, players = {}, lit = 0 }
 		spots[index] = s
 	end
 	local spot = s :: Spot
 	local Fire = services.FireService
-	if spot.model and spot.model.Parent and Fire and Fire:CountBurning(spot.locationId) > 0 then
+	if spot.model and spot.model.Parent and Fire and burningAt(spot) > 0 then
 		return spot -- already burning: share it
 	end
 	if spot.model then
@@ -144,10 +171,16 @@ local function lightSpot(index: number): Spot?
 	local model = buildProps(index, def.fire)
 	model.Parent = folder
 	spot.model = model
-	call("FireService", "IndexLocation", model, spot.locationId)
-	for _, d in model:GetChildren() do
-		if d:IsA("BasePart") and CollectionService:HasTag(d, Names.Tag.Flammable) then
-			call("FireService", "Ignite", d, nil)
+	spot.fuels = 0
+	for _, holder in model:GetChildren() do
+		if holder:IsA("Model") then
+			spot.fuels += 1
+			call("FireService", "IndexLocation", holder, `{spot.locationId}:{spot.fuels}`)
+			for _, d in holder:GetChildren() do
+				if d:IsA("BasePart") and CollectionService:HasTag(d, Names.Tag.Flammable) then
+					call("FireService", "Ignite", d, nil)
+				end
+			end
 		end
 	end
 	spot.lit = os.clock()
@@ -162,7 +195,9 @@ local function clearSpot(spot: Spot, delay: number)
 	task.delay(delay, function()
 		if spot.model == model and next(spot.players) == nil then
 			spot.model = nil
-			call("FireService", "ClearInstance", spot.locationId)
+			for k = 1, spot.fuels do
+				call("FireService", "ClearInstance", `{spot.locationId}:{k}`)
+			end
 			model:Destroy()
 		end
 	end)
@@ -182,7 +217,8 @@ local function leaveSpot(player: Player)
 end
 
 local function skip(player: Player)
-	if player:GetAttribute(Cfg.PhaseAttr) == "burning" then
+	local phase = player:GetAttribute(Cfg.PhaseAttr)
+	if phase == "burning" or phase == "done" then
 		setPhase(player, "skipped")
 		count("first_fire_skipped")
 	end
@@ -192,6 +228,9 @@ end
 local function autoQueue(player: Player)
 	if Cfg.AutoQueue == false or player.Parent ~= Players or inMission(player) then
 		return
+	end
+	if player:GetAttribute(Cfg.PhaseAttr) ~= "done" then
+		return -- skipped the tutorial (or anything else) during the reward pop
 	end
 	if (player:GetAttribute(Names.Attr.SquadId) or "") ~= "" then
 		setPhase(player, "queued") -- already on a pad by themselves
@@ -256,6 +295,18 @@ local function run(player: Player)
 	if not FirstFire.shouldRun(onboarded, inMission(player), Cfg.Enabled ~= false) then
 		return
 	end
+	-- wait for the client's handshake so the PUT OUT THE FIRE card is on screen when the fire is
+	local Onboarding = services.OnboardingService
+	if Onboarding and type(Onboarding.WaitForClient) == "function" then
+		local okWait, ready = pcall(Onboarding.WaitForClient, Onboarding, player, Cfg.ClientReadyTimeout or 45)
+		if not (okWait and ready) then
+			count("first_fire_no_handshake")
+		end
+		onboarded = player:GetAttribute(OnboardingConfig.DoneAttr or "Onboarded")
+		if player.Parent ~= Players or spotOf[player] or not FirstFire.shouldRun(onboarded, inMission(player), Cfg.Enabled ~= false) then
+			return
+		end
+	end
 	runs += 1
 	local index = FirstFire.slotFor(runs, #(Cfg.Spots :: { any }))
 	local spot = lightSpot(index)
@@ -274,6 +325,26 @@ local function run(player: Player)
 		return
 	end
 	equip(player, spot)
+	-- foam never runs dry on the training fire: a newbie who sprays the grass for 5 s (one can) must not
+	-- be left clicking an empty extinguisher with the fire still burning
+	local foamConn: RBXScriptConnection? = nil
+	foamConn = player:GetAttributeChangedSignal("Foam"):Connect(function()
+		if spotOf[player] ~= spot or player:GetAttribute(Cfg.PhaseAttr) ~= "burning" then
+			if foamConn then
+				foamConn:Disconnect()
+			end
+			return
+		end
+		local size = tonumber(player:GetAttribute("FoamSize")) or 20
+		local foam = tonumber(player:GetAttribute("Foam")) or size
+		if foam < size * 0.5 then
+			task.defer(function()
+				if spotOf[player] == spot then
+					player:SetAttribute("Foam", size)
+				end
+			end)
+		end
+	end)
 	-- respawned (or downed and bled out) before it's out: back to the door with a fresh extinguisher
 	local conn: RBXScriptConnection? = nil
 	conn = player.CharacterAdded:Connect(function(c: Model)
@@ -346,7 +417,30 @@ function FirstFireService:Init(all: { [string]: any })
 	services = all
 end
 
+local function declineCall(player: Player)
+	if player:GetAttribute(Cfg.PhaseAttr) ~= "queued" or inMission(player) then
+		return
+	end
+	setPhase(player, "open") -- the regular tutorial (board -> pad) takes it from here, at their pace
+	local okLeave = call("LobbyService", "Leave", player)
+	if okLeave then
+		count("first_call_declined_left")
+	end
+end
+
 function FirstFireService:Start()
+	local Onboarding = services.OnboardingService
+	if Onboarding and Onboarding.Skipped then
+		Onboarding.Skipped:Connect(function(player: Player)
+			skip(player)
+			if player:GetAttribute(Cfg.PhaseAttr) == "queued" then
+				declineCall(player)
+			end
+		end)
+	end
+	if Onboarding and Onboarding.CallDeclined then
+		Onboarding.CallDeclined:Connect(declineCall)
+	end
 	local Fire = services.FireService
 	if Fire and Fire.Doused then
 		Fire.Doused:Connect(onDoused)
@@ -355,7 +449,7 @@ function FirstFireService:Start()
 		Fire.Extinguished:Connect(function(p: BasePart, _by: Player?)
 			for _, spot in spots do
 				if spot.model and p:IsDescendantOf(spot.model) then
-					if Fire:CountBurning(spot.locationId) == 0 and next(spot.players) ~= nil then
+					if burningAt(spot) == 0 and next(spot.players) ~= nil then
 						finish(spot)
 					end
 					return
@@ -392,7 +486,7 @@ function FirstFireService:_state(player: Player): string
 	return HttpService:JSONEncode({
 		phase = player:GetAttribute(Cfg.PhaseAttr),
 		spot = player:GetAttribute(Cfg.SpotAttr),
-		burning = if spot and Fire then Fire:CountBurning(spot.locationId) else 0,
+		burning = if spot and Fire then burningAt(spot) else 0,
 		firstSpray = player:GetAttribute(Cfg.FirstSprayAttr),
 		since = os.clock() - (joinedAt[player] or os.clock()),
 	})
@@ -404,7 +498,7 @@ function FirstFireService:_selftest(): (boolean, string)
 	if not spot or not Fire then
 		return false, "no spot / FireService"
 	end
-	local n = Fire:CountBurning(spot.locationId)
+	local n = burningAt(spot)
 	if n == 0 then
 		return false, "training fire did not light"
 	end

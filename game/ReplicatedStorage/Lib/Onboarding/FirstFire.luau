@@ -12,7 +12,8 @@
 --   FirstFire.Buckets                               -- { { name, max } } ascending (max = nil: open)
 --   FirstFire.card(phase: string?, sinceDone: number, celebrateSeconds: number) -> string?
 --       which first-fire card the client shows: "fire" (put it out), "done" (the reward pop: until the
---       auto-queue lands, then at most celebrateSeconds after the fire went out), or nil
+--       auto-queue lands, then at most celebrateSeconds after the fire went out), "call" (on the pad for
+--       the auto-queued first call: what's happening + GO NOW / NOT YET), or nil
 local FirstFire = {}
 
 function FirstFire.shouldRun(onboarded: boolean?, inMission: boolean, enabled: boolean): boolean
@@ -75,7 +76,7 @@ function FirstFire.card(phase: string?, sinceDone: number, celebrateSeconds: num
 		return "done" -- until the auto-queue lands (a few seconds)
 	end
 	if phase == "queued" then
-		return if sinceDone < celebrateSeconds then "done" else nil
+		return if sinceDone < celebrateSeconds then "done" else "call"
 	end
 	return nil
 end

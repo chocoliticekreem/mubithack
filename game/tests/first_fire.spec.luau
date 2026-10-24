@@ -57,7 +57,8 @@ Spec.test("cards: fire while burning, reward pop for a few seconds after", funct
 	Spec.eq(FirstFire.card("done", 10, 3), "done") -- not queued yet: keep the pop up
 	Spec.eq(FirstFire.card("open", 1, 3), nil) -- no pad free: the regular tutorial takes over
 	Spec.eq(FirstFire.card("queued", 2.9, 3), "done")
-	Spec.eq(FirstFire.card("queued", 3.1, 3), nil)
+	Spec.eq(FirstFire.card("queued", 3.1, 3), "call") -- on the pad: what's happening + GO NOW / NOT YET
+	Spec.eq(FirstFire.card("launched", 5, 3), nil)
 	Spec.eq(FirstFire.card(nil, 0, 3), nil)
 	Spec.eq(FirstFire.card("skipped", 0, 3), nil)
 end)

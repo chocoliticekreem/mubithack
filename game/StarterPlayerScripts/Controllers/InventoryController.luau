@@ -321,7 +321,24 @@ local function hasItem(): boolean
 	return attr("InvHand") ~= "" or attr("InvCarry") ~= ""
 end
 
-local function onDrop(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+-- Touch buttons: never unbind an action while its button is held. Pressing DROP drops the item, the
+-- InvHand attr clears and rebind() used to unbind InvDrop mid-press; the button's End then hit an
+-- unbound action ("ContextActionService::CallFunction does not have a function for InvDrop" /
+-- "could not find the function passed in"). Held actions stay bound until released (then rebind).
+local held: { [string]: boolean } = {}
+local rebind: () -> ()
+
+local function track(name: string, state: Enum.UserInputState)
+	if state == Enum.UserInputState.Begin then
+		held[name] = true
+	elseif held[name] and (state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel) then
+		held[name] = nil
+		task.defer(rebind) -- after this callback returns, never from inside it
+	end
+end
+
+local function onDrop(n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	track(n, state)
 	if not hasItem() then
 		return Enum.ContextActionResult.Pass
 	end
@@ -331,7 +348,8 @@ local function onDrop(_n: string, state: Enum.UserInputState, _i: InputObject): 
 	return Enum.ContextActionResult.Sink
 end
 
-local function onThrow(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+local function onThrow(n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	track(n, state)
 	if not hasItem() then
 		chargeStart = nil
 		return Enum.ContextActionResult.Pass
@@ -353,7 +371,8 @@ local function onThrow(_n: string, state: Enum.UserInputState, _i: InputObject):
 	return Enum.ContextActionResult.Sink
 end
 
-local function onSwap(_n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+local function onSwap(n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+	track(n, state)
 	if attr("InvHand") == "" and attr("InvBack") == "" then
 		return Enum.ContextActionResult.Pass
 	end
@@ -363,7 +382,7 @@ local function onSwap(_n: string, state: Enum.UserInputState, _i: InputObject): 
 	return Enum.ContextActionResult.Sink
 end
 
-local function rebind()
+function rebind()
 	local wantItem = hasItem()
 	if wantItem and not boundItem then
 		ContextActionService:BindAction("InvDrop", onDrop, true, Enum.KeyCode.G, Enum.KeyCode.ButtonB)
@@ -374,7 +393,7 @@ local function rebind()
 		ThumbLayout.place("InvDrop", "upleft")
 		ThumbLayout.place("InvThrow", "left")
 		boundItem = true
-	elseif not wantItem and boundItem then
+	elseif not wantItem and boundItem and not held.InvDrop and not held.InvThrow then
 		ThumbLayout.forget("InvDrop")
 		ThumbLayout.forget("InvThrow")
 		ContextActionService:UnbindAction("InvDrop")
@@ -388,7 +407,7 @@ local function rebind()
 		ContextActionService:SetTitle("InvSwap", "SWAP")
 		ThumbLayout.place("InvSwap", "above")
 		boundSwap = true
-	elseif not wantSwap and boundSwap then
+	elseif not wantSwap and boundSwap and not held.InvSwap then
 		ThumbLayout.forget("InvSwap")
 		ContextActionService:UnbindAction("InvSwap")
 		boundSwap = false
