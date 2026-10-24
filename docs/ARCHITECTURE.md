@@ -75,8 +75,16 @@ forge/                 Python package (uv), entry point `forge`
                        bug exists (```luau block, `-- check:` / `-- covers:` header)
   dashboard.py         `forge dashboard`: live view of runs/ (collect() -> GET /api/state + dashboard.html);
                        per game: live (role at work), goal, missions (one per version, what_improved()),
-                       features. POST /api/rollback {slug, version} -> rollback(): GameVersions.restore,
-                       127.0.0.1 only, 409 while a run is building that game
+                       features; team_view(settings, slug, game) -> game["team"] = {lanes, testers,
+                       critic_shots, timeline, speed} and mubit["ledger"] (ledger_view: per role calls,
+                       corrections, kept; "correction -> model update" moments). Reads (all optional)
+                       runs/<slug>/timings.json {stages[{name,start,end,secs,before_secs}], lanes[...],
+                       calls[{role,lane,start,end,latency_ms,step,thought}], speedups[{stage,before_secs,
+                       after_secs}]} (else derived from calls.jsonl + traces) and runs/<slug>/tests/<run>/
+                       {report.json, step-NN.png[, step-NN.json]} (steps: action, reason, latency_ms,
+                       ts, assertions[{text, ok, detail}]). GET /api/shot?slug=&path= serves only .png
+                       under runs/<slug>/{tests,iterations}/. POST /api/rollback {slug, version} ->
+                       rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building
   feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish) -> result:
                        planner plan -> coder (new modules) -> patcher/fixer (hook edits, destructive guard) ->
                        compile -> version -> iterate -> polish_feature (round_starting AI testers, auditor vs

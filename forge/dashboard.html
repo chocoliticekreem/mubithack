@@ -204,6 +204,122 @@
     border-radius: 14px; padding: 10px 16px; font-weight: 800; display: none; max-width: calc(100% - 32px); }
   .note.show { display: block; animation: pop .3s cubic-bezier(.34,1.56,.64,1); }
 
+  /* ---------- mission control: live lanes */
+  .mc { margin-top: 18px; }
+  .sec-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 12px; }
+  .sec-head h2 { font-size: 24px; }
+  .sec-head .sub { color: var(--muted); font-weight: 800; font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { border: 3px solid var(--ink); border-radius: 16px; padding: 8px 12px; background: var(--panel2); box-shadow: 0 3px 0 var(--ink); min-width: 0; }
+  .tile .k { font: 900 11px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tile .v { font: 30px/1.05 var(--head); color: var(--text, var(--ink)); white-space: nowrap; }
+  .tile .v small { font: 800 13px var(--body); color: var(--muted); }
+  .tile.hot { background: linear-gradient(135deg, #fff6c9, #ffe27a); color: var(--ink); } .tile.hot .v { color: var(--ink); } .tile.hot .k { color: #6b5a12; }
+  .lanes { display: grid; gap: 6px; }
+  .lane { display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; align-items: center;
+    padding: 6px 10px 6px 6px; border-radius: 14px; background: var(--panel2); border: 2px solid transparent; }
+  .lane.running { border-color: var(--ink); background: linear-gradient(90deg, #fff6c9, var(--panel2) 40%); }
+  :root[data-theme="dark"] .lane.running { background: linear-gradient(90deg, #4a3d1a, var(--panel2) 40%); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lane.running { background: linear-gradient(90deg, #4a3d1a, var(--panel2) 40%); } }
+  .lane .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .lane .who svg { width: 34px; height: 40px; flex: none; }
+  .lane.running .who svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .lane .nm { font-weight: 900; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
+  .lane .st { display: block; font: 900 10px var(--body); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .lane.running .st { color: #15803d; } .lane.failed .st { color: #b91c1c; }
+  .track { position: relative; height: 22px; border-radius: 8px; background: var(--panel); border: 2px solid var(--ink); overflow: hidden; }
+  .track i { position: absolute; top: 3px; bottom: 3px; min-width: 4px; border-radius: 4px; border: 1.5px solid var(--ink); }
+  .track i.open { background-image: repeating-linear-gradient(45deg, transparent 0 5px, #ffffff88 5px 10px) !important; animation: stripes 1s linear infinite; background-size: 28px 28px; }
+  @keyframes stripes { to { background-position: 28px 0; } }
+  .track .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  .lane .now { min-width: 0; font-size: 13px; }
+  .lane .step { font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane .thought { color: var(--muted); font-weight: 700; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane .lat { float: right; margin-left: 8px; font: 900 11px var(--body); border: 2px solid var(--ink); border-radius: 8px; padding: 0 6px; background: var(--panel); color: var(--text, var(--ink)); }
+  .lane .pf { margin-left: 6px; font: 900 11px var(--body); }
+  .ok { color: #15803d; } .bad { color: #b91c1c; }
+  .axis { display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; padding: 0 10px 0 6px;
+    font: 800 11px var(--body); color: var(--muted); }
+  .axis div { display: flex; justify-content: space-between; }
+
+  /* ---------- screenshot feed */
+  .grid2b { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 18px; align-items: start; margin-top: 18px; }
+  .tester { margin-bottom: 14px; } .tester:last-child { margin-bottom: 0; }
+  .tester .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .tester .nm { font-weight: 900; text-transform: capitalize; }
+  .strip { display: grid; grid-auto-flow: column; grid-auto-columns: 132px; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x mandatory; }
+  .shot { position: relative; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #1a1033; padding: 0; scroll-snap-align: start;
+    aspect-ratio: 16 / 10; color: #fff; text-align: left; transition: transform .12s; }
+  .shot:hover, .shot:focus-visible { transform: translateY(-3px); outline: none; box-shadow: 0 0 0 3px var(--cyan); }
+  .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .shot .noimg { position: absolute; inset: 0; display: grid; place-items: center; font: 800 11px var(--body); color: #b3a9dc; }
+  .shot .n { position: absolute; left: 4px; top: 4px; font: 900 10px var(--body); background: #1a1033cc; border-radius: 6px; padding: 0 5px; }
+  .shot .badge { position: absolute; right: 4px; top: 4px; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--ink);
+    display: grid; place-items: center; font: 900 12px/1 var(--body); color: var(--ink); }
+  .badge.pass { background: var(--green); } .badge.fail { background: var(--red); color: #fff; } .badge.none { background: var(--grey); }
+  .shot .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 6px 3px; font: 800 10px/1.2 var(--body);
+    background: linear-gradient(transparent, #0b0620ee); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lightbox { position: fixed; inset: 0; z-index: 35; display: none; align-items: center; justify-content: center; padding: 16px; background: #0b0620e6; }
+  .lightbox.open { display: flex; }
+  .lb { width: min(980px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 14px;
+    animation: pop .3s cubic-bezier(.34,1.56,.64,1); }
+  .lb .pic { background: #1a1033; border-radius: 14px; border: 3px solid var(--ink); overflow: hidden; display: grid; place-items: center; min-height: 240px; }
+  .lb .pic img { width: 100%; display: block; }
+  .lb h3 { font-size: 22px; line-height: 1.1; margin: 4px 0 8px; }
+  .asserts { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+  .asserts li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; font-weight: 800; font-size: 13px; }
+  .asserts .badge { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; font: 900 12px var(--body); color: var(--ink); }
+  .asserts small { display: block; color: var(--muted); font-weight: 700; }
+
+  /* ---------- Mubit panel */
+  .mrow { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .mrow .r { font-weight: 900; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow .nums { font: 800 12px var(--body); color: var(--muted); white-space: nowrap; }
+  .mrow .nums b { color: var(--text, var(--ink)); }
+  .meter { height: 14px; border-radius: 99px; border: 2px solid var(--ink); background: var(--panel2); overflow: hidden; position: relative; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--yellow), var(--orange)); }
+  .meter i.full { background: linear-gradient(90deg, #7af0a9, var(--green)); }
+  .meter span { position: absolute; inset: 0; font: 900 9px/10px var(--body); text-align: center; color: var(--ink); }
+  .moments { display: grid; gap: 8px; margin-top: 12px; }
+  .moment { border: 3px solid var(--ink); border-radius: 14px; padding: 8px 10px; background: linear-gradient(120deg, #ffe0f0, #fff6c9); color: var(--ink); font-size: 13px; }
+  .moment.verified { background: linear-gradient(120deg, #d9fbe6, #fff6c9); }
+  .moment.fresh { animation: glowin 2.4s ease-out 2; }
+  @keyframes glowin { 0% { box-shadow: 0 0 0 0 #ff4fa3aa; } 60% { box-shadow: 0 0 0 10px #ff4fa300; } }
+  .moment .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font: 900 12px var(--body); }
+  .moment .flow .arrow { font-size: 15px; }
+  .moment .what { font-weight: 800; margin-top: 3px; }
+  .moment code { font: 11px ui-monospace, Menlo, monospace; color: #4b3f74; }
+
+  /* ---------- version timeline + speed */
+  .chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart text { font: 800 11px var(--body); fill: var(--muted); }
+  .chart .lbl { font: 900 12px var(--body); fill: var(--text, var(--ink)); }
+  .chart .grid { stroke: var(--line); stroke-width: 1; }
+  .chart .hit { fill: transparent; cursor: pointer; }
+  .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: #fff; border-radius: 10px; padding: 6px 10px; font: 800 12px/1.35 var(--body);
+    max-width: 260px; display: none; box-shadow: 0 4px 14px #0006; }
+  .key { display: flex; gap: 14px; font: 800 12px var(--body); color: var(--muted); margin: 2px 0 6px; flex-wrap: wrap; }
+  .key span { display: inline-flex; align-items: center; gap: 5px; } .key i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+  .vlist { display: grid; gap: 4px; margin-top: 10px; max-height: 260px; overflow: auto; }
+  .vrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 13px; padding: 4px 6px; border-radius: 10px; }
+  .vrow:nth-child(odd) { background: var(--panel2); }
+  .vrow .t { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vrow .d { font: 900 12px var(--body); white-space: nowrap; } .vrow .diff { font: 800 11px ui-monospace, Menlo, monospace; color: var(--muted); white-space: nowrap; }
+  .up { color: #15803d; } .down { color: #b91c1c; }
+  .bars { display: grid; gap: 9px; margin-top: 8px; }
+  .brow .bl { display: flex; justify-content: space-between; font: 900 12px var(--body); gap: 8px; }
+  .brow .bl .nm { text-transform: capitalize; } .brow .bl .xf { color: #15803d; }
+  .bpair { display: grid; gap: 2px; margin-top: 3px; }
+  .bpair i { display: block; height: 10px; border-radius: 0 4px 4px 0; min-width: 3px; }
+  .bpair .before { background: var(--grey); } .bpair .after { background: var(--green); outline: 1.5px solid var(--ink); }
+
+  @media (max-width: 900px) {
+    .grid2b { grid-template-columns: minmax(0, 1fr); }
+    .lane, .axis { grid-template-columns: 150px minmax(0, 1fr); } .lane .now { grid-column: 1 / -1; } .axis > :last-child { display: none; }
+    .lb { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 560px) { .lane, .axis { grid-template-columns: minmax(0, 1fr); } .axis > :first-child { display: none; } .tile .v { font-size: 24px; white-space: normal; } .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
   /* ---------- nerd view (the old dashboard, kept) */
   .nerd { display: none; margin-top: 22px; }
   body.nerdy .nerd { display: grid; gap: 18px; }
@@ -253,6 +369,8 @@
   </header>
 
   <div id="main"><div class="card empty">Loading the workshop…</div></div>
+  <div id="team"></div>
+  <div id="mapBox"></div>
 
   <section class="nerd" id="nerd">
     <div><h2>Running</h2><div id="running" class="ngrid"></div></div>
@@ -269,6 +387,8 @@
   <div class="toast"><div class="kicker">MISSION COMPLETE</div><div class="what" id="toastWhat"></div><div class="sub" id="toastSub"></div></div>
 </div>
 <div class="note" id="note" role="status"></div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Tester screenshot"><div class="card lb" id="lb"></div></div>
+<div class="tip" id="tip" role="tooltip"></div>
 
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -460,13 +580,207 @@ function renderMap(g) {
 
 function renderMain() {
   const g = game();
-  if (!g) { put("main", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); return; }
+  if (!g) { put("main", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); put("team", ""); put("mapBox", ""); return; }
   const status = g.live ? `<span class="chip live"><i class="dot"></i>live</span>` : g.missions.length ? `<span class="chip done">ready</span>` : "";
   put("main", `<div class="grid2">
     <div class="card"><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
       <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
       ${renderStage(g)}${g.live ? "" : renderReport(g)}</div>
-    ${renderGoal(g)}</div>${renderMap(g)}`);
+    ${renderGoal(g)}</div>`);
+  renderTeamInto(g);
+  put("mapBox", renderMap(g));
+}
+
+// ------------------------------------------------------------------ mission control (live team)
+const MEMBER = {};
+for (const t of TEAM) for (const r of t.roles) MEMBER[r] = t;
+Object.assign(MEMBER, {tester: TEAM.find(t => t.key === "tester"), reflector: TEAM.find(t => t.key === "coach")});
+const member = role => MEMBER[role] || {name: role, hat: "#b7b1cc", body: "#e2dcf5", tool: "clip", roles: [role]};
+const secs = s => { if (s == null) return "–"; if (s < 10) return `${(+s).toFixed(1)}s`; const t = Math.round(s);
+  return t < 60 ? `${t}s` : t < 3600 ? `${Math.floor(t / 60)}m ${String(t % 60).padStart(2, "0")}s` : `${(t / 3600).toFixed(1)}h`; };
+const ms = v => !v ? "" : v < 1000 ? `${v}ms` : `${(v / 1000).toFixed(1)}s`;
+const LANE_STATUS = {running: "working now", done: "done", failed: "failed", stopped: "stopped", idle: "idle"};
+const SHOTS = {};           // shot key -> step, for the lightbox
+let LB = null;              // {key, list}
+const seenMoments = new Set(JSON.parse(store.get("forge.moments") || "[]"));
+
+function laneRow(ln, span, liveSpan) {
+  const m = member(ln.role);
+  const segs = ln.spans.map(([s, e]) => {
+    const end = e == null ? liveSpan : e;
+    const left = Math.max(0, s / span * 100), w = Math.max(0.6, (end - s) / span * 100);
+    return `<i class="${e == null ? "open" : ""}" style="left:${left.toFixed(2)}%;width:${Math.min(w, 100 - left).toFixed(2)}%;background-color:${m.hat}"></i>`;
+  }).join("");
+  const pf = ln.kind === "tester" && (ln.passed || ln.failed) ? `<span class="pf"><span class="ok">✓${ln.passed}</span> <span class="bad">✗${ln.failed}</span></span>` : "";
+  return `<div class="lane ${esc(ln.status)}">
+    <div class="who">${botSvg(m)}<div style="min-width:0"><div class="nm" title="${esc(ln.label)}">${esc(ln.label)}</div>
+      <span class="st">${esc(LANE_STATUS[ln.status] || ln.status)} · ${ln.calls} ${ln.kind === "tester" ? "step" : "call"}${ln.calls === 1 ? "" : "s"}${pf}</span></div></div>
+    <div class="track" role="img" aria-label="${esc(ln.label)}: ${ln.spans.length} calls on the run timeline">${[25, 50, 75].map(p => `<span class="tick" style="left:${p}%"></span>`).join("")}${segs}</div>
+    <div class="now">${ln.latency_ms ? `<span class="lat" title="latency of its latest call">${ms(ln.latency_ms)}</span>` : ""}
+      <div class="step">${esc(ln.step || (ln.status === "running" ? "thinking…" : "–"))}</div>
+      <div class="thought">${ln.thought ? `“${esc(ln.thought)}”` : "&nbsp;"}</div></div></div>`;
+}
+
+function renderLanes(g) {
+  const L = g.team.lanes, sp = g.team.speed;
+  const skew = (Date.now() / 1000 - DATA.now);
+  const liveSpan = L.running ? Math.max(L.span_secs, Date.now() / 1000 - skew - L.t0) : L.span_secs;
+  const span = Math.max(liveSpan, 1);
+  const best = (sp.speedups || []).reduce((a, s) => (s.x || 0) > (a?.x || 0) ? s : a, null);
+  const led = DATA.mubit.ledger || {};
+  const tiles = `<div class="tiles">
+    <div class="tile ${L.running ? "hot" : ""}"><div class="k">Agents working</div><div class="v">${L.running}<small> of ${L.lanes.length}</small></div></div>
+    <div class="tile"><div class="k">Most at once</div><div class="v">${L.parallel_peak}<small> in parallel</small></div></div>
+    <div class="tile"><div class="k">Wall clock</div><div class="v">${secs(sp.wall_secs)}</div></div>
+    <div class="tile ${best ? "hot" : ""}"><div class="k">Speed-up</div><div class="v">${best ? `×${best.x}` : "–"}<small>${best ? ` ${secs(best.before_secs)} → ${secs(best.after_secs)}` : ""}</small></div></div>
+    <div class="tile"><div class="k">Corrections fed</div><div class="v">${led.corrections ?? 0}<small> · ${led.verified ?? 0} kept</small></div></div>
+  </div>`;
+  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as Forge makes its first Mubit call.</div>`;
+  const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
+  return `${tiles}<div class="lanes">${L.lanes.map(ln => laneRow(ln, span, liveSpan)).join("")}</div>
+    <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
+}
+
+function shotTile(t, s) {
+  const key = `${t.run}#${s.n}`; SHOTS[key] = {t, s};
+  const st = s.ok === true ? "pass" : s.ok === false ? "fail" : "none";
+  return `<button class="shot" data-shot="${esc(key)}" aria-label="${esc(t.label)} step ${s.n}: ${esc(s.action)} (${st})">
+    ${s.shot ? `<img src="${esc(s.shot)}" alt="" loading="lazy">` : `<span class="noimg">no screenshot</span>`}
+    <span class="n">#${s.n}</span><span class="badge ${st}">${st === "pass" ? "✓" : st === "fail" ? "✗" : "·"}</span>
+    <span class="cap">${esc(s.action)}</span></button>`;
+}
+
+function renderFeed(g) {
+  const T = g.team.testers, crit = g.team.critic_shots;
+  if (!T.length && !crit.length) return `<div class="empty">No tester screenshots yet. Testers save one per step to runs/${esc(g.slug)}/tests/&lt;run&gt;/step-NN.png.</div>`;
+  const rows = T.slice().reverse().map(t => `<div class="tester"><div class="row">${botSvg(member("tester")).replace("<svg", '<svg style="width:26px;height:30px"')}
+      <span class="nm">${esc(t.label)}</span>${pill(t.status === "done" ? "finished" : t.status)}
+      <span class="small muted">${t.n_steps} steps · <span class="ok">✓ ${t.passed}</span> · <span class="bad">✗ ${t.failed}</span>${t.goal ? ` · goal: ${esc(t.goal)}` : ""}</span></div>
+    <div class="strip">${t.steps.slice().reverse().map(s => shotTile(t, s)).join("")}</div></div>`).join("");
+  const critic = crit.length ? `<div class="tester"><div class="row"><span class="nm">Critic playtests</span><span class="small muted">one screenshot per build round</span></div>
+    <div class="strip">${crit.slice().reverse().map(c => shotTile({run: "critic", label: "Critic", goal: ""}, {n: c.n, action: `round ${c.n}`, shot: c.shot, ok: null, assertions: [], reason: "", result: ""})).join("")}</div></div>` : "";
+  return rows + critic;
+}
+
+function renderLedger() {
+  const led = DATA.mubit.ledger || {roles: [], moments: []};
+  if (!led.roles.length) return `<div class="empty">No Mubit calls recorded yet.</div>`;
+  const rows = led.roles.map(r => {
+    const pct = Math.min(100, r.calls / r.train_at * 100);
+    return `<div class="mrow"><span class="r">${esc(member(r.role).name === r.role ? r.role : member(r.role).name)}</span>
+      <div class="meter" title="${r.calls} of the ${r.train_at} examples a Mubit task needs before it trains"><i class="${pct >= 100 ? "full" : ""}" style="width:${pct}%"></i><span>${r.calls}/${r.train_at}</span></div>
+      <span class="nums"><b>${r.corrections}</b> corr · <b>${r.kept}</b> kept</span></div>`;
+  }).join("");
+  const moments = led.moments.slice(0, 5).map(m => {
+    const fresh = !seenMoments.has(m.request_id + m.kind);
+    const who = member(m.role).name;
+    const head = m.kind === "correction"
+      ? `<span>✏️ ${esc(who)} corrected</span><span class="arrow">→</span><span>example ${m.example_n}/${m.train_at} for Mubit task <u>${esc(m.role)}</u></span><span class="arrow">→</span><span>${m.trains ? "model update" : `trains at ${m.train_at}`}</span>${m.verified ? `<span class="arrow">→</span><span>✅ retry proved in play</span>` : ""}`
+      : `<span>✅ ${esc(who)}'s fix proved in play</span><span class="arrow">→</span><span>rated Good in task <u>${esc(m.role)}</u></span>`;
+    return `<div class="moment ${m.kind} ${fresh ? "fresh" : ""}"><div class="flow">${head}</div>
+      <div class="what">${esc(m.what)}</div><code>${esc(m.request_id || "")}</code> <span class="small muted">${esc(m.slug || "")} · ${esc(when(m.ts))}</span></div>`;
+  }).join("");
+  for (const m of led.moments) seenMoments.add(m.request_id + m.kind);
+  store.set("forge.moments", JSON.stringify([...seenMoments].slice(-200)));
+  return `<div class="small muted" style="margin-bottom:6px">${led.total_calls} calls · ${led.corrections} corrections · ${led.verified} kept · each role is one Mubit task that trains at ${led.train_at} examples</div>
+    ${rows}<div class="sec-head" style="margin:14px 0 0"><h3 style="font-size:18px">Correction → model update</h3>
+    <a class="btn small ghost" href="${esc(led.console || DATA.mubit.console)}" target="_blank" rel="noopener">Mubit console ↗</a></div>
+    <div class="moments">${moments || `<div class="empty small">No corrections yet. The first rejected fix or <code>forge correct</code> shows up here.</div>`}</div>`;
+}
+
+const C_CRITIC = "#e8710a", C_FUN = "#7c4ddb";
+function renderTimeline(g) {
+  const tl = g.team.timeline;
+  if (!tl.length) return `<div class="empty">No versions yet.</div>`;
+  const W = 520, H = 190, pl = 28, pr = 70, pt = 12, pb = 26;
+  const xs = i => pl + (tl.length === 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (tl.length - 1));
+  const ys = v => pt + (10 - v) * (H - pt - pb) / 10;
+  const grid = [0, 2.5, 5, 7.5, 10].map(v => `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${pl - 6}" y="${ys(v) + 4}" text-anchor="end">${v}</text>`).join("");
+  const ends = {};
+  const series = (key, color, name) => {
+    const pts = tl.map((v, i) => v[key] != null ? [xs(i), ys(v[key]), v, i] : null).filter(Boolean);
+    if (!pts.length) return "";
+    const path = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("");
+    const lastp = pts[pts.length - 1];
+    let ly = lastp[1] + 4;
+    for (const y of Object.values(ends)) if (Math.abs(ly - y) < 13) ly = y + (ly >= y ? 13 : -13);
+    ends[key] = ly;
+    return `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
+      ${pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="${color}" stroke="var(--panel)" stroke-width="2"/>`).join("")}
+      <text class="lbl" x="${lastp[0] + 9}" y="${ly}">${name} ${lastp[2][key]}</text>`;
+  };
+  const xl = tl.map((v, i) => tl.length <= 12 || i % Math.ceil(tl.length / 12) === 0 || v.current ? `<text x="${xs(i)}" y="${H - 8}" text-anchor="middle">${esc(v.version)}</text>` : "").join("");
+  const hits = tl.map((v, i) => `<rect class="hit" data-tipv="${i}" x="${xs(i) - 14}" y="${pt}" width="28" height="${H - pt - pb}"/>`).join("");
+  const anyFun = tl.some(v => v.fun != null);
+  const rows = tl.slice().reverse().map(v => `<div class="vrow"><span class="chip" style="padding:0 6px">${esc(v.version)}</span>
+      <span class="t" title="${esc(v.summary || v.title)}">${esc(v.title)}</span>
+      <span class="d ${v.delta > 0 ? "up" : v.delta < 0 ? "down" : ""}">${v.score != null ? `${v.score}${v.delta ? ` (${v.delta > 0 ? "+" : ""}${v.delta})` : ""}` : ""}</span>
+      <span class="diff" title="${v.files} files changed">+${v.added} −${v.removed}</span></div>`).join("");
+  return `<div class="key"><span><i style="background:${C_CRITIC}"></i>critic score</span>${anyFun ? `<span><i style="background:${C_FUN}"></i>fun score</span>` : ""}<span>out of 10, per version</span></div>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="critic${anyFun ? " and fun" : ""} score per version">${grid}${xl}${series("score", C_CRITIC, "critic")}${series("fun", C_FUN, "fun")}${hits}</svg>
+    <div class="vlist">${rows}</div>`;
+}
+
+function renderSpeed(g) {
+  const sp = g.team.speed;
+  if (!sp.stages.length) return `<div class="empty">No timings yet.</div>`;
+  const max = Math.max(...sp.stages.map(s => Math.max(s.before_secs || 0, s.secs || 0)), 1);
+  const ups = (sp.speedups || []).map(s => `<div class="tile hot"><div class="k">${esc(s.stage)}</div><div class="v">${s.x ? `×${s.x}` : "–"}<small> ${secs(s.before_secs)} → ${secs(s.after_secs)}</small></div></div>`).join("");
+  const bars = sp.stages.map(s => `<div class="brow"><div class="bl"><span><span class="nm">${esc(s.stage)}</span>${s.parallel > 1 ? ` <span class="muted">×${s.parallel} at once</span>` : ""}</span>
+      <span>${secs(s.secs)}${s.running ? " …" : ""}${s.x ? ` <span class="xf">×${s.x} faster</span>` : ""}</span></div>
+    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="Forge: ${secs(s.secs)}"></i></div></div>`).join("");
+  return `${ups ? `<div class="tiles">${ups}</div>` : ""}
+    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>Forge, agents side by side</span></div>
+    <div class="bars">${bars}</div>
+    <div class="small muted" style="margin-top:10px">${sp.calls} Mubit calls · median ${ms(sp.p50_ms) || "–"} · p90 ${ms(sp.p90_ms) || "–"}${g.team.has_timings ? "" : " · from calls.jsonl"}</div>`;
+}
+
+const TEAM_SKELETON = `<div class="card mc"><div class="sec-head"><h2>Mission control</h2><span class="sub" id="mcSub"></span></div><div id="tLanes"></div></div>
+  <div class="grid2b"><div class="card"><div class="sec-head"><h2>What the testers see</h2><span class="sub">tap a screenshot to enlarge</span></div><div id="tFeed"></div></div>
+    <div class="card"><div class="sec-head"><h2>Mubit learning</h2></div><div id="tLedger"></div></div></div>
+  <div class="grid2b"><div class="card"><div class="sec-head"><h2>Version timeline</h2><span class="sub">is every version better?</span></div><div id="tTimeline"></div></div>
+    <div class="card"><div class="sec-head"><h2>Speed</h2><span class="sub">wall clock per stage</span></div><div id="tSpeed"></div></div></div>`;
+
+function renderTeamInto(g) {
+  if (!g.team) { put("team", ""); return; }
+  if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub"]) delete last[k]; put("team", TEAM_SKELETON); }
+  put("mcSub", `Every Forge agent and tester, side by side${g.live ? " · live" : ""}`);
+  put("tLanes", renderLanes(g));
+  for (const k of Object.keys(SHOTS)) delete SHOTS[k];
+  put("tFeed", renderFeed(g));
+  put("tLedger", renderLedger());
+  put("tTimeline", renderTimeline(g));
+  put("tSpeed", renderSpeed(g));
+}
+
+function renderLightbox() {
+  if (!LB) { $("lightbox").classList.remove("open"); return; }
+  const {t, s} = SHOTS[LB] || {};
+  if (!s) { LB = null; return renderLightbox(); }
+  const keys = Object.keys(SHOTS).filter(k => k.startsWith(t.run + "#")).sort((a, b) => +a.split("#")[1] - +b.split("#")[1]);
+  const i = keys.indexOf(LB);
+  const asserts = (s.assertions || []).map(a => `<li><span class="badge ${a.ok === true ? "pass" : a.ok === false ? "fail" : "none"}" style="${a.ok === true ? "background:var(--green)" : a.ok === false ? "background:var(--red);color:#fff" : "background:var(--grey)"}">${a.ok === true ? "✓" : a.ok === false ? "✗" : "·"}</span>
+    <span>${esc(a.text)}${a.detail ? `<small>${esc(a.detail)}</small>` : ""}</span></li>`).join("");
+  $("lb").innerHTML = `<div class="pic">${s.shot ? `<img src="${esc(s.shot)}" alt="${esc(t.label)} step ${s.n}">` : `<span class="muted">no screenshot for this step</span>`}</div>
+    <div><div class="actions"><span class="chip">${esc(t.label)} · step ${s.n}</span><button class="x" id="lbClose" aria-label="Close">✕</button></div>
+      <h3>${esc(s.action)}</h3>
+      ${s.reason ? `<div class="fact"><span class="lbl">Why (its thought)</span>${esc(s.reason)}</div>` : ""}
+      ${s.result ? `<div class="fact" style="margin-top:8px"><span class="lbl">What happened</span>${esc(s.result)}</div>` : ""}
+      ${asserts ? `<div class="fact" style="margin-top:8px"><span class="lbl">Assertions</span><ul class="asserts">${asserts}</ul></div>` : ""}
+      ${s.latency_ms ? `<div class="small muted" style="margin-top:8px">decided in ${ms(s.latency_ms)}</div>` : ""}
+      <div class="actions" style="margin-top:12px"><button class="btn small ghost" id="lbPrev" ${i <= 0 ? "disabled" : ""}>← earlier</button><button class="btn small ghost" id="lbNext" ${i < 0 || i >= keys.length - 1 ? "disabled" : ""}>later →</button></div></div>`;
+  $("lb").dataset.prev = keys[i - 1] || ""; $("lb").dataset.next = keys[i + 1] || "";
+  $("lightbox").classList.add("open");
+}
+
+function showTip(e) {
+  const r = e.target.closest("[data-tipv]"), tip = $("tip");
+  if (!r) { tip.style.display = "none"; return; }
+  const v = game()?.team?.timeline[+r.dataset.tipv]; if (!v) return;
+  tip.innerHTML = `<b>${esc(v.version)}</b> · ${esc(v.title)}<br>critic ${v.score ?? "–"}${v.fun != null ? ` · fun ${v.fun}` : ""}${v.delta ? ` · ${v.delta > 0 ? "+" : ""}${v.delta}` : ""}<br>+${v.added} −${v.removed} lines in ${v.files} files${v.summary ? `<br><span style="opacity:.8">${esc(v.summary)}</span>` : ""}`;
+  tip.style.display = "block";
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = (e.clientY + 14) + "px";
 }
 
 function renderPicker() {
@@ -502,8 +816,8 @@ function renderDetail() {
   $("scrim").classList.add("open");
 }
 
-function openDetail(v) { DETAIL = v; CONFIRM = null; renderDetail(); last.main = null; renderMain(); }
-function closeDetail() { DETAIL = null; CONFIRM = null; $("scrim").classList.remove("open"); last.main = null; renderMain(); }
+function openDetail(v) { DETAIL = v; CONFIRM = null; renderDetail(); last.main = last.mapBox = null; renderMain(); }
+function closeDetail() { DETAIL = null; CONFIRM = null; $("scrim").classList.remove("open"); last.main = last.mapBox = null; renderMain(); }
 
 function note(text) { const n = $("note"); n.textContent = text; n.classList.remove("show"); void n.offsetWidth; n.classList.add("show"); clearTimeout(note.t); note.t = setTimeout(() => n.classList.remove("show"), 4200); }
 
@@ -601,7 +915,17 @@ function renderNerd() {
 $("pick").addEventListener("change", e => { if (!e.target.value) return; SEL = e.target.value; store.set("forge.sel", SEL); queue.length = 0; renderMain(); });
 $("nerdBtn").addEventListener("click", e => { const on = document.body.classList.toggle("nerdy"); e.target.setAttribute("aria-pressed", on); e.target.textContent = on ? "Simple view" : "Nerd view"; store.set("forge.nerd", on ? "1" : ""); if (DATA) renderNerd(); });
 if (store.get("forge.nerd")) $("nerdBtn").click();
-$("main").addEventListener("click", e => {
+$("team").addEventListener("click", e => {
+  const sh = e.target.closest("[data-shot]"); if (sh) { LB = sh.dataset.shot; renderLightbox(); }
+});
+$("team").addEventListener("mousemove", showTip);
+$("team").addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
+$("lightbox").addEventListener("click", e => {
+  if (e.target === $("lightbox") || e.target.closest("#lbClose")) { LB = null; return renderLightbox(); }
+  if (e.target.closest("#lbPrev") && $("lb").dataset.prev) { LB = $("lb").dataset.prev; renderLightbox(); }
+  if (e.target.closest("#lbNext") && $("lb").dataset.next) { LB = $("lb").dataset.next; renderLightbox(); }
+});
+$("mapBox").addEventListener("click", e => {
   const slot = e.target.closest(".slot"); if (slot) return openDetail(slot.dataset.v);
   if (e.target.closest("#replay")) { queue.length = 0; queue.push(...game().missions.filter(m => isMission(m) && !/^Playtest round/.test(m.title))); play(); }
 });
@@ -611,7 +935,15 @@ $("scrim").addEventListener("click", e => {
   if (e.target.closest("#noRollback")) { CONFIRM = null; return renderDetail(); }
   if (e.target.closest("#doRollback")) return doRollback();
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && DETAIL) closeDetail(); });
+document.addEventListener("keydown", e => {
+  if (LB) {
+    if (e.key === "Escape") { LB = null; renderLightbox(); }
+    else if (e.key === "ArrowLeft" && $("lb").dataset.prev) { LB = $("lb").dataset.prev; renderLightbox(); }
+    else if (e.key === "ArrowRight" && $("lb").dataset.next) { LB = $("lb").dataset.next; renderLightbox(); }
+    return;
+  }
+  if (e.key === "Escape" && DETAIL) closeDetail();
+});
 
 async function refresh() {
   try {
@@ -619,6 +951,8 @@ async function refresh() {
     DATA = await r.json();
     if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
     renderPicker(); renderMain(); renderNerd(); noticeNew();
+    const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
+    if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
     $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
