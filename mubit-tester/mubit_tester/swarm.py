@@ -16,7 +16,9 @@
   `swarm_triage` call (same root cause), then ranked by severity x frequency (distinct testers).
 
 Report: runs/playtests/<run_id>/report.json (kind "swarm", `bugs` ranked) + shots/*.png, readable
-with `report <run_id>` and usable by `suggest_fix`.
+with `report <run_id>` and usable by `suggest_fix`. Dashboard lanes: every tester also writes
+runs/<slug>/tests/<run_id>-NN-<persona>/{report.json, step-NN.png} (docs/ARCHITECTURE.md,
+forge/dashboard.py testers_view), updated after each step so all testers show as live lanes.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import asyncio
 import json
 import math
 import re
+import shutil
 import time
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -164,10 +167,13 @@ class MuxHarness(Harness):
         if len(batch) == 1 or self.multi_ok is False:
             await self._direct(batch)
             return
-        calls = [{"cmd": c, "args": a} for c, a, _ in batch]
+        # `_timeout` is a per-call wait budget (long macros), never sent to the game; a batch waits for its longest
+        budget = max([self.timeout] + [float(a.get("_timeout") or 0) for _, a, _ in batch])
+        calls = [{"cmd": c, "args": {k: v for k, v in a.items() if k != "_timeout"}} for c, a, _ in batch]
         try:
             self.stats["round_trips"] += 1
-            replies = await Harness.call(self, "multi", calls=calls, timeout=max(5, int(self.timeout) - 5))
+            replies = await Harness.call(self, "multi", calls=calls, timeout=max(5, int(budget) - 5),
+                                         _timeout=budget)
             self.multi_ok = True
         except HarnessError as e:
             if "unknown command 'multi'" in str(e):
@@ -225,7 +231,7 @@ class SwarmCamera:
         name = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{tester['key']}-{label}")[:60] + ".png"
         async with self.lock:
             try:
-                saved = await asyncio.wait_for(self.studio.screenshot(self.out_dir / name, cam, look), 45)
+                saved = await asyncio.wait_for(self.studio.screenshot(self.out_dir / "shots" / name, cam, look), 45)
             except Exception:  # noqa: BLE001
                 saved = None
         if not saved:
@@ -234,6 +240,56 @@ class SwarmCamera:
         self.shots.append({"tester": tester["name"], "persona": tester["key"], "label": label, "path": rel,
                            "camera": cam, "look_at": look})
         return rel
+
+
+# --------------------------------------------------------------------------- dashboard lanes
+
+
+def default_slug(settings: Settings) -> str:
+    """runs/<slug>/game -> slug; games/<name>/game -> name; else the game folder's name."""
+    game = Path(settings.base_game_dir).resolve()
+    return game.parent.name if game.name == "game" else game.name
+
+
+class TesterLane:
+    """One tester's dashboard lane: runs/<slug>/tests/<run>/report.json + step-NN.png, rewritten after
+    every step. Steps: n, action {action, args, reason}, reason, result, latency_ms, step_ms, ts (end,
+    epoch s) and assertions [{text, ok, detail}] (a reported bug is a failed assertion)."""
+
+    def __init__(self, root: Path, run_id: str, tester: dict, goal: str) -> None:
+        self.dir = Path(root) / f"{run_id}-{tester['index'] + 1:02d}-{tester['key']}"
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.report = {"run_id": run_id, "kind": "swarm_tester", "tester": f"{tester['label']} ({tester['name']})",
+                       "persona": tester["key"], "player_name": tester["name"], "real": tester.get("real", False),
+                       "goal": goal, "started": play._now_iso(), "ended": None, "goal_met": None, "summary": "",
+                       "steps": []}
+        self.save()
+
+    def save(self) -> None:
+        tmp = self.dir / "report.json.tmp"
+        tmp.write_text(json.dumps(self.report, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        tmp.replace(self.dir / "report.json")
+
+    def step(self, step: dict, bug: dict | None, shot: Path | None) -> None:
+        a = step.get("action") or {}
+        assertion = ({"text": bug["title"], "ok": False, "detail": _clip(bug.get("evidence", ""), 200)} if bug
+                     else {"text": "no new bug", "ok": True, "detail": ""})
+        self.report["steps"].append({
+            "n": step["n"], "action": {k: a.get(k) for k in ("action", "args", "reason") if k in a},
+            "reason": a.get("reason", ""), "result": _clip(step.get("result", ""), 300),
+            "latency_ms": step.get("latency_ms") or 0, "step_ms": step.get("ms") or 0, "ts": time.time(),
+            "assertions": [assertion]})
+        if shot is not None and Path(shot).is_file():
+            try:
+                shutil.copyfile(shot, self.dir / f"step-{step['n']:02d}.png")
+            except OSError:
+                pass
+        self.save()
+
+    def finish(self, summary: str) -> None:
+        self.report["ended"] = play._now_iso()
+        self.report["summary"] = summary
+        self.save()
 
 
 # --------------------------------------------------------------------------- roster
@@ -563,7 +619,8 @@ def _team(tester: dict, testers: list[dict], shared: _Shared, last: dict) -> lis
 
 async def _run_tester(tester: dict, *, harness, llm, sem: asyncio.Semaphore, camera: SwarmCamera | None,
                       shared: _Shared, testers: list[dict], last: dict, deadline: float, max_steps: int,
-                      game: dict, session_id: str, report: dict, shot_every: int) -> None:
+                      game: dict, session_id: str, report: dict, shot_every: int,
+                      lane: TesterLane | None = None, run_dir: Path | None = None) -> None:
     from mubit_tester import ai  # dispatch / action mapping shared with multi_playtest
 
     uid = tester["userId"]
@@ -608,11 +665,15 @@ async def _run_tester(tester: dict, *, harness, llm, sem: asyncio.Semaphore, cam
             step["result"] = f"error: {type(e).__name__}: {_clip(str(e), 300)}"
             report["errors"].append(f"{tester['name']} step {n}: {_clip(step['result'], 200)}")
             report["steps"].append(step)
+            if lane:
+                lane.step(step, None, None)
             await asyncio.sleep(LLM_BACKOFF)
             continue
         if step["action"].get("action") == "done":
             step["result"] = "done"
             report["steps"].append(step)
+            if lane:
+                lane.step(step, None, None)
             tester["steps"] = n
             break
         step["result"] = await ai.dispatch(harness, uid, step["action"])
@@ -636,7 +697,12 @@ async def _run_tester(tester: dict, *, harness, llm, sem: asyncio.Semaphore, cam
                 bug["shot"] = shot
             report["bug_reports"].append(bug)
         report["steps"].append(step)
+        if lane:
+            lane.step(step, bug, (run_dir / shot) if (shot and run_dir) else None)
         tester["steps"] = n
+    if lane:
+        mine = [b["title"] for b in report["bug_reports"] if b.get("tester") == tester["name"]]
+        lane.finish(f"{tester.get('steps', 0)} steps, {len(mine)} bug(s)" + (": " + "; ".join(mine)[:200] if mine else ""))
 
 
 async def _spawn_bots(harness, testers: list[dict], near: Any) -> None:
@@ -666,7 +732,7 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
                     pool: int = DEFAULT_POOL, max_steps: int = DEFAULT_MAX_STEPS, llm=None, studio=None,
                     harness=None, studio_name: str | None = None, screenshots: bool = True,
                     shot_every: int = SHOT_EVERY, triage: bool = True, stop_play: bool = True,
-                    keep_bots: bool = False) -> dict:
+                    keep_bots: bool = False, slug: str | None = None, lanes: bool = True) -> dict:
     """Run `players` persona testers at once for `minutes`; returns the swarm report."""
     from mubit_tester import ai
 
@@ -685,6 +751,9 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
         "goal_met": None, "summary": "", "players": [], "testers": [], "steps": [], "bug_reports": [],
         "bugs": [], "errors": [], "request_ids": [], "soak": [], "shots": [], "mux": {}, "timing": {},
     }
+    slug = slug or default_slug(settings)
+    report["slug"] = slug
+    lanes_root = Path(settings.runs_dir) / slug / "tests"
     play._save_report(settings, report)
     shared = _Shared()
     stop = asyncio.Event()
@@ -729,13 +798,17 @@ async def run_swarm(settings: Settings, players: int = 10, minutes: float = 3.0,
             deadline = t_start + max(0.1, float(minutes)) * 60.0
             sem = asyncio.Semaphore(max(1, int(pool)))
             last: dict = {}
+            tester_lanes = {t["name"]: TesterLane(lanes_root, run_id, t, f"{t['label']}: {t['brief']}")
+                            for t in testers} if lanes else {}
+            report["lanes"] = [str(ln.dir) for ln in tester_lanes.values()]
             helpers = [asyncio.create_task(_events_loop(harness, shared, stop)),
                        asyncio.create_task(_probe_loop(harness, shared, stop, t_start))]
             try:
                 results = await asyncio.gather(*(
                     _run_tester(t, harness=harness, llm=llm, sem=sem, camera=camera, shared=shared, testers=testers,
                                 last=last, deadline=deadline, max_steps=max_steps, game=game, session_id=session_id,
-                                report=report, shot_every=shot_every) for t in testers), return_exceptions=True)
+                                report=report, shot_every=shot_every, lane=tester_lanes.get(t["name"]),
+                                run_dir=run_dir) for t in testers), return_exceptions=True)
                 for t, r in zip(testers, results):
                     if isinstance(r, BaseException):
                         report["errors"].append(f"{t['name']}: {type(r).__name__}: {_clip(str(r), 300)}")

@@ -349,6 +349,11 @@ function BotProxy:IsA(_c: string): boolean
 	return false
 end
 
+-- (a real Player errors on unknown members, so never index .IsBot on one)
+local function isBot(p: any): boolean
+	return type(p) == "table" and p.IsBot == true
+end
+
 local function findBot(id: any): any?
 	if id == nil then
 		return nil
@@ -919,8 +924,8 @@ local function playerInfo(p: Player)
 		character = char and char:GetFullName() or nil,
 		agent = agents[p] ~= nil,
 		hasCharacter = char ~= nil,
-		bot = if p.IsBot then true else nil,
-		deaths = if p.IsBot then p.deaths else nil,
+		bot = if isBot(p) then true else nil,
+		deaths = if isBot(p) then p.deaths else nil,
 	})
 end
 
@@ -1729,7 +1734,7 @@ local function observe(args)
 		table.insert(out.touchables, touchables[i])
 	end
 
-	if p.IsBot then
+	if isBot(p) then
 		-- no client, so no screen: a bot only sees the world
 		me.bot = true
 		out.hud_error = "bot tester: no screen (HUD and GUI belong to real players)"
@@ -1756,7 +1761,7 @@ end
 local function agentCmd(name: string)
 	return function(args)
 		local p = playerArg(args)
-		if p.IsBot then
+		if isBot(p) then
 			error(p.Name .. " is a bot tester: it has no screen, so no GUI (" .. name .. ")")
 		end
 		local a = table.clone(args)
@@ -2268,7 +2273,7 @@ actRaw = function(args)
 			detail = string.format("%s x%d, %d done | %s", inner, times, ok, table.concat(notes, " | ")),
 		})
 	end
-	if p.IsBot then
+	if isBot(p) then
 		return botAct(p, action, a)
 	end
 	-- Paths are resolved on the client, but an Instance can't be passed from JSON, so send strings.

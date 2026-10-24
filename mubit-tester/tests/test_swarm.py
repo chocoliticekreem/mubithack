@@ -312,7 +312,7 @@ async def test_swarm_runs_ten_testers_concurrently(tmp_path):
     studio = SwarmStudio(world)
     llm = CountingLLM()
     rep = await sw.run_swarm(_settings(tmp_path), players=10, minutes=1, pool=4, llm=llm, studio=studio,
-                             shot_every=2)
+                             shot_every=2, slug="tiny")
     assert rep["errors"] == []
     # 1 real player (UI clicker) + 9 bots spawned in one call, cleared at the end
     assert len(world.spawned) == 1 and len(world.spawned[0]["names"]) == 9
@@ -347,6 +347,16 @@ async def test_swarm_runs_ten_testers_concurrently(tmp_path):
     assert saved["kind"] == "swarm" and saved["bugs"][0]["title"] == bug["title"]
     text = sw.format_swarm(rep)
     assert "Swarm" in text and "Dropper buy pad takes no cash" in text and "| 0 | 9 | high | 3" in text
+    # one dashboard lane per tester: runs/<slug>/tests/<run>/{report.json, step-NN.png}
+    from forge.dashboard import testers_view
+    lanes = testers_view(tmp_path / "runs" / "tiny", "tiny", time.time())
+    assert len(lanes) == 10 and all(ln["status"] == "done" and ln["n_steps"] == 3 for ln in lanes)
+    assert {ln["label"].split(" (")[0] for ln in lanes} == {p["label"] for p in sw.PERSONAS}
+    econ = next(ln for ln in lanes if ln["label"].startswith("Economy"))
+    assert econ["failed"] == 1 and econ["passed"] == 2
+    assert any(st["shot"] for ln in lanes for st in ln["steps"])
+    lane_dir = Path(rep["lanes"][0])
+    assert (lane_dir / "step-01.png").is_file() and (lane_dir / "step-02.png").is_file()
 
 
 async def test_swarm_stops_at_deadline(tmp_path):

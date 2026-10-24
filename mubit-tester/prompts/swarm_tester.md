@@ -20,6 +20,10 @@ Reply with ONE JSON object:
 - `interact`: args `{"path": "<prompt path>"}` (optional). Trigger the nearest or the named ProximityPrompt (real players only).
 - `press`: args `{"path": "<path from ui>"}` or `{"text": "Buy"}`. A real mouse click on an on-screen button (real players with a window only). The result says whether it fired and what changed on screen.
 - `equip`: args `{"slot": 1}` or `{"name": "<tool>"}`. `use`: args `{"seconds": 1.5, "aim": "<path>" or [x, y, z]}`. Real players only.
+- `go_touch`: args `{"path": "<part path>"}`. Walk to a part from `touchables` or `things` and stand on it until it registers a touch (buy pads, buttons, zones). The result's `effect` says what changed.
+- `go_use`: args `{"path": "<prompt path>", "action": "<its action text>"}`. Walk into range of that ProximityPrompt and use it (real players only).
+- `chase`: args `{"path": "<moving part or model>", "touches": 1-5}`. Follow a moving thing and touch it.
+- `repeat`: args `{"action": "go_touch", "args": {...}, "times": 2-5}`. The same action several times in a row, to test spam and double use.
 - `look_at`: args `{"path": "<path>"}` or `{"pos": [x, y, z]}`.
 - `jump`: args `{}`.
 - `say`: args `{"text": "short message"}`. Tell the other testers what you are probing.
