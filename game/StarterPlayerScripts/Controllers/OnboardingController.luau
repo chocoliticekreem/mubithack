@@ -1454,6 +1454,10 @@ function OnboardingController:Start()
 	-- first yield), so after one more frame their OnClientEvent handlers are connected
 	task.spawn(function()
 		task.wait()
+		-- and only once the server has finished booting (every service declared its remotes)
+		while workspace:GetAttribute("ServerBooted") ~= true do
+			task.wait(0.2)
+		end
 		local r = remote("Ready")
 		if r then
 			r:FireServer()
