@@ -12,6 +12,9 @@
 --   * Dispatch hints (everyone, every mission): RUN TO BAY n / open YOUR truck's door -> HOP IN ->
 --     FOLLOW THE GPS (shown a few seconds), arrow on the door handle / driver seat of your truck.
 --   * Lobby declutter: the graphics button and emote hint only show with Help open (H).
+--   * Help (H): a scrollable cheat sheet (attr Menu, so the mouse frees in first person): the 3 slots
+--     drawn like the hotbar, grab / swap / drop / throw, carry + rescue, water, ladders, truck. Keys
+--     come from InventoryConfig / GearConfig / VehicleConfig / MissionGuides.
 -- Public: OnboardingController:Replay(), :IsActive(): boolean
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -28,6 +31,9 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local ConfigDir = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigDir:WaitForChild("OnboardingConfig") :: ModuleScript) :: any
 local VehicleConfig = require(ConfigDir:WaitForChild("VehicleConfig") :: ModuleScript) :: any
+local InventoryConfig = require(ConfigDir:WaitForChild("InventoryConfig") :: ModuleScript) :: any
+local GearConfig = require(ConfigDir:WaitForChild("GearConfig") :: ModuleScript) :: any
+local MissionGuideKey: string = (require(ConfigDir:WaitForChild("MissionGuides") :: ModuleScript) :: any).SkipKey or "J"
 local Flow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("OnboardingFlow") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 
@@ -202,6 +208,274 @@ local function text(parent: Instance, name: string, str: string, font: Enum.Font
 	return t
 end
 
+------------------------------------------------------------------------------------------ help panel
+
+local function keyName(k: any, fallback: string): string
+	if typeof(k) == "EnumItem" then
+		return k.Name
+	end
+	return if type(k) == "string" and k ~= "" then k else fallback
+end
+
+-- one keycap chip ("E", "hold Q", "CLICK")
+local function keycap(parent: Instance, label: string, order: number)
+	local cap = Instance.new("Frame")
+	cap.Name = "Key"
+	cap.LayoutOrder = order
+	cap.AutomaticSize = Enum.AutomaticSize.X
+	cap.Size = UDim2.fromOffset(30, 28)
+	cap.BackgroundColor3 = CREAM
+	cap.ZIndex = 7
+	cap.Parent = parent
+	corner(cap, 6)
+	stroke(cap, 2)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 7)
+	pad.PaddingRight = UDim.new(0, 7)
+	pad.Parent = cap
+	local t = Instance.new("TextLabel")
+	t.BackgroundTransparency = 1
+	t.AutomaticSize = Enum.AutomaticSize.X
+	t.Size = UDim2.fromOffset(0, 28)
+	t.Font = Enum.Font.LuckiestGuy
+	t.TextSize = 17
+	t.TextColor3 = INK
+	t.Text = label
+	t.ZIndex = 8
+	t.Parent = cap
+end
+
+local function helpRow(list: Instance, order: number, keys: { string }, body: string)
+	local row = Instance.new("Frame")
+	row.Name = `Row{order}`
+	row.LayoutOrder = order
+	row.BackgroundTransparency = 1
+	row.AutomaticSize = Enum.AutomaticSize.Y
+	row.Size = UDim2.new(1, 0, 0, 30)
+	row.ZIndex = 6
+	row.Parent = list
+	local caps = Instance.new("Frame")
+	caps.Name = "Keys"
+	caps.BackgroundTransparency = 1
+	caps.Size = UDim2.fromOffset(150, 30)
+	caps.ZIndex = 6
+	caps.Parent = row
+	local cl = Instance.new("UIListLayout")
+	cl.FillDirection = Enum.FillDirection.Horizontal
+	cl.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	cl.Padding = UDim.new(0, 4)
+	cl.SortOrder = Enum.SortOrder.LayoutOrder
+	cl.Parent = caps
+	for i, k in keys do
+		keycap(caps, k, i)
+	end
+	local t = Instance.new("TextLabel")
+	t.Name = "Text"
+	t.BackgroundTransparency = 1
+	t.Position = UDim2.fromOffset(162, 3)
+	t.Size = UDim2.new(1, -166, 0, 24)
+	t.AutomaticSize = Enum.AutomaticSize.Y
+	t.Font = Enum.Font.FredokaOne
+	t.TextSize = 18
+	t.TextColor3 = CREAM
+	t.TextWrapped = true
+	t.TextXAlignment = Enum.TextXAlignment.Left
+	t.TextYAlignment = Enum.TextYAlignment.Top
+	t.Text = body
+	t.ZIndex = 7
+	t.Parent = row
+end
+
+local function helpHeader(list: Instance, order: number, title: string)
+	local h = Instance.new("TextLabel")
+	h.Name = `H{order}`
+	h.LayoutOrder = order
+	h.BackgroundTransparency = 1
+	h.Size = UDim2.new(1, 0, 0, 34)
+	h.Font = Enum.Font.LuckiestGuy
+	h.TextSize = 24
+	h.TextColor3 = WARN
+	h.TextXAlignment = Enum.TextXAlignment.Left
+	h.TextYAlignment = Enum.TextYAlignment.Bottom
+	h.Text = title
+	h.ZIndex = 7
+	h.Parent = list
+	stroke(h, 2)
+end
+
+-- the hotbar, drawn small: three tiles (same labels as InventoryController) with what each is for
+local function slotPicture(list: Instance, order: number)
+	local holder = Instance.new("Frame")
+	holder.Name = "Slots"
+	holder.LayoutOrder = order
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.new(1, 0, 0, 150)
+	holder.ZIndex = 6
+	holder.Parent = list
+	local hl = Instance.new("UIListLayout")
+	hl.FillDirection = Enum.FillDirection.Horizontal
+	hl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	hl.Padding = UDim.new(0, 12)
+	hl.SortOrder = Enum.SortOrder.LayoutOrder
+	hl.Parent = holder
+	local tiles = {
+		{ "HAND", "AXE", "What you hold. CLICK to use it: spray, chop, stand a ladder." },
+		{ "1/2 SWAP", "TANK", "Your back. Press 1 or 2 to swap it with your hand." },
+		{ "CARRY", "CAT", "Both arms: a person, a pet or a prop. G puts it down." },
+	}
+	for i, d in tiles do
+		local col = Instance.new("Frame")
+		col.Name = d[1]
+		col.LayoutOrder = i
+		col.BackgroundTransparency = 1
+		col.Size = UDim2.fromOffset(170, 150)
+		col.ZIndex = 6
+		col.Parent = holder
+		local tag = Instance.new("TextLabel")
+		tag.BackgroundColor3 = WARN
+		tag.Position = UDim2.fromOffset(45, 0)
+		tag.Size = UDim2.fromOffset(80, 20)
+		tag.Font = Enum.Font.LuckiestGuy
+		tag.TextSize = 14
+		tag.TextColor3 = INK
+		tag.Text = d[1]
+		tag.ZIndex = 8
+		tag.Parent = col
+		corner(tag, 6)
+		local tile = Instance.new("Frame")
+		tile.Position = UDim2.fromOffset(53, 12)
+		tile.Size = UDim2.fromOffset(64, 56)
+		tile.BackgroundColor3 = Color3.fromHex("#5A3B2E")
+		tile.ZIndex = 7
+		tile.Parent = col
+		corner(tile, 10)
+		stroke(tile, 3)
+		local glyph = Instance.new("TextLabel")
+		glyph.BackgroundTransparency = 1
+		glyph.Size = UDim2.fromScale(1, 1)
+		glyph.Font = Enum.Font.LuckiestGuy
+		glyph.TextSize = 18
+		glyph.TextColor3 = CREAM
+		glyph.Text = d[2]
+		glyph.ZIndex = 8
+		glyph.Parent = tile
+		local cap = Instance.new("TextLabel")
+		cap.BackgroundTransparency = 1
+		cap.Position = UDim2.fromOffset(0, 74)
+		cap.Size = UDim2.new(1, 0, 0, 72)
+		cap.Font = Enum.Font.FredokaOne
+		cap.TextSize = 16
+		cap.TextWrapped = true
+		cap.TextYAlignment = Enum.TextYAlignment.Top
+		cap.TextColor3 = CREAM
+		cap.Text = d[3]
+		cap.ZIndex = 7
+		cap.Parent = col
+	end
+end
+
+local function buildHelp(gui: ScreenGui): Frame
+	local panel = Instance.new("Frame")
+	panel.Name = "Help"
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.52)
+	panel.Size = UDim2.fromOffset(660, 520)
+	panel.BackgroundColor3 = Palette.UiPanelDark
+	panel.Visible = false
+	panel.ZIndex = 5
+	panel:SetAttribute("Menu", true) -- MenuMouseController frees the mouse in first person
+	panel.Parent = gui
+	corner(panel, 16)
+	stroke(panel, 4, WARN)
+	local ph = text(panel, "Head", "HOW TO FIREFIGHT (BADLY)", Enum.Font.LuckiestGuy, WARN, UDim2.new(1, -32, 0, 40), UDim2.fromOffset(16, 10))
+	ph.ZIndex = 6
+	stroke(ph, 2)
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Body"
+	scroll.Position = UDim2.fromOffset(14, 56)
+	scroll.Size = UDim2.new(1, -28, 1, -136)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 8
+	scroll.ScrollBarImageColor3 = WARN
+	scroll.CanvasSize = UDim2.new()
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ZIndex = 6
+	scroll.Parent = panel
+	local pad = Instance.new("UIPadding")
+	pad.PaddingRight = UDim.new(0, 14)
+	pad.Parent = scroll
+	local list = Instance.new("UIListLayout")
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, 6)
+	list.Parent = scroll
+
+	local hoseKey = keyName(InventoryConfig.TruckHoseKey, "T")
+	local kick = keyName(GearConfig.KickKey, "F")
+	local enter = keyName(VehicleConfig.KeyEnter, "F")
+	local n = 0
+	local function nx(): number
+		n += 1
+		return n
+	end
+	helpHeader(list, nx(), "YOUR 3 SLOTS (bottom of the screen)")
+	slotPicture(list, nx())
+	helpHeader(list, nx(), "GRAB STUFF")
+	helpRow(list, nx(), { "E" }, "Grab gear off your station rack, a truck locker, or anything lying on the ground.")
+	helpRow(list, nx(), { "R" }, "At your rack: open your LOCKER and pick what hangs on it.")
+	helpRow(list, nx(), { "1", "2" }, "Swap your hand and your back (the oxygen tank lives there).")
+	helpRow(list, nx(), { "G" }, "Drop what you're holding (carry first, then your hand).")
+	helpRow(list, nx(), { "hold Q" }, "Wind up and THROW it. Release to let go. It bonks people.")
+	helpHeader(list, nx(), "CARRY & RESCUE")
+	helpRow(list, nx(), { "E" }, '"Pick up" a person, a pet or a prop. They ride in your CARRY slot.')
+	helpRow(list, nx(), { "WALK" }, "Walk them into the glowing drop zone at the truck: that's a rescue!")
+	helpRow(list, nx(), { "G" }, "Put them down. Gently. They remember.")
+	helpRow(list, nx(), { "hold Q" }, "YEET them. Landing in the drop zone still counts. Probably.")
+	helpRow(list, nx(), { "E", "E" }, "The panda needs TWO: both of you press E on it, then waddle.")
+	helpHeader(list, nx(), "WATER")
+	helpRow(list, nx(), { hoseKey }, "Next to ANY side of a truck: grab the hose (again to stow it).")
+	helpRow(list, nx(), { "E" }, "On a hydrant: a hose with endless water.")
+	helpRow(list, nx(), { "R" }, "On a hydrant: run a supply line to the truck (endless tank).")
+	helpRow(list, nx(), { "CLICK" }, "Spray. Aim at the BASE of the flames, not the top.")
+	helpHeader(list, nx(), "LADDERS & WAYS IN")
+	helpRow(list, nx(), { "CLICK" }, "Holding the Ladder: face a wall and click to stand it up. Walk into it to climb.")
+	helpRow(list, nx(), { "E" }, '"Take Ladder" to pick it back up.')
+	helpRow(list, nx(), { kick }, "Kick a locked door (or chop it with the axe). Broken windows: climb through.")
+	helpHeader(list, nx(), "TRUCK")
+	helpRow(list, nx(), { keyName(VehicleConfig.KeyDoor, "E") }, "Open the door.")
+	helpRow(list, nx(), { enter }, "Get in / out. Driver: W/S drive, A/D steer, SPACE drift.")
+	helpRow(list, nx(), { keyName(VehicleConfig.KeySiren, "G"), keyName(VehicleConfig.KeyHorn, "H") }, "Siren and horn.")
+	helpRow(list, nx(), { keyName(VehicleConfig.KeyRespawn, "R"), keyName(VehicleConfig.KeyCam, "V") }, "Unflip the truck, switch camera.")
+	helpHeader(list, nx(), "EVERYWHERE ELSE")
+	helpRow(list, nx(), { "M" }, "Big map.")
+	helpRow(list, nx(), { "Z", "X", "C" }, "Emotes at the station: wave, facepalm, BLAME!")
+	helpRow(list, nx(), { MissionGuideKey }, "Skip a mission guide.")
+	helpRow(list, nx(), { "H" }, "This panel. Graphics + pop-up settings are top left while it's open.")
+
+	local function btn(name: string, label: string, x: number, color: Color3): TextButton
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.AnchorPoint = Vector2.new(0.5, 1)
+		b.Position = UDim2.new(0.5, x, 1, -16)
+		b.Size = UDim2.fromOffset(220, 50)
+		b.BackgroundColor3 = color
+		b.Font = Enum.Font.LuckiestGuy
+		b.TextColor3 = CREAM
+		b.TextSize = 24
+		b.Text = label
+		b.ZIndex = 6
+		b.Parent = panel
+		corner(b, 10)
+		stroke(b, 3)
+		return b
+	end
+	ui.replay = btn("Replay", "REPLAY TUTORIAL", -120, RED)
+	ui.close = btn("Close", "GOT IT", 120, Color3.fromHex("#3B6E4A"))
+	return panel
+end
+
 ------------------------------------------------------------------------------------------ build
 
 local function buildTitle()
@@ -344,55 +618,8 @@ local function buildHud()
 	stroke(help, 2)
 	ui.helpChip = help
 
-	-- help panel
-	local panel = Instance.new("Frame")
-	panel.Name = "Help"
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.Position = UDim2.fromScale(0.5, 0.52)
-	panel.Size = UDim2.fromOffset(560, 430)
-	panel.BackgroundColor3 = Palette.UiPanelDark
-	panel.Visible = false
-	panel.ZIndex = 5
-	panel.Parent = gui
-	corner(panel, 16)
-	stroke(panel, 4, WARN)
-	local ph = text(panel, "Head", "HOW TO FIREFIGHT (BADLY)", Enum.Font.LuckiestGuy, WARN, UDim2.new(1, -32, 0, 40), UDim2.fromOffset(16, 12))
-	ph.ZIndex = 6
-	stroke(ph, 2)
-	local lines = {
-		"STATION: grab gear at your rack (E), pick a call at the Mission Board, hop on a glowing pad.",
-		"ON FOOT:  WASD move  -  E grab / use  -  G drop  -  hold Q throw  -  M map  -  V camera",
-		`TRUCK:  E door  -  {VehicleConfig.KeyEnter or "F"} get in / out  -  {VehicleConfig.KeySiren or "G"} siren  -  {VehicleConfig.KeyHorn or "H"} horn  -  SPACE drift  -  {VehicleConfig.KeyRespawn or "R"} unflip`,
-		"FIRE: spray the base of the flames, carry people + pets to the truck, then blame someone.",
-		"EMOTES (station):  Z wave  -  X facepalm  -  C blame!   -   1 / 2 swap hand + back",
-		"SETTINGS: graphics + pop-ups buttons are top left while this panel is open.",
-	}
-	for i, l in lines do
-		local t = text(panel, `L{i}`, l, Enum.Font.FredokaOne, CREAM, UDim2.new(1, -40, 0, 44), UDim2.fromOffset(20, 60 + (i - 1) * 50))
-		t.TextXAlignment = Enum.TextXAlignment.Left
-		t.TextWrapped = true
-		t.ZIndex = 6
-	end
-	local function btn(name: string, label: string, x: number, color: Color3): TextButton
-		local b = Instance.new("TextButton")
-		b.Name = name
-		b.AnchorPoint = Vector2.new(0.5, 1)
-		b.Position = UDim2.new(0.5, x, 1, -16)
-		b.Size = UDim2.fromOffset(220, 50)
-		b.BackgroundColor3 = color
-		b.Font = Enum.Font.LuckiestGuy
-		b.TextColor3 = CREAM
-		b.TextSize = 24
-		b.Text = label
-		b.ZIndex = 6
-		b.Parent = panel
-		corner(b, 10)
-		stroke(b, 3)
-		return b
-	end
-	ui.replay = btn("Replay", "REPLAY TUTORIAL", -120, RED)
-	ui.close = btn("Close", "GOT IT", 120, Color3.fromHex("#3B6E4A"))
-	ui.help = panel
+	-- help panel: a scrollable, skimmable cheat sheet (keys come from the configs, never hard-coded)
+	ui.help = buildHelp(gui)
 
 	-- world guide: bouncing arrow over the target (+ a Highlight on it)
 	local bb = Instance.new("BillboardGui")

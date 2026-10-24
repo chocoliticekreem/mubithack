@@ -47,11 +47,21 @@ return {
 	ChipNew = "NEW CALL",
 	RookieLine = "Rookie on the call: {names}. Show them how!",
 
+	-- one-time contextual hints (anywhere, not tied to a mission), remembered in the profile as "hint:<id>"
+	Hints = {
+		carry = {
+			head = "PICK THEM UP!",
+			sub = "Press E to pick up, then walk them to the truck's glowing drop zone.",
+			studs = 11, -- shown the first time you stand this close to a rescue or a carry prop
+			seconds = 7, -- counts as seen after this long on screen (or when you pick something up)
+		},
+	},
+
 	Common = {
 		hose = {
 			id = "hose",
 			head = "GRAB THE HOSE",
-			sub = "The reel on your truck. Press E. It's a leash, not a lasso.",
+			sub = "Stand by any side of your truck, press T. Or E on a hydrant. It's a leash.",
 			target = { kind = "truck", tag = "TruckRefill" },
 			done = { kind = "hand", item = "Hose" },
 			maxSeconds = 60,
@@ -178,7 +188,7 @@ return {
 					optional = true,
 					maxSeconds = 90,
 				},
-				{ use = "hose", sub = "Puddles are safe now. Grab the hose off your truck's reel (E)." },
+				{ use = "hose", sub = "Puddles are safe now. T next to your truck grabs the hose." },
 				{ use = "spray", sub = "Hit the burning unit low. Water + no electricity = hero." },
 				{ use = "carry", sub = "The night guard and his dog. E to pick them up." },
 				"deliver",

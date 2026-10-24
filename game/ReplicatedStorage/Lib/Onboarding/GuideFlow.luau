@@ -179,6 +179,11 @@ function GuideFlow.validate(guides: any, catalog: { any }): { string }
 			bad(`Common.{name}: needs an id`)
 		end
 	end
+	for id, h in guides.Hints or {} do
+		if type(h) ~= "table" or type(h.head) ~= "string" or type(h.sub) ~= "string" or #h.sub > 90 then
+			bad(`Hints.{id}: needs head + a short sub`)
+		end
+	end
 	for _, def in catalog do
 		local m = guides.Missions and guides.Missions[def.id]
 		if type(m) ~= "table" then

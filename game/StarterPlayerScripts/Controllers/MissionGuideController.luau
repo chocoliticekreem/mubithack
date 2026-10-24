@@ -11,6 +11,8 @@
 --   * Skip any time: SkipKey (J) or the SKIP button. Finish or skip -> MissionGuide/Seen.
 -- The card sits on the left under the objectives panel (top centre = timer/objective, top right =
 -- minimap/squad, top left = level/objectives), and nothing on it but the SKIP button takes input.
+--   * One-time hints (MissionGuides.Hints): the first time you stand next to a rescue or a carry prop,
+--     "PICK THEM UP!" (E, then walk them to the truck). Seen = Player attr GuideHints (server, profile).
 -- Public: MissionGuideController:IsActive(): boolean, :Skip()
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -68,6 +70,7 @@ type Run = {
 
 local run: Run? = nil
 local lastSpray = -math.huge
+local hint = { shown = 0, firstAt = 0, sent = {} :: { [string]: boolean }, lastScan = 0, part = nil :: BasePart?, model = nil :: Instance? }
 local ui: { [string]: any } = {}
 
 ------------------------------------------------------------------------------------------ helpers
@@ -784,8 +787,99 @@ function MissionGuideController:Skip()
 	end
 end
 
+local function hintSeen(id: string): boolean
+	if hint.sent[id] then
+		return true
+	end
+	local seen = player:GetAttribute("GuideHints")
+	if type(seen) ~= "string" then
+		return true -- not loaded yet: say nothing
+	end
+	for s in string.gmatch(seen, "[^,]+") do
+		if s == id then
+			return true
+		end
+	end
+	return false
+end
+
+local function markHint(id: string)
+	if hint.sent[id] then
+		return
+	end
+	hint.sent[id] = true
+	pcall(function()
+		Net.event("MissionGuide", "Seen"):FireServer("hint:" .. id)
+	end)
+end
+
+-- the carry hint: nearest rescue (still to save) or carry prop within `studs`. Returns true while shown.
+local function carryHint(t: number): boolean
+	local h = Cfg.Hints and Cfg.Hints.carry
+	if not h or hintSeen("carry") then
+		return false
+	end
+	local carrying = (player:GetAttribute(Attr.Carrying) or "") ~= "" or (player:GetAttribute("InvCarry") or "") ~= ""
+	if carrying then
+		if hint.shown > 0 then
+			markHint("carry") -- they did it
+		end
+		hint.part = nil
+		return false
+	end
+	if t - hint.lastScan >= 0.25 then
+		hint.lastScan = t
+		hint.part, hint.model = nil, nil
+		local rp = root()
+		if rp then
+			local best = h.studs or 11
+			local folder = workspace:FindFirstChild("Rescuables")
+			for _, m in (if folder then folder:GetChildren() else {}) :: { Instance } do
+				local st = m:GetAttribute(Attr.RescueState)
+				if st == "Trapped" or st == "Downed" then
+					local p = firstPart(m)
+					local d = p and (p.Position - rp.Position).Magnitude
+					if p and d and d < best then
+						best, hint.part, hint.model = d, p, m
+					end
+				end
+			end
+			for _, inst in CollectionService:GetTagged("Carryable") do
+				local p = firstPart(inst)
+				local d = p and p:IsDescendantOf(workspace) and (p.Position - rp.Position).Magnitude
+				if p and d and d < best then
+					best, hint.part, hint.model = d, p, inst
+				end
+			end
+		end
+	end
+	if not hint.part then
+		return false
+	end
+	if hint.shown == 0 then
+		hint.firstAt = now()
+	end
+	hint.shown += 1
+	if now() - hint.firstAt >= (h.seconds or 7) then
+		markHint("carry")
+	end
+	showCard("TIP", h.head, h.sub, nil, "hint:carry")
+	ui.skip.Visible = false
+	placeArrow(hint.part, hint.model, h.head, t)
+	return true
+end
+
 local function update(t: number)
 	local r = run
+	local busy = r ~= nil and not r.finished
+	if not busy then
+		if carryHint(t) then
+			return
+		elseif ui.stepKey == "hint:carry" then
+			hideCard()
+			placeArrow(nil, nil, "", t)
+		end
+	end
 	if not r then
 		return
 	end
