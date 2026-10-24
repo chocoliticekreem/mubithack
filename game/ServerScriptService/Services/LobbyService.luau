@@ -721,6 +721,7 @@ function LobbyService:Leave(player: Player)
 	end
 	local sid = q.pads[padId].squadId
 	LobbyQueue.leave(q, player.UserId)
+	lastOnPad[player.UserId] = nil -- an explicit leave: no grace window putting you straight back
 	player:SetAttribute(Names.Attr.SquadId, "")
 	-- Step them off the pad so the next poll doesn't put them straight back.
 	if built and built.pads[padId] then
@@ -1415,6 +1416,7 @@ function LobbyService:Start()
 	Players.PlayerAdded:Connect(onPlayer)
 	Players.PlayerRemoving:Connect(function(p: Player)
 		afk[p] = nil
+		lastOnPad[p.UserId] = nil
 		for sid, s in active do
 			local i = table.find(s.members, p.UserId)
 			if i then
