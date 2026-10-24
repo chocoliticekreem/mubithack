@@ -102,12 +102,15 @@ local resultRemote: RemoteEvent = resultRemoteInst :: RemoteEvent
 local gui = makeScreen("RebirthGui", 5, true)
 local fxGui = makeScreen("RebirthFx", 50, false)
 
+local GOLD = Color3.fromRGB(255, 205, 40)
+local LOCKED = Color3.fromRGB(110, 106, 120)
+
 local button = Instance.new("TextButton")
 button.Name = "RebirthButton"
 button.AnchorPoint = Vector2.new(0.5, 0.5)
-button.Size = UDim2.fromOffset(200, 60)
-button.Position = UDim2.new(1, -120, 0.62, 0)
-button.BackgroundColor3 = RebirthConfig.altarColor
+button.Size = UDim2.fromOffset(250, 60)
+button.Position = UDim2.new(1, -145, 0.62, 0)
+button.BackgroundColor3 = LOCKED
 button.AutoButtonColor = false
 button.BorderSizePixel = 0
 button.Font = Theme.Header
@@ -116,14 +119,17 @@ button.TextColor3 = Theme.Cream
 button.Text = "REBIRTH"
 button.Parent = gui
 Theme.corner(button, 14)
-Theme.gradient(button, RebirthConfig.altarColor)
-Theme.stroke(button, 3, nil, true)
+Theme.gradient(button, Color3.fromRGB(255, 255, 255))
+local borderStroke = Theme.stroke(button, 3, nil, true)
 Theme.stroke(button, 3)
 local pad = Instance.new("UIPadding")
 pad.PaddingTop, pad.PaddingBottom = UDim.new(0.16, 0), UDim.new(0.16, 0)
 pad.Parent = button
 local btnScale = Instance.new("UIScale")
 btnScale.Parent = button
+local pulseScale = Instance.new("UIScale")
+pulseScale.Name = "Pulse"
+pulseScale.Parent = button
 button.MouseEnter:Connect(function() Theme.tween(btnScale, 0.1, { Scale = 1.06 }) end)
 button.MouseLeave:Connect(function() Theme.tween(btnScale, 0.1, { Scale = 1 }) end)
 button.MouseButton1Down:Connect(function() Theme.tween(btnScale, 0.06, { Scale = 0.9 }) end)
@@ -168,6 +174,51 @@ local function toast(text: string, color: Color3?)
 	end)
 end
 
+-- Error sound (from GameAssets, resolved defensively) -------------------
+local errorSoundId: string? = nil
+
+local function toSoundId(v: any): string?
+	if type(v) == "number" then
+		return "rbxassetid://" .. tostring(math.floor(v))
+	elseif type(v) == "string" and v ~= "" then
+		return v
+	end
+	return nil
+end
+
+task.spawn(function()
+	local mod = ReplicatedStorage:WaitForChild("GameAssets", 10)
+	if not mod or not mod:IsA("ModuleScript") then return end
+	local ok, assets = pcall(require, mod)
+	if not ok or type(assets) ~= "table" then return end
+	local t: any = assets
+	local id = toSoundId(t.Error) or toSoundId(t.error)
+	if not id then
+		for _, key in ipairs({ "Sounds", "sounds", "Sound", "sound", "Audio", "audio" }) do
+			local sub = t[key]
+			if type(sub) == "table" then
+				id = toSoundId(sub.Error) or toSoundId(sub.error)
+				if id then break end
+			end
+		end
+	end
+	errorSoundId = id
+end)
+
+local function playErrorSound()
+	local id = errorSoundId
+	if not id then return end
+	local s = Instance.new("Sound")
+	s.SoundId = id
+	s.Volume = 0.7
+	s.Parent = fxGui
+	s.Ended:Connect(function() s:Destroy() end)
+	s:Play()
+	task.delay(4, function()
+		if s.Parent then s:Destroy() end
+	end)
+end
+
 -- State ---------------------------------------------------------------
 local cashValue: ValueBase? = nil
 local rebirthValue: ValueBase? = nil
@@ -194,11 +245,52 @@ local function formatNum(n: number): string
 	return tostring(math.floor(n))
 end
 
+local pulseTween: Tween? = nil
+local pulsing = false
+
+local function setPulse(on: boolean)
+	if on == pulsing then return end
+	pulsing = on
+	if pulseTween then
+		pulseTween:Cancel()
+		pulseTween = nil
+	end
+	if on then
+		local tw = TweenService:Create(
+			pulseScale,
+			TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Scale = 1.09 }
+		)
+		pulseTween = tw
+		tw:Play()
+	else
+		pulseScale.Scale = 1
+	end
+end
+
 local function refresh()
 	local cost = RebirthConfig.costFor(currentRebirths())
-	local ready = currentCash() >= cost
-	button.Text = "REBIRTH $" .. formatNum(cost)
-	button.BackgroundTransparency = if ready then 0 else 0.45
+	local cash = currentCash()
+	local ready = cash >= cost
+	local pct = 100
+	if cost > 0 then
+		pct = math.floor(math.clamp(cash / cost, 0, 1) * 100)
+	end
+	button.Text = "REBIRTH $" .. formatNum(cost) .. " (" .. tostring(pct) .. "%)"
+	if ready then
+		button.BackgroundColor3 = GOLD
+		button.BackgroundTransparency = 0
+		button.TextColor3 = Theme.Ink
+		borderStroke.Color = Color3.fromRGB(255, 240, 150)
+		borderStroke.Thickness = 4
+	else
+		button.BackgroundColor3 = LOCKED
+		button.BackgroundTransparency = 0.45
+		button.TextColor3 = Theme.Cream
+		borderStroke.Color = Theme.Ink
+		borderStroke.Thickness = 3
+	end
+	setPulse(ready)
 end
 
 task.spawn(function()
@@ -253,12 +345,32 @@ local function playSuccess()
 	end)
 end
 
+local function showDenied()
+	local cost = RebirthConfig.costFor(currentRebirths())
+	local missing = math.ceil(cost - currentCash())
+	if missing > 0 then
+		toast("Need $" .. formatNum(missing) .. " more to rebirth", Theme.Bad)
+	else
+		toast("Rebirth unavailable right now, try again", Theme.Bad)
+	end
+	playErrorSound()
+	-- red flash on the button
+	local prev = borderStroke.Color
+	borderStroke.Color = Theme.Bad
+	task.delay(0.3, function()
+		if borderStroke.Parent then
+			refresh()
+			if borderStroke.Color == Theme.Bad then borderStroke.Color = prev end
+		end
+	end)
+end
+
 resultRemote.OnClientEvent:Connect(function(ok: any)
 	if ok == true then
 		task.spawn(playSuccess)
 		refresh()
 	else
-		toast("Not ready to rebirth", Theme.Bad)
+		showDenied()
 	end
 end)
 

@@ -6,9 +6,33 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local CollectionService = game:GetService("CollectionService")
+local SoundService = game:GetService("SoundService")
 
 local localPlayer = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("CashInConfig", 10) :: ModuleScript) :: any
+
+-- Optional verified coin sound id from the shared asset table
+local function resolveCoinSoundId(): string
+	local fallback: string = tostring(Config.CASHIN_SOUND_ID)
+	local mod = ReplicatedStorage:FindFirstChild("GameAssets")
+	if mod and mod:IsA("ModuleScript") then
+		local ok, assets = pcall(require, mod)
+		if ok and type(assets) == "table" then
+			local a: any = assets
+			local sounds = a.Sounds or a.sounds
+			if type(sounds) == "table" then
+				local coin = sounds.Coin or sounds.coin
+				if type(coin) == "number" then
+					return "rbxassetid://" .. tostring(coin)
+				elseif type(coin) == "string" and coin ~= "" then
+					return coin
+				end
+			end
+		end
+	end
+	return fallback
+end
+local COIN_SOUND_ID: string = resolveCoinSoundId()
 
 -- Sliding one-second window of popup timestamps
 local stamps: { number } = {}
@@ -44,15 +68,29 @@ local function makeAnchor(pos: Vector3, lifetime: number): Part
 	return part
 end
 
-local function playSound(parent: Instance, id: string, speed: number, volume: number)
+-- 2D (non-positional) sound parented to SoundService so it is always audible
+local function playSound2D(id: string, speed: number, volume: number)
 	local s = Instance.new("Sound")
+	s.Name = "CashInFx2D"
 	s.SoundId = id
 	s.Volume = volume
 	s.PlaybackSpeed = speed
-	s.RollOffMaxDistance = 120
-	s.Parent = parent
+	s.Parent = SoundService
 	s:Play()
 	Debris:AddItem(s, 3)
+end
+
+local soundReportRemote: RemoteEvent? = nil
+local function reportSound()
+	if not soundReportRemote then
+		local r = ReplicatedStorage:FindFirstChild("ClientSoundPlayed")
+		if r and r:IsA("RemoteEvent") then
+			soundReportRemote = r
+		end
+	end
+	if soundReportRemote then
+		soundReportRemote:FireServer()
+	end
 end
 
 local function pulseHud()
@@ -129,7 +167,9 @@ local function onCashIn(amount: any, tier: any, pos: any)
 	end
 	local anchor = makeAnchor(pos, 3)
 	local vol: number = Config.CASHIN_VOLUME or 0.4
-	playSound(anchor, Config.CASHIN_SOUND_ID, Config.pitchForTier(tier), vol)
+	-- 2D coin sound, boosted over the config base so the main reward is clearly audible
+	playSound2D(COIN_SOUND_ID, Config.pitchForTier(tier), math.min(vol * 2, 1))
+	reportSound()
 	sparkles(anchor)
 	popupText(pos, amount, Config.colorForTier(tier))
 	pulseHud()
@@ -154,7 +194,7 @@ local function onPurchaseFx(pos: any)
 	end
 	local anchor = makeAnchor(target, 3)
 	local popVol: number = Config.POP_VOLUME or 0.5
-	playSound(anchor, Config.POP_SOUND_ID, 1.1, popVol)
+	playSound2D(Config.POP_SOUND_ID, 1.1, popVol)
 	local e = Instance.new("ParticleEmitter")
 	e.Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 90, 90)),
@@ -203,27 +243,35 @@ RunService.RenderStepped:Connect(function(dt: number)
 	end
 end)
 
--- Remotes
-local function findRemote(folder: Instance?, name: string): RemoteEvent?
-	local r = folder and folder:WaitForChild(name, 10)
-	if r and r:IsA("RemoteEvent") then
-		return r
-	end
+-- Remotes: check the ReplicatedStorage root and the Remotes folder, polling so we connect as soon as either exists
+local function lookupRemote(name: string): RemoteEvent?
 	local direct = ReplicatedStorage:FindFirstChild(name)
 	if direct and direct:IsA("RemoteEvent") then
 		return direct
 	end
+	local folder = ReplicatedStorage:FindFirstChild("Remotes")
+	if folder then
+		local r = folder:FindFirstChild(name)
+		if r and r:IsA("RemoteEvent") then
+			return r
+		end
+	end
 	return nil
 end
 
-task.spawn(function()
-	local folder = ReplicatedStorage:WaitForChild("Remotes", 10)
-	local cashIn = findRemote(folder, Config.CASHIN_REMOTE)
-	if cashIn then
-		cashIn.OnClientEvent:Connect(onCashIn)
-	end
-	local purchase = findRemote(folder, Config.PURCHASE_REMOTE)
-	if purchase then
-		purchase.OnClientEvent:Connect(onPurchaseFx)
-	end
-end)
+local function connectRemote(name: string, handler: (...any) -> ())
+	task.spawn(function()
+		local deadline = os.clock() + 15
+		local remote = lookupRemote(name)
+		while not remote and os.clock() < deadline do
+			task.wait(0.25)
+			remote = lookupRemote(name)
+		end
+		if remote then
+			remote.OnClientEvent:Connect(handler)
+		end
+	end)
+end
+
+connectRemote(Config.CASHIN_REMOTE, onCashIn)
+connectRemote(Config.PURCHASE_REMOTE, onPurchaseFx)

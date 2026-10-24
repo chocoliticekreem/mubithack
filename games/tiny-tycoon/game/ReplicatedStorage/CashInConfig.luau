@@ -133,6 +133,18 @@ CashInConfig.BASE_PITCH = 1
 CashInConfig.PITCH_PER_TIER = 0.06
 CashInConfig.MAX_PITCH = 1.5
 
+-- Milestone tunables: bigger moments must feel bigger than a normal tick.
+CashInConfig.MILESTONE_SCALE = 1.6 -- multiplier for the +$ popup size
+CashInConfig.MILESTONE_FLASH_COLOR = Color3.fromRGB(255, 210, 63) -- gold flash (#FFD23F)
+CashInConfig.MILESTONE_TEXT_COLOR = Color3.fromRGB(255, 210, 63)
+CashInConfig.MILESTONE_FLASH_SECONDS = 0.45
+CashInConfig.MILESTONE_PITCH_BONUS = 0.15
+CashInConfig.MILESTONE_SOUND_ID = CashInConfig.CASHIN_SOUND_ID -- main tick still plays a Coin
+CashInConfig.MILESTONE_WIN_SOUND_ID = CashInConfig.WIN_SOUND_ID -- layered second sound
+CashInConfig.MILESTONE_WIN_VOLUME = 0.3 -- lower than the main tick layer
+CashInConfig.MILESTONE_WIN_DELAY = 0.05
+CashInConfig.MILESTONE_VOLUME = 0.5
+
 CashInConfig.TIER_COLORS = {
 	Color3.fromRGB(255, 214, 64),  -- tier 1: gold
 	Color3.fromRGB(120, 230, 120), -- tier 2: green
@@ -167,6 +179,11 @@ function CashInConfig.pitchForTier(tier: number): number
 	end
 	local pitch = CashInConfig.BASE_PITCH + CashInConfig.PITCH_PER_TIER * (t - 1)
 	return math.min(pitch, CashInConfig.MAX_PITCH)
+end
+
+-- Pitch for a milestone tick: tier pitch plus a bonus, still capped.
+function CashInConfig.milestonePitchForTier(tier: number): number
+	return math.min(CashInConfig.pitchForTier(tier) + CashInConfig.MILESTONE_PITCH_BONUS, CashInConfig.MAX_PITCH + CashInConfig.MILESTONE_PITCH_BONUS)
 end
 
 return CashInConfig

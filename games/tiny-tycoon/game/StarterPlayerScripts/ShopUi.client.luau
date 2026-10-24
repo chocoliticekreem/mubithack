@@ -8,6 +8,33 @@ local player = Players.LocalPlayer
 local UiTheme = require(ReplicatedStorage:WaitForChild("UiTheme"))
 local Upgrades = require(ReplicatedStorage:WaitForChild("Upgrades"))
 
+local ShopFx = nil
+do
+	local fxModule = script.Parent:WaitForChild("ShopFx", 10)
+	if fxModule then
+		local okFx, mod = pcall(require, fxModule)
+		if okFx then
+			ShopFx = mod
+		end
+	end
+	if not ShopFx then
+		warn("[ShopUi] ShopFx missing; using no-op effects")
+		ShopFx = {
+			openPanel = function(p)
+				p.Visible = true
+				local sc = p:FindFirstChildOfClass("UIScale")
+				if sc then
+					sc.Scale = 0
+					TweenService:Create(sc, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+				end
+			end,
+			buySuccess = function() end,
+			buyFail = function() end,
+		}
+	end
+end
+local pendingBuy = nil
+
 local buyRemote = ReplicatedStorage:WaitForChild("BuyUpgrade", 10)
 local syncRemote = ReplicatedStorage:WaitForChild("ShopSync", 10)
 if not buyRemote or not syncRemote then
@@ -70,7 +97,7 @@ local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.fromScale(0.54, 0.5)
-panel.Size = UDim2.fromScale(0.82, 0.8)
+panel.Size = UDim2.fromScale(0.9, 0.82)
 panel.BackgroundColor3 = UiTheme.panel
 panel.BorderSizePixel = 0
 panel.Visible = false
@@ -83,7 +110,7 @@ panelStroke.Color = UiTheme.ink
 panelStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 panelStroke.Parent = panel
 local limit = Instance.new("UISizeConstraint")
-limit.MaxSize = Vector2.new(420, 520)
+limit.MaxSize = Vector2.new(560, 560)
 limit.MinSize = Vector2.new(240, 260)
 limit.Parent = panel
 local panelScale = Instance.new("UIScale")
@@ -117,8 +144,9 @@ scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 scroll.CanvasSize = UDim2.new()
 scroll.ZIndex = 2
 scroll.Parent = panel
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 8)
+local layout = Instance.new("UIGridLayout")
+layout.CellSize = UDim2.new(0.5, -6, 0, 86)
+layout.CellPadding = UDim2.fromOffset(6, 6)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = scroll
 local listPad = Instance.new("UIPadding")
@@ -171,7 +199,7 @@ local function refresh()
 			b.Text = "Locked (needs " .. reqName .. ")"
 			b.BackgroundColor3 = UiTheme.locked
 			b.AutoButtonColor = false
-			b.Active = false
+			b.Active = true
 		else
 			b.Text = "Buy"
 			b.BackgroundColor3 = dimmed and UiTheme.dim or UiTheme.good
@@ -187,26 +215,38 @@ local function tryBuy(card)
 	if ownedSet[u.id] then
 		return
 	end
-	if u.requires and not ownedSet[u.requires] then
+	if os.clock() - lastBuy < 0.4 then
 		return
 	end
-	if os.clock() - lastBuy < 0.4 then
+	if u.requires and not ownedSet[u.requires] then
+		card.button.BackgroundColor3 = UiTheme.bad
+		task.delay(0.25, refresh)
+		ShopFx.buyFail(card.frame)
 		return
 	end
 	if cash < u.cost then
 		local b = card.button
 		b.BackgroundColor3 = UiTheme.bad
 		task.delay(0.25, refresh)
+		ShopFx.buyFail(card.frame)
 		return
 	end
 	lastBuy = os.clock()
+	local token = { card = card }
+	pendingBuy = token
 	buyRemote:FireServer(u.id)
+	task.delay(2, function()
+		if pendingBuy == token then
+			pendingBuy = nil
+			ShopFx.buyFail(card.frame)
+		end
+	end)
 end
 
 for i, u in ipairs(Upgrades.list) do
 	local frame = Instance.new("Frame")
 	frame.Name = "Card_" .. u.id
-	frame.Size = UDim2.new(1, 0, 0, 96)
+	frame.Size = UDim2.new(0.5, -6, 0, 86)
 	frame.BackgroundColor3 = UiTheme.card
 	frame.BorderSizePixel = 0
 	frame.LayoutOrder = i
@@ -221,9 +261,9 @@ for i, u in ipairs(Upgrades.list) do
 
 	local swatch = Instance.new("Frame")
 	swatch.Name = "Swatch"
-	swatch.Position = UDim2.new(0, 8, 0.5, 0)
+	swatch.Position = UDim2.new(0, 6, 0.5, 0)
 	swatch.AnchorPoint = Vector2.new(0, 0.5)
-	swatch.Size = UDim2.fromOffset(40, 40)
+	swatch.Size = UDim2.fromOffset(30, 30)
 	swatch.BackgroundColor3 = swatchColor(u)
 	swatch.BorderSizePixel = 0
 	swatch.ZIndex = 4
@@ -235,12 +275,12 @@ for i, u in ipairs(Upgrades.list) do
 	ss.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	ss.Parent = swatch
 
-	local nameL = makeLabel(frame, "Name", UDim2.new(0, 56, 0, 6), UDim2.new(1, -176, 0, 30), UiTheme.text)
+	local nameL = makeLabel(frame, "Name", UDim2.new(0, 42, 0, 4), UDim2.new(1, -124, 0, 24), UiTheme.text)
 	nameL.Text = u.name
 	nameL.Font = UiTheme.headerFont
-	local effL = makeLabel(frame, "Effect", UDim2.new(0, 56, 0, 38), UDim2.new(1, -176, 0, 26), UiTheme.text)
+	local effL = makeLabel(frame, "Effect", UDim2.new(0, 42, 0, 30), UDim2.new(1, -124, 0, 18), UiTheme.text)
 	effL.Text = effectText(u)
-	local costL = makeLabel(frame, "Cost", UDim2.new(0, 56, 0, 66), UDim2.new(1, -176, 0, 24), UiTheme.text)
+	local costL = makeLabel(frame, "Cost", UDim2.new(0, 42, 0, 52), UDim2.new(1, -124, 0, 26), UiTheme.text)
 	costL.Text = "$" .. tostring(u.cost)
 	costL.Font = UiTheme.headerFont
 
@@ -248,8 +288,8 @@ for i, u in ipairs(Upgrades.list) do
 	local button = UiTheme.makeButton({
 		name = "State",
 		text = "Buy",
-		size = UDim2.fromOffset(104, 60),
-		position = UDim2.new(1, -8, 0.5, 0),
+		size = UDim2.fromOffset(70, 56),
+		position = UDim2.new(1, -6, 0.5, 0),
 		anchorPoint = Vector2.new(1, 0.5),
 		color = UiTheme.good,
 		zIndex = 5,
@@ -270,10 +310,8 @@ local function setOpen(open)
 	end
 	isOpen = open
 	if open then
-		panel.Visible = true
-		panelScale.Scale = 0
-		TweenService:Create(panelScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-		syncRemote:FireServer()
+		ShopFx.openPanel(panel)
+		syncRemote:FireServer(true)
 		refresh()
 	else
 		local tw = TweenService:Create(panelScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0 })
@@ -327,10 +365,43 @@ syncRemote.OnClientEvent:Connect(function(ownedIds)
 	end
 	ownedSet = set
 	refresh()
+	local pending = pendingBuy
+	if pending and ownedSet[pending.card.upgrade.id] then
+		pendingBuy = nil
+		local level = 0
+		for _ in pairs(ownedSet) do
+			level += 1
+		end
+		ShopFx.buySuccess(pending.card.frame, level, #Upgrades.list)
+	end
 end)
 
 gui.Parent = playerGui
 refresh()
+
+-- Keep ownedSet in sync with pad purchases
+task.spawn(function()
+	local upgradeBought = ReplicatedStorage:WaitForChild("UpgradeBought", 10)
+	if not upgradeBought or not upgradeBought:IsA("RemoteEvent") then
+		return
+	end
+	upgradeBought.OnClientEvent:Connect(function(a)
+		local id = nil
+		if type(a) == "string" then
+			id = a
+		elseif type(a) == "table" then
+			local v = a.id or a.Id or a.upgradeId
+			if type(v) == "string" then
+				id = v
+			end
+		end
+		if id then
+			ownedSet[id] = true
+			refresh()
+		end
+		syncRemote:FireServer(false)
+	end)
+end)
 
 -- Cash leaderstat tracking (non-blocking)
 task.spawn(function()
@@ -344,8 +415,18 @@ task.spawn(function()
 	end
 	cash = cashValue.Value
 	refresh()
+	local rebirths = stats:FindFirstChild("Rebirths")
+	if rebirths then
+		rebirths.Changed:Connect(function()
+			syncRemote:FireServer(false)
+		end)
+	end
 	cashValue.Changed:Connect(function(v)
+		local old = cash
 		cash = v
+		if old > 0 and v < old * 0.5 then
+			syncRemote:FireServer(false)
+		end
 		refresh()
 	end)
 end)

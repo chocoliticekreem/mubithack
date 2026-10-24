@@ -148,6 +148,17 @@ local function resolveHolder(at: any): BasePart?
 	return nil
 end
 
+-- A short-lived invisible anchored part at a world position (survives the source part being destroyed).
+local function makeAnchor(pos: Vector3, life: number): BasePart
+	local holder = Instance.new("Part")
+	holder.Name = "FxAnchor"
+	holder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch = true, false, false, false
+	holder.Transparency, holder.Size, holder.Position = 1, Vector3.new(0.2, 0.2, 0.2), pos
+	holder.Parent = workspace
+	Debris:AddItem(holder, life)
+	return holder
+end
+
 -- Play a sound by name. Always creates a Sound and calls :Play(), cleaned up by Debris.
 -- With a parent (BasePart / Attachment / Model) it is a 3D world sound; without one it plays as a UI
 -- sound from SoundService (client: local only; server: everyone hears it).
@@ -190,11 +201,45 @@ function GameAssets.music(name: string?, volume: number?): Sound?
 	return s
 end
 
--- A one-shot sparkle burst at a part or position (gold mixed with an optional theme colour).
-function GameAssets.burst(at: any, color: Color3?, count: number?)
+-- An expanding, fading Neon ring (flat) at a part or position. Good for upgrade / rebirth.
+function GameAssets.ring(at: any, color: Color3?, maxScale: number?, seconds: number?): Part?
 	local holder = resolveHolder(at)
 	if not holder then
+		return nil
+	end
+	local dur = seconds or 0.4
+	local scale = maxScale or 8
+	local ring = Instance.new("Part")
+	ring.Name = "FxRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Material = Enum.Material.Neon
+	ring.Color = color or GameAssets.Palette.Primary
+	ring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false
+	ring.CastShadow = false
+	ring.Size = Vector3.new(0.3, 2, 2)
+	ring.CFrame = CFrame.new(holder.Position) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.Transparency = 0
+	ring.Parent = workspace
+	TweenService:Create(ring, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.3, 2 * scale, 2 * scale),
+		Transparency = 1,
+	}):Play()
+	Debris:AddItem(ring, dur + 0.2)
+	countTelemetry("rings", 1)
+	return ring
+end
+
+-- A one-shot sparkle burst at a part or position (gold mixed with an optional theme colour).
+-- Optional withRing adds an expanding Neon ring.
+function GameAssets.burst(at: any, color: Color3?, count: number?, withRing: boolean?)
+	local source = resolveHolder(at)
+	if not source then
 		return
+	end
+	-- Emit from a detached anchor so the burst survives the source (e.g. a collected cube) being destroyed.
+	local holder = source
+	if not (typeof(at) == "Vector3") then
+		holder = makeAnchor(source.Position, 4)
 	end
 	local gold = GameAssets.Palette.Primary
 	local a = Instance.new("Attachment")
@@ -208,10 +253,10 @@ function GameAssets.burst(at: any, color: Color3?, count: number?)
 	else
 		p.Color = ColorSequence.new(gold)
 	end
-	p.LightEmission, p.Rate, p.Speed = 1, 0, NumberRange.new(8, 16)
-	p.Lifetime, p.SpreadAngle = NumberRange.new(0.5, 1.0), Vector2.new(180, 180)
+	p.LightEmission, p.Rate, p.Speed = 1, 0, NumberRange.new(12, 20)
+	p.Lifetime, p.SpreadAngle = NumberRange.new(0.6, 1.0), Vector2.new(180, 180)
 	p.Drag = 2
-	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0) })
+	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 0) })
 	p.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0),
 		NumberSequenceKeypoint.new(0.7, 0.2),
@@ -219,8 +264,53 @@ function GameAssets.burst(at: any, color: Color3?, count: number?)
 	})
 	p.Enabled = false
 	p.Parent = a
-	p:Emit(count or 20)
+	p:Emit(count or 26)
 	Debris:AddItem(a, 2.5)
+	if withRing then
+		GameAssets.ring(holder, color or gold, 8, 0.4)
+	end
+	countTelemetry("bursts", 1)
+end
+
+-- Multicoloured confetti plus a ring, for upgrades and rebirth.
+function GameAssets.confetti(at: any, count: number?)
+	local source = resolveHolder(at)
+	if not source then
+		return
+	end
+	local holder = source
+	if not (typeof(at) == "Vector3") then
+		holder = makeAnchor(source.Position, 4)
+	end
+	local P = GameAssets.Palette
+	local a = Instance.new("Attachment")
+	a.Name = "ConfettiAttachment"
+	a.Parent = holder
+	local p = Instance.new("ParticleEmitter")
+	p.Name = "ConfettiEmitter"
+	p.Texture = GameAssets.Textures.Sparkle
+	p.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, P.C1),
+		ColorSequenceKeypoint.new(0.25, P.C7),
+		ColorSequenceKeypoint.new(0.5, P.C3),
+		ColorSequenceKeypoint.new(0.75, P.C4),
+		ColorSequenceKeypoint.new(1, P.C5),
+	})
+	p.LightEmission, p.Rate, p.Speed = 0.8, 0, NumberRange.new(14, 24)
+	p.Lifetime, p.SpreadAngle = NumberRange.new(0.8, 1.4), Vector2.new(180, 180)
+	p.Acceleration = Vector3.new(0, -12, 0)
+	p.Rotation, p.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-200, 200)
+	p.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0.2) })
+	p.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.8, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	p.Enabled = false
+	p.Parent = a
+	p:Emit(count or 40)
+	Debris:AddItem(a, 3)
+	GameAssets.ring(holder, P.Primary, 8, 0.4)
 	countTelemetry("bursts", 1)
 end
 

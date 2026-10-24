@@ -213,44 +213,68 @@
       ]
     },
     {
-      "path": "ReplicatedStorage/ForgeChecksPlan.luau",
-      "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Pure data module returning one table that defines the playtest check plan. It holds timing: startup settle seconds, the pre-claim observation window (about 8s, shorter than the 20s auto-claim), sampling interval 2.5s, max total run about 50s, and a claim mode ('auto' or 'gate'). It also lists the checks as data entries {id, kind, counter, expect}. The kinds are 'counter_eq' (map_built=1, plaza_built=1, themes_built=6), 'counter_gte' (plot_assigned>=1, auto_claims>=1 in auto mode, cashin_fx_sent>0, cubes_collected>0), 'zero_before_claim' (cubes_dropped==0 while plot_assigned==0), 'rising_windows' (cubes_dropped must grow by >=1 in each 2.5s window after claim, tolerant of a faster rate once Dropper 2 is bought), 'cash_rising' (Cash leaderstat higher than at claim time), and 'no_output_errors' (no Error or Warning messages in the log). No services and no side effects. Existing counter names are used exactly as they are today. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
-      "depends": []
+      "path": "ServerScriptService/TutorialFlow.luau",
+      "purpose": "Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the census must show beams > 0). Re-show a stuck step's hint after 15s. Fire shop_opened when the SHOP panel opens. Tutorial steps must reach 5+ in a 60s playtest, and the stale step-4 text must match the real action. -- Server-authoritative tutorial step driver. Steps: 1 claim a plot, 2 first cash-in, 3 buy Dropper 2, 4 open SHOP, 5 buy any tier upgrade other than Dropper 2, 6 done. API: TutorialFlow.start() (idempotent, guarded so it runs once), TutorialFlow.notify(player, eventName, arg) with eventName 'claimed' | 'cashed_in' | 'upgrade_bought' (arg is the upgrade id) | 'shop_opened', and TutorialFlow.getStep(player). start() creates the RemoteEvent ReplicatedStorage/ShopOpened. Its OnServerEvent handler is a server-validated 'shop_opened' notify that ignores repeats and anything outside step 4. Notify only advances when the event matches the current step, so repeats and out-of-order events are harmless. Per player it keeps the step index and step start time and mirrors them in the player attributes TutorialStep (number), TutorialText (string from TutorialConfig) and TutorialNonce (number). It keeps an ObjectValue 'TutorialTarget' under the player whose Value is the current target part, so the client can aim the beam. Targets: step 1 the nearest unclaimed claim gate part (found by searching Workspace for the claim gates PlazaBuilder made); step 2 the player's collector on the owned plot; step 3 the Dropper 2 pad on the owned plot; step 4 the owned plot's collector, so the beam stays visible while the client arrow points at the SHOP button; step 5 the first visible buy pad on the owned plot. Every 1s a loop checks each player. If a step has been unchanged for TutorialConfig.STUCK_RESHOW_SECONDS (15s) it re-shows the hint by re-setting TutorialText, incrementing TutorialNonce and bumping 'tutorial_reshown', then repeats every 15s. Fallbacks so the guide cannot stall: step 1 also advances if the player already owns a plot (the loop checks the plot owner), step 2 advances if the player's Cash has risen, and step 4 auto-advances after SHOP_STEP_FALLBACK_SECONDS (20s) if the SHOP was never opened. Each advance bumps 'tutorial_steps' via ForgeTelemetry. Reaching step 6 bumps 'tutorial_done'. A real shop open bumps 'shop_opened'. Cleans up on PlayerRemoving. Uses Players, ReplicatedStorage/TutorialConfig, ForgeTelemetry and Upgrades. Bump ForgeTelemetry counters: tutorial_steps, shop_opened, tutorial_reshown, tutorial_done.",
+      "depends": [
+        "ReplicatedStorage/TutorialConfig.luau",
+        "ReplicatedStorage/ForgeTelemetry.luau",
+        "ReplicatedStorage/Upgrades.luau"
+      ]
     },
     {
-      "path": "ServerScriptService/ForgeChecks.server.luau",
-      "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Studio-only runner (returns immediately unless RunService:IsStudio()) that executes the plan from ForgeChecksPlan. It subscribes to LogService.MessageOut from the start and records Error and Warning entries, ignoring lines that start with its own '[ForgeCheck]' prefix. It waits for the first player and for map_built, plaza_built and themes_built, then snapshots telemetry through ForgeTelemetry.get/snapshot. During the pre-claim window it samples cubes_dropped and plot_assigned and records whether cubes_dropped stayed 0 before any claim. Claim phase: in 'auto' mode it waits for the 20s auto-claim and asserts plot_assigned and auto_claims rose. In 'gate' mode (Workspace attribute ForgeCheckMode='gate') it pivots the player's character onto the first unclaimed gate part to trigger the real Touched claim and asserts plots_claimed and plot_assigned rose. After the claim it samples cubes_dropped, cubes_collected and the player's leaderstats Cash every 2.5s for about 4 windows, then checks cashin_fx_sent>0 and the Output log. For each check it prints one line, '[ForgeCheck] PASS <id>' or '[ForgeCheck] FAIL <id> expected=<..> actual=<..>' (via print, never warn), then a final single line '[ForgeCheck] RESULT {json}' with {passed, failed, failures:[{id, expected, actual}]} that the CLI parses to hand each failing check to the fixer. It sets Workspace attribute ForgeChecksDone=true when finished. It only reads game state and never mutates cash, plots or existing counters. It bumps only its own counters 'checks_passed' and 'checks_failed' with ForgeTelemetry.count. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
+      "path": "StarterPlayerScripts/TutorialBeam.client.luau",
+      "purpose": "Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the census must show beams > 0). Re-show a stuck step's hint after 15s. Fire shop_opened when the SHOP panel opens. Tutorial steps must reach 5+ in a 60s playtest, and the stale step-4 text must match the real action. -- Client-only visuals for the current tutorial target. Watches the TutorialTarget ObjectValue under LocalPlayer and the TutorialStep and TutorialNonce attributes. When the target is a BasePart it builds a bouncing arrow (a Neon part or BillboardGui) above it. It also builds a visible Beam: Attachment0 on the character's HumanoidRootPart, Attachment1 on the target, Width0 and Width1 0.4, LightEmission 1, FaceCamera true, bright Color, Enabled true, Segments 10. The beam and arrow live under a Folder 'TutorialBeam' in Workspace so the census counts beams > 0. Rebuilds on respawn, when the target changes, and when the nonce changes (a short pulse on reshow). On step 4 it also bounces a small BillboardGui arrow over the SHOP button, found by searching PlayerGui for a button whose text contains 'SHOP'. Clears everything at step 6. Sends nothing to the server. Uses UiTheme for colors and TutorialConfig. Bump ForgeTelemetry counters: tutorial_steps, shop_opened, tutorial_reshown, tutorial_done.",
       "depends": [
-        "ReplicatedStorage/ForgeChecksPlan.luau",
+        "ReplicatedStorage/TutorialConfig.luau",
+        "ReplicatedStorage/UiTheme.luau"
+      ]
+    },
+    {
+      "path": "StarterPlayerScripts/ShopFx.luau",
+      "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened counter. On a successful buy, play the buy sound, flash the row green, tween a level bar fill, and increment shop_purchases. Buying must use the same server validation as the pads. If the player has too little cash, shake the row and play an error buzz. Use the existing GameAssets and UiTheme. -- Client-only ModuleScript with pure presentation helpers, required by ShopUi.client.luau. It uses GameAssets (play for sounds, palette) and UiTheme for colors, and TweenService. API: ShopFx.openPanel(panel, opts) sets the panel's UIScale (created if missing) to about 0.85 with transparency up, tweens it to 1 with Back easing over about 0.25s, calls GameAssets.play for the whoosh and fires the ShopOpened remote once per open; it cancels any running tween so rapid toggling is safe. ShopFx.closePanel(panel) is an optional quick reverse tween. ShopFx.buySuccess(row, level, maxLevel) plays the buy sound, tweens the row background to a green flash and back, and tweens a level bar fill to level/maxLevel. The bar is a Frame with a UICorner, created under the row if it does not exist and named 'LevelBar'. ShopFx.buyFail(row) plays the error buzz (GameAssets.play with the error or deny sound id, or a verified fallback) and shakes the row with a short sequence of position offsets that returns to the original Position. All helpers are nil-safe and wrapped in pcall so a missing asset cannot break the shop. Rows and panel stay Active and clickable throughout. It sends no purchase data; the purchase request path is unchanged. Bump ForgeTelemetry counters: shop_opened, shop_purchases.",
+      "depends": [
+        "ReplicatedStorage/GameAssets.luau",
+        "ReplicatedStorage/UiTheme.luau"
+      ]
+    },
+    {
+      "path": "ServerScriptService/ShopTelemetry.server.luau",
+      "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened counter. On a successful buy, play the buy sound, flash the row green, tween a level bar fill, and increment shop_purchases. Buying must use the same server validation as the pads. If the player has too little cash, shake the row and play an error buzz. Use the existing GameAssets and UiTheme. -- Self-booting server Script (no edits to Game.server needed). It creates a RemoteEvent 'ShopOpened' in ReplicatedStorage (reuse it if it already exists) and, per player, rate-limits it to at most one count per 0.5s. On a valid fire it bumps ForgeTelemetry 'shop_opened'. It also exposes a BindableEvent 'ShopPurchaseOk' under ServerStorage; when UpgradeService fires it after a successful shop-originated purchase, it bumps 'shop_purchases'. It holds no game state, never trusts client payload data, and makes no economy changes. Bump ForgeTelemetry counters: shop_opened, shop_purchases.",
+      "depends": [
         "ReplicatedStorage/ForgeTelemetry.luau"
       ]
     },
     {
-      "path": "ReplicatedStorage/FeatureChecksConfig.luau",
-      "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Pure shared data for the verifier, returning one table. It holds the feature ids (shop, rebirth, board, tutorial), per-check timeouts, the remote names (FeatureVerifyReq, FeatureVerifyRes), the GUI and attribute names the client probe reads (ShopUi cards carry Attributes UpgradeId, Affordable and Price; the tutorial banner and arrow report TutorialBannerVisible and TutorialArrowVisible on the PlayerGui), the Workspace names of the altar and the TOP TYCOONS board, and the telemetry counter names. No side effects. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
-      "depends": []
-    },
-    {
-      "path": "ServerScriptService/FeatureVerifier.server.luau",
-      "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Studio-only (RunService:IsStudio()) server script that runs the four feature checks in order after the first player has a claimed plot. It creates the two verify RemoteEvents in one place and does not touch the economy outside Studio. Each check is wrapped in pcall, and a check that errors counts as a failure with a reason string.\n\n1. SHOP: asks the client probe to open the panel and report its cards. It passes if there is one card per entry in ReplicatedStorage/Upgrades, each showing a price and an affordability flag. The server then confirms Cash >= 10, teleports the character's HumanoidRootPart onto the Dropper 2 pad on the owned plot, and waits for it. It passes if Cash drops by exactly 10 once, the pad is gone, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought rises by exactly 1. It then stands on the pad location again and confirms there is no second deduction.\n2. REBIRTH: first confirms the altar is absent at low cash with upgrades not all owned. It then sets Cash to RebirthConfig's threshold (5000) via the leaderstat and confirms the altar appears. Next it triggers rebirth through the same path a player would use (RebirthService's public API or the altar prompt or touch), and confirms the multiplier rose, Cash reset, owned upgrades reset, and the Rebirths leaderstat increased by 1. Finally it repeats the altar check with all upgrades owned and cash below 5000 (marking owned through UpgradeService's API) and confirms the altar appears. State is restored or reset afterwards.\n3. BOARD: finds the TOP TYCOONS board in the plaza and reads its SurfaceGui text. It passes if the headers or rows include both Cash and Rebirths and the current player's name appears with numeric values that match their leaderstats after a refresh.\n4. TUTORIAL: reads the client's reported banner and arrow visibility. It expects both to be visible after the claim and not visible or advanced after the first purchase, using TutorialService's step state or the player attribute it exposes.\n\nOn pass, the verifier bumps ForgeTelemetry.count('feature_verified_<id>', 1) exactly once per feature, sets Workspace attribute FeatureVerified_<id> = true, and prints '[FeatureVerifier] <id> VERIFIED'. On failure it sets FeatureFailed_<id> to the reason string and prints it via print, not warn, so the output stays clean. It bumps no gameplay counters itself. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+      "path": "ServerScriptService/PadFeedbackService.luau",
+      "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and stop it when not affordable or after a buy. Count it in a 'highlights' census counter. When a player touches a pad with too little cash, flash the pad red, play an error buzz and show a short 'Need $N' toast without deducting cash. Hook into UpgradeService and UpgradeFx, and increment a pad_denied counter. -- Server module (required by UpgradeService, no auto-boot needed beyond lazy Init on first require). Creates the ReplicatedStorage RemoteEvent 'PadFeedback'. API: Register(pad: BasePart, owner: Player, cost: number), which records the visible pad and its owner and refreshes affordability; Unregister(pad), called when the pad is bought or hidden, which removes its Highlight and clears the 'Affordable' attribute; Denied(player, pad, cost), called on an insufficient-cash touch, which is debounced per player/pad at about 1s, fires PadFeedback:FireClient(player, 'denied', pad, cost) and bumps 'pad_denied'. It watches each owner's leaderstats Cash.Changed plus a 0.5s heartbeat check. While Cash >= cost for a registered pad it sets pad attribute Affordable=true and creates or enables a green Highlight (named 'AffordHighlight', FillColor green, FillTransparency 0.6, OutlineColor white, Adornee pad), bumping 'highlights' once each time a highlight is activated. When Cash < cost, or after Unregister or the owner leaving, it sets Affordable=false and disables or destroys the Highlight. It never changes Cash or purchase rules. It uses ForgeTelemetry and cleans up on PlayerRemoving. Bump ForgeTelemetry counters: highlights, pad_denied.",
       "depends": [
-        "ReplicatedStorage/FeatureChecksConfig.luau",
-        "ReplicatedStorage/Upgrades.luau",
-        "ReplicatedStorage/RebirthConfig.luau",
-        "ReplicatedStorage/ForgeTelemetry.luau",
-        "ServerScriptService/UpgradeService.luau",
-        "ServerScriptService/RebirthService.luau",
-        "ServerScriptService/TutorialService.luau",
-        "ServerScriptService/PlotClaimService.luau"
+        "ReplicatedStorage/ForgeTelemetry.luau"
       ]
     },
     {
-      "path": "StarterPlayerScripts/FeatureVerifyClient.client.luau",
-      "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Client-side probe that stays inert unless the verify remotes exist (it WaitForChilds them with a timeout and exits on nil). On request from the server it inspects the player's own UI and replies with plain data. For SHOP, it finds the SHOP button in PlayerGui, activates it, and returns whether the panel is visible plus the list of cards (UpgradeId, price text, Affordable attribute). For TUTORIAL, it returns whether the banner and arrow are visible. It sends no gameplay intent to the server. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+      "path": "StarterPlayerScripts/PadFeedbackFx.client.luau",
+      "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and stop it when not affordable or after a buy. Count it in a 'highlights' census counter. When a player touches a pad with too little cash, flash the pad red, play an error buzz and show a short 'Need $N' toast without deducting cash. Hook into UpgradeService and UpgradeFx, and increment a pad_denied counter. -- Client-only presentation. Waits for ReplicatedStorage 'PadFeedback'. Watches workspace descendants with attribute Affordable via GetAttributeChangedSignal, and while Affordable is true loops a tween that pulses the pad's neon glow (Material Neon, brightness via Color lerp toward green), its AffordHighlight FillTransparency (0.7 to 0.3) and its price-tag BillboardGui TextLabel (green text, slight size pulse). It restores the original Color/Material/text style when Affordable goes false. On the 'denied' message it flashes the pad red for about 0.4s then restores, and plays an error buzz using a verified sound id from GameAssets with a short Sound in SoundService. It sends nothing to the server. Bump ForgeTelemetry counters: highlights, pad_denied.",
       "depends": [
-        "ReplicatedStorage/FeatureChecksConfig.luau",
-        "StarterPlayerScripts/ShopUi.client.luau",
-        "StarterPlayerScripts/TutorialGuide.client.luau"
+        "ReplicatedStorage/GameAssets.luau",
+        "ReplicatedStorage/UiTheme.luau"
+      ]
+    },
+    {
+      "path": "ServerScriptService/GrowthModels.luau",
+      "purpose": "Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades barely changes how it looks. (1) ServerScriptService/GrowthModels.luau: pure model builders, one short function per kind, each returning a Model built from 3-8 anchored parts in the given theme colors (never default grey): dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label), plotWall(plotCFrame, size, theme). (2) ServerScriptService/PlotGrowth.luau: the service. PlotGrowth.apply(player, plot, ownedIds) builds the missing models for every owned upgrade (Dropper 2/3/4 -> dropperMachine on the dropper row above the conveyor; Speed 1/2 -> chevrons along the conveyor; ore tiers -> orePile beside the collector; Cash x1.5/x2 -> vault next to the collector; any purchase -> plotWall around the plot edge), each popping in with GameAssets.popIn plus GameAssets.burst. PlotGrowth.clear(player) shrinks and removes them on rebirth. Bump counter plot_growth_built per model. Hook: UpgradeService calls PlotGrowth.apply after every successful purchase and on plot claim; RebirthService calls PlotGrowth.clear after a rebirth reset. -- Pure model builders with no side effects and no telemetry, kept under 180 lines. Exports dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label) and plotWall(plotCFrame, size, theme). Each is one short function that returns a Model of 3-8 anchored parts (Anchored=true, CanCollide=false except wall posts, CanTouch=false), colored only from the theme colors or tierColor (theme.accent, theme.primary, theme.floor, with fallbacks to GameAssets palette), never default grey. Includes a tiny local helper mk(parent, size, cf, color, material, shape) that creates a part. vault builds a box body, a door and a billboard TextLabel with the label. plotWall builds low corner posts and rails around the edge of the given size without blocking the buy pads or claim gate (rails are thin and low, posts at the corners and at intervals). Requires only ReplicatedStorage/GameAssets for the palette fallbacks. Bump ForgeTelemetry counters: plot_growth_built.",
+      "depends": [
+        "ReplicatedStorage/GameAssets.luau"
+      ]
+    },
+    {
+      "path": "ServerScriptService/PlotGrowth.luau",
+      "purpose": "Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades barely changes how it looks. (1) ServerScriptService/GrowthModels.luau: pure model builders, one short function per kind, each returning a Model built from 3-8 anchored parts in the given theme colors (never default grey): dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label), plotWall(plotCFrame, size, theme). (2) ServerScriptService/PlotGrowth.luau: the service. PlotGrowth.apply(player, plot, ownedIds) builds the missing models for every owned upgrade (Dropper 2/3/4 -> dropperMachine on the dropper row above the conveyor; Speed 1/2 -> chevrons along the conveyor; ore tiers -> orePile beside the collector; Cash x1.5/x2 -> vault next to the collector; any purchase -> plotWall around the plot edge), each popping in with GameAssets.popIn plus GameAssets.burst. PlotGrowth.clear(player) shrinks and removes them on rebirth. Bump counter plot_growth_built per model. Hook: UpgradeService calls PlotGrowth.apply after every successful purchase and on plot claim; RebirthService calls PlotGrowth.clear after a rebirth reset. -- Growth service, kept under 200 lines. API: PlotGrowth.apply(player, plot, ownedIds) and PlotGrowth.clear(player). apply builds the missing models for each owned upgrade id. It maps ids via the Upgrades module data (by id/kind fields: dropper tiers 2/3/4 -> dropperMachine at successive slots on the dropper row above the conveyor; speed 1/2 -> chevrons at successive spots along the conveyor; ore tiers -> orePile beside the collector, using the tier color from the Upgrades data or GameAssets palette; cash x1.5/x2 -> vault next to the collector; any owned upgrade -> a single plotWall around the plot edge). The plot's theme comes from PlotThemes via the plot's Theme attribute or name, with a fallback to the default palette. Models are placed relative to named plot parts (Dropper, Conveyor, Collector, or the plot's PrimaryPart/floor) found with FindFirstChild, and each parented under a per-plot Folder 'Growth'. Keep a per-player table built[player][key]=model so repeated calls are idempotent (build only missing keys, never duplicate). Each new model gets GameAssets.popIn(model) and GameAssets.burst(position, color), both guarded with pcall and a type check in case the API differs. Bumps ForgeTelemetry 'plot_growth_built' once per model. clear(player) tweens the models down (shrink or fade) via TweenService, then Destroys them, empties built[player], and bumps nothing. Also clears on Players.PlayerRemoving. apply tolerates nil or empty ownedIds, a nil plot and a destroyed plot (return early, no errors). Bump ForgeTelemetry counters: plot_growth_built.",
+      "depends": [
+        "ServerScriptService/GrowthModels.luau",
+        "ReplicatedStorage/Upgrades.luau",
+        "ReplicatedStorage/PlotThemes.luau",
+        "ReplicatedStorage/GameAssets.luau",
+        "ReplicatedStorage/ForgeTelemetry.luau"
       ]
     }
   ],
@@ -318,7 +342,6 @@
     "Touching a pad with too little cash plays the Error sound and the toast 'Need $X more', with the correct X, and deducts nothing",
     "Buying an ore tier upgrade shows the big RewardPopup 'GOLD ORE! $N per cube' with the Win sound and a medium shake",
     "Rebirthing plays Boom then Win, a large shake and a white flash that fades out",
-    "After starting a playtest in Studio, the Output shows one '[ForgeCheck] PASS' or '[ForgeCheck] FAIL' line per check and a final '[ForgeCheck] RESULT {json}' line within about 50 seconds, and Workspace attribute ForgeChecksDone becomes true",
     "PASS map_built=1, plaza_built=1 and themes_built=6, and the counter names are unchanged from existing games",
     "PASS cubes_dropped==0 while plot_assigned==0 during the first ~8 seconds after spawn in the plaza",
     "In 'auto' mode, with no claim made, plot_assigned>=1 and auto_claims>=1 appear after about 20 seconds and the check passes. In 'gate' mode, walking onto a gate raises plots_claimed and plot_assigned and the check passes",
@@ -329,7 +352,36 @@
     "The rebirth altar is absent below 5000 cash with upgrades unfinished, appears at 5000 cash, and also appears when all upgrades are owned. Rebirthing raises the multiplier and Rebirths, and resets Cash and owned upgrades.",
     "The plaza TOP TYCOONS board shows both Cash and Rebirths values for the player, matching their leaderstats.",
     "The tutorial banner and arrow are visible after the first claim and advance or clear after the first purchase.",
-    "Each passing feature sets Workspace attribute FeatureVerified_<id> and bumps its feature_verified_<id> counter to exactly 1. A failing feature sets FeatureFailed_<id> with a reason."
+    "In a 60s playtest the player's TutorialStep attribute reaches 5 or higher and 'tutorial_steps' is 5 or more",
+    "After the plot is claimed (auto-claim included), the step moves from 1 to 2, and after the first cube is collected it moves to 3",
+    "Buying Dropper 2 moves the tutorial to step 4, and the banner reads 'Tap the SHOP button to open it'",
+    "Opening the SHOP panel bumps 'shop_opened' once and moves the tutorial to step 5. If the SHOP is never opened, step 4 advances by itself after about 20s",
+    "Buying any non-Dropper-2 upgrade advances to step 6 and bumps 'tutorial_done'",
+    "A beam is visible from the player's HumanoidRootPart to the current target on every step and the census reports beams > 0, with a bouncing arrow over the target",
+    "Opening the shop panel plays a scale-in tween (from about 0.85 to 1) with a whoosh sound, and 'shop_opened' increments once per open",
+    "Buying an upgrade from the shop with enough cash deducts the cost exactly once, plays the buy sound, flashes the row green, tweens the level bar fill up, and 'shop_purchases' increments",
+    "Clicking buy with too little cash shakes the row, plays an error buzz, deducts nothing, and leaves 'shop_purchases' unchanged",
+    "A shop purchase and a pad purchase of the same upgrade go through the same server validation, so a purchase for a non-owned plot or with insufficient cash is rejected the same way in both",
+    "Opening and closing the panel repeatedly leaves it at scale 1 with no stuck tween and no errors or warnings in the output",
+    "Rows return to their original position after a shake and to their original color after the flash",
+    "After a plot is claimed and Cash reaches the Dropper 2 cost (10), the visible pad gets an enabled green Highlight, pulses, and the 'highlights' counter is at least 1",
+    "The pad's price tag pulses green while Cash >= cost and returns to its normal style when Cash drops below cost",
+    "After buying, the pulse and Highlight on that pad stop and it vanishes as before, with exactly the normal cost deducted once",
+    "Touching a pad with Cash below cost flashes it red, plays an audible buzz, shows a 'Need $N' toast, leaves Cash unchanged, and increments 'pad_denied'",
+    "Repeatedly standing on a pad while poor does not spam toasts or the counter (about 1s debounce)",
+    "No errors or warnings in output, and existing counters (upgrades_bought, cubes_collected) behave as before",
+    "After claiming a plot, no growth models exist, and 'plot_growth_built' is 0 for that player until the first purchase.",
+    "Buying Dropper 2 builds a hopper-on-legs dropper machine with a glowing nozzle on the dropper row, popping in with a burst, and also builds the wall with corner pillars and lamps. 'plot_growth_built' rises by at least 2.",
+    "Buying Dropper 3 and Dropper 4 each add another dropper machine in a new slot, with no duplicates of earlier ones.",
+    "Buying Speed 1 and Speed 2 adds chevron arrows on the conveyor sides, and on the client they visibly scroll along the conveyor.",
+    "Buying the silver, gold and diamond ore upgrades adds matching ore piles or crystal clusters beside the collector.",
+    "Buying Cash x1.5 and x2 adds a vault or coin stack near the collector with a floating 'x1.5' or 'x2' sign.",
+    "After claiming a plot and buying Dropper 2, 'plot_growth_built' increases (a dropper machine plus a plot wall) and a themed machine model pops in on the dropper row",
+    "Buying Speed 1 adds a chevrons model along the conveyor and 'plot_growth_built' increments",
+    "Buying an ore tier adds an ore pile beside the collector, and buying Cash x1.5 adds a vault with a label next to the collector",
+    "Calling apply again with the same owned ids does not duplicate models or bump 'plot_growth_built'",
+    "Each new model pops in with a visible burst, and no growth part is default grey",
+    "Growth models do not block the player's walking path or the buy pads, and cube flow and cash-in are unaffected"
   ],
   "features": [
     {
@@ -796,109 +848,198 @@
       "ts": "2026-10-24T03:07:38Z"
     },
     {
-      "request": "Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged.",
+      "request": "Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the census must show beams > 0). Re-show a stuck step's hint after 15s. Fire shop_opened when the SHOP panel opens. Tutorial steps must reach 5+ in a 60s playtest, and the stale step-4 text must match the real action.",
       "plan": {
-        "summary": "Add a Studio-only, data-driven live-playtest check runner that samples the existing ForgeTelemetry counters, Cash and the Output log over time, asserts the required map, plaza, claim, cube, FX and cash behaviour, and prints one structured result line per check so failures can be handed to the fixer.",
+        "summary": "Fix the tutorial so a server-side TutorialFlow advances it through claim, first cash-in, Dropper 2 buy, open SHOP and tier-upgrade buy, with a visible Beam and arrow to each target, a stuck-hint reshow after 15s, a shop_opened signal and step text that matches the real action.",
         "new_modules": [
           {
-            "path": "ReplicatedStorage/ForgeChecksPlan.luau",
-            "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Pure data module returning one table that defines the playtest check plan. It holds timing: startup settle seconds, the pre-claim observation window (about 8s, shorter than the 20s auto-claim), sampling interval 2.5s, max total run about 50s, and a claim mode ('auto' or 'gate'). It also lists the checks as data entries {id, kind, counter, expect}. The kinds are 'counter_eq' (map_built=1, plaza_built=1, themes_built=6), 'counter_gte' (plot_assigned>=1, auto_claims>=1 in auto mode, cashin_fx_sent>0, cubes_collected>0), 'zero_before_claim' (cubes_dropped==0 while plot_assigned==0), 'rising_windows' (cubes_dropped must grow by >=1 in each 2.5s window after claim, tolerant of a faster rate once Dropper 2 is bought), 'cash_rising' (Cash leaderstat higher than at claim time), and 'no_output_errors' (no Error or Warning messages in the log). No services and no side effects. Existing counter names are used exactly as they are today. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
-            "depends": []
+            "path": "ServerScriptService/TutorialFlow.luau",
+            "purpose": "Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the census must show beams > 0). Re-show a stuck step's hint after 15s. Fire shop_opened when the SHOP panel opens. Tutorial steps must reach 5+ in a 60s playtest, and the stale step-4 text must match the real action. -- Server-authoritative tutorial step driver. Steps: 1 claim a plot, 2 first cash-in, 3 buy Dropper 2, 4 open SHOP, 5 buy any tier upgrade other than Dropper 2, 6 done. API: TutorialFlow.start() (idempotent, guarded so it runs once), TutorialFlow.notify(player, eventName, arg) with eventName 'claimed' | 'cashed_in' | 'upgrade_bought' (arg is the upgrade id) | 'shop_opened', and TutorialFlow.getStep(player). start() creates the RemoteEvent ReplicatedStorage/ShopOpened. Its OnServerEvent handler is a server-validated 'shop_opened' notify that ignores repeats and anything outside step 4. Notify only advances when the event matches the current step, so repeats and out-of-order events are harmless. Per player it keeps the step index and step start time and mirrors them in the player attributes TutorialStep (number), TutorialText (string from TutorialConfig) and TutorialNonce (number). It keeps an ObjectValue 'TutorialTarget' under the player whose Value is the current target part, so the client can aim the beam. Targets: step 1 the nearest unclaimed claim gate part (found by searching Workspace for the claim gates PlazaBuilder made); step 2 the player's collector on the owned plot; step 3 the Dropper 2 pad on the owned plot; step 4 the owned plot's collector, so the beam stays visible while the client arrow points at the SHOP button; step 5 the first visible buy pad on the owned plot. Every 1s a loop checks each player. If a step has been unchanged for TutorialConfig.STUCK_RESHOW_SECONDS (15s) it re-shows the hint by re-setting TutorialText, incrementing TutorialNonce and bumping 'tutorial_reshown', then repeats every 15s. Fallbacks so the guide cannot stall: step 1 also advances if the player already owns a plot (the loop checks the plot owner), step 2 advances if the player's Cash has risen, and step 4 auto-advances after SHOP_STEP_FALLBACK_SECONDS (20s) if the SHOP was never opened. Each advance bumps 'tutorial_steps' via ForgeTelemetry. Reaching step 6 bumps 'tutorial_done'. A real shop open bumps 'shop_opened'. Cleans up on PlayerRemoving. Uses Players, ReplicatedStorage/TutorialConfig, ForgeTelemetry and Upgrades. Bump ForgeTelemetry counters: tutorial_steps, shop_opened, tutorial_reshown, tutorial_done.",
+            "depends": [
+              "ReplicatedStorage/TutorialConfig.luau",
+              "ReplicatedStorage/ForgeTelemetry.luau",
+              "ReplicatedStorage/Upgrades.luau"
+            ]
           },
           {
-            "path": "ServerScriptService/ForgeChecks.server.luau",
-            "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Studio-only runner (returns immediately unless RunService:IsStudio()) that executes the plan from ForgeChecksPlan. It subscribes to LogService.MessageOut from the start and records Error and Warning entries, ignoring lines that start with its own '[ForgeCheck]' prefix. It waits for the first player and for map_built, plaza_built and themes_built, then snapshots telemetry through ForgeTelemetry.get/snapshot. During the pre-claim window it samples cubes_dropped and plot_assigned and records whether cubes_dropped stayed 0 before any claim. Claim phase: in 'auto' mode it waits for the 20s auto-claim and asserts plot_assigned and auto_claims rose. In 'gate' mode (Workspace attribute ForgeCheckMode='gate') it pivots the player's character onto the first unclaimed gate part to trigger the real Touched claim and asserts plots_claimed and plot_assigned rose. After the claim it samples cubes_dropped, cubes_collected and the player's leaderstats Cash every 2.5s for about 4 windows, then checks cashin_fx_sent>0 and the Output log. For each check it prints one line, '[ForgeCheck] PASS <id>' or '[ForgeCheck] FAIL <id> expected=<..> actual=<..>' (via print, never warn), then a final single line '[ForgeCheck] RESULT {json}' with {passed, failed, failures:[{id, expected, actual}]} that the CLI parses to hand each failing check to the fixer. It sets Workspace attribute ForgeChecksDone=true when finished. It only reads game state and never mutates cash, plots or existing counters. It bumps only its own counters 'checks_passed' and 'checks_failed' with ForgeTelemetry.count. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
+            "path": "StarterPlayerScripts/TutorialBeam.client.luau",
+            "purpose": "Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the census must show beams > 0). Re-show a stuck step's hint after 15s. Fire shop_opened when the SHOP panel opens. Tutorial steps must reach 5+ in a 60s playtest, and the stale step-4 text must match the real action. -- Client-only visuals for the current tutorial target. Watches the TutorialTarget ObjectValue under LocalPlayer and the TutorialStep and TutorialNonce attributes. When the target is a BasePart it builds a bouncing arrow (a Neon part or BillboardGui) above it. It also builds a visible Beam: Attachment0 on the character's HumanoidRootPart, Attachment1 on the target, Width0 and Width1 0.4, LightEmission 1, FaceCamera true, bright Color, Enabled true, Segments 10. The beam and arrow live under a Folder 'TutorialBeam' in Workspace so the census counts beams > 0. Rebuilds on respawn, when the target changes, and when the nonce changes (a short pulse on reshow). On step 4 it also bounces a small BillboardGui arrow over the SHOP button, found by searching PlayerGui for a button whose text contains 'SHOP'. Clears everything at step 6. Sends nothing to the server. Uses UiTheme for colors and TutorialConfig. Bump ForgeTelemetry counters: tutorial_steps, shop_opened, tutorial_reshown, tutorial_done.",
             "depends": [
-              "ReplicatedStorage/ForgeChecksPlan.luau",
+              "ReplicatedStorage/TutorialConfig.luau",
+              "ReplicatedStorage/UiTheme.luau"
+            ]
+          }
+        ],
+        "edits": [
+          {
+            "path": "ReplicatedStorage/TutorialConfig.luau",
+            "change": "Add STUCK_RESHOW_SECONDS = 15 and SHOP_STEP_FALLBACK_SECONDS = 20. Make the step texts match the real actions: 1 claim a plot, 2 watch the first cash-in, 3 buy Dropper 2, 4 'Tap the SHOP button to open it' (replacing the stale step-4 text), 5 'Buy a tier upgrade in the SHOP', 6 done."
+          },
+          {
+            "path": "ServerScriptService/TutorialService.luau",
+            "change": "Stop it from setting a conflicting step number or text. Inside its existing startup, add pcall(function() require(script.Parent.TutorialFlow).start() end) and have it delegate step state to TutorialFlow. Keep only the state other code still reads."
+          },
+          {
+            "path": "ServerScriptService/PlotClaimService.luau",
+            "change": "After a plot is successfully claimed, in both the gate-touch and auto-claim paths, add pcall(function() require(script.Parent.TutorialFlow).notify(player, 'claimed') end)."
+          }
+        ],
+        "telemetry": [
+          "tutorial_steps",
+          "shop_opened",
+          "tutorial_reshown",
+          "tutorial_done"
+        ],
+        "acceptance": [
+          "In a 60s playtest the player's TutorialStep attribute reaches 5 or higher and 'tutorial_steps' is 5 or more",
+          "After the plot is claimed (auto-claim included), the step moves from 1 to 2, and after the first cube is collected it moves to 3",
+          "Buying Dropper 2 moves the tutorial to step 4, and the banner reads 'Tap the SHOP button to open it'",
+          "Opening the SHOP panel bumps 'shop_opened' once and moves the tutorial to step 5. If the SHOP is never opened, step 4 advances by itself after about 20s",
+          "Buying any non-Dropper-2 upgrade advances to step 6 and bumps 'tutorial_done'",
+          "A beam is visible from the player's HumanoidRootPart to the current target on every step and the census reports beams > 0, with a bouncing arrow over the target"
+        ]
+      },
+      "ts": "2026-10-24T04:28:24Z"
+    },
+    {
+      "request": "Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened counter. On a successful buy, play the buy sound, flash the row green, tween a level bar fill, and increment shop_purchases. Buying must use the same server validation as the pads. If the player has too little cash, shake the row and play an error buzz. Use the existing GameAssets and UiTheme.",
+      "plan": {
+        "summary": "Adds a polish layer to the shop panel: the panel scales in with a whoosh, a successful buy plays the buy sound, flashes the row green and tweens a level bar, and a failed buy shakes the row with an error buzz. It adds no new gameplay rules, and the two counters are bumped on the server.",
+        "new_modules": [
+          {
+            "path": "StarterPlayerScripts/ShopFx.luau",
+            "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened counter. On a successful buy, play the buy sound, flash the row green, tween a level bar fill, and increment shop_purchases. Buying must use the same server validation as the pads. If the player has too little cash, shake the row and play an error buzz. Use the existing GameAssets and UiTheme. -- Client-only ModuleScript with pure presentation helpers, required by ShopUi.client.luau. It uses GameAssets (play for sounds, palette) and UiTheme for colors, and TweenService. API: ShopFx.openPanel(panel, opts) sets the panel's UIScale (created if missing) to about 0.85 with transparency up, tweens it to 1 with Back easing over about 0.25s, calls GameAssets.play for the whoosh and fires the ShopOpened remote once per open; it cancels any running tween so rapid toggling is safe. ShopFx.closePanel(panel) is an optional quick reverse tween. ShopFx.buySuccess(row, level, maxLevel) plays the buy sound, tweens the row background to a green flash and back, and tweens a level bar fill to level/maxLevel. The bar is a Frame with a UICorner, created under the row if it does not exist and named 'LevelBar'. ShopFx.buyFail(row) plays the error buzz (GameAssets.play with the error or deny sound id, or a verified fallback) and shakes the row with a short sequence of position offsets that returns to the original Position. All helpers are nil-safe and wrapped in pcall so a missing asset cannot break the shop. Rows and panel stay Active and clickable throughout. It sends no purchase data; the purchase request path is unchanged. Bump ForgeTelemetry counters: shop_opened, shop_purchases.",
+            "depends": [
+              "ReplicatedStorage/GameAssets.luau",
+              "ReplicatedStorage/UiTheme.luau"
+            ]
+          },
+          {
+            "path": "ServerScriptService/ShopTelemetry.server.luau",
+            "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened counter. On a successful buy, play the buy sound, flash the row green, tween a level bar fill, and increment shop_purchases. Buying must use the same server validation as the pads. If the player has too little cash, shake the row and play an error buzz. Use the existing GameAssets and UiTheme. -- Self-booting server Script (no edits to Game.server needed). It creates a RemoteEvent 'ShopOpened' in ReplicatedStorage (reuse it if it already exists) and, per player, rate-limits it to at most one count per 0.5s. On a valid fire it bumps ForgeTelemetry 'shop_opened'. It also exposes a BindableEvent 'ShopPurchaseOk' under ServerStorage; when UpgradeService fires it after a successful shop-originated purchase, it bumps 'shop_purchases'. It holds no game state, never trusts client payload data, and makes no economy changes. Bump ForgeTelemetry counters: shop_opened, shop_purchases.",
+            "depends": [
               "ReplicatedStorage/ForgeTelemetry.luau"
             ]
           }
         ],
         "edits": [
           {
-            "path": "ReplicatedStorage/ForgeTelemetry.luau",
-            "change": "Only if it does not already expose them, add read-only helpers get(name) -> number (0 if unset) and snapshot() -> a copy of the counters table, so the check runner can read counters. Do not rename or alter count() or any existing counter name."
+            "path": "StarterPlayerScripts/ShopUi.client.luau",
+            "change": "Require the ShopFx module. In the code that opens the panel, call ShopFx.openPanel(panel) instead of setting Visible directly. In the buy-button handler, after the server's existing purchase response arrives, call ShopFx.buySuccess(row, newLevel, maxLevel) on success, or ShopFx.buyFail(row) on failure (including a client-side check that cash is too low). Do not change what is sent to the server."
+          },
+          {
+            "path": "ServerScriptService/UpgradeService.luau",
+            "change": "In the shop's purchase-request handler (the same validation path the pads use), after the shared purchase function reports success, fire the ShopPurchaseOk BindableEvent. Do not add a second validation path or change costs, ownership checks or deductions."
           }
         ],
         "telemetry": [
-          "checks_passed",
-          "checks_failed"
+          "shop_opened",
+          "shop_purchases"
         ],
         "acceptance": [
-          "After starting a playtest in Studio, the Output shows one '[ForgeCheck] PASS' or '[ForgeCheck] FAIL' line per check and a final '[ForgeCheck] RESULT {json}' line within about 50 seconds, and Workspace attribute ForgeChecksDone becomes true",
-          "PASS map_built=1, plaza_built=1 and themes_built=6, and the counter names are unchanged from existing games",
-          "PASS cubes_dropped==0 while plot_assigned==0 during the first ~8 seconds after spawn in the plaza",
-          "In 'auto' mode, with no claim made, plot_assigned>=1 and auto_claims>=1 appear after about 20 seconds and the check passes. In 'gate' mode, walking onto a gate raises plots_claimed and plot_assigned and the check passes",
-          "After the claim, cubes_dropped rises by at least 1 in every 2.5s sampling window, and cubes_collected becomes >0",
-          "Cash leaderstat is higher at the end of the sampling windows than at claim time, and cashin_fx_sent>0"
+          "Opening the shop panel plays a scale-in tween (from about 0.85 to 1) with a whoosh sound, and 'shop_opened' increments once per open",
+          "Buying an upgrade from the shop with enough cash deducts the cost exactly once, plays the buy sound, flashes the row green, tweens the level bar fill up, and 'shop_purchases' increments",
+          "Clicking buy with too little cash shakes the row, plays an error buzz, deducts nothing, and leaves 'shop_purchases' unchanged",
+          "A shop purchase and a pad purchase of the same upgrade go through the same server validation, so a purchase for a non-owned plot or with insufficient cash is rejected the same way in both",
+          "Opening and closing the panel repeatedly leaves it at scale 1 with no stuck tween and no errors or warnings in the output",
+          "Rows return to their original position after a shake and to their original color after the flash"
         ]
       },
-      "ts": "2026-10-24T03:16:17Z"
+      "ts": "2026-10-24T04:29:54Z"
     },
     {
-      "request": "Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass.",
+      "request": "Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and stop it when not affordable or after a buy. Count it in a 'highlights' census counter. When a player touches a pad with too little cash, flash the pad red, play an error buzz and show a short 'Need $N' toast without deducting cash. Hook into UpgradeService and UpgradeFx, and increment a pad_denied counter.",
       "plan": {
-        "summary": "Add a Studio-only feature verifier that drives the real game through the SHOP panel, the Dropper 2 purchase, the rebirth altar and rebirth reset, the TOP TYCOONS board and the tutorial flow, then marks each feature verified through telemetry counters and Workspace attributes once its checks pass.",
+        "summary": "Adds a visual and feel pass for buy pads: the visible pad pulses green with its price tag while the owner can afford it, and a too-poor touch flashes the pad red, plays a buzz and shows a 'Need $N' toast, with no change to cash or rules.",
         "new_modules": [
           {
-            "path": "ReplicatedStorage/FeatureChecksConfig.luau",
-            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Pure shared data for the verifier, returning one table. It holds the feature ids (shop, rebirth, board, tutorial), per-check timeouts, the remote names (FeatureVerifyReq, FeatureVerifyRes), the GUI and attribute names the client probe reads (ShopUi cards carry Attributes UpgradeId, Affordable and Price; the tutorial banner and arrow report TutorialBannerVisible and TutorialArrowVisible on the PlayerGui), the Workspace names of the altar and the TOP TYCOONS board, and the telemetry counter names. No side effects. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
-            "depends": []
-          },
-          {
-            "path": "ServerScriptService/FeatureVerifier.server.luau",
-            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Studio-only (RunService:IsStudio()) server script that runs the four feature checks in order after the first player has a claimed plot. It creates the two verify RemoteEvents in one place and does not touch the economy outside Studio. Each check is wrapped in pcall, and a check that errors counts as a failure with a reason string.\n\n1. SHOP: asks the client probe to open the panel and report its cards. It passes if there is one card per entry in ReplicatedStorage/Upgrades, each showing a price and an affordability flag. The server then confirms Cash >= 10, teleports the character's HumanoidRootPart onto the Dropper 2 pad on the owned plot, and waits for it. It passes if Cash drops by exactly 10 once, the pad is gone, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought rises by exactly 1. It then stands on the pad location again and confirms there is no second deduction.\n2. REBIRTH: first confirms the altar is absent at low cash with upgrades not all owned. It then sets Cash to RebirthConfig's threshold (5000) via the leaderstat and confirms the altar appears. Next it triggers rebirth through the same path a player would use (RebirthService's public API or the altar prompt or touch), and confirms the multiplier rose, Cash reset, owned upgrades reset, and the Rebirths leaderstat increased by 1. Finally it repeats the altar check with all upgrades owned and cash below 5000 (marking owned through UpgradeService's API) and confirms the altar appears. State is restored or reset afterwards.\n3. BOARD: finds the TOP TYCOONS board in the plaza and reads its SurfaceGui text. It passes if the headers or rows include both Cash and Rebirths and the current player's name appears with numeric values that match their leaderstats after a refresh.\n4. TUTORIAL: reads the client's reported banner and arrow visibility. It expects both to be visible after the claim and not visible or advanced after the first purchase, using TutorialService's step state or the player attribute it exposes.\n\nOn pass, the verifier bumps ForgeTelemetry.count('feature_verified_<id>', 1) exactly once per feature, sets Workspace attribute FeatureVerified_<id> = true, and prints '[FeatureVerifier] <id> VERIFIED'. On failure it sets FeatureFailed_<id> to the reason string and prints it via print, not warn, so the output stays clean. It bumps no gameplay counters itself. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+            "path": "ServerScriptService/PadFeedbackService.luau",
+            "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and stop it when not affordable or after a buy. Count it in a 'highlights' census counter. When a player touches a pad with too little cash, flash the pad red, play an error buzz and show a short 'Need $N' toast without deducting cash. Hook into UpgradeService and UpgradeFx, and increment a pad_denied counter. -- Server module (required by UpgradeService, no auto-boot needed beyond lazy Init on first require). Creates the ReplicatedStorage RemoteEvent 'PadFeedback'. API: Register(pad: BasePart, owner: Player, cost: number), which records the visible pad and its owner and refreshes affordability; Unregister(pad), called when the pad is bought or hidden, which removes its Highlight and clears the 'Affordable' attribute; Denied(player, pad, cost), called on an insufficient-cash touch, which is debounced per player/pad at about 1s, fires PadFeedback:FireClient(player, 'denied', pad, cost) and bumps 'pad_denied'. It watches each owner's leaderstats Cash.Changed plus a 0.5s heartbeat check. While Cash >= cost for a registered pad it sets pad attribute Affordable=true and creates or enables a green Highlight (named 'AffordHighlight', FillColor green, FillTransparency 0.6, OutlineColor white, Adornee pad), bumping 'highlights' once each time a highlight is activated. When Cash < cost, or after Unregister or the owner leaving, it sets Affordable=false and disables or destroys the Highlight. It never changes Cash or purchase rules. It uses ForgeTelemetry and cleans up on PlayerRemoving. Bump ForgeTelemetry counters: highlights, pad_denied.",
             "depends": [
-              "ReplicatedStorage/FeatureChecksConfig.luau",
-              "ReplicatedStorage/Upgrades.luau",
-              "ReplicatedStorage/RebirthConfig.luau",
-              "ReplicatedStorage/ForgeTelemetry.luau",
-              "ServerScriptService/UpgradeService.luau",
-              "ServerScriptService/RebirthService.luau",
-              "ServerScriptService/TutorialService.luau",
-              "ServerScriptService/PlotClaimService.luau"
+              "ReplicatedStorage/ForgeTelemetry.luau"
             ]
           },
           {
-            "path": "StarterPlayerScripts/FeatureVerifyClient.client.luau",
-            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Client-side probe that stays inert unless the verify remotes exist (it WaitForChilds them with a timeout and exits on nil). On request from the server it inspects the player's own UI and replies with plain data. For SHOP, it finds the SHOP button in PlayerGui, activates it, and returns whether the panel is visible plus the list of cards (UpgradeId, price text, Affordable attribute). For TUTORIAL, it returns whether the banner and arrow are visible. It sends no gameplay intent to the server. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+            "path": "StarterPlayerScripts/PadFeedbackFx.client.luau",
+            "purpose": "Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and stop it when not affordable or after a buy. Count it in a 'highlights' census counter. When a player touches a pad with too little cash, flash the pad red, play an error buzz and show a short 'Need $N' toast without deducting cash. Hook into UpgradeService and UpgradeFx, and increment a pad_denied counter. -- Client-only presentation. Waits for ReplicatedStorage 'PadFeedback'. Watches workspace descendants with attribute Affordable via GetAttributeChangedSignal, and while Affordable is true loops a tween that pulses the pad's neon glow (Material Neon, brightness via Color lerp toward green), its AffordHighlight FillTransparency (0.7 to 0.3) and its price-tag BillboardGui TextLabel (green text, slight size pulse). It restores the original Color/Material/text style when Affordable goes false. On the 'denied' message it flashes the pad red for about 0.4s then restores, and plays an error buzz using a verified sound id from GameAssets with a short Sound in SoundService. It sends nothing to the server. Bump ForgeTelemetry counters: highlights, pad_denied.",
             "depends": [
-              "ReplicatedStorage/FeatureChecksConfig.luau",
-              "StarterPlayerScripts/ShopUi.client.luau",
-              "StarterPlayerScripts/TutorialGuide.client.luau"
+              "ReplicatedStorage/GameAssets.luau",
+              "ReplicatedStorage/UiTheme.luau"
             ]
           }
         ],
         "edits": [
           {
-            "path": "StarterPlayerScripts/ShopUi.client.luau",
-            "change": "When building each upgrade card, set Attributes UpgradeId, Price and Affordable on the card frame, and refresh Affordable whenever Cash changes. Name the root panel frame 'ShopPanel' so the probe can read the cards. No behavior change."
+            "path": "ServerScriptService/UpgradeService.luau",
+            "change": "require PadFeedbackService. Where a pad becomes visible for an owner (claim or unlock reveal) call PadFeedbackService.Register(pad, ownerPlayer, cost). Where a pad is bought or hidden call PadFeedbackService.Unregister(pad). In the pad Touched handler's insufficient-cash branch (and only there, with no cash deducted) call PadFeedbackService.Denied(player, pad, cost)."
           },
           {
-            "path": "StarterPlayerScripts/TutorialGuide.client.luau",
-            "change": "Mirror banner and arrow visibility into Attributes TutorialBannerVisible and TutorialArrowVisible on the ScreenGui, updating whenever they show or hide. Fix any bug found where the banner or arrow does not show after the first claim or does not advance on the first purchase."
-          },
-          {
-            "path": "ReplicatedStorage/ForgeChecksPlan.luau",
-            "change": "Add four plan entries, one per feature, each requiring the counters feature_verified_shop, feature_verified_rebirth, feature_verified_board and feature_verified_tutorial to be >= 1, so the existing ForgeChecks runner reports the verification results."
+            "path": "StarterPlayerScripts/UpgradeFx.client.luau",
+            "change": "Connect to ReplicatedStorage 'PadFeedback'.OnClientEvent; for kind 'denied' call the existing toast function with the text 'Need $'..cost (formatted via NumberFormat if already used there), styled as an error/red toast."
           }
         ],
         "telemetry": [
-          "feature_verified_shop",
-          "feature_verified_rebirth",
-          "feature_verified_board",
-          "feature_verified_tutorial"
+          "highlights",
+          "pad_denied"
         ],
         "acceptance": [
-          "After the first plot claim in a Studio playtest, the SHOP button opens a panel with exactly one card per ReplicatedStorage/Upgrades entry (10), each showing its price and an affordability state.",
-          "Touching the Dropper 2 pad with 10 cash deducts exactly 10 once, the pad disappears, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought increments by 1.",
-          "The rebirth altar is absent below 5000 cash with upgrades unfinished, appears at 5000 cash, and also appears when all upgrades are owned. Rebirthing raises the multiplier and Rebirths, and resets Cash and owned upgrades.",
-          "The plaza TOP TYCOONS board shows both Cash and Rebirths values for the player, matching their leaderstats.",
-          "The tutorial banner and arrow are visible after the first claim and advance or clear after the first purchase.",
-          "Each passing feature sets Workspace attribute FeatureVerified_<id> and bumps its feature_verified_<id> counter to exactly 1. A failing feature sets FeatureFailed_<id> with a reason."
+          "After a plot is claimed and Cash reaches the Dropper 2 cost (10), the visible pad gets an enabled green Highlight, pulses, and the 'highlights' counter is at least 1",
+          "The pad's price tag pulses green while Cash >= cost and returns to its normal style when Cash drops below cost",
+          "After buying, the pulse and Highlight on that pad stop and it vanishes as before, with exactly the normal cost deducted once",
+          "Touching a pad with Cash below cost flashes it red, plays an audible buzz, shows a 'Need $N' toast, leaves Cash unchanged, and increments 'pad_denied'",
+          "Repeatedly standing on a pad while poor does not spam toasts or the counter (about 1s debounce)",
+          "No errors or warnings in output, and existing counters (upgrades_bought, cubes_collected) behave as before"
         ]
       },
-      "ts": "2026-10-24T03:43:49Z"
+      "ts": "2026-10-24T04:49:40Z"
+    },
+    {
+      "request": "Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades barely changes how it looks. (1) ServerScriptService/GrowthModels.luau: pure model builders, one short function per kind, each returning a Model built from 3-8 anchored parts in the given theme colors (never default grey): dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label), plotWall(plotCFrame, size, theme). (2) ServerScriptService/PlotGrowth.luau: the service. PlotGrowth.apply(player, plot, ownedIds) builds the missing models for every owned upgrade (Dropper 2/3/4 -> dropperMachine on the dropper row above the conveyor; Speed 1/2 -> chevrons along the conveyor; ore tiers -> orePile beside the collector; Cash x1.5/x2 -> vault next to the collector; any purchase -> plotWall around the plot edge), each popping in with GameAssets.popIn plus GameAssets.burst. PlotGrowth.clear(player) shrinks and removes them on rebirth. Bump counter plot_growth_built per model. Hook: UpgradeService calls PlotGrowth.apply after every successful purchase and on plot claim; RebirthService calls PlotGrowth.clear after a rebirth reset.",
+      "plan": {
+        "summary": "Buying upgrades now visibly grows the plot: dropper machines, speed chevrons, ore piles, vaults and a perimeter wall pop in as themed models, and are cleared on rebirth.",
+        "new_modules": [
+          {
+            "path": "ServerScriptService/GrowthModels.luau",
+            "purpose": "Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades barely changes how it looks. (1) ServerScriptService/GrowthModels.luau: pure model builders, one short function per kind, each returning a Model built from 3-8 anchored parts in the given theme colors (never default grey): dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label), plotWall(plotCFrame, size, theme). (2) ServerScriptService/PlotGrowth.luau: the service. PlotGrowth.apply(player, plot, ownedIds) builds the missing models for every owned upgrade (Dropper 2/3/4 -> dropperMachine on the dropper row above the conveyor; Speed 1/2 -> chevrons along the conveyor; ore tiers -> orePile beside the collector; Cash x1.5/x2 -> vault next to the collector; any purchase -> plotWall around the plot edge), each popping in with GameAssets.popIn plus GameAssets.burst. PlotGrowth.clear(player) shrinks and removes them on rebirth. Bump counter plot_growth_built per model. Hook: UpgradeService calls PlotGrowth.apply after every successful purchase and on plot claim; RebirthService calls PlotGrowth.clear after a rebirth reset. -- Pure model builders with no side effects and no telemetry, kept under 180 lines. Exports dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label) and plotWall(plotCFrame, size, theme). Each is one short function that returns a Model of 3-8 anchored parts (Anchored=true, CanCollide=false except wall posts, CanTouch=false), colored only from the theme colors or tierColor (theme.accent, theme.primary, theme.floor, with fallbacks to GameAssets palette), never default grey. Includes a tiny local helper mk(parent, size, cf, color, material, shape) that creates a part. vault builds a box body, a door and a billboard TextLabel with the label. plotWall builds low corner posts and rails around the edge of the given size without blocking the buy pads or claim gate (rails are thin and low, posts at the corners and at intervals). Requires only ReplicatedStorage/GameAssets for the palette fallbacks. Bump ForgeTelemetry counters: plot_growth_built.",
+            "depends": [
+              "ReplicatedStorage/GameAssets.luau"
+            ]
+          },
+          {
+            "path": "ServerScriptService/PlotGrowth.luau",
+            "purpose": "Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades barely changes how it looks. (1) ServerScriptService/GrowthModels.luau: pure model builders, one short function per kind, each returning a Model built from 3-8 anchored parts in the given theme colors (never default grey): dropperMachine(cf, theme), chevrons(cf, theme), orePile(cf, theme, tierColor), vault(cf, theme, label), plotWall(plotCFrame, size, theme). (2) ServerScriptService/PlotGrowth.luau: the service. PlotGrowth.apply(player, plot, ownedIds) builds the missing models for every owned upgrade (Dropper 2/3/4 -> dropperMachine on the dropper row above the conveyor; Speed 1/2 -> chevrons along the conveyor; ore tiers -> orePile beside the collector; Cash x1.5/x2 -> vault next to the collector; any purchase -> plotWall around the plot edge), each popping in with GameAssets.popIn plus GameAssets.burst. PlotGrowth.clear(player) shrinks and removes them on rebirth. Bump counter plot_growth_built per model. Hook: UpgradeService calls PlotGrowth.apply after every successful purchase and on plot claim; RebirthService calls PlotGrowth.clear after a rebirth reset. -- Growth service, kept under 200 lines. API: PlotGrowth.apply(player, plot, ownedIds) and PlotGrowth.clear(player). apply builds the missing models for each owned upgrade id. It maps ids via the Upgrades module data (by id/kind fields: dropper tiers 2/3/4 -> dropperMachine at successive slots on the dropper row above the conveyor; speed 1/2 -> chevrons at successive spots along the conveyor; ore tiers -> orePile beside the collector, using the tier color from the Upgrades data or GameAssets palette; cash x1.5/x2 -> vault next to the collector; any owned upgrade -> a single plotWall around the plot edge). The plot's theme comes from PlotThemes via the plot's Theme attribute or name, with a fallback to the default palette. Models are placed relative to named plot parts (Dropper, Conveyor, Collector, or the plot's PrimaryPart/floor) found with FindFirstChild, and each parented under a per-plot Folder 'Growth'. Keep a per-player table built[player][key]=model so repeated calls are idempotent (build only missing keys, never duplicate). Each new model gets GameAssets.popIn(model) and GameAssets.burst(position, color), both guarded with pcall and a type check in case the API differs. Bumps ForgeTelemetry 'plot_growth_built' once per model. clear(player) tweens the models down (shrink or fade) via TweenService, then Destroys them, empties built[player], and bumps nothing. Also clears on Players.PlayerRemoving. apply tolerates nil or empty ownedIds, a nil plot and a destroyed plot (return early, no errors). Bump ForgeTelemetry counters: plot_growth_built.",
+            "depends": [
+              "ServerScriptService/GrowthModels.luau",
+              "ReplicatedStorage/Upgrades.luau",
+              "ReplicatedStorage/PlotThemes.luau",
+              "ReplicatedStorage/GameAssets.luau",
+              "ReplicatedStorage/ForgeTelemetry.luau"
+            ]
+          }
+        ],
+        "edits": [
+          {
+            "path": "ServerScriptService/UpgradeService.luau",
+            "change": "Require PlotGrowth (guarded with pcall). After every successful purchase, and on plot claim (the existing claim hook or the PlotClaimService event it already listens to, or an initial call when the player's plot is assigned), call PlotGrowth.apply(player, plot, ownedIds) with the player's current owned upgrade id set, wrapped in pcall so growth errors never block purchases."
+          },
+          {
+            "path": "ServerScriptService/RebirthService.luau",
+            "change": "Require PlotGrowth (guarded with pcall) and call PlotGrowth.clear(player) right after the rebirth reset of cash and upgrades, wrapped in pcall."
+          }
+        ],
+        "telemetry": [
+          "plot_growth_built"
+        ],
+        "acceptance": [
+          "After claiming a plot and buying Dropper 2, 'plot_growth_built' increases (a dropper machine plus a plot wall) and a themed machine model pops in on the dropper row",
+          "Buying Speed 1 adds a chevrons model along the conveyor and 'plot_growth_built' increments",
+          "Buying an ore tier adds an ore pile beside the collector, and buying Cash x1.5 adds a vault with a label next to the collector",
+          "Calling apply again with the same owned ids does not duplicate models or bump 'plot_growth_built'",
+          "Each new model pops in with a visible burst, and no growth part is default grey",
+          "Growth models do not block the player's walking path or the buy pads, and cube flow and cash-in are unaffected"
+        ]
+      },
+      "ts": "2026-10-24T06:35:22Z"
     }
   ],
   "director": {
@@ -1309,6 +1450,171 @@
       "beat": "A Silver ore tier is bought, the cubes change colour and a RewardPopup appears. The TOP TYCOONS board refreshes with the player on it.",
       "counter": "tier_upgrades",
       "min": 1
+    }
+  ],
+  "reverted_features": [
+    {
+      "request": "Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged.",
+      "plan": {
+        "summary": "Add a Studio-only, data-driven live-playtest check runner that samples the existing ForgeTelemetry counters, Cash and the Output log over time, asserts the required map, plaza, claim, cube, FX and cash behaviour, and prints one structured result line per check so failures can be handed to the fixer.",
+        "new_modules": [
+          {
+            "path": "ReplicatedStorage/ForgeChecksPlan.luau",
+            "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Pure data module returning one table that defines the playtest check plan. It holds timing: startup settle seconds, the pre-claim observation window (about 8s, shorter than the 20s auto-claim), sampling interval 2.5s, max total run about 50s, and a claim mode ('auto' or 'gate'). It also lists the checks as data entries {id, kind, counter, expect}. The kinds are 'counter_eq' (map_built=1, plaza_built=1, themes_built=6), 'counter_gte' (plot_assigned>=1, auto_claims>=1 in auto mode, cashin_fx_sent>0, cubes_collected>0), 'zero_before_claim' (cubes_dropped==0 while plot_assigned==0), 'rising_windows' (cubes_dropped must grow by >=1 in each 2.5s window after claim, tolerant of a faster rate once Dropper 2 is bought), 'cash_rising' (Cash leaderstat higher than at claim time), and 'no_output_errors' (no Error or Warning messages in the log). No services and no side effects. Existing counter names are used exactly as they are today. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
+            "depends": []
+          },
+          {
+            "path": "ServerScriptService/ForgeChecks.server.luau",
+            "purpose": "Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s auto-claim), auto_claims, cubes_dropped rising about every 2s, cubes_collected rising, cashin_fx_sent>0, and Cash rising. Also assert that there are no output errors or warnings and that cubes_dropped stays 0 before a claim. Run them, then hand any failing check to the fixer. Keep existing counter names unchanged. -- Studio-only runner (returns immediately unless RunService:IsStudio()) that executes the plan from ForgeChecksPlan. It subscribes to LogService.MessageOut from the start and records Error and Warning entries, ignoring lines that start with its own '[ForgeCheck]' prefix. It waits for the first player and for map_built, plaza_built and themes_built, then snapshots telemetry through ForgeTelemetry.get/snapshot. During the pre-claim window it samples cubes_dropped and plot_assigned and records whether cubes_dropped stayed 0 before any claim. Claim phase: in 'auto' mode it waits for the 20s auto-claim and asserts plot_assigned and auto_claims rose. In 'gate' mode (Workspace attribute ForgeCheckMode='gate') it pivots the player's character onto the first unclaimed gate part to trigger the real Touched claim and asserts plots_claimed and plot_assigned rose. After the claim it samples cubes_dropped, cubes_collected and the player's leaderstats Cash every 2.5s for about 4 windows, then checks cashin_fx_sent>0 and the Output log. For each check it prints one line, '[ForgeCheck] PASS <id>' or '[ForgeCheck] FAIL <id> expected=<..> actual=<..>' (via print, never warn), then a final single line '[ForgeCheck] RESULT {json}' with {passed, failed, failures:[{id, expected, actual}]} that the CLI parses to hand each failing check to the fixer. It sets Workspace attribute ForgeChecksDone=true when finished. It only reads game state and never mutates cash, plots or existing counters. It bumps only its own counters 'checks_passed' and 'checks_failed' with ForgeTelemetry.count. Bump ForgeTelemetry counters: checks_passed, checks_failed.",
+            "depends": [
+              "ReplicatedStorage/ForgeChecksPlan.luau",
+              "ReplicatedStorage/ForgeTelemetry.luau"
+            ]
+          }
+        ],
+        "edits": [
+          {
+            "path": "ReplicatedStorage/ForgeTelemetry.luau",
+            "change": "Only if it does not already expose them, add read-only helpers get(name) -> number (0 if unset) and snapshot() -> a copy of the counters table, so the check runner can read counters. Do not rename or alter count() or any existing counter name."
+          }
+        ],
+        "telemetry": [
+          "checks_passed",
+          "checks_failed"
+        ],
+        "acceptance": [
+          "After starting a playtest in Studio, the Output shows one '[ForgeCheck] PASS' or '[ForgeCheck] FAIL' line per check and a final '[ForgeCheck] RESULT {json}' line within about 50 seconds, and Workspace attribute ForgeChecksDone becomes true",
+          "PASS map_built=1, plaza_built=1 and themes_built=6, and the counter names are unchanged from existing games",
+          "PASS cubes_dropped==0 while plot_assigned==0 during the first ~8 seconds after spawn in the plaza",
+          "In 'auto' mode, with no claim made, plot_assigned>=1 and auto_claims>=1 appear after about 20 seconds and the check passes. In 'gate' mode, walking onto a gate raises plots_claimed and plot_assigned and the check passes",
+          "After the claim, cubes_dropped rises by at least 1 in every 2.5s sampling window, and cubes_collected becomes >0",
+          "Cash leaderstat is higher at the end of the sampling windows than at claim time, and cashin_fx_sent>0"
+        ]
+      },
+      "ts": "2026-10-24T03:16:17Z",
+      "reverted": "in-game self-test code; rolled back by a human (checks live in runs/<slug>/checks)"
+    },
+    {
+      "request": "Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass.",
+      "plan": {
+        "summary": "Add a Studio-only feature verifier that drives the real game through the SHOP panel, the Dropper 2 purchase, the rebirth altar and rebirth reset, the TOP TYCOONS board and the tutorial flow, then marks each feature verified through telemetry counters and Workspace attributes once its checks pass.",
+        "new_modules": [
+          {
+            "path": "ReplicatedStorage/FeatureChecksConfig.luau",
+            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Pure shared data for the verifier, returning one table. It holds the feature ids (shop, rebirth, board, tutorial), per-check timeouts, the remote names (FeatureVerifyReq, FeatureVerifyRes), the GUI and attribute names the client probe reads (ShopUi cards carry Attributes UpgradeId, Affordable and Price; the tutorial banner and arrow report TutorialBannerVisible and TutorialArrowVisible on the PlayerGui), the Workspace names of the altar and the TOP TYCOONS board, and the telemetry counter names. No side effects. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+            "depends": []
+          },
+          {
+            "path": "ServerScriptService/FeatureVerifier.server.luau",
+            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Studio-only (RunService:IsStudio()) server script that runs the four feature checks in order after the first player has a claimed plot. It creates the two verify RemoteEvents in one place and does not touch the economy outside Studio. Each check is wrapped in pcall, and a check that errors counts as a failure with a reason string.\n\n1. SHOP: asks the client probe to open the panel and report its cards. It passes if there is one card per entry in ReplicatedStorage/Upgrades, each showing a price and an affordability flag. The server then confirms Cash >= 10, teleports the character's HumanoidRootPart onto the Dropper 2 pad on the owned plot, and waits for it. It passes if Cash drops by exactly 10 once, the pad is gone, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought rises by exactly 1. It then stands on the pad location again and confirms there is no second deduction.\n2. REBIRTH: first confirms the altar is absent at low cash with upgrades not all owned. It then sets Cash to RebirthConfig's threshold (5000) via the leaderstat and confirms the altar appears. Next it triggers rebirth through the same path a player would use (RebirthService's public API or the altar prompt or touch), and confirms the multiplier rose, Cash reset, owned upgrades reset, and the Rebirths leaderstat increased by 1. Finally it repeats the altar check with all upgrades owned and cash below 5000 (marking owned through UpgradeService's API) and confirms the altar appears. State is restored or reset afterwards.\n3. BOARD: finds the TOP TYCOONS board in the plaza and reads its SurfaceGui text. It passes if the headers or rows include both Cash and Rebirths and the current player's name appears with numeric values that match their leaderstats after a refresh.\n4. TUTORIAL: reads the client's reported banner and arrow visibility. It expects both to be visible after the claim and not visible or advanced after the first purchase, using TutorialService's step state or the player attribute it exposes.\n\nOn pass, the verifier bumps ForgeTelemetry.count('feature_verified_<id>', 1) exactly once per feature, sets Workspace attribute FeatureVerified_<id> = true, and prints '[FeatureVerifier] <id> VERIFIED'. On failure it sets FeatureFailed_<id> to the reason string and prints it via print, not warn, so the output stays clean. It bumps no gameplay counters itself. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+            "depends": [
+              "ReplicatedStorage/FeatureChecksConfig.luau",
+              "ReplicatedStorage/Upgrades.luau",
+              "ReplicatedStorage/RebirthConfig.luau",
+              "ReplicatedStorage/ForgeTelemetry.luau",
+              "ServerScriptService/UpgradeService.luau",
+              "ServerScriptService/RebirthService.luau",
+              "ServerScriptService/TutorialService.luau",
+              "ServerScriptService/PlotClaimService.luau"
+            ]
+          },
+          {
+            "path": "StarterPlayerScripts/FeatureVerifyClient.client.luau",
+            "purpose": "Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar appears at 5000 cash or when all upgrades are owned, and rebirth applies the multiplier and resets cash and upgrades; the plaza TOP TYCOONS board lists Cash and Rebirths; the tutorial arrow and banner appear after the first claim and advance on the first purchase. Mark each feature verified when its checks pass. -- Client-side probe that stays inert unless the verify remotes exist (it WaitForChilds them with a timeout and exits on nil). On request from the server it inspects the player's own UI and replies with plain data. For SHOP, it finds the SHOP button in PlayerGui, activates it, and returns whether the panel is visible plus the list of cards (UpgradeId, price text, Affordable attribute). For TUTORIAL, it returns whether the banner and arrow are visible. It sends no gameplay intent to the server. Bump ForgeTelemetry counters: feature_verified_shop, feature_verified_rebirth, feature_verified_board, feature_verified_tutorial.",
+            "depends": [
+              "ReplicatedStorage/FeatureChecksConfig.luau",
+              "StarterPlayerScripts/ShopUi.client.luau",
+              "StarterPlayerScripts/TutorialGuide.client.luau"
+            ]
+          }
+        ],
+        "edits": [
+          {
+            "path": "StarterPlayerScripts/ShopUi.client.luau",
+            "change": "When building each upgrade card, set Attributes UpgradeId, Price and Affordable on the card frame, and refresh Affordable whenever Cash changes. Name the root panel frame 'ShopPanel' so the probe can read the cards. No behavior change."
+          },
+          {
+            "path": "StarterPlayerScripts/TutorialGuide.client.luau",
+            "change": "Mirror banner and arrow visibility into Attributes TutorialBannerVisible and TutorialArrowVisible on the ScreenGui, updating whenever they show or hide. Fix any bug found where the banner or arrow does not show after the first claim or does not advance on the first purchase."
+          },
+          {
+            "path": "ReplicatedStorage/ForgeChecksPlan.luau",
+            "change": "Add four plan entries, one per feature, each requiring the counters feature_verified_shop, feature_verified_rebirth, feature_verified_board and feature_verified_tutorial to be >= 1, so the existing ForgeChecks runner reports the verification results."
+          }
+        ],
+        "telemetry": [
+          "feature_verified_shop",
+          "feature_verified_rebirth",
+          "feature_verified_board",
+          "feature_verified_tutorial"
+        ],
+        "acceptance": [
+          "After the first plot claim in a Studio playtest, the SHOP button opens a panel with exactly one card per ReplicatedStorage/Upgrades entry (10), each showing its price and an affordability state.",
+          "Touching the Dropper 2 pad with 10 cash deducts exactly 10 once, the pad disappears, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought increments by 1.",
+          "The rebirth altar is absent below 5000 cash with upgrades unfinished, appears at 5000 cash, and also appears when all upgrades are owned. Rebirthing raises the multiplier and Rebirths, and resets Cash and owned upgrades.",
+          "The plaza TOP TYCOONS board shows both Cash and Rebirths values for the player, matching their leaderstats.",
+          "The tutorial banner and arrow are visible after the first claim and advance or clear after the first purchase.",
+          "Each passing feature sets Workspace attribute FeatureVerified_<id> and bumps its feature_verified_<id> counter to exactly 1. A failing feature sets FeatureFailed_<id> with a reason."
+        ]
+      },
+      "ts": "2026-10-24T03:43:49Z",
+      "reverted": "in-game self-test code; rolled back by a human (checks live in runs/<slug>/checks)"
+    },
+    {
+      "request": "Visible plot growth: the plot is a big empty floor, and buying upgrades barely changes how it looks. A new server PlotGrowth module listens to purchases and rebirth resets (UpgradeService already calls into Tycoon/CashInService; hook the same purchase point) and builds a themed model on the owner's plot for every owned upgrade, built from parts in the plot's PlotThemes colors and materials (never default grey), each popping in with GameAssets.popIn and a GameAssets.burst: Dropper 2/3/4 become a real dropper machine (a hopper on legs with a glowing nozzle) on the dropper row above the conveyor; Speed 1/2 add chevron arrows that scroll along the conveyor sides; ore tiers add a matching ore pile/crystal cluster beside the collector (silver, gold, diamond); Cash x1.5/x2 add a vault/coin stack with a floating 'x1.5' sign next to the collector; and after the first purchase a low themed wall with corner pillars and lamps rises around the plot edge. On rebirth all growth models are removed with a shrink tween and rebuilt as upgrades are bought again. Bump counter plot_growth_built.",
+      "plan": {
+        "summary": "A new server PlotGrowth module builds themed machines, chevrons, ore piles, vaults and a perimeter wall on the owner's plot for each owned upgrade, with popIn and burst effects, and removes them with a shrink tween on rebirth.",
+        "new_modules": [
+          {
+            "path": "ReplicatedStorage/PlotGrowthConfig.luau",
+            "purpose": "Feature: Visible plot growth: the plot is a big empty floor, and buying upgrades barely changes how it looks. A new server PlotGrowth module listens to purchases and rebirth resets (UpgradeService already calls into Tycoon/CashInService; hook the same purchase point) and builds a themed model on the owner's plot for every owned upgrade, built from parts in the plot's PlotThemes colors and materials (never default grey), each popping in with GameAssets.popIn and a GameAssets.burst: Dropper 2/3/4 become a real dropper machine (a hopper on legs with a glowing nozzle) on the dropper row above the conveyor; Speed 1/2 add chevron arrows that scroll along the conveyor sides; ore tiers add a matching ore pile/crystal cluster beside the collector (silver, gold, diamond); Cash x1.5/x2 add a vault/coin stack with a floating 'x1.5' sign next to the collector; and after the first purchase a low themed wall with corner pillars and lamps rises around the plot edge. On rebirth all growth models are removed with a shrink tween and rebuilt as upgrades are bought again. Bump counter plot_growth_built. -- Pure shared tunables and data for plot growth, with no side effects. It maps each upgrade id in ReplicatedStorage/Upgrades to a growth kind: dropper (slot index 1-3 for Dropper 2/3/4), speed (level 1-2), ore (silver, gold or diamond) or cashmult (label 'x1.5' or 'x2'). The coder derives the ids and kinds by reading Upgrades.luau and must not invent ids. It also holds local offsets relative to the plot anchor for the dropper row slots, the conveyor side chevron lanes, the ore pile spot beside the collector, the vault spot, and the wall ring (half-extents, wall height and thickness, pillar size). Further values are the chevron count and speed, the popIn and shrink durations, and a 'PartsPerModelCap' safety limit. It exposes `kindFor(upgradeId)` returning kind plus params, or nil. Bump ForgeTelemetry counters: plot_growth_built.",
+            "depends": [
+              "ReplicatedStorage/Upgrades.luau"
+            ]
+          },
+          {
+            "path": "ServerScriptService/PlotGrowth.luau",
+            "purpose": "Feature: Visible plot growth: the plot is a big empty floor, and buying upgrades barely changes how it looks. A new server PlotGrowth module listens to purchases and rebirth resets (UpgradeService already calls into Tycoon/CashInService; hook the same purchase point) and builds a themed model on the owner's plot for every owned upgrade, built from parts in the plot's PlotThemes colors and materials (never default grey), each popping in with GameAssets.popIn and a GameAssets.burst: Dropper 2/3/4 become a real dropper machine (a hopper on legs with a glowing nozzle) on the dropper row above the conveyor; Speed 1/2 add chevron arrows that scroll along the conveyor sides; ore tiers add a matching ore pile/crystal cluster beside the collector (silver, gold, diamond); Cash x1.5/x2 add a vault/coin stack with a floating 'x1.5' sign next to the collector; and after the first purchase a low themed wall with corner pillars and lamps rises around the plot edge. On rebirth all growth models are removed with a shrink tween and rebuilt as upgrades are bought again. Bump counter plot_growth_built. -- ModuleScript that owns all growth models, server-authoritative. API: `PlotGrowth.onPurchase(player, upgradeId)`, `PlotGrowth.onRebirth(player)` and `PlotGrowth.init()`. init is idempotent and is called lazily by the first onPurchase or onRebirth. It also connects Players.PlayerRemoving to clean up. It keeps a per-player set of owned growth ids and a per-player Folder named 'PlotGrowth' under the player's plot model. The plot is found through the existing plot-ownership mechanism (read PlotClaimService, PlotBuilder and Tycoon for how a player maps to a plot model, its theme name and its anchor parts such as the conveyor, collector and dropper row); if the plot is not found, warn once and return without erroring. Colors and materials come only from PlotThemes for that plot's theme (floor, accent and rail colors and materials), and no part may keep default grey. On purchase it builds the model for that id only if it is not already built:\n- dropper N: a hopper (tapered or stacked parts) on four legs with a Neon glowing nozzle, placed on the dropper row above the conveyor in slot N.\n- speed 1/2: a row of chevron arrow parts (wedge or arrow made from parts) on both conveyor sides. They are tagged 'GrowthChevron' with attributes for start, end, speed and direction so the client scrolls them.\n- ore silver/gold/diamond: a pile or crystal cluster beside the collector in the matching ore color.\n- cashmult x1.5/x2: a vault or coin stack next to the collector with a BillboardGui sign reading 'x1.5' or 'x2'.\n- Wall: on the first purchase of any upgrade, a low wall with corner pillars and Neon lamps around the plot edge.\nAll parts are Anchored, CanCollide=false except the wall, and CanTouch=false. Each new model pops in with `GameAssets.popIn(model)` and a `GameAssets.burst` at its position (pcall-guarded, falling back to a size tween if the helper signature differs; read GameAssets first). On rebirth it tweens every growth model to scale or size 0 over about 0.4s, then Destroys it and clears the owned set. Later purchases rebuild from scratch. Bumps `ForgeTelemetry.bump('plot_growth_built')` once per model built, including the wall. Respects PartsPerModelCap. Bump ForgeTelemetry counters: plot_growth_built.",
+            "depends": [
+              "ReplicatedStorage/PlotGrowthConfig.luau",
+              "ReplicatedStorage/PlotThemes.luau",
+              "ReplicatedStorage/GameAssets.luau",
+              "ReplicatedStorage/ForgeTelemetry.luau",
+              "ReplicatedStorage/Upgrades.luau",
+              "ServerScriptService/PlotClaimService.luau",
+              "ServerScriptService/PlotBuilder.luau"
+            ]
+          },
+          {
+            "path": "StarterPlayerScripts/PlotGrowthFx.client.luau",
+            "purpose": "Feature: Visible plot growth: the plot is a big empty floor, and buying upgrades barely changes how it looks. A new server PlotGrowth module listens to purchases and rebirth resets (UpgradeService already calls into Tycoon/CashInService; hook the same purchase point) and builds a themed model on the owner's plot for every owned upgrade, built from parts in the plot's PlotThemes colors and materials (never default grey), each popping in with GameAssets.popIn and a GameAssets.burst: Dropper 2/3/4 become a real dropper machine (a hopper on legs with a glowing nozzle) on the dropper row above the conveyor; Speed 1/2 add chevron arrows that scroll along the conveyor sides; ore tiers add a matching ore pile/crystal cluster beside the collector (silver, gold, diamond); Cash x1.5/x2 add a vault/coin stack with a floating 'x1.5' sign next to the collector; and after the first purchase a low themed wall with corner pillars and lamps rises around the plot edge. On rebirth all growth models are removed with a shrink tween and rebuilt as upgrades are bought again. Bump counter plot_growth_built. -- Client-only presentation. It watches CollectionService tag 'GrowthChevron' (GetInstanceAddedSignal plus GetTagged) and moves each chevron locally along the conveyor with one shared RunService.Heartbeat loop, wrapping from end back to start using the part's attributes (start CFrame, end CFrame, speed). The result is arrows that scroll along the conveyor sides. It sends nothing to the server and cleans up on the tag-removed signal. Bump ForgeTelemetry counters: plot_growth_built.",
+            "depends": []
+          }
+        ],
+        "edits": [
+          {
+            "path": "ServerScriptService/UpgradeService.luau",
+            "change": "At the existing point where a purchase has succeeded (the same place it calls into Tycoon/CashInService), add a pcall-wrapped `require(script.Parent.PlotGrowth).onPurchase(player, upgradeId)`. It must run only after the cost is deducted and ownership is recorded, never on denied purchases."
+          },
+          {
+            "path": "ServerScriptService/RebirthService.luau",
+            "change": "After the rebirth reset has completed (cash and upgrades cleared), add a pcall-wrapped `require(script.Parent.PlotGrowth).onRebirth(player)` so all growth models shrink away."
+          }
+        ],
+        "telemetry": [
+          "plot_growth_built"
+        ],
+        "acceptance": [
+          "After claiming a plot, no growth models exist, and 'plot_growth_built' is 0 for that player until the first purchase.",
+          "Buying Dropper 2 builds a hopper-on-legs dropper machine with a glowing nozzle on the dropper row, popping in with a burst, and also builds the wall with corner pillars and lamps. 'plot_growth_built' rises by at least 2.",
+          "Buying Dropper 3 and Dropper 4 each add another dropper machine in a new slot, with no duplicates of earlier ones.",
+          "Buying Speed 1 and Speed 2 adds chevron arrows on the conveyor sides, and on the client they visibly scroll along the conveyor.",
+          "Buying the silver, gold and diamond ore upgrades adds matching ore piles or crystal clusters beside the collector.",
+          "Buying Cash x1.5 and x2 adds a vault or coin stack near the collector with a floating 'x1.5' or 'x2' sign."
+        ]
+      },
+      "ts": "2026-10-24T06:31:56Z",
+      "reverted": "coder hit the 20k output cap on PlotGrowth.luau; rebuilt as smaller modules"
     }
   ]
 }

@@ -244,7 +244,7 @@ local function buildUi()
 	local frame = Instance.new("Frame")
 	frame.Name = "Banner"
 	frame.AnchorPoint = Vector2.new(0.5, 0)
-	frame.Position = UDim2.fromScale(0.5, 0.04)
+	frame.Position = UDim2.new(0.5, 0, 0, 96)
 	frame.Size = UDim2.fromScale(0.5, 0.09)
 	frame.BackgroundColor3 = Config.BANNER_COLOR
 	frame.BorderSizePixel = 0
@@ -258,6 +258,7 @@ local function buildUi()
 	stroke.Parent = frame
 	local limit = Instance.new("UISizeConstraint")
 	limit.MinSize = Vector2.new(260, 48)
+	limit.MaxSize = Vector2.new(520, math.huge)
 	limit.Parent = frame
 	local scale = Instance.new("UIScale")
 	scale.Scale = 0
@@ -293,9 +294,9 @@ local function buildUi()
 end
 
 local function buildArrow()
-	arrow = Instance.new("Part")
+	arrow = Instance.new("WedgePart")
 	arrow.Name = "TutorialArrow"
-	arrow.Size = Config.ARROW_SIZE
+	arrow.Size = Vector3.new(2, 3, 2)
 	arrow.Material = Enum.Material.Neon
 	arrow.Color = Config.ARROW_COLOR
 	arrow.Anchored = true
@@ -330,8 +331,8 @@ local function buildArrow()
 	beam = Instance.new("Beam")
 	beam.Attachment1 = arrowAttach
 	beam.Color = ColorSequence.new(Config.BEAM_COLOR)
-	beam.Width0 = Config.BEAM_WIDTH
-	beam.Width1 = Config.BEAM_WIDTH
+	beam.Width0 = 0.3
+	beam.Width1 = 0.3
 	beam.FaceCamera = true
 	beam.LightEmission = 1
 	beam.Enabled = false
@@ -500,10 +501,10 @@ local function start()
 		end
 		local t = target
 		if t and t.Parent and hrp then
-			local bounce = math.sin(os.clock() * Config.BOUNCE_SPEED) * Config.BOUNCE_HEIGHT
+			local bounce = math.sin(os.clock() * 4) * 0.5
 			arrow.Transparency = 0
-			arrow.CFrame = CFrame.new(t.Position + Vector3.new(0, Config.ARROW_HEIGHT + bounce, 0))
-				* CFrame.Angles(math.rad(45), os.clock() * 2, math.rad(45))
+			arrow.CFrame = CFrame.new(t.Position + Vector3.new(0, 5.5 + bounce, 0))
+				* CFrame.Angles(0, os.clock() * 2, math.rad(180))
 			arrowGui.Enabled = true
 			beam.Enabled = true
 		else

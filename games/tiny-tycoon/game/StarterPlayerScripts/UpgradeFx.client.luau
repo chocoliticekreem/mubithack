@@ -15,6 +15,7 @@ end
 local Theme = {
 	Ink = Color3.fromRGB(28, 22, 38), Cream = Color3.fromRGB(255, 248, 232),
 	Primary = Color3.fromRGB(255, 196, 41), Good = Color3.fromRGB(88, 214, 92),
+	Bad = Color3.fromRGB(240, 68, 64),
 	Info = Color3.fromRGB(64, 170, 255),
 	Header = Enum.Font.LuckiestGuy, Body = Enum.Font.FredokaOne,
 }
@@ -156,28 +157,69 @@ local function fmt(n: number): string
 	return string.format("%g", n)
 end
 
-local function updateLabel(mods: any)
-	local tierIndex = 1
-	local slots = 1
-	local mult = 1
-	if type(mods) == "table" then
-		if type(mods.tier) == "number" then
-			tierIndex = mods.tier
-		end
-		if type(mods.slots) == "number" then
-			slots = mods.slots
-		end
-		if type(mods.cashMult) == "number" then
-			mult = mods.cashMult
-		end
+-- Short money format: 950, 12.5K, 3M
+local function fmtMoney(n: number): string
+	if n >= 1e6 then
+		return string.format("%.3g", n / 1e6) .. "M"
+	elseif n >= 1e4 then
+		return string.format("%.3g", n / 1e3) .. "K"
 	end
-	local ore = Upgrades.ores[tierIndex] or Upgrades.ores[1]
-	info.Text = "Ore: " .. ore.name .. "  Slots: " .. fmt(slots) .. "  Cash x" .. fmt(mult)
-	info.TextColor3 = ore.color:Lerp(Theme.Cream, 0.5)
-	punch(info, 0.12)
+	return tostring(math.ceil(n))
 end
 
-updateLabel(nil)
+-- Fallback values from the last UpgradeBought event, used only while the
+-- server attributes (OreName, DropperSlots, CashMult) are not set yet.
+local fallbackOre: string? = nil
+local fallbackSlots = 1
+local fallbackMult = 1
+
+local function findOre(name: string?): any
+	if name then
+		for _, o in ipairs(Upgrades.ores) do
+			if o.name == name then
+				return o
+			end
+		end
+	end
+	return Upgrades.ores[1]
+end
+
+-- Render the strip from LocalPlayer attributes (source of truth).
+local function renderLabel(doPunch: boolean)
+	local oreAttr = player:GetAttribute("OreName")
+	local slotsAttr = player:GetAttribute("DropperSlots")
+	local multAttr = player:GetAttribute("CashMult")
+
+	local oreName: string? = fallbackOre
+	if type(oreAttr) == "string" then
+		oreName = oreAttr
+	end
+	local slots = fallbackSlots
+	if type(slotsAttr) == "number" then
+		slots = slotsAttr
+	end
+	local mult = fallbackMult
+	if type(multAttr) == "number" then
+		mult = multAttr
+	end
+
+	local ore = findOre(oreName)
+	local newText = "Ore: " .. ore.name .. "  Slots: " .. fmt(slots) .. "  Cash x" .. fmt(mult)
+	local changed = info.Text ~= newText
+	info.Text = newText
+	info.TextColor3 = ore.color:Lerp(Theme.Cream, 0.5)
+	if doPunch and changed then
+		punch(info, 0.12)
+	end
+end
+
+renderLabel(false)
+
+for _, attr in ipairs({ "OreName", "DropperSlots", "CashMult" }) do
+	player:GetAttributeChangedSignal(attr):Connect(function()
+		renderLabel(true)
+	end)
+end
 
 remote.OnClientEvent:Connect(function(upgradeId: any, mods: any)
 	local name = "Upgrade"
@@ -188,5 +230,48 @@ remote.OnClientEvent:Connect(function(upgradeId: any, mods: any)
 		end
 	end
 	toast("Upgraded: " .. name, Theme.Good, 2.2)
-	updateLabel(mods)
+
+	if type(mods) == "table" then
+		if type(mods.tier) == "number" then
+			local o = Upgrades.ores[mods.tier]
+			if o then
+				fallbackOre = o.name
+			end
+		end
+		if type(mods.slots) == "number" then
+			fallbackSlots = mods.slots
+		end
+		if type(mods.cashMult) == "number" then
+			fallbackMult = mods.cashMult
+		end
+	end
+	renderLabel(false)
+	punch(info, 0.12)
+end)
+
+-- Pad feedback: 'denied' -> red "Need $N" toast (server sends kind, cost)
+task.spawn(function()
+	local padRemote = ReplicatedStorage:WaitForChild("PadFeedback", 15)
+	if not padRemote or not padRemote:IsA("RemoteEvent") then
+		return
+	end
+	local lastDenied = 0
+	padRemote.OnClientEvent:Connect(function(kind: any, cost: any)
+		if kind ~= "denied" then
+			return
+		end
+		local amount: any = cost
+		if type(cost) == "table" then
+			amount = (cost :: any).cost
+		end
+		if type(amount) ~= "number" then
+			return
+		end
+		local now = os.clock()
+		if now - lastDenied < 0.8 then
+			return
+		end
+		lastDenied = now
+		toast("Need $" .. fmtMoney(amount), Theme.Bad, 1.6)
+	end)
 end)

@@ -2,13 +2,25 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local TweenService = game:GetService("TweenService")
 
 -- Guard: the world (plaza + plot ring) and all services must be started exactly once.
--- A duplicate start is benign, so it returns silently (no warning in the output).
+-- A duplicate start is benign, so it returns without a warning, but it is counted for diagnosis.
 if workspace:GetAttribute("ForgeWorldBuilt") == true then
+	local okT, telem = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("ForgeTelemetry", 5))
+	end)
+	if okT and type(telem) == "table" and type(telem.count) == "function" then
+		pcall(telem.count, "duplicate_start", 1)
+	end
 	return
 end
 workspace:SetAttribute("ForgeWorldBuilt", true)
+
+-- Diagnostic output about optional hooks is only shown when this attribute is set on workspace.
+local function debugEnabled(): boolean
+	return workspace:GetAttribute("ForgeDebug") == true
+end
 
 local Config: any = require(ReplicatedStorage:WaitForChild("Config"))
 local ForgeTelemetry: any = require(ReplicatedStorage:WaitForChild("ForgeTelemetry"))
@@ -35,21 +47,14 @@ do
 	end
 end
 
--- Remotes
-local remotes = ReplicatedStorage:FindFirstChild(Config.REMOTES_FOLDER)
-if not remotes then
-	local f = Instance.new("Folder")
-	f.Name = Config.REMOTES_FOLDER
-	f.Parent = ReplicatedStorage
-	remotes = f
-end
-if not (remotes :: Instance):FindFirstChild(Config.REMOTE_NOTIFY) then
-	local ev = Instance.new("RemoteEvent")
-	ev.Name = Config.REMOTE_NOTIFY
-	ev.Parent = remotes
-end
+----------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------
 
 -- Calls the first function found under any of the given names.
+-- Hooks are optional: a module that does not implement one is silently skipped
+-- (a note is printed only when the ForgeDebug workspace attribute is true).
+local missingLogged: { [string]: boolean } = {}
 local function callFirst(module: any, names: { string }, ...: any): (boolean, any)
 	if type(module) ~= "table" then
 		return false, nil
@@ -64,16 +69,34 @@ local function callFirst(module: any, names: { string }, ...: any): (boolean, an
 			return ok, result
 		end
 	end
+	if debugEnabled() then
+		local key = table.concat(names, "/")
+		if not missingLogged[key] then
+			missingLogged[key] = true
+			print("[Forge] optional hook not implemented: " .. key)
+		end
+	end
 	return false, nil
 end
 
--- Data: initialise once at startup (before any player is handled)
-callFirst(DataService, { "init" })
+-- Remotes
+local remotes = ReplicatedStorage:FindFirstChild(Config.REMOTES_FOLDER)
+if not remotes then
+	local f = Instance.new("Folder")
+	f.Name = Config.REMOTES_FOLDER
+	f.Parent = ReplicatedStorage
+	remotes = f
+end
+if not (remotes :: Instance):FindFirstChild(Config.REMOTE_NOTIFY) then
+	local ev = Instance.new("RemoteEvent")
+	ev.Name = Config.REMOTE_NOTIFY
+	ev.Parent = remotes
+end
 
--- Juice: lighting style + juice remotes, once at startup (before any player is handled)
-callFirst(JuiceService, { "init" })
+----------------------------------------------------------------------
+-- World build (base, plaza, plots; each exactly once)
+----------------------------------------------------------------------
 
--- World: base, plaza, plots (each built exactly once)
 local built = false
 local plazaCenter = Vector3.new(0, 4, 0)
 local plots: { any } = {}
@@ -126,17 +149,17 @@ local function buildWorld()
 	ForgeTelemetry.count("map_built", 1)
 end
 
-buildWorld()
+----------------------------------------------------------------------
+-- ClaimWatcher: detects plot claims (manual and auto-claim) and notifies services.
+-- PlotClaimService remains the single authority for claiming; this only observes.
+----------------------------------------------------------------------
 
--- PlotClaimService is the single authority for claiming and auto-claiming.
-callFirst(PlotClaimService, { "init", "start", "setup" }, plots)
-callFirst(UpgradeService, { "init" })
-callFirst(RebirthService, { "init" })
-callFirst(CashInService, { "init", "start", "setup" }, plots)
+local ClaimWatcher = {}
+local notifiedPlot: { [Player]: any } = {}
+local highlightedPads: { [Instance]: boolean } = {}
 
--- Claim detection
 -- Resolves the plot currently owned by a player (nil if none).
-local function getClaimedPlot(player: Player): any?
+function ClaimWatcher.getPlot(player: Player): any?
 	if type(PlotClaimService) == "table" then
 		local getter = PlotClaimService.getPlot or PlotClaimService.getPlotFor
 		if type(getter) == "function" then
@@ -156,17 +179,90 @@ local function getClaimedPlot(player: Player): any?
 	return nil
 end
 
-local function hasClaimedPlot(player: Player): boolean
-	if getClaimedPlot(player) ~= nil then
+function ClaimWatcher.hasPlot(player: Player): boolean
+	if ClaimWatcher.getPlot(player) ~= nil then
 		return true
 	end
 	return player:GetAttribute("PlotIndex") ~= nil or player:GetAttribute("ClaimedPlot") ~= nil
 end
 
--- Notifies UpgradeService once per claimed plot (covers manual and auto-claim paths).
-local notifiedPlot: { [Player]: any } = {}
-local function checkClaim(player: Player)
-	local plot = getClaimedPlot(player)
+-- Makes the Dropper 2 pad easy to see (accent colour + Neon pulse) and easy to hit (>= 6x1x6).
+local function highlightDropperPad(player: Player)
+	local pad: BasePart? = nil
+	for _ = 1, 40 do
+		if player.Parent ~= Players then
+			return
+		end
+		local folder = workspace:FindFirstChild("UpgradePads_" .. player.Name)
+		local found = folder and folder:FindFirstChild("UpgradePad_dropper2")
+		if found and found:IsA("BasePart") then
+			pad = found
+			break
+		end
+		task.wait(0.25)
+	end
+	local d = pad
+	if not d or highlightedPads[d] then
+		return
+	end
+	if string.sub(d.Name, 1, 11) ~= "UpgradePad_" then
+		return
+	end
+	highlightedPads[d] = true
+
+	local accent: Color3 = Color3.fromHex("FFD23F")
+	if typeof(Config.ACCENT_COLOR) == "Color3" then
+		accent = Config.ACCENT_COLOR
+	end
+
+	local s = d.Size
+	d.Size = Vector3.new(math.max(s.X, 6), math.max(s.Y, 1), math.max(s.Z, 6))
+	d.Material = Enum.Material.Neon
+	d.Color = accent
+	local ok = pcall(function()
+		local tween = TweenService:Create(
+			d,
+			TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Color = accent:Lerp(Color3.new(1, 1, 1), 0.45) }
+		)
+		tween:Play()
+	end)
+	pcall(function()
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "StepHereArrow"
+		bb.Size = UDim2.fromScale(7, 2.6)
+		bb.StudsOffset = Vector3.new(0, d.Size.Y / 2 + 5, 0)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = 400
+		bb.LightInfluence = 0
+		bb.Adornee = d
+		local l = Instance.new("TextLabel")
+		l.Size = UDim2.fromScale(1, 1)
+		l.BackgroundTransparency = 1
+		l.Text = "Step here! $10\nv"
+		l.Font = Enum.Font.LuckiestGuy
+		l.TextScaled = true
+		l.TextColor3 = Color3.fromRGB(88, 214, 92)
+		local st = Instance.new("UIStroke")
+		st.Thickness = 3
+		st.Color = Color3.fromRGB(28, 22, 38)
+		st.Parent = l
+		l.Parent = bb
+		bb.Parent = d
+		TweenService:Create(
+			bb,
+			TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ StudsOffset = Vector3.new(0, d.Size.Y / 2 + 6.5, 0) }
+		):Play()
+	end)
+	if ok then
+		ForgeTelemetry.count("pad_highlighted", 1)
+	end
+end
+
+-- Notifies services once per claimed plot (covers manual and auto-claim paths).
+function ClaimWatcher.check(player: Player)
+	local plot = ClaimWatcher.getPlot(player)
 	if plot == nil then
 		notifiedPlot[player] = nil
 		return
@@ -175,9 +271,44 @@ local function checkClaim(player: Player)
 		return
 	end
 	notifiedPlot[player] = plot
-	callFirst(UpgradeService, { "onPlotClaimed" }, player, plot)
-	callFirst(CashInService, { "onPlotClaimed" }, player, plot)
+	callFirst(UpgradeService, { "onPlotClaimed", "onClaimed", "onPlotClaim", "claimPlot" }, player, plot)
+	callFirst(CashInService, { "onPlotClaimed", "onClaimed", "onPlotClaim" }, player, plot)
+	-- Give the pads a moment to be created by UpgradeService, then highlight Dropper 2.
+	task.delay(0.5, function()
+		if player.Parent == Players then
+			local ok, err = pcall(highlightDropperPad, player)
+			if not ok then
+				warn("highlightDropperPad failed: " .. tostring(err))
+			end
+		end
+	end)
+	-- Tell the tutorial the plot was claimed so its guide beam appears.
+	callFirst(TutorialService, { "onPlotClaimed", "onClaimed" }, player, plot)
 end
+
+-- Starts watching a player's claim state (attribute changes + a slow poll as a safety net).
+function ClaimWatcher.watch(player: Player)
+	player:GetAttributeChangedSignal("PlotIndex"):Connect(function()
+		ClaimWatcher.check(player)
+	end)
+	player:GetAttributeChangedSignal("ClaimedPlot"):Connect(function()
+		ClaimWatcher.check(player)
+	end)
+	task.spawn(function()
+		while player.Parent == Players do
+			ClaimWatcher.check(player)
+			task.wait(0.5)
+		end
+	end)
+end
+
+function ClaimWatcher.forget(player: Player)
+	notifiedPlot[player] = nil
+end
+
+----------------------------------------------------------------------
+-- Player setup
+----------------------------------------------------------------------
 
 -- Moves an unclaimed player to the plaza center; claimed players are never teleported.
 local function spawnAtPlaza(player: Player, character: Model)
@@ -185,7 +316,7 @@ local function spawnAtPlaza(player: Player, character: Model)
 	if not hrp or not hrp:IsA("BasePart") then
 		return
 	end
-	if hasClaimedPlot(player) then
+	if ClaimWatcher.hasPlot(player) then
 		return
 	end
 	local offset = Vector3.new(math.random(-6, 6), 4, math.random(-6, 6))
@@ -229,20 +360,24 @@ local function setupPlayer(player: Player)
 		task.spawn(spawnAtPlaza, player, character)
 	end
 
-	-- Watch for plot claims
-	player:GetAttributeChangedSignal("PlotIndex"):Connect(function()
-		checkClaim(player)
-	end)
-	player:GetAttributeChangedSignal("ClaimedPlot"):Connect(function()
-		checkClaim(player)
-	end)
-	task.spawn(function()
-		while player.Parent == Players do
-			checkClaim(player)
-			task.wait(0.5)
-		end
-	end)
+	ClaimWatcher.watch(player)
 end
+
+----------------------------------------------------------------------
+-- Bootstrap: start services in order
+----------------------------------------------------------------------
+
+-- Data and juice are initialised once at startup (before any player is handled)
+callFirst(DataService, { "init" })
+callFirst(JuiceService, { "init" })
+
+buildWorld()
+
+-- PlotClaimService is the single authority for claiming and auto-claiming.
+callFirst(PlotClaimService, { "init", "start", "setup" }, plots)
+callFirst(UpgradeService, { "init" })
+callFirst(RebirthService, { "init" })
+callFirst(CashInService, { "init", "start", "setup" }, plots)
 
 Players.PlayerAdded:Connect(function(player)
 	task.spawn(setupPlayer, player)
@@ -252,7 +387,7 @@ for _, player in Players:GetPlayers() do
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	notifiedPlot[player] = nil
+	ClaimWatcher.forget(player)
 	setupDone[player] = nil
 	callFirst(UpgradeService, { "onPlayerRemoving" }, player)
 	callFirst(CashInService, { "onPlayerRemoving" }, player)

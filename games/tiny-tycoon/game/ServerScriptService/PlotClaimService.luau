@@ -198,6 +198,9 @@ local function claim(player, entry, auto)
 			warn("[PlotClaimService] TutorialService.notify failed: " .. tostring(terr))
 		end
 	end
+	pcall(function()
+		require(script.Parent.TutorialFlow).notify(player, "claimed")
+	end)
 	busy[player] = nil
 	return true
 end

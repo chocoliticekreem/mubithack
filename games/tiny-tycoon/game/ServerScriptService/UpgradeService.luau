@@ -10,13 +10,15 @@ local PlotThemes = require(ReplicatedStorage:WaitForChild("PlotThemes"))
 local Tycoon = require(ServerScriptService:WaitForChild("Tycoon"))
 local CashInService = require(ServerScriptService:WaitForChild("CashInService"))
 local JuiceService = require(ServerScriptService:WaitForChild("JuiceService"))
+local PadFeedbackService = require(ServerScriptService:WaitForChild("PadFeedbackService"))
 
 local UpgradeService = {}
 
 local NEUTRAL = Color3.fromRGB(120, 120, 135)
 local DEBOUNCE = 0.35
 local COLS = 6
-local SPACING = 5.5
+local SPACING = 8.5
+local MAX_VISIBLE = 3
 
 local list: { any } = Upgrades.list or Upgrades
 local byId: { [string]: any } = {}
@@ -44,6 +46,40 @@ local shopCooldown: { [Player]: number } = {}
 local SHOP_COOLDOWN = 0.3
 local START_GRANT = 5
 local startGranted: { [Player]: boolean } = {}
+
+local PlotGrowth: any = nil
+do
+	local growthModule = ServerScriptService:FindFirstChild("PlotGrowth")
+	if growthModule then
+		local okReq, res = pcall(require, growthModule)
+		if okReq then
+			PlotGrowth = res
+		end
+	end
+end
+
+local function growPlot(player: Player, plot: any, owned: { [string]: boolean })
+	if PlotGrowth == nil or type(PlotGrowth.apply) ~= "function" or plot == nil then
+		return
+	end
+	local ownedIds: { [string]: boolean } = {}
+	for id, v in pairs(owned) do
+		if v then
+			ownedIds[id] = true
+		end
+	end
+	local target: any = plot
+	if typeof(plot) ~= "Instance" then
+		target = type(plot) == "table" and plot.model or nil
+	end
+	if target == nil then
+		return
+	end
+	local ok, err = pcall(PlotGrowth.apply, player, target, ownedIds)
+	if not ok then
+		warn("[UpgradeService] PlotGrowth.apply failed: " .. tostring(err))
+	end
+end
 
 local function pickColor(t: any, keys: { string }, default: Color3): Color3
 	if type(t) ~= "table" then
@@ -98,6 +134,33 @@ local function computeMods(owned: { [string]: boolean })
 	return { slots = slots, ore = ore, speedMult = speed, cashMult = cash }
 end
 
+local ORE_FALLBACK_NAMES = { "Bronze", "Silver", "Gold", "Platinum", "Diamond" }
+
+-- publishes the player's current modifiers as attributes so the client HUD can read state
+local function publishMods(player: Player, owned: { [string]: boolean }, mods: any)
+	local oreTier = mods.ore
+	local oreName: string? = nil
+	for id in pairs(owned) do
+		local u = byId[id]
+		if u and kindOf(u) == "tier" and type(u.effect) == "table" then
+			local e = u.effect
+			if num(e, { "tier", "ore", "value" }, 1) == oreTier then
+				if type(e.oreName) == "string" then
+					oreName = e.oreName
+				elseif type(e.name) == "string" then
+					oreName = e.name
+				end
+			end
+		end
+	end
+	if oreName == nil then
+		oreName = ORE_FALLBACK_NAMES[oreTier] or ("Tier " .. tostring(oreTier))
+	end
+	player:SetAttribute("OreName", oreName)
+	player:SetAttribute("DropperSlots", mods.slots)
+	player:SetAttribute("CashMult", mods.cashMult)
+end
+
 local function getCash(player: Player): IntValue?
 	local ls = player:FindFirstChild("leaderstats")
 	local c = ls and ls:FindFirstChild("Cash")
@@ -117,13 +180,31 @@ end
 local function refresh(state: any)
 	local cash = getCash(state.player)
 	local value = cash and cash.Value or 0
+	local shown: { [string]: boolean } = {}
+	local shownCount = 0
+	for _, lu in ipairs(list) do
+		if shownCount < MAX_VISIBLE and padVisible(state, lu) then
+			shown[lu.id] = true
+			shownCount += 1
+		end
+	end
 	for id, pad in pairs(state.pads) do
 		local u = byId[id]
 		if pad.part.Parent and u then
-			local visible = padVisible(state, u)
+			local visible = shown[id] == true
 			pad.part.Transparency = visible and 0 or 1
 			pad.part.CanTouch = visible
 			pad.gui.Enabled = visible
+			if visible and not pad.fbReg then
+				pad.fbReg = true
+				PadFeedbackService.Register(pad.part, state.player, u.cost)
+			elseif not visible and pad.fbReg then
+				pad.fbReg = false
+				PadFeedbackService.Unregister(pad.part)
+			end
+			if pad.cost then
+				pad.cost.TextColor3 = (value >= u.cost) and Color3.fromRGB(88, 214, 92) or Color3.fromRGB(240, 68, 64)
+			end
 			if visible then
 				pad.part.Color = (value >= u.cost) and state.accent or NEUTRAL
 				if pad.label then
@@ -156,8 +237,12 @@ local function pushNextGoal(state: any)
 		end
 	end
 	if best then
+		state.player:SetAttribute("NextGoalName", tostring(best.name))
+		state.player:SetAttribute("NextGoalCost", best.cost)
 		JuiceService.pushGoal(state.player, tostring(best.name), best.cost)
 	else
+		state.player:SetAttribute("NextGoalName", "")
+		state.player:SetAttribute("NextGoalCost", 0)
 		JuiceService.pushGoal(state.player, nil, nil)
 	end
 end
@@ -182,6 +267,10 @@ local function purchase(player: Player, id: string): boolean
 	end
 	if cash.Value < u.cost then
 		JuiceService.onInsufficient(player, u, u.cost - cash.Value)
+		local deniedPad = state.pads[id]
+		if deniedPad and deniedPad.part then
+			PadFeedbackService.Denied(player, deniedPad.part, u.cost)
+		end
 		return false
 	end
 	state.lastBuy[id] = nowT
@@ -190,6 +279,10 @@ local function purchase(player: Player, id: string): boolean
 	state.owned[id] = true
 	local pad = state.pads[id]
 	if pad then
+		if pad.fbReg then
+			pad.fbReg = false
+			PadFeedbackService.Unregister(pad.part)
+		end
 		pad.part.Transparency = 1
 		pad.part.CanTouch = false
 		pad.gui.Enabled = false
@@ -212,6 +305,7 @@ local function purchase(player: Player, id: string): boolean
 	elseif boughtKind == "speed" or boughtKind == "conveyor" or string.find(lowerId, "conveyor", 1, true) then
 		Telemetry.count("conveyor_bought", 1)
 	end
+	publishMods(state.player, state.owned, mods)
 	if boughtRemote then
 		boughtRemote:FireClient(state.player, id, mods)
 	end
@@ -219,14 +313,13 @@ local function purchase(player: Player, id: string): boolean
 	sendOwned(player)
 	JuiceService.onPurchase(player, u, pad and pad.part or nil, nil)
 	pushNextGoal(state)
+	growPlot(player, plots[player], state.owned)
 	return true
 end
 
 local function makePad(state: any, u: any, index: number, origin: CFrame, folder: Folder)
-	local col = (index - 1) % COLS
-	local row = math.floor((index - 1) / COLS)
-	local lx = (col - (COLS - 1) / 2) * SPACING
-	local lz = 15 - row * SPACING
+	local lx = index <= 5 and 19 or 26
+	local lz = (((index - 1) % 5) - 2) * 10
 	local part = Instance.new("Part")
 	part.Name = "UpgradePad_" .. tostring(u.id)
 	part.Size = Vector3.new(4, 0.6, 4)
@@ -239,28 +332,41 @@ local function makePad(state: any, u: any, index: number, origin: CFrame, folder
 	part.CanTouch = false
 
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromScale(7, 2)
-	gui.StudsOffset = Vector3.new(0, 2.5, 0)
-	gui.MaxDistance = 80
+	gui.Size = UDim2.fromOffset(160, 50)
+	gui.StudsOffset = Vector3.new(0, 3, 0)
+	gui.MaxDistance = 60
 	gui.LightInfluence = 0
 	gui.Adornee = part
 	gui.Enabled = false
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
+	label.Size = UDim2.fromScale(1, 0.5)
 	label.BackgroundTransparency = 1
 	label.TextScaled = true
 	label.Font = Enum.Font.LuckiestGuy
 	label.TextColor3 = Color3.fromRGB(255, 248, 232)
-	label.Text = string.format("%s - $%d", tostring(u.name), u.cost)
+	label.Text = tostring(u.name)
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 3
 	stroke.Color = Color3.fromRGB(28, 22, 38)
 	stroke.Parent = label
 	label.Parent = gui
+	local cost = Instance.new("TextLabel")
+	cost.Size = UDim2.fromScale(1, 0.5)
+	cost.Position = UDim2.fromScale(0, 0.5)
+	cost.BackgroundTransparency = 1
+	cost.TextScaled = true
+	cost.Font = Enum.Font.LuckiestGuy
+	cost.TextColor3 = Color3.fromRGB(240, 68, 64)
+	cost.Text = string.format("$%d", u.cost)
+	local costStroke = Instance.new("UIStroke")
+	costStroke.Thickness = 3
+	costStroke.Color = Color3.fromRGB(28, 22, 38)
+	costStroke.Parent = cost
+	cost.Parent = gui
 	gui.Parent = part
 	part.Parent = folder
 
-	state.pads[u.id] = { part = part, gui = gui, label = label }
+	state.pads[u.id] = { part = part, gui = gui, label = label, cost = cost }
 	part.Touched:Connect(function(hit)
 		local p = Players:GetPlayerFromCharacter(hit.Parent)
 		if not p or p ~= state.player or states[p] ~= state then
@@ -275,10 +381,24 @@ local function makePad(state: any, u: any, index: number, origin: CFrame, folder
 	end)
 end
 
-shopSync.OnServerEvent:Connect(function(player)
-	Telemetry.count("shop_opened", 1)
+shopSync.OnServerEvent:Connect(function(player, opened)
+	if opened == true then
+		Telemetry.count("shop_opened", 1)
+	end
 	sendOwned(player)
 end)
+
+local purchaseOk: BindableEvent
+do
+	local existingOk = ReplicatedStorage:FindFirstChild("ShopPurchaseOk")
+	if existingOk and existingOk:IsA("BindableEvent") then
+		purchaseOk = existingOk
+	else
+		purchaseOk = Instance.new("BindableEvent")
+		purchaseOk.Name = "ShopPurchaseOk"
+		purchaseOk.Parent = ReplicatedStorage
+	end
+end
 
 buyRemote.OnServerEvent:Connect(function(player, upgradeId)
 	if type(upgradeId) == "string" then
@@ -288,6 +408,7 @@ buyRemote.OnServerEvent:Connect(function(player, upgradeId)
 			shopCooldown[player] = now
 			if purchase(player, upgradeId) then
 				Telemetry.count("shop_purchases", 1)
+				purchaseOk:Fire(player, upgradeId)
 			end
 		end
 	end
@@ -341,8 +462,10 @@ local function applyOwned(state: any, ids: { string })
 	if type(Tycoon.setModifiers) == "function" then
 		Tycoon.setModifiers(state.player, mods)
 	end
+	publishMods(state.player, state.owned, mods)
 	refresh(state)
 	sendOwned(state.player)
+	pushNextGoal(state)
 end
 
 -- array of upgrade ids the player currently owns
@@ -373,6 +496,7 @@ function UpgradeService.restoreOwned(player: Player, ids: any)
 	if state and plots[player] then
 		pendingOwned[player] = nil
 		applyOwned(state, valid)
+		growPlot(player, plots[player], state.owned)
 	else
 		pendingOwned[player] = valid
 	end
@@ -411,6 +535,7 @@ function UpgradeService.onPlotClaimed(player: Player, plot: any)
 		accent = pickColor(theme, { "accent", "Accent", "accentColor" }, Color3.fromRGB(88, 214, 92)),
 	}
 	states[player] = state
+	publishMods(player, state.owned, computeMods(state.owned))
 	for i, u in ipairs(list) do
 		makePad(state, u, i, plot.origin, folder)
 	end
@@ -432,6 +557,7 @@ function UpgradeService.onPlotClaimed(player: Player, plot: any)
 	refresh(state)
 	sendOwned(player)
 	pushNextGoal(state)
+	growPlot(player, plot, state.owned)
 
 	local function hookCash(cash: Instance)
 		table.insert(state.conns, (cash :: any).Changed:Connect(function()
@@ -467,6 +593,12 @@ function UpgradeService.onPlayerRemoving(player: Player)
 	if state.folder then
 		state.folder:Destroy()
 	end
+	for _, p in pairs(state.pads) do
+		if p.fbReg then
+			p.fbReg = false
+			PadFeedbackService.Unregister(p.part)
+		end
+	end
 	state.pads = {}
 	state.owned = {}
 end
@@ -493,6 +625,7 @@ function UpgradeService.resetPlayer(player: Player): boolean
 	end
 	-- tears down the old state (pads, connections, owned record) and rebuilds fresh pads
 	UpgradeService.onPlotClaimed(player, plot)
+	publishMods(player, {}, computeMods({}))
 	if type(Tycoon.setModifiers) == "function" then
 		Tycoon.setModifiers(player, computeMods({}))
 	end

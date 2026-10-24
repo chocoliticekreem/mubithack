@@ -1,14 +1,23 @@
 --!strict
 -- Shared constants for Cube Cash Tycoon. Single source of truth for tunables.
--- NOTE: upgrade prices live ONLY in ReplicatedStorage/Upgrades.luau. Do not add costs here.
+-- NOTE: upgrade prices AND per-ore cube values live ONLY in ReplicatedStorage/Upgrades.luau
+-- (Upgrades.ores). Do not add costs or ore values here.
+-- Economy summary (see Upgrades.luau for the authoritative numbers): the player starts with
+-- no cash and the first (Bronze) ore pays CUBE_VALUE per cube, so the first purchase
+-- (Dropper 2) is earned from the first few collected cubes within ~10s.
 
 local Config = {
 	-- Economy
-	STARTING_CASH = 10, -- initial Cash leaderstat so the first buy happens within ~30s
+	-- Start at 0 so the first buy is earned. Starting cash must stay below the first
+	-- upgrade's price (Dropper 2), otherwise the player can spend instantly with no chase.
+	STARTING_CASH = 0,
 
 	-- Cubes / dropping
 	DROP_INTERVAL = 2, -- seconds between cubes per dropper (design: one cube every 2s)
-	CUBE_VALUE = 1,
+	-- FALLBACK ONLY: real cube values come from Upgrades.ores (the first/Bronze ore).
+	-- Kept equal to the Bronze value so any code that still reads it shows the right number.
+	-- Dropper, collector, HUD and tutorial should read Upgrades.ores instead.
+	CUBE_VALUE = 5,
 	CUBE_SIZE = Vector3.new(1.5, 1.5, 1.5),
 	MAX_CUBES_PER_PLOT = 30,
 
@@ -18,7 +27,7 @@ local Config = {
 	CONVEYOR_LENGTH = 24,
 
 	-- Plots
-	PLOT_SIZE = Vector3.new(40, 1, 40),
+	PLOT_SIZE = Vector3.new(64, 1, 64),
 	PLOT_SPACING = 60,
 	MAX_PLOTS = 6, -- one plot per theme (6 themes), no repeats
 	PLOT_COUNT = 6,

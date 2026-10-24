@@ -38,11 +38,14 @@ Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 
 - `ServerScriptService/DataService.luau`: Feature: Data saving: a DataService on the server saves each player's Cash, TotalEarned, Rebirths and owned upgrade ids with DataStoreService (store 'CubeCashTycoon_v1', key 'p_<UserId>'), loading on 
 - `ServerScriptService/JuiceService.luau`: Feature: Juice and polish pass using the prebuilt ReplicatedStorage/GameAssets kit (require it; do not rewrite it): call GameAssets.styleLighting() once on the server so the world has warm sky lightin
 - `StarterPlayerScripts/JuiceFx.client.luau`: Feature: Juice and polish pass using the prebuilt ReplicatedStorage/GameAssets kit (require it; do not rewrite it): call GameAssets.styleLighting() once on the server so the world has warm sky lightin
-- `ReplicatedStorage/ForgeChecksPlan.luau`: Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s au
-- `ServerScriptService/ForgeChecks.server.luau`: Feature: Create executable checks (forge checks --plan) that run a live playtest and assert the telemetry counters: map_built=1, plaza_built=1, themes_built=6, plot_assigned (after claim or the 20s au
-- `ReplicatedStorage/FeatureChecksConfig.luau`: Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar 
-- `ServerScriptService/FeatureVerifier.server.luau`: Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar 
-- `StarterPlayerScripts/FeatureVerifyClient.client.luau`: Feature: Add executable checks and fix failures for: the SHOP button opens a panel listing every Upgrades entry with price and affordability, and buying Dropper 2 for 10 works once; the rebirth altar 
+- `ServerScriptService/TutorialFlow.luau`: Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the c
+- `StarterPlayerScripts/TutorialBeam.client.luau`: Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the c
+- `StarterPlayerScripts/ShopFx.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened c
+- `ServerScriptService/ShopTelemetry.server.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened c
+- `ServerScriptService/PadFeedbackService.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and s
+- `StarterPlayerScripts/PadFeedbackFx.client.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and s
+- `ServerScriptService/GrowthModels.luau`: Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades bar
+- `ServerScriptService/PlotGrowth.luau`: Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades bar
 
 ## Acceptance checks
 
@@ -109,7 +112,6 @@ Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 
 - Touching a pad with too little cash plays the Error sound and the toast 'Need $X more', with the correct X, and deducts nothing
 - Buying an ore tier upgrade shows the big RewardPopup 'GOLD ORE! $N per cube' with the Win sound and a medium shake
 - Rebirthing plays Boom then Win, a large shake and a white flash that fades out
-- After starting a playtest in Studio, the Output shows one '[ForgeCheck] PASS' or '[ForgeCheck] FAIL' line per check and a final '[ForgeCheck] RESULT {json}' line within about 50 seconds, and Workspace attribute ForgeChecksDone becomes true
 - PASS map_built=1, plaza_built=1 and themes_built=6, and the counter names are unchanged from existing games
 - PASS cubes_dropped==0 while plot_assigned==0 during the first ~8 seconds after spawn in the plaza
 - In 'auto' mode, with no claim made, plot_assigned>=1 and auto_claims>=1 appear after about 20 seconds and the check passes. In 'gate' mode, walking onto a gate raises plots_claimed and plot_assigned and the check passes
@@ -120,11 +122,40 @@ Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 
 - The rebirth altar is absent below 5000 cash with upgrades unfinished, appears at 5000 cash, and also appears when all upgrades are owned. Rebirthing raises the multiplier and Rebirths, and resets Cash and owned upgrades.
 - The plaza TOP TYCOONS board shows both Cash and Rebirths values for the player, matching their leaderstats.
 - The tutorial banner and arrow are visible after the first claim and advance or clear after the first purchase.
-- Each passing feature sets Workspace attribute FeatureVerified_<id> and bumps its feature_verified_<id> counter to exactly 1. A failing feature sets FeatureFailed_<id> with a reason.
+- In a 60s playtest the player's TutorialStep attribute reaches 5 or higher and 'tutorial_steps' is 5 or more
+- After the plot is claimed (auto-claim included), the step moves from 1 to 2, and after the first cube is collected it moves to 3
+- Buying Dropper 2 moves the tutorial to step 4, and the banner reads 'Tap the SHOP button to open it'
+- Opening the SHOP panel bumps 'shop_opened' once and moves the tutorial to step 5. If the SHOP is never opened, step 4 advances by itself after about 20s
+- Buying any non-Dropper-2 upgrade advances to step 6 and bumps 'tutorial_done'
+- A beam is visible from the player's HumanoidRootPart to the current target on every step and the census reports beams > 0, with a bouncing arrow over the target
+- Opening the shop panel plays a scale-in tween (from about 0.85 to 1) with a whoosh sound, and 'shop_opened' increments once per open
+- Buying an upgrade from the shop with enough cash deducts the cost exactly once, plays the buy sound, flashes the row green, tweens the level bar fill up, and 'shop_purchases' increments
+- Clicking buy with too little cash shakes the row, plays an error buzz, deducts nothing, and leaves 'shop_purchases' unchanged
+- A shop purchase and a pad purchase of the same upgrade go through the same server validation, so a purchase for a non-owned plot or with insufficient cash is rejected the same way in both
+- Opening and closing the panel repeatedly leaves it at scale 1 with no stuck tween and no errors or warnings in the output
+- Rows return to their original position after a shake and to their original color after the flash
+- After a plot is claimed and Cash reaches the Dropper 2 cost (10), the visible pad gets an enabled green Highlight, pulses, and the 'highlights' counter is at least 1
+- The pad's price tag pulses green while Cash >= cost and returns to its normal style when Cash drops below cost
+- After buying, the pulse and Highlight on that pad stop and it vanishes as before, with exactly the normal cost deducted once
+- Touching a pad with Cash below cost flashes it red, plays an audible buzz, shows a 'Need $N' toast, leaves Cash unchanged, and increments 'pad_denied'
+- Repeatedly standing on a pad while poor does not spam toasts or the counter (about 1s debounce)
+- No errors or warnings in output, and existing counters (upgrades_bought, cubes_collected) behave as before
+- After claiming a plot, no growth models exist, and 'plot_growth_built' is 0 for that player until the first purchase.
+- Buying Dropper 2 builds a hopper-on-legs dropper machine with a glowing nozzle on the dropper row, popping in with a burst, and also builds the wall with corner pillars and lamps. 'plot_growth_built' rises by at least 2.
+- Buying Dropper 3 and Dropper 4 each add another dropper machine in a new slot, with no duplicates of earlier ones.
+- Buying Speed 1 and Speed 2 adds chevron arrows on the conveyor sides, and on the client they visibly scroll along the conveyor.
+- Buying the silver, gold and diamond ore upgrades adds matching ore piles or crystal clusters beside the collector.
+- Buying Cash x1.5 and x2 adds a vault or coin stack near the collector with a floating 'x1.5' or 'x2' sign.
+- After claiming a plot and buying Dropper 2, 'plot_growth_built' increases (a dropper machine plus a plot wall) and a themed machine model pops in on the dropper row
+- Buying Speed 1 adds a chevrons model along the conveyor and 'plot_growth_built' increments
+- Buying an ore tier adds an ore pile beside the collector, and buying Cash x1.5 adds a vault with a label next to the collector
+- Calling apply again with the same owned ids does not duplicate models or bump 'plot_growth_built'
+- Each new model pops in with a visible burst, and no growth part is default grey
+- Growth models do not block the player's walking path or the buy pads, and cube flow and cash-in are unaffected
 
 ## How it was built
 
-- 7 build iterations (critic scores: 7.0, 4.0, 4.0, 4.0, 6.0, 6.0, 8.0), 41 saved versions, 17 human corrections.
+- 11 build iterations (critic scores: 7.0, 4.0, 4.0, 4.0, 6.0, 6.0, 8.0, 7.0, 7.0, 8.0, 7.0), 80 saved versions, 36 human corrections.
 - Working copy, versions and traces: `runs/tiny-tycoon/` (local); record: `evidence/tiny-tycoon/` (`forge archive`).
 
 ## Play it

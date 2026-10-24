@@ -8,30 +8,45 @@ local TutorialConfig = {
 
 	REMOTE_NAME = "TutorialStep",
 
+	-- Re-show a stuck step's hint after this many seconds without progress.
+	STUCK_RESHOW_SECONDS = 5,
+
+	-- If the player has not opened the SHOP this many seconds after the shop step
+	-- begins, the server advances the step anyway so guidance never stalls.
+	SHOP_STEP_FALLBACK_SECONDS = 12,
+
 	EVENTS = {
 		START = "start",
 		CLAIMED = "claimed",
 		CASHED = "cashed",
 		BOUGHT = "bought",
+		SHOP = "shop",
+		UPGRADED = "upgraded",
+		DONE = "done",
 		SKIP = "skip",
 	},
 
-	-- Banner text per step (index = step number).
+	-- Banner text per step (index = step number). One short command each.
 	STEPS = {
-		"Walk to a CLAIM gate to claim your plot",
-		"Watch your dropper make cash",
-		"Step on the glowing GREEN pad: $10",
-		"Tap the yellow SHOP button, buy Fast Belt!",
+		"Walk to the CLAIM gate!", -- 1: claim a plot
+		"Collect $10 from cubes!", -- 2: first cash-in
+		"Step on the glowing green pad!", -- 3: buy Dropper 2
+		"Tap the SHOP button!", -- 4: open the shop
+		"Buy an upgrade in the SHOP!", -- 5: buy a tier upgrade
+		"You did it! Keep growing!", -- 6: done
 	},
 
 	-- Which server event advances away from each step.
-	-- step 1 -> 'claimed', step 2 -> timed fallback (ADVANCE_DELAY, no waiting for a cash event),
-	-- step 3 -> 'bought', step 4 -> ends when the shop opens.
+	-- step 1 -> 'claimed', step 2 -> 'cashed' (timed fallback via ADVANCE_DELAY),
+	-- step 3 -> 'bought', step 4 -> 'shop' (SHOP panel opened; fallback after
+	-- SHOP_STEP_FALLBACK_SECONDS), step 5 -> 'upgraded', step 6 -> final.
 	ADVANCE_ON = {
 		"claimed",
-		"claimed",
+		"cashed",
 		"bought",
 		"shop",
+		"upgraded",
+		"done",
 	},
 
 	-- Seconds to wait after entering a step before it auto-advances (keyed by step number).
@@ -39,12 +54,14 @@ local TutorialConfig = {
 	-- so the player is never left without guidance.
 	ADVANCE_DELAY = {
 		[2] = 8,
+		[4] = 12,
 	},
 
 	-- Timed fallback (seconds) used when an expected server event never arrives.
-	-- Keyed by step number; step 2 -> step 3 after about 8 seconds.
+	-- Keyed by step number.
 	FALLBACK_DELAY = {
 		[2] = 8,
+		[4] = 12,
 	},
 
 	-- Seconds after the shop step begins before the client pulses the SHOP button
@@ -57,11 +74,38 @@ local TutorialConfig = {
 	-- Play a sparkle burst (GameAssets.burst) on every step advance.
 	STEP_SPARKLE = true,
 
-	-- Steps where the bouncing arrow must stay over the target (step 3 = the buy pad,
-	-- the Dropper 2 pad).
+	-- Steps where the bouncing arrow must stay over the target
+	-- (step 1 = claim gate, step 2 = dropper, step 3 = the Dropper 2 buy pad).
 	ARROW_STEPS = {
+		[1] = true,
+		[2] = true,
 		[3] = true,
 	},
+
+	-- Steps where a Beam from the player to the target is shown.
+	BEAM_STEPS = {
+		[1] = true,
+		[2] = true,
+		[3] = true,
+	},
+
+	-- Keep the guide beam alive (re-create if missing) until the player's
+	-- upgrades_bought stat reaches this value.
+	BEAM_KEEP_UNTIL_UPGRADES_BOUGHT = 1,
+	BEAM_PERSIST = true,
+
+	-- Steps where the target gets a Highlight so it is visible from across the plot.
+	HIGHLIGHT_STEPS = {
+		[1] = true,
+		[2] = true,
+		[3] = true,
+	},
+
+	-- Highlight visuals on the target pad.
+	HIGHLIGHT_FILL_COLOR = Color3.fromRGB(76, 217, 100),
+	HIGHLIGHT_OUTLINE_COLOR = Color3.fromRGB(255, 255, 255),
+	HIGHLIGHT_FILL_TRANSPARENCY = 0.5,
+	HIGHLIGHT_OUTLINE_TRANSPARENCY = 0,
 
 	-- Arrow visuals.
 	ARROW_COLOR = Color3.fromRGB(255, 221, 51),
@@ -72,7 +116,7 @@ local TutorialConfig = {
 
 	-- Beam from player to target.
 	BEAM_COLOR = Color3.fromRGB(255, 240, 120),
-	BEAM_WIDTH = 1,
+	BEAM_WIDTH = 2,
 
 	-- Banner visuals.
 	BANNER_COLOR = Color3.fromRGB(30, 30, 50),
@@ -86,6 +130,9 @@ TutorialConfig.EVENT_NAMES = {
 	TutorialConfig.EVENTS.CLAIMED,
 	TutorialConfig.EVENTS.CASHED,
 	TutorialConfig.EVENTS.BOUGHT,
+	TutorialConfig.EVENTS.SHOP,
+	TutorialConfig.EVENTS.UPGRADED,
+	TutorialConfig.EVENTS.DONE,
 	TutorialConfig.EVENTS.SKIP,
 }
 

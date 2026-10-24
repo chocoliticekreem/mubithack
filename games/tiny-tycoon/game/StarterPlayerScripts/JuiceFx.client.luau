@@ -300,6 +300,23 @@ local function refreshGoal()
 	end
 end
 
+local function applyGoalAttributes()
+	local name = player:GetAttribute("NextGoalName")
+	local cost = player:GetAttribute("NextGoalCost")
+	if name == nil and cost == nil then
+		return
+	end
+	if name ~= nil then
+		goalName = tostring(name)
+	end
+	goalCost = if type(cost) == "number" then cost else 0
+	refreshGoal()
+end
+
+player:GetAttributeChangedSignal("NextGoalName"):Connect(applyGoalAttributes)
+player:GetAttributeChangedSignal("NextGoalCost"):Connect(applyGoalAttributes)
+applyGoalAttributes()
+
 task.spawn(function()
 	local stats = player:WaitForChild("leaderstats", 30)
 	local cash = stats and stats:WaitForChild("Cash", 30)

@@ -109,6 +109,22 @@ local function ensureState(player: Player): State
 	return s
 end
 
+local function syncStat(player: Player, s: State)
+	local ls = player:FindFirstChild("leaderstats")
+	if not ls then
+		return
+	end
+	local stat = ls:FindFirstChild("Rebirths")
+	if not (stat and stat:IsA("IntValue")) then
+		stat = Instance.new("IntValue")
+		stat.Name = "Rebirths"
+		stat.Value = s.rebirths
+		stat.Parent = ls
+	end
+	s.stat = stat :: IntValue
+	(stat :: IntValue).Value = s.rebirths
+end
+
 local function updateLabel(s: State)
 	if s.label then
 		s.label.Text = "REBIRTH\n$" .. tostring(RebirthConfig.costFor(s.rebirths))
@@ -120,6 +136,31 @@ local function fireResult(player: Player, ok: boolean, s: State, reason: string)
 	if resultRemote then
 		resultRemote:FireClient(player, ok, RebirthConfig.multiplierFor(s.rebirths), RebirthConfig.costFor(s.rebirths), reason)
 	end
+end
+
+local plotGrowth: any = nil
+local plotGrowthTried = false
+
+-- Lazily resolves PlotGrowth (guarded; the module may be missing or fail to load).
+local function getPlotGrowth(): any
+	if plotGrowth then
+		return plotGrowth
+	end
+	if plotGrowthTried then
+		return nil
+	end
+	plotGrowthTried = true
+	local mod = ServerScriptService:FindFirstChild("PlotGrowth")
+	if not mod then
+		return nil
+	end
+	local ok, res = pcall(require, mod)
+	if ok then
+		plotGrowth = res
+	else
+		warn("RebirthService: could not require PlotGrowth: " .. tostring(res))
+	end
+	return plotGrowth
 end
 
 function RebirthService.tryRebirth(player: Player)
@@ -154,10 +195,15 @@ function RebirthService.tryRebirth(player: Player)
 			warn("RebirthService: resetPlayer failed: " .. tostring(err))
 		end
 	end
-	s.rebirths += 1
-	if s.stat then
-		s.stat.Value = s.rebirths
+	local growth = getPlotGrowth()
+	if growth and type(growth.clear) == "function" then
+		local okClear, errClear = pcall(growth.clear, player)
+		if not okClear then
+			warn("RebirthService: PlotGrowth.clear failed: " .. tostring(errClear))
+		end
 	end
+	s.rebirths += 1
+	syncStat(player, s)
 	player:SetAttribute("RebirthMult", RebirthConfig.multiplierFor(s.rebirths))
 	updateLabel(s)
 	fireResult(player, true, s, "ok")
@@ -176,9 +222,7 @@ function RebirthService.setRebirths(player: Player, n: number)
 	end
 	local s = ensureState(player)
 	s.rebirths = count
-	if s.stat then
-		s.stat.Value = count
-	end
+	syncStat(player, s)
 	player:SetAttribute("RebirthMult", RebirthConfig.multiplierFor(count))
 	updateLabel(s)
 end
@@ -235,10 +279,10 @@ function RebirthService.onPlotClaimed(player: Player, plot: any)
 	sparks.Parent = altar
 
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(7, 4)
-	bb.StudsOffset = Vector3.new(0, size.Y / 2 + 3, 0)
+	bb.Size = UDim2.fromOffset(180, 60)
+	bb.StudsOffset = Vector3.new(0, 4, 0)
 	bb.AlwaysOnTop = false
-	bb.MaxDistance = 90
+	bb.MaxDistance = 50
 	bb.Adornee = altar
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)

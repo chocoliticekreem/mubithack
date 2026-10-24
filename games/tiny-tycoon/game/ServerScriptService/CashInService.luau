@@ -6,16 +6,40 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local Debris = game:GetService("Debris")
 
 local CashInConfig = require(ReplicatedStorage:WaitForChild("CashInConfig", 10))
 local ForgeTelemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry", 10))
-local TutorialService = require(script.Parent:WaitForChild("TutorialService", 10))
+
+-- Guarded lookup: a missing/broken TutorialService must never stop this service.
+local TutorialService: any = nil
+do
+	local ok, res = pcall(function()
+		local m = script.Parent:WaitForChild("TutorialService", 10)
+		if m and m:IsA("ModuleScript") then
+			return require(m)
+		end
+		return nil
+	end)
+	if ok then
+		TutorialService = res
+	else
+		ForgeTelemetry.count("cashin_tutorial_missing", 1)
+	end
+end
 
 local Cfg: any = CashInConfig
 
 local FLASH_COLOR = Color3.fromRGB(255, 214, 64)
 local FLASH_TIME = 0.15
-local IMMEDIATE_SENDS = 5 -- first cubes per player always send immediately (never throttled)
+local AGGREGATE_DELAY = 0.25 -- over-limit cash-ins are merged into one popup this often
+local COMBO_WINDOW = 2 -- seconds between cubes that keep a streak alive
+local MILESTONES: { [number]: boolean } = { [1] = true, [10] = true, [50] = true, [100] = true }
+local CASH_MILESTONES: { number } = { 50, 100, 500, 1000, 5000 }
+local COIN_VOLUME = 0.8
+local FX_THROTTLE = 0.15 -- min seconds between coin sounds / bursts per player
+local DEFAULT_POPUPS_PER_SECOND = 4
 
 -- Optional GameAssets (burst at the intake); never required to succeed.
 local GameAssets: any = nil
@@ -52,13 +76,40 @@ type CollectorInfo = {
 	tween: Tween?,
 }
 
+type Pending = {
+	amount: number,
+	cubes: number,
+	tier: number,
+	pos: Vector3,
+	pitch: number,
+}
+
 local collectors: { CollectorInfo } = {}
 local sendLog: { [Player]: { number } } = {}
 local sentTotal: { [Player]: number } = {}
+local cashTotal: { [Player]: number } = {}
+local pendingPopups: { [Player]: Pending } = {}
+local streaks: { [Player]: { count: number, last: number } } = {}
+local lastSoundAt: { [Player]: number } = {}
+local lastBurstAt: { [Player]: number } = {}
 local lastScan = 0
 
 local function isFiniteNumber(v: any): boolean
 	return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+-- Per-player throttle gate: returns true (and stamps) if enough time has passed.
+local function gate(tbl: { [Player]: number }, player: Player?): boolean
+	if player == nil then
+		return true
+	end
+	local now = os.clock()
+	local last = tbl[player]
+	if last and now - last < FX_THROTTLE then
+		return false
+	end
+	tbl[player] = now
+	return true
 end
 
 local function toSoundIdString(v: any): string
@@ -100,11 +151,12 @@ local function assetSoundId(name: string): string
 end
 
 local function configSoundId(): string
-	local s = toSoundIdString(Cfg.CASHIN_SOUND_ID)
-	if s ~= "" then
-		return s
+	-- Prefer the verified GameAssets coin id, then the config id.
+	local a = assetSoundId("Coin")
+	if a ~= "" then
+		return a
 	end
-	return assetSoundId("Coin")
+	return toSoundIdString(Cfg.CASHIN_SOUND_ID)
 end
 
 local function pitchForTier(tier: number): number
@@ -116,6 +168,17 @@ local function pitchForTier(tier: number): number
 		end
 	end
 	return math.clamp(1 + 0.12 * (tier - 1), 0.5, 2)
+end
+
+local function tierColorFor(tier: number): Color3
+	local tc: any = Cfg.TIER_COLORS
+	if type(tc) == "table" then
+		local c = tc[tier]
+		if typeof(c) == "Color3" then
+			return c
+		end
+	end
+	return FLASH_COLOR
 end
 
 local function isRegistered(part: BasePart): boolean
@@ -165,17 +228,58 @@ local function findCollector(pos: Vector3): CollectorInfo?
 	return best
 end
 
-local function playCoin(part: BasePart, pitch: number)
+-- Plays a non-positional (2D) sound for exactly one player by parenting a Sound
+-- to their PlayerGui. Returns true if it was started. Always cleaned up via Debris.
+local function playForPlayer(player: Player, soundId: string, volume: number, pitch: number): boolean
+	if soundId == "" then
+		return false
+	end
+	if player.Parent ~= Players then
+		return false
+	end
+	local gui = player:FindFirstChildOfClass("PlayerGui")
+	if not gui then
+		return false
+	end
+	local ok = pcall(function()
+		local s = Instance.new("Sound")
+		s.Name = "CashInLocalSound"
+		s.SoundId = soundId
+		s.Volume = volume
+		s.PlaybackSpeed = math.clamp(pitch, 0.5, 2)
+		s.RollOffMaxDistance = 10000
+		s.Parent = gui
+		s.Ended:Once(function()
+			s:Destroy()
+		end)
+		s:Play()
+		Debris:AddItem(s, 4)
+	end)
+	return ok
+end
+
+local function playCoin(part: BasePart, pitch: number, player: Player?)
+	-- Primary: 2D sound for the player who cashed in.
+	if player then
+		if playForPlayer(player, configSoundId(), COIN_VOLUME, pitch) then
+			ForgeTelemetry.count("sounds_played", 1)
+			ForgeTelemetry.count("cashin_local_sounds", 1)
+			return
+		end
+	end
+
+	-- Fallback: Sound on the collector.
 	local snd = part:FindFirstChild("CashInSound")
 	if not (snd and snd:IsA("Sound")) then
 		local s = Instance.new("Sound")
 		s.Name = "CashInSound"
-		s.Volume = 0.5
+		s.Volume = COIN_VOLUME
 		s.SoundId = configSoundId()
 		s.Parent = part
 		snd = s
 	end
 	local sound = snd :: Sound
+	sound.Volume = COIN_VOLUME
 	if sound.SoundId == "" then
 		local id = configSoundId()
 		if id ~= "" then
@@ -205,7 +309,47 @@ local function playCoin(part: BasePart, pitch: number)
 	ForgeTelemetry.count("cashin_sound_missing", 1)
 end
 
-local function flashCollector(info: CollectorInfo, pitch: number)
+-- Milestone Win sting (2D for the player, collector sound as fallback).
+local function playWin(part: BasePart?, player: Player?)
+	local id = assetSoundId("Win")
+	if id ~= "" and player then
+		if playForPlayer(player, id, 0.9, 1) then
+			ForgeTelemetry.count("sounds_played", 1)
+			ForgeTelemetry.count("cashin_local_sounds", 1)
+			return
+		end
+	end
+	if id ~= "" and part then
+		local ok = pcall(function()
+			local snd = part:FindFirstChild("CashInWinSound")
+			if not (snd and snd:IsA("Sound")) then
+				local s = Instance.new("Sound")
+				s.Name = "CashInWinSound"
+				s.Volume = 0.8
+				s.SoundId = id
+				s.Parent = part
+				snd = s
+			end
+			(snd :: Sound):Play()
+		end)
+		if ok then
+			ForgeTelemetry.count("sounds_played", 1)
+			return
+		end
+	end
+	if GameAssets and type(GameAssets.play) == "function" then
+		local ok = pcall(function()
+			GameAssets.play("Win")
+		end)
+		if ok then
+			ForgeTelemetry.count("sounds_played", 1)
+			return
+		end
+	end
+	ForgeTelemetry.count("cashin_sound_missing", 1)
+end
+
+local function flashCollector(info: CollectorInfo, pitch: number, player: Player?)
 	local part = info.part
 	if part.Parent == nil then
 		return
@@ -214,47 +358,108 @@ local function flashCollector(info: CollectorInfo, pitch: number)
 		info.tween:Cancel()
 	end
 	part.Color = FLASH_COLOR
-	local tween = TweenService:Create(part, TweenInfo.new(FLASH_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Color = info.baseColor,
-	})
+	local tween = TweenService:Create(
+		part,
+		TweenInfo.new(FLASH_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Color = info.baseColor }
+	)
 	info.tween = tween
 	tween:Play()
-	info.emitter:Emit(4)
 
-	-- Pitched Coin tick on the collector itself.
-	playCoin(part, pitch)
+	-- Coin sound is throttled per player so rapid cash-ins don't stack audio.
+	if gate(lastSoundAt, player) then
+		pcall(playCoin, part, pitch, player)
+	end
 end
 
-local function allowSend(player: Player): boolean
-	local maxPerSec: number = 8
-	if isFiniteNumber(Cfg.MAX_POPUPS_PER_SECOND) and Cfg.MAX_POPUPS_PER_SECOND > 0 then
-		maxPerSec = Cfg.MAX_POPUPS_PER_SECOND
+local function popupLimit(): number
+	local n = Cfg.MAX_POPUPS_PER_SECOND
+	if isFiniteNumber(n) and n >= 1 then
+		return n
 	end
-	local now = os.clock()
-	local log = sendLog[player]
+	return DEFAULT_POPUPS_PER_SECOND
+end
+
+local function pruneLog(player: Player): { number }
+local log = sendLog[player]
 	if not log then
 		log = {}
 		sendLog[player] = log
 	end
-	local kept: { number } = {}
-	for _, ts in ipairs(log) do
-		if now - ts < 1 then
-			table.insert(kept, ts)
-		end
+	local now = os.clock()
+	while #log > 0 and now - log[1] > 1 do
+		table.remove(log, 1)
 	end
-	if #kept >= maxPerSec then
-		sendLog[player] = kept
-		return false
-	end
-	table.insert(kept, now)
-	sendLog[player] = kept
-	return true
+	return log
 end
 
-Players.PlayerRemoving:Connect(function(p)
-	sendLog[p] = nil
-	sentTotal[p] = nil
-end)
+local function allowSend(player: Player): boolean
+	return #pruneLog(player) < popupLimit()
+end
+
+local function recordSend(player: Player)
+	table.insert(pruneLog(player), os.clock())
+end
+
+local function sendPopup(
+	player: Player,
+	amount: number,
+	tier: number,
+	pos: Vector3,
+	pitch: number,
+	scale: number,
+	milestone: boolean,
+	cubes: number
+)
+	if player.Parent ~= Players then
+		return
+	end
+	if not milestone then
+		recordSend(player)
+	end
+	local ok = pcall(function()
+		CashInRemote:FireClient(player, amount, tier, pos, pitch, scale, milestone, cubes)
+	end)
+	if ok then
+		ForgeTelemetry.count("cashin_fx_sent", 1)
+	else
+		ForgeTelemetry.count("cashin_fx_failed", 1)
+	end
+end
+
+local function flushPending(player: Player)
+	local p = pendingPopups[player]
+	pendingPopups[player] = nil
+	if not p then
+		return
+	end
+	if player.Parent ~= Players then
+		return
+	end
+	sendPopup(player, p.amount, p.tier, p.pos, p.pitch, math.clamp(1 + 0.05 * p.cubes, 1, 1.5), false, p.cubes)
+end
+
+local function queuePopup(player: Player, amount: number, tier: number, pos: Vector3, pitch: number)
+	local p = pendingPopups[player]
+	if p then
+		p.amount += amount
+		p.cubes += 1
+		p.tier = math.max(p.tier, tier)
+		p.pos = pos
+		p.pitch = math.max(p.pitch, pitch)
+		return
+	end
+	pendingPopups[player] = {
+		amount = amount,
+		cubes = 1,
+		tier = tier,
+		pos = pos,
+		pitch = pitch,
+	}
+	task.delay(AGGREGATE_DELAY, function()
+		flushPending(player)
+	end)
+end
 
 function CashInService.decorateCollector(collectorPart: BasePart)
 	if typeof(collectorPart) ~= "Instance" or not collectorPart:IsA("BasePart") then
@@ -302,7 +507,7 @@ function CashInService.decorateCollector(collectorPart: BasePart)
 		light.Parent = collectorPart
 	end
 
-	-- Sound object on the collector (pitched by tier when a cube is cashed in).
+	-- Sound object on the collector (fallback; the main coin sound is played 2D per player).
 	if not collectorPart:FindFirstChild("CashInSound") then
 		local snd = Instance.new("Sound")
 		snd.Name = "CashInSound"
@@ -310,7 +515,7 @@ function CashInService.decorateCollector(collectorPart: BasePart)
 		if id ~= "" then
 			snd.SoundId = id
 		end
-		snd.Volume = 0.5
+		snd.Volume = COIN_VOLUME
 		snd.Parent = collectorPart
 	end
 
@@ -355,25 +560,58 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 	end
 	local t = if isFiniteNumber(tier) then tier else 1
 	local pos = if typeof(collectorPosition) == "Vector3" then collectorPosition else Vector3.zero
-	local pitch = pitchForTier(t)
+
+	-- Combo streak: cubes cashed in quick succession raise the pitch.
+	local now = os.clock()
+	local streak = streaks[player]
+	if streak and now - streak.last <= COMBO_WINDOW then
+		streak.count += 1
+		streak.last = now
+	else
+		streak = { count = 1, last = now }
+		streaks[player] = streak
+	end
+	local pitch = pitchForTier(t + math.min(streak.count - 1, 8))
 
 	-- Verifiable juice counter: one event per collected cube.
 	ForgeTelemetry.count("juice_events", 1)
 
-	-- Send the reward popup FIRST so later cosmetic errors can never swallow it.
-	local sent = sentTotal[player] or 0
-	sentTotal[player] = sent + 1
-	allowSend(player) -- keep the rate log updated, but never drop a cash-in popup
-	local fired = pcall(function()
-		CashInRemote:FireClient(player, amount, t, pos, pitch)
-	end)
-	if fired then
-		ForgeTelemetry.count("cashin_fx_sent", 1)
-	else
-		ForgeTelemetry.count("cashin_fx_failed", 1)
+	local total = (sentTotal[player] or 0) + 1
+	sentTotal[player] = total
+	local milestone = MILESTONES[total] == true
+
+	-- Cash-threshold milestones ($50, $100, $500, ...): bigger moment when crossed.
+	local prevCash = cashTotal[player] or 0
+	local newCash = prevCash + math.max(amount, 0)
+	cashTotal[player] = newCash
+	local cashMilestone = false
+	for _, threshold in ipairs(CASH_MILESTONES) do
+		if prevCash < threshold and newCash >= threshold then
+			cashMilestone = true
+			break
+		end
+	end
+	if cashMilestone then
+		milestone = true
+	end
+	if milestone then
+		ForgeTelemetry.count("cashin_milestones", 1)
 	end
 
-	-- Collector flash + sparkle on every collected cube (cheap, not throttled).
+	-- Send the reward popup FIRST so later cosmetic errors can never swallow it.
+	-- Milestones are always sent immediately, larger. Over-limit popups are
+	-- aggregated into one summed popup instead of being dropped.
+	if milestone then
+		recordSend(player)
+		sendPopup(player, amount, t, pos, pitch, if cashMilestone then 2 else 1.5, true, 1)
+	elseif pendingPopups[player] == nil and allowSend(player) then
+		-- Higher tiers get a slightly larger +$N popup.
+		sendPopup(player, amount, t, pos, pitch, math.clamp(1 + 0.1 * (t - 1), 1, 1.5), false, 1)
+	else
+		queuePopup(player, amount, t, pos, pitch)
+	end
+
+	-- Collector flash + sparkle + (throttled) coin sound.
 	local info: CollectorInfo? = nil
 	local fxOk = pcall(function()
 		if #collectors == 0 then
@@ -386,20 +624,36 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 			info = findCollector(pos)
 		end
 		if info then
-			flashCollector(info, pitch)
+			flashCollector(info, pitch, player)
 		end
 	end)
 	if not fxOk then
 		ForgeTelemetry.count("cashin_collector_fx_failed", 1)
 	end
+	if info == nil then
+		-- No collector found: still make the reward audible (throttled).
+		if gate(lastSoundAt, player) and playForPlayer(player, configSoundId(), COIN_VOLUME, pitch) then
+			ForgeTelemetry.count("sounds_played", 1)
+			ForgeTelemetry.count("cashin_local_sounds", 1)
+		end
+	end
 
 	-- Burst at the intake, isolated so a failure never blocks anything else.
+	-- Throttled per player; milestones always burst.
 	local burstInfo = info
-	if burstInfo then
+	if burstInfo and (milestone or gate(lastBurstAt, player)) then
+		if milestone then
+			lastBurstAt[player] = os.clock()
+		end
 		local burstDone = false
+		local tierColor = tierColorFor(t)
 		if GameAssets and type(GameAssets.burst) == "function" then
 			local burstOk = pcall(function()
-				GameAssets.burst(burstInfo.part.Position)
+				if milestone then
+					GameAssets.burst(burstInfo.part.Position, tierColor, 30)
+				else
+					GameAssets.burst(burstInfo.part.Position)
+				end
 			end)
 			if burstOk then
 				burstDone = true
@@ -410,7 +664,7 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 		if not burstDone then
 			-- Fallback: bigger sparkle from the collector's own emitter.
 			local emitOk = pcall(function()
-				burstInfo.emitter:Emit(8)
+				burstInfo.emitter:Emit(if milestone then 30 else 8)
 			end)
 			burstDone = emitOk
 		end
@@ -419,12 +673,19 @@ function CashInService.cashIn(player: Player, amount: number, tier: number, coll
 		end
 	end
 
+	if milestone then
+		local part: BasePart? = if burstInfo then burstInfo.part else nil
+		pcall(playWin, part, player)
+	end
+
 	-- Tutorial: a cube's value was credited to its owner (TutorialService ignores repeats).
-	local ok = pcall(function()
-		TutorialService.notify(player, "cashed")
-	end)
-	if not ok then
-		ForgeTelemetry.count("cashin_tutorial_notify_failed", 1)
+	if TutorialService and type(TutorialService.notify) == "function" then
+		local ok = pcall(function()
+			TutorialService.notify(player, "cashed")
+		end)
+		if not ok then
+			ForgeTelemetry.count("cashin_tutorial_notify_failed", 1)
+		end
 	end
 end
 
@@ -471,5 +732,15 @@ function CashInService.purchaseError(player: Player, position: Vector3, message:
 		ForgeTelemetry.count("purchase_fx_failed", 1)
 	end
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	sendLog[player] = nil
+	sentTotal[player] = nil
+	cashTotal[player] = nil
+	pendingPopups[player] = nil
+	streaks[player] = nil
+	lastSoundAt[player] = nil
+	lastBurstAt[player] = nil
+end)
 
 return CashInService
