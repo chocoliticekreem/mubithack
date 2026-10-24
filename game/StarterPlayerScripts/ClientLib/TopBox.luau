@@ -17,6 +17,7 @@ local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("P
 
 local TopBox = {}
 TopBox.Height = 40
+local NUDGE_Y = 6 -- a touch below the Roblox buttons' centre line
 
 local box: Frame? = nil
 local sections: { [string]: Frame } = {}
@@ -29,7 +30,7 @@ local function place(b: Frame)
 	local h = math.clamp(barH - 12, 32, 40)
 	TopBox.Height = h
 	b.Size = UDim2.fromOffset(0, h)
-	b.Position = UDim2.fromOffset(left + 8, bar.Min.Y + math.floor((barH - h) / 2))
+	b.Position = UDim2.fromOffset(left + 8, bar.Min.Y + math.floor((barH - h) / 2) + NUDGE_Y)
 end
 
 local function refreshVisible(b: Frame)
