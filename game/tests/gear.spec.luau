@@ -17,8 +17,10 @@ Spec.test("every gear id is in GearOrder exactly once and is a real item", funct
 		Spec.eq(seen[id], nil, `{id} listed twice`)
 		seen[id] = true
 	end
-	for id in D.Items do
-		Spec.truthy(seen[id], `{id} missing from GearOrder`)
+	for id, def in D.Items do
+		if not def.fixture then -- world fixtures (the hydrant's supply coupling) never sit in a locker
+			Spec.truthy(seen[id], `{id} missing from GearOrder`)
+		end
 	end
 end)
 
