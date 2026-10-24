@@ -153,6 +153,15 @@ refreshes every 3 seconds and reads `runs/`. Pick a game at the top. It shows:
   improved ("Fixed cube drop rate", "Added game passes"), worded from the version message, kept
   fixes and the critic's issues (no LLM call). "Replay the build" plays the whole story.
 - **Goal track:** critic score toward 10/10 and rounds done toward the run's target.
+- **Mission control:** one swimlane per agent (designer, coder #1..#N, fixers, each tester in the
+  swarm, critic, verifier, ...) with its current step, its thought in one line, the latency of its
+  latest call and a strip of every call on the run's timeline, so parallel work is visible.
+- **What the testers see:** the newest step screenshots per tester with each step's assertions
+  (pass/fail); tap one to enlarge, arrow keys step through. Critic playtest shots per round too.
+- **Mubit learning:** per role (Mubit task) calls toward the 25 a task trains on, corrections fed
+  and kept examples, the latest "correction -> model update" moments, and a link to the console.
+- **Version timeline + speed:** critic and fun score per version with the change and diff size;
+  wall clock per stage against one-call-at-a-time, and the overall speed-up.
 - **Final report:** when nothing is building the game, "Your game is ready" with what changed.
 - **Treasure map:** one chest per version. Tap one for its message, changed files and kept fixes,
   and "Go back to vN". A rollback runs `forge rollback --no-sync` (saved as a new version, nothing

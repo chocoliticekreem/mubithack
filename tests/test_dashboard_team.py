@@ -198,6 +198,7 @@ def test_ledger_moments_show_correction_to_model_update(settings):
     assert ("correction", "mreq_h1") in kinds  # the human `forge correct`
     m = next(m for m in led["moments"] if m["request_id"] == "mreq_f2")
     assert m["role"] == "fixer" and m["what"] == "price never updates" and m["example_n"] >= 1
+    assert m["verified"] is True and m["verdict"] == "fixed"  # the corrected retry was then proved in play
     assert led["console"].startswith("https://")
 
 

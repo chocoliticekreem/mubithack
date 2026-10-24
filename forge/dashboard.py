@@ -5,7 +5,10 @@ It reads what Forge already writes under runs/ and never changes anything:
 - per game: iterations (critic score, version, rollbacks), saved versions, improve/fix cycles
   (anomalies, fix attempts, verifier verdicts), tester reports;
 - Mubit: calls per role against the 25 examples a task needs before it trains, latest request ids;
-- per version, a "mission": what it improved in a few plain words, files changed, fixes kept.
+- per version, a "mission": what it improved in a few plain words, files changed, fixes kept;
+- mission control (team_view): one lane per agent and tester, tester screenshots with assertions,
+  the Mubit ledger's correction moments, scores per version and wall clock per stage.
+  GET /api/shot serves the step screenshots (PNG under runs/<slug>/tests or iterations only).
 
 The page polls /api/state every few seconds. Its one write is POST /api/rollback {slug, version}, from
 127.0.0.1 only: the same GameVersions.restore as `forge rollback`, saved as a new version. Stdlib only.
@@ -535,8 +538,14 @@ def _peak(lanes: list[dict]) -> int:
     return best
 
 
+ROLE_STEP = {"designer": "designing the game", "coder": "writing a module", "critic": "playtesting and scoring",
+             "auditor": "hunting for bugs", "triage": "sorting a bug report", "investigator": "finding where a bug hides",
+             "verifier": "checking a fix in play", "reflector": "writing lessons for next time", "planner": "planning a feature",
+             "fixer": "fixing a bug", "patcher": "patching a big file", "judge": "judging a playtest"}
+
+
 def lanes_view(run_dir: Path, calls: list[dict], live_role: str | None, timings: dict,
-               testers: list[dict], now: float) -> dict:
+               testers: list[dict], now: float, live_since: float | None = None) -> dict:
     """Every role and tester as a swimlane: what it is on now, what it thought, how long its call took."""
     ivs = _intervals(calls)
     starts = [iv["start"] for iv in ivs] + [s["start"] for s in timings["stages"] if s["start"] is not None]
@@ -560,19 +569,24 @@ def lanes_view(run_dir: Path, calls: list[dict], live_role: str | None, timings:
                 lanes.append({"id": name.replace(" #", "-"), "role": role, "label": name,
                               "kind": "tester" if role in ("player", "judge") else "role",
                               "status": "done" if last["ok"] else "failed",
-                              "step": step_of(tr.get("user")), "thought": thought_of(tr.get("reply")),
+                              "step": step_of(tr.get("user")) or ROLE_STEP.get(role, ""),
+                              "thought": thought_of(tr.get("reply")),
                               "latency_ms": last["latency_ms"], "calls": len(lane),
                               "spans": [_span(iv["start"], iv["end"], t0) for iv in lane[-LANE_SPANS:]]})
         if live_role:  # calls are logged when they end, so the one in flight is only known from the log
             mine = [ln for ln in lanes if ROLE_WORDS.get(ln["role"], ln["role"]) == live_role]
+            # the call in flight started after the last logged one ended and before the log last moved
+            since = min(now, live_since or now)
             if mine:
                 mine[-1]["status"] = "running"
-                mine[-1]["spans"].append(_span(max(e for _, e in mine[-1]["spans"]) + t0 if mine[-1]["spans"]
-                                               else now, None, t0))
+                mine[-1]["step"] = ROLE_STEP.get(mine[-1]["role"], mine[-1]["step"])
+                mine[-1]["thought"] = ""
+                last_end = max((e for _, e in mine[-1]["spans"] if e is not None), default=since - t0) + t0
+                mine[-1]["spans"].append(_span(max(last_end, since), None, t0))
             else:
                 lanes.append({"id": live_role, "role": live_role, "label": live_role, "kind": "role",
-                              "status": "running", "step": "", "thought": "", "latency_ms": 0, "calls": 0,
-                              "spans": [_span(now, None, t0)]})
+                              "status": "running", "step": ROLE_STEP.get(live_role, ""), "thought": "",
+                              "latency_ms": 0, "calls": 0, "spans": [_span(since, None, t0)]})
     for t in testers:
         last = t["steps"][-1] if t["steps"] else {}
         lanes.append({"id": f"tester-{t['run']}", "role": "tester", "label": t["label"], "kind": "tester",
@@ -779,7 +793,7 @@ def ledger_view(settings: Settings) -> dict:
                             "kind": "correction" if e["kind"] == "correction" else "verified",
                             "ts": e.get("ts"), "request_id": e.get("request_id"),
                             "what": _clip(e.get("anomaly") or e.get("why") or "", 140), "verdict": e.get("verdict"),
-                            "example_n": n, "train_at": TRAIN_AT, "trains": n >= TRAIN_AT})
+                            "verified": bool(e.get("verified")), "example_n": n, "train_at": TRAIN_AT, "trains": n >= TRAIN_AT})
         roles = [{**r, "kept": r["verified"], "train_at": TRAIN_AT, "trains": r["calls"] >= TRAIN_AT}
                  for r in data["roles"]]
         return {**empty, "roles": roles, "moments": moments[-12:][::-1], "corrections": data["corrections"],
@@ -795,7 +809,8 @@ def team_view(settings: Settings, slug: str, game: dict, now: float | None = Non
     calls = _calls(store.calls_log) + _calls(store.dir / "improve" / "calls.jsonl")
     timings = read_timings(store.dir / "timings.json")
     testers = testers_view(store.dir, slug, now)
-    lanes = lanes_view(store.dir, calls, (game.get("live") or {}).get("role"), timings, testers, now)
+    live = game.get("live") or {}
+    lanes = lanes_view(store.dir, calls, live.get("role"), timings, testers, now, live.get("updated"))
     state = _read_json(store.state_path, {}) or {}
     return {"lanes": lanes, "testers": testers, "critic_shots": iteration_shots(store.dir, slug),
             "timeline": timeline_view(store.dir, store.game_dir, game["missions"], state.get("iterations", [])),
@@ -859,10 +874,10 @@ def make_handler(settings: Settings):
         def log_message(self, *args) -> None:  # keep the terminal quiet
             pass
 
-        def _send(self, code: int, body: bytes, ctype: str) -> None:
+        def _send(self, code: int, body: bytes, ctype: str, cache: str = "no-store") -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -879,7 +894,7 @@ def make_handler(settings: Settings):
                 if p is None:
                     self._send(404, b"no such screenshot", "text/plain")
                 else:
-                    self._send(200, p.read_bytes(), "image/png")
+                    self._send(200, p.read_bytes(), "image/png", "max-age=300")  # a step's shot never changes
             elif self.path in ("/", "/index.html"):
                 self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
             else:
