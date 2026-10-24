@@ -369,6 +369,20 @@ def test_loop_keeps_an_improvement_and_rolls_back_a_regression(tmp_path):
     assert view["rounds"][0]["decisions"][0]["outcome"] == "kept"
 
 
+def test_a_rollback_is_fed_back_once_as_a_correction(tmp_path):
+    s = _settings(tmp_path)
+    run = _game(s)
+    titles = iter(["Coins never collected", "Coins feel slow", "Coins look grey", "Coins spin"])
+    llm = _llm(run, {}, default=lambda role, user: _anoms((next(titles), 8, "fix", ["metric:errors"]))
+               if role == "anomaly_detector" else _gaps())
+    measurer = _measure({(1, "after"): {"errors": [{"message": "Game: nil"}]}})
+    _ap(s, "g", llm, measurer, tmp_path, runner=FakeRunner(run), rounds=3).run()
+    outs = [json.loads(ln) for ln in (run / "autopilot" / "corrections.jsonl").read_text().splitlines()]
+    assert [(o["role"], o["kind"], o["round"]) for o in outs] == [("anomaly_detector", "outcome", 2)]
+    dets = [c.user for c in llm.calls if c.role == "anomaly_detector"]
+    assert "rolled_back" in dets[1] and "rolled_back" in dets[2]  # the history stays in the message
+
+
 def test_resume_after_a_crash_redoes_only_the_unfinished_phase(tmp_path):
     s = _settings(tmp_path)
     run = _game(s)

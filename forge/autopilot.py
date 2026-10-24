@@ -688,7 +688,8 @@ class Autopilot:
         spec = _read(self.store.spec_path, {}) or {}
         llm = self.get_llm()
         outs = self.outcomes()
-        bad_outs = [o for o in outs if o.get("outcome") in ("rolled_back", "failed")]
+        # only last round's bad outcomes are new feedback; older ones were already fed back
+        bad_outs = [o for o in outs if o.get("outcome") in ("rolled_back", "failed") and o.get("round") == r - 1]
         prev_an = (_read(self.rdir(r - 1) / "detect.json", {}) or {}).get("anomalies") if r > 1 else None
         user = detector_message(self.opts.goal, spec, cur, cands, st, declared=declared, outcomes=outs,
                                 rejected=self.rejected(), previous=prev_an)
@@ -735,7 +736,8 @@ class Autopilot:
             ev.sections.insert(0, ("Autopilot measurements of this version (errors, testers, behaviour, statistics)",
                                    rows[:60]))
             kept = [f"{o.get('kind') or 'job'}: {o.get('title')}" for o in outs if o.get("outcome") == "kept"]
-            bad = [o for o in outs if o.get("outcome") in ("rolled_back", "failed") and o.get("source") == "gap_finder"]
+            bad = [o for o in outs if o.get("outcome") in ("rolled_back", "failed") and o.get("round") == r - 1
+                   and "gap_finder" in (o.get("sources") or [o.get("source")])]
             correction = None
             if bad:
                 correction = "These gaps' jobs were tried and did not survive verification:\n" + "\n".join(
