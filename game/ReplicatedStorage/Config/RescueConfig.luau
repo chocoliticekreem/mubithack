@@ -26,6 +26,12 @@ return Config.define({
 	HoldForwardPanda = 4.5,
 	HoldResponsiveness = 28, -- AlignPosition: lower = more wobble/lag
 	HoldTwistResponsiveness = 9, -- AlignOrientation: lower = more swing
+	-- OUTSIDE IS SAFE (RescueService.outsideSafe): carry someone out of the building = rescued
+	SafeOutside = true,
+	SafeMinDistance = 10, -- studs from where they were trapped (so a yard / porch spawn isn't instant)
+	SafeMaxAboveStreet = 9, -- studs above the street (the nearest truck): roofs / balconies don't count
+	SafeStreetSearch = 400,
+	SafeZoneSize = 34, -- studs: the green "safe" disc that flashes where the rescue counted
 	DeliverPad = 14, -- studs added around the RescueDropoff box: anywhere NEAR the truck delivers (no need to get inside it)
 	-- throwing (hold Q while carrying, release to YEET)
 	ThrowChargeTime = 1.0, -- s of holding for a full-power throw
