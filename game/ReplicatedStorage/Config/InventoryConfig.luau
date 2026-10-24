@@ -8,7 +8,8 @@ return Config.define({
 	-- prompts
 	GrabDistance = 9, -- ProximityPrompt MaxActivationDistance on items, racks and compartments
 	PropGrabDistance = 8,
-	RestockSeconds = 0.3, -- infinite stock: a rack / compartment slot refills right after someone grabs from it
+	RestockSeconds = 0.3, -- station racks: unlimited, the slot refills right after someone grabs from it
+	TruckRestockSeconds = 30, -- truck compartments: an item grows back on the truck after this long
 
 	-- drop and throw
 	DropForward = 2.5, -- studs in front of you a dropped item lands

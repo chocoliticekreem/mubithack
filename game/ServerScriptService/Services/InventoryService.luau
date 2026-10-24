@@ -972,7 +972,9 @@ local function onStock(player: Player, part: BasePart, prompt: ProximityPrompt, 
 			end
 		end
 	end
-	task.delay(Cfg.RestockSeconds, function()
+	-- station racks restock at once (unlimited); a truck compartment takes a while to regenerate
+	local restock = if truckOf(part) then (Cfg.TruckRestockSeconds or 30) else Cfg.RestockSeconds
+	task.delay(restock, function()
 		if not part.Parent then
 			return
 		end
