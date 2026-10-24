@@ -30,11 +30,12 @@
 --   Coughing/CallingHelp (server time of the last one)); Player attr Carrying. Counters npcs_spawned,
 --   npcs_picked, rescued, rescued_<kind>, rescued_pet, npcs_dropped, npcs_thrown, npcs_downed,
 --   npcs_toasted, npcs_panicked, npcs_calmed, npcs_unstuck, npcs_wall_bounce, rescue_pair_lifts.
--- Reads (optional): a "Smoke" attribute (RescueConfig.SmokeAttr) on the floor/room/volume an NPC is in.
+-- Reads (optional): SmokeService:GetRoomAt(pos).smoke, a "Smoke" attribute (RescueConfig.SmokeAttr)
+--   on the floor part / its ancestors, else a big fire close by counts as smoke (NPCs cough).
 -- Consumes (nil-guarded): MapService:GetInstance/GetLocation, SquadService.Downed/:GetHelmet, tags
 --   RescueDropoff, Burning (attr FireLevel), Shared/Ragdoll.isRagdolled.
 -- Test hooks (DevHook only): _spawnAt(kind, pos): string, _carry(player, id), _deliver(player),
---   _drop(player), _throw(player, charge?), _toast(id), _selftest()
+--   _drop(player), _throw(player, charge?), _toast(id), _perf(), _selftest()
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -105,6 +106,7 @@ type Npc = {
 	nextLine: number,
 	smokeAt: number,
 	smoke: number,
+	smokeRoom: boolean, -- the smoke came from SmokeService (which shows its own cough text)
 	flyPrev: Vector3?,
 	thrower: Player?,
 	thrownAt: number?,
@@ -122,6 +124,7 @@ local deliveredCount = 0
 local FxRemote: RemoteEvent? = nil
 
 local PETS = { Dog = true, Cat = true, Panda = true }
+local perf = { tick = 0, ticks = 0, tickMax = 0, step = 0, steps = 0 } -- _perf() test hook
 
 -- helpers -------------------------------------------------------------------------------------
 
@@ -821,6 +824,7 @@ local function spawnOne(kind: string, feet: CFrame, pose: string, scope: string)
 		nextLine = 0,
 		smokeAt = 0,
 		smoke = 0,
+		smokeRoom = false,
 		flyPrev = nil,
 		thrower = nil,
 		thrownAt = nil,
@@ -1076,12 +1080,16 @@ local function smokeAt(npc: Npc, fireDist: number, fireLevel: number): number
 		inst = inst.Parent
 		hops += 1
 	end
-	local op = OverlapParams.new()
-	op.FilterType = Enum.RaycastFilterType.Exclude
-	op.FilterDescendantsInstances = solidParams().FilterDescendantsInstances
-	op.MaxParts = 8
-	for _, p in workspace:GetPartBoundsInRadius(feet + Vector3.new(0, waistOf(npc.kind) + 0.5, 0), 0.5, op) do
-		level = math.max(level, Rules.smokeLevel(p:GetAttribute(attr)))
+	-- SmokeService rooms (nil-guarded): it also hurts the NPC and pops its own cough text, so we
+	-- only add the coughing animation for those (npc.smokeRoom)
+	npc.smokeRoom = false
+	local Smoke = services.SmokeService
+	if Smoke and type(Smoke.GetRoomAt) == "function" then
+		local ok, room = pcall(Smoke.GetRoomAt, Smoke, feet + Vector3.new(0, 1, 0))
+		if ok and type(room) == "table" and type(room.smoke) == "number" and room.smoke > level then
+			level = Rules.smokeLevel(room.smoke)
+			npc.smokeRoom = true
+		end
 	end
 	if fireLevel >= 2 and fireDist <= RescueConfig.SmokeFireRadius then
 		level = math.max(level, 0.4 + 0.6 * (1 - fireDist / RescueConfig.SmokeFireRadius))
@@ -1300,7 +1308,9 @@ local function brain(npc: Npc, fires: { Fire }, dt: number)
 	local smoke = smokeAt(npc, dist, level)
 	if smoke >= 0.25 and now >= npc.nextCough then
 		npc.nextCough = now + RescueConfig.CoughEvery / (0.5 + smoke) * (0.7 + math.random() * 0.6)
-		voice(npc, "cough", true)
+		if not npc.smokeRoom then
+			voice(npc, "cough", true)
+		end
 		npc.model:SetAttribute("Coughing", workspace:GetServerTimeNow())
 	end
 	return dist, level
@@ -1415,7 +1425,10 @@ function RescueService:Start()
 	end
 
 	RunService.Heartbeat:Connect(function(dt)
+		local t0 = os.clock()
 		local ok, err = pcall(step, dt)
+		perf.step += os.clock() - t0
+		perf.steps += 1
 		if not ok then
 			warn(`[RescueService] step: {err}`)
 		end
@@ -1426,6 +1439,10 @@ function RescueService:Start()
 			task.wait(1 / RescueConfig.TickHz)
 			local now = os.clock()
 			local ok, err = pcall(tick, now - last)
+			local spent = os.clock() - now
+			perf.tick += spent
+			perf.ticks += 1
+			perf.tickMax = math.max(perf.tickMax, spent)
 			last = now
 			if not ok then
 				warn(`[RescueService] tick: {err}`)
@@ -1555,6 +1572,18 @@ end
 
 function RescueService:_spawnAt(kind: string, pos: Vector3): string
 	return spawnOne(Rules.kind(kind), groundFeet(pos + Vector3.new(0, 3, 0), Vector3.new(0, 0, -1)), "stand", "").id
+end
+
+-- Average / worst ms per AI tick and per Heartbeat step since the last call (then resets).
+function RescueService:_perf(): { [string]: number }
+	local out = {
+		tickMs = if perf.ticks > 0 then perf.tick / perf.ticks * 1000 else 0,
+		tickMaxMs = perf.tickMax * 1000,
+		stepMs = if perf.steps > 0 then perf.step / perf.steps * 1000 else 0,
+		ticks = perf.ticks,
+	}
+	perf.tick, perf.ticks, perf.tickMax, perf.step, perf.steps = 0, 0, 0, 0, 0
+	return out
 end
 
 function RescueService:_selftest(): (boolean, string)
