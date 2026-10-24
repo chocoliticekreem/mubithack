@@ -163,6 +163,7 @@ local SITE_KINDS = {
 	zoo = true,
 	nightclub = true,
 	skyscraper = true,
+	reststop = true, -- v3: Highway 67 lay-by (CityConfig.HighwaySites), the highway_pileup call
 }
 Districts.SiteKinds = SITE_KINDS
 

@@ -123,6 +123,26 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   so the roof always burns) and rescue R1 stranded by the helipad. Breakable glass on floors 2-6 lets
   a Ladder reach floors 2-3 from the street. Their lots come from
   `Districts.CorridorSpecial` (hub frontage: skyscraper + nightclub; Apartment frontage: nightclub).
+- **v3 crazy calls** (catalog `hazards` = a twist id; HazardService arms it through `Lib/Hazard/Twists`;
+  each has a `guide = { headline, steps }` for the mission guide):
+  - `diner_grease` (diner): a burning deep fryer. Extinguisher or "Slam the lid" (hold E) puts it out;
+    HOSE water on it = a grease fireball that relights the kitchen.
+  - `gas_leak` (gas): the pumps spray fuel and a tanker parks behind them with a countdown
+    (`HazardConfig.LeakSeconds` from arrival). Hold "Shut valve" on every pump; time out = the tanker
+    blows and the fuel puddles burn.
+  - `highway_pileup` (new site kind `reststop`, `CityConfig.HighwaySites` W at z 675): a crumpled car is
+    built round each driver, who is pinned until someone holding a Halligan / crowbar / axe holds "Pry
+    door". Burning parked cars and picnic tables sit 30+ studs away (no panic circles in the wrecks).
+  - `cat_tree` (house): a tree by the apron with the cat on its branch (ladder up); pun popups, and it
+    hisses at whoever hoses it.
+  Twist fires are "scripted fires": the Burning tag + FireLevel with no FireService cell, so the HUD,
+  heat, FX and the "all out" count see them, and only the twist's spray rules put them out.
+- **Crazy events** (`EventService`, `EventConfig`): once per call at most (`Chance` 0.45,
+  `FirstAfter` 25-70 s after arrival, `Weights` per event): `news_heli` (Channel 67 chopper + spotlight
+  on one firefighter), `geyser_hydrant` (launch pad + waters fires), `raccoon` (steals a nozzle back to
+  the truck reel), `rainstorm` (cools fires and the squad), `wind_gust` (fire jumps downwind, players
+  shoved), `ice_cream` (free sundae prompt + cold aura). Each announces itself with a banner and
+  cleans up under `Workspace.CrazyEvents`. DevHook: `EventService _force(runId|nil, eventId)`.
 - `Player.InstanceId` = run id, as before. The HUD and the rest read the run state from
   `Workspace.Runs.<runId>` (a Folder with the attributes the instance Model used to have:
   `MissionId`, `RoundState`, `RoundEndsAt`, `SiteId`, `LocationId`).

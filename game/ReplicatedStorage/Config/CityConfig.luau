@@ -63,6 +63,7 @@ return Config.define({
 		{ side = "S", at = -675, kind = "gas" },
 		{ side = "N", at = 675, kind = "diner" },
 		{ side = "E", at = 675, kind = "storage", w = 120 }, -- a truck-stop lock-up east of the zoo
+		{ side = "W", at = 675, kind = "reststop" }, -- v3: lay-by for the highway_pileup call
 	},
 
 	-- Station (hub core)
@@ -80,10 +81,10 @@ return Config.define({
 	ArrivalTag = "ArrivalZone",
 	-- procedural site kind -> MissionCatalog ids (comma-joined into the MissionTypes attribute)
 	KindMissions = {
-		house = { "house_fire" },
+		house = { "house_fire", "cat_tree" },
 		shop = { "house_fire" },
-		diner = { "house_fire" },
-		gas = { "house_fire" },
+		diner = { "house_fire", "diner_grease" },
+		gas = { "house_fire", "gas_leak" },
 		apartment = { "apartment_trampoline", "house_fire" },
 		school = { "school_alarm" },
 		storage = { "storage_fusebox" },
@@ -91,6 +92,7 @@ return Config.define({
 		dam = { "dam_finale" },
 		nightclub = { "nightclub_fire" },
 		skyscraper = { "skyscraper_fire" },
+		reststop = { "highway_pileup" }, -- v3: the Highway 67 rest stop (BlockFiller reststop)
 	},
 	-- builder district (location id) -> extra mission ids beyond those whose locationId matches
 	DistrictExtraMissions = {
