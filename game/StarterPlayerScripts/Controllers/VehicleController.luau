@@ -11,7 +11,7 @@
 --     is paused and comes back on exit.
 --   * Keys (VehicleConfig.Key*): WASD drive, SPACE handbrake/drift, F hop out, G siren, H horn, V camera,
 --     R unflip/respawn. Passengers: F hops off. While seated, every ProximityPrompt is hidden and a hint
---     bar shows the keys instead. Getting out puts you outside the door (the server pops it open).
+--     bar shows the keys instead. Getting out is instant: you stand beside the truck on a free spot (Lib/Vehicle/TruckExit).
 --     A "RESPAWN TRUCK" button (and R) also shows on foot when your truck is flipped or far away.
 --   * Steering wheels turn with each truck's DriveSeat.SteerFloat and the dash bobblehead wobbles
 --     (Motor6D "SteeringMotor" / "BobbleMotor", nearby trucks only).
@@ -33,6 +33,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript)
+local TruckExit = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Vehicle"):WaitForChild("TruckExit") :: ModuleScript)
 local TruckDrive = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TruckDrive") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
@@ -486,21 +487,14 @@ local function respawn()
 	end)
 end
 
--- Where you land when you get out: cab seats -> outside that side's door; benches -> behind the tailgate.
+-- Where you land when you get out: beside the truck on a spot that's actually free (another truck, a
+-- wall or a prop is never where you end up): ReplicatedStorage/Lib/Vehicle/TruckExit.
 local function exitCF(truck: Model, seat: BasePart): CFrame?
-	local chassis = truck.PrimaryPart
-	if not chassis then
+	if not truck.PrimaryPart then
 		return nil
 	end
-	local c = chassis.CFrame
-	local rel = c:PointToObjectSpace(seat.Position)
-	local side = if rel.X < 0 then -1 else 1
-	if rel.Z < -4 then
-		local pos = c * Vector3.new(side * 7.6, 1.5, -4.2)
-		return CFrame.lookAt(pos, pos + c.RightVector * side)
-	end
-	local pos = c * Vector3.new(side * 3, 1.5, 16.5)
-	return CFrame.lookAt(pos, pos - c.LookVector)
+	local char = player.Character
+	return TruckExit.spot(truck, seat, if char then { char } else {})
 end
 
 -- Turn the default camera to look along `look` (flattened, a little down), keeping its zoom. Used on
@@ -530,8 +524,7 @@ local function hopOut()
 	if weld then
 		weld:Destroy()
 	end
-	hum.Sit = false
-	hum.Jump = true
+	hum.Sit = false -- no jump, no door: you're just standing beside the truck
 	task.delay(0.05, function()
 		if target and char.Parent and not hum.SeatPart then
 			char:PivotTo(target)

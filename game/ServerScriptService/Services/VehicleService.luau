@@ -7,13 +7,9 @@
 -- numbered (attr TruckNo: the bay, overflow spots count on from 5) and labelled "<Name>'s Truck #<n>"
 -- on the roof. They live in Workspace.Trucks (so a station rebuild never eats them) and are destroyed
 -- when the owner leaves. Idle trucks are anchored (no physics cost).
--- The cab doors are PHYSICAL (HingeConstraint "DoorHinge", servo + bouncy limits): "Open door" on the
--- handle (or pull it with physics hands) swings it open with a wobble. Getting in no longer needs it
--- (VehicleConfig.SeatNeedsOpenDoor = false): "Drive" (owner, left) / "Ride shotgun" (right) show with the
--- door shut, and a door never bonks anyone (DoorBonks = false). LobbyService seats the whole squad at
--- launch anyway. Back benches ("CrewSeat_1..4") have their own "Hop on" prompts. Getting out puts you
--- outside the door (it only pops open with SeatNeedsOpenDoor). Driving off with a door open lets it swing on
--- inertia and SLAM shut (a THUNK, no bonk unless DoorBonks); a hard ram can knock a door clean off (RespawnTruck builds a new truck).
+-- Doors are SOLID (TruckBuilder: no hinge, no door prompt): "Drive" / "Ride shotgun" / "Hop on" prompts or
+-- a tap sit you straight down, and OUT puts you beside the truck on a free spot (Lib/Vehicle/TruckExit:
+-- never inside another truck or a wall). Back benches are "CrewSeat_1..4", shotgun "CrewSeat_5".
 -- The driver's client owns the truck's physics and VehicleController simulates the goofy suspension.
 -- With nobody driving a truck is anchored (parked), so it never drifts or blocks a round.
 --
@@ -65,6 +61,7 @@ local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForCh
 local TruckBuilder = require(
 	ServerScriptService:WaitForChild("Lib"):WaitForChild("Map"):WaitForChild("Props"):WaitForChild("TruckBuilder") :: ModuleScript
 )
+local TruckExit = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Vehicle"):WaitForChild("TruckExit") :: ModuleScript)
 
 local VehicleService = {}
 VehicleService.Priority = 50
@@ -651,22 +648,6 @@ local function doorTick(t: Truck, now: number)
 	end
 end
 
-local function exitCF(t: Truck, seat: Instance): CFrame
-	local c = t.chassis.CFrame
-	if seat:IsA("BasePart") then
-		local rel = c:PointToObjectSpace(seat.Position)
-		if rel.Z < -4 then -- cab seat: out of the side door
-			local side = if rel.X < 0 then -1 else 1
-			local pos = c * Vector3.new(side * 7.6, 1.5, -4.2)
-			return CFrame.lookAt(pos, pos + c.RightVector * side)
-		end
-		local side = if rel.X < 0 then -1 else 1
-		local pos = c * Vector3.new(side * 3, 1.5, 16.5)
-		return CFrame.lookAt(pos, pos - c.LookVector)
-	end
-	return c * CFrame.new(-7.6, 1.5, -4.2)
-end
-
 -- Fallback for exits the client didn't place (e.g. the seat weld broke): don't leave anyone in the cab.
 local function placeOutside(t: Truck, seat: Instance, player: Player)
 	task.delay(0.3, function()
@@ -678,7 +659,7 @@ local function placeOutside(t: Truck, seat: Instance, player: Player)
 		end
 		local rel = t.chassis.CFrame:PointToObjectSpace(root.Position)
 		if math.abs(rel.X) < 5.2 and rel.Z > -13.5 and rel.Z < 14 and rel.Y < 9 then
-			char:PivotTo(exitCF(t, seat))
+			char:PivotTo(TruckExit.spot(t.model, if seat:IsA("BasePart") then seat else nil, { char }))
 		end
 	end)
 end
@@ -1422,6 +1403,12 @@ local function lostTick()
 		for owner, t in byOwner do
 			local c = t.chassis
 			if not c.Parent then
+				continue
+			end
+			-- built out of sight (y 2000) but never placed: a server hitch killed the spawn thread mid-way
+			if c.Anchored and c.Position.Y > 1500 and not occupied(t) then
+				pcall(place, t, homeCF(t))
+				count("truck_unstranded")
 				continue
 			end
 			if underMap(t, now) then
