@@ -99,8 +99,18 @@ def _orch(tmp_path, llm, runner, **opts):
     return Orchestrator(s, "g", o, llm=llm, runner=runner, broker=broker, keeper=FakeKeeper(), slots=slots)
 
 
-def test_round_runs_gaps_then_builds_then_verifies_until_target(tmp_path):
+def test_round_runs_gaps_then_builds_then_verifies_until_target(tmp_path, monkeypatch):
+    import forge.done
+
     run = _game(tmp_path)
+    real = forge.done.readiness
+
+    def readiness(settings, slug):  # the bar's own parts are tested in test_done; here: checks + fix cycle ran
+        r = real(settings, slug)
+        ok = (run / "checks" / "results.json").exists() and (run / "improve" / "scores.json").exists()
+        return {**r, "ready": ok}
+
+    monkeypatch.setattr(forge.done, "readiness", readiness)
     llm = FakeLLM({"gap_finder": [_gaps(("Saving", 9, "feature", None), ("Belt sticks", 8, "fix",
                                                                          "ServerScriptService/Tycoon.luau"),
                                         ("Sparkles", 6, "visual", None), ("Tiny", 1, "feature", None))]})

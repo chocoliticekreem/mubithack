@@ -90,8 +90,8 @@ def score(settings: Settings, slug: str) -> dict:
     state = _read(store.state_path, {}) or {}
     its = [i for i in state.get("iterations") or [] if i.get("score") is not None]
     critic = float(its[-1]["score"]) if its else None
-    fun = None
-    if its:
+    fun = (_read(store.dir / "fun" / "latest.json", {}) or {}).get("score")  # forge/fun.py (fun critic)
+    if fun is None and its:
         crit = _read(store.dir / "iterations" / str(its[-1].get("n")) / "critique.json", {}) or {}
         fun = crit.get("fun") or (crit.get("scores") or {}).get("fun")
     try:

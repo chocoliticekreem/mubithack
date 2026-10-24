@@ -222,6 +222,25 @@ def _critic(ev: Evidence, run: Path, state: dict) -> None:
                 ev.add(rows, f"critic:{n}#{i}", f"{issue.get('path')}: {_clip(issue.get('problem'), 260)}")
 
 
+def _fun(ev: Evidence, run: Path) -> None:
+    """The fun critic (forge/fun.py): runs/<slug>/fun/latest.json."""
+    rows = ev.section("Fun critic (fun, juice, clarity, visuals; first 60 seconds)")
+    fun = _read(run / "fun" / "latest.json", {}) or {}
+    if not isinstance(fun, dict) or fun.get("score") is None:
+        return
+    sc = fun.get("scores") or {}
+    ev.add(rows, "fun:latest", f"fun score {fun.get('score')}/10 "
+           + " ".join(f"{k} {v}" for k, v in sc.items()) + f": {_clip(fun.get('summary'), 300)}")
+    for i, b in enumerate((fun.get("first_60_seconds") or [])[:6], 1):
+        if isinstance(b, dict) and not b.get("ok"):
+            ev.add(rows, f"fun:first60#{i}", f"first-60s beat missed: {_clip(b.get('beat'), 160)}")
+    for i, m in enumerate((fun.get("missing_juice") or [])[:6], 1):
+        ev.add(rows, f"fun:juice#{i}", f"missing juice: {_clip(m, 160)}")
+    for i, it in enumerate((fun.get("issues") or [])[:5], 1):
+        if isinstance(it, dict):
+            ev.add(rows, f"fun:issue#{i}", f"{it.get('path') or ''} {_clip(it.get('problem') or it, 220)}")
+
+
 def _tests(ev: Evidence, run: Path) -> None:
     rows = ev.section("AI tester runs (newest first; screenshots per step)")
     runs = sorted((p for p in (run / "tests").glob("*/report.json")), key=lambda p: p.parent.name, reverse=True)
@@ -346,6 +365,7 @@ def collect_evidence(settings: Settings, slug: str, goal: str = "") -> dict:
     ev = Evidence()
     done = _done(ev, settings, slug)
     _critic(ev, run, state)
+    _fun(ev, run)
     _tests(ev, run)
     _checks(ev, run)
     _cycles(ev, run)
