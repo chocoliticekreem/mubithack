@@ -221,3 +221,13 @@ def test_compact_observation_limits_size():
     out = play.compact_observation(big)
     assert len(json.dumps(out, separators=(",", ":"))) < 3000
     assert out["me"] == OBS["me"]
+
+
+def test_touchables_are_trimmed_and_shown_in_brief():
+    big = dict(OBS)
+    big["touchables"] = [{"name": f"Pad{i}" * 20, "path": "Workspace.Plot.Pad", "dist": i, "touch": True,
+                          "label": "Gadget Lab $150"} for i in range(30)]
+    out = play.compact_observation(big)
+    assert len(json.dumps(out, separators=(",", ":"))) < 3000
+    assert out["touchables"]
+    assert "touch=Gadget Lab $150@0" in play._obs_brief(big)

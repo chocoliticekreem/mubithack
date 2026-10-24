@@ -1619,6 +1619,39 @@ local function observe(args)
 		table.insert(out.prompts, prompts[i])
 	end
 
+	-- Any game's touch triggers (buy pads, buttons, enemies, checkpoints) and labelled parts, so testers
+	-- of games without the tags above can find them and walk onto them by path.
+	local touchables = {}
+	for _, d in workspace:GetDescendants() do
+		if d:IsA("BasePart") and not seen[d] and visibleIn(d, scopeId) then
+			local touch = d:FindFirstChildOfClass("TouchTransmitter") ~= nil
+			local label
+			for _, g in d:GetDescendants() do
+				if (g:IsA("TextLabel") or g:IsA("TextButton")) and g.Text ~= "" then
+					label = (label and label .. " | " or "") .. g.Text
+				end
+			end
+			local owner = d:FindFirstAncestorOfClass("Model")
+			local isCharacter = owner ~= nil and Players:GetPlayerFromCharacter(owner) ~= nil
+			if (touch or label) and not isCharacter then
+				local dist = origin and (d.Position - origin).Magnitude or 0
+				if dist <= promptRadius then
+					table.insert(touchables, {
+						name = d.Name, path = d:GetFullName(), dist = math.floor(dist + 0.5), pos = v3(d.Position),
+						touch = touch, label = label and string.sub(label, 1, 80) or nil,
+					})
+				end
+			end
+		end
+	end
+	table.sort(touchables, function(a, b)
+		return a.dist < b.dist
+	end)
+	out.touchables = {}
+	for i = 1, math.min(8, #touchables) do
+		table.insert(out.touchables, touchables[i])
+	end
+
 	local ok, hud = invokeClient(p, "hud", {}, HUD_TIMEOUT)
 	if ok and type(hud) == "table" then
 		out.hud = hud
