@@ -103,10 +103,19 @@ local function drivenTruck(): Model?
 	return if m and m:IsA("Model") and m:HasTag(Names.Tag.Truck) then m else nil
 end
 
+-- the truck I own and drove last (attr OwnerRank 1); trucks change hands, so never by model name
 local function myTruck(): Model?
 	local f = workspace:FindFirstChild("Trucks")
-	local m = f and f:FindFirstChild(`FireTruck_{player.UserId}`)
-	return if m and m:IsA("Model") then m else nil
+	local best: Model?, bestRank = nil, math.huge
+	for _, m in (if f then f:GetChildren() else {}) do
+		if m:IsA("Model") and m:GetAttribute("OwnerUserId") == player.UserId then
+			local r = tonumber(m:GetAttribute("OwnerRank")) or 99
+			if r < bestRank then
+				best, bestRank = m, r
+			end
+		end
+	end
+	return best
 end
 
 local function rayParams(truck: Model): RaycastParams

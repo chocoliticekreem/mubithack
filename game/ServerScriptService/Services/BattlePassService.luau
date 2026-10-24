@@ -160,10 +160,12 @@ local function applyTools(player: Player, eq: { [string]: { [string]: any } })
 end
 
 local function applyTruck(player: Player, eq: { [string]: { [string]: any } })
+	-- every truck the player owns (trucks change hands: whoever drove it last owns it)
 	local trucks = workspace:FindFirstChild("Trucks")
-	local truck = trucks and trucks:FindFirstChild(`FireTruck_{player.UserId}`)
-	if truck and truck:IsA("Model") then
-		pcall(PassCosmetics.truck, truck, eq.truck)
+	for _, truck in (if trucks then trucks:GetChildren() else {}) do
+		if truck:IsA("Model") and truck:GetAttribute("OwnerUserId") == player.UserId then
+			pcall(PassCosmetics.truck, truck, eq.truck)
+		end
 	end
 end
 

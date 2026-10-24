@@ -1,27 +1,30 @@
 --!strict
--- VehicleService [owner: Vehicle agent]. v2: ONE fire truck per player (docs/game/08 "Vehicles").
--- On join each player gets "FireTruck_<UserId>" (attr OwnerUserId, Bay) built by
--- Lib/Map/Props/TruckBuilder at the TruckBay whose attr Bay = their Helmet (1-4), or at an overflow
--- spot (VehicleConfig.OverflowSpots: the station's parking lot) when that bay is taken / there are no
--- TruckBay parts yet; up to MaxTrucks = 8, so everyone in a full server has their own. Trucks are
--- numbered (attr TruckNo: the bay, overflow spots count on from 5) and labelled "<Name>'s Truck #<n>"
--- on the roof. They live in Workspace.Trucks (so a station rebuild never eats them) and are destroyed
--- when the owner leaves. Idle trucks are anchored (no physics cost).
--- Doors are SOLID (TruckBuilder: no hinge, no door prompt): "Drive" / "Ride shotgun" / "Hop on" prompts or
--- a tap sit you straight down, and OUT puts you beside the truck on a free spot (Lib/Vehicle/TruckExit:
--- never inside another truck or a wall). Back benches are "CrewSeat_1..4", shotgun "CrewSeat_5".
+-- VehicleService [owner: Vehicle agent]. SHARED fire trucks (docs/game/08 "Vehicles").
+-- Trucks just exist at the station. ANYONE can drive ANY truck (no lock; tap-to-board works on every
+-- truck); whoever drove one LAST owns it (attr OwnerUserId, "<Name>'s Truck #<n>" on the roof). Every
+-- player always owns at least one: on join one is built for them (Lib/Map/Props/TruckBuilder) on the
+-- lowest free parking spot, and when someone takes your only truck you get one back (the taker's
+-- oldest idle spare, else a fresh one). A player owns at most VehicleConfig.MaxOwned (2); past that the
+-- oldest idle one goes away. Total trucks stay near one per player + TruckSlack (hard cap MaxTrucks).
+-- Leaving: your trucks go too, unless someone is in one (then it's theirs).
+-- Parking spots (= truck numbers, attr TruckNo): 1..4 the TruckBays, then VehicleConfig.OverflowSpots in
+-- the station's empty parking lot. Trucks never spawn or park inside each other: a spot another truck
+-- stands on is skipped, and an idle truck left on your spot is sent to its own first. Trucks live in
+-- Workspace.Trucks (a station rebuild never eats them). Idle trucks are anchored (no physics cost).
+-- Doors are SOLID (no hinge, no door prompt): "Drive" / "Ride shotgun" / "Hop on" prompts or a tap sit you
+-- straight down, and OUT puts you beside the truck on a free spot (ReplicatedStorage/Lib/Vehicle/TruckExit).
 -- The driver's client owns the truck's physics and VehicleController simulates the goofy suspension.
 -- With nobody driving a truck is anchored (parked), so it never drifts or blocks a round.
 --
 -- Public API (docs/game/08 "Vehicles"):
---   VehicleService:GetTruck(player: Player): Model?
+--   VehicleService:GetTruck(player: Player): Model?          -- the truck they own and drove last
 --   VehicleService:RespawnTruck(player: Player): boolean   -- near your truck: flip it upright in place;
 --                                                            far away: back to your bay; lost / a door
 --                                                            fell off: a fresh truck at your bay
 --   VehicleService:ParkAt(player: Player, cf: CFrame): boolean   -- cf = ground point, truck faces cf.LookVector
 --   VehicleService:GetDriver(truck: Model?): Player?
 --   VehicleService:GetOwner(truck: Model?): Player?
---   VehicleService:ResetTruck(player: Player?)             -- back to the bay (all trucks when nil)
+--   VehicleService:ResetTruck(player: Player?)             -- their trucks back to their spots (all when nil)
 -- Legacy (VehicleConfig.PerMissionTrucks = true only): GetTruck(instanceId: string) / ParkAt(instanceId)
 --   build a v1 truck inside that mission instance. With the flag off, string calls return nil/false.
 -- Signals: Entered(player, truck)  Exited(player, truck)  -- any seat (drive or crew)
@@ -30,18 +33,20 @@
 --          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
 -- Remotes: Vehicle/Horn (C->S), Vehicle/Siren (C->S toggle), Vehicle/Respawn (C->S),
 --          Vehicle/Enter (C->S: truck: Model) one-tap entry (touch, Controllers/TapUseController): within
---          VehicleConfig.TapEnterRange studs you sit straight in: the driver seat when it's yours and free,
---          else the nearest free seat. No door to open first, so no door swinging into you.
+--          VehicleConfig.TapEnterRange studs you sit straight in: the driver seat when it's free (any
+--          truck; driving it makes it yours), else the nearest free seat.
 --          Vehicle/Honked (S->C all: truck: Model), Vehicle/Pop (S->C all: part, text, kind) for SLAM!/BONK!
--- Truck attrs also: DoorOpen_L/R, DoorGone_L/R (booleans). Optional: HandsService:RegisterGrabbable(doorPanel).
--- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), TruckNo: number, TruckLabel: string, SirenOn: boolean, Driver: number (UserId, 0 = none),
+-- Truck attrs: OwnerUserId: number, OwnerRank: number (1 = its owner's last-driven truck), Bay: number
+--   (1-4 when its spot is a bay, else 0), TruckNo: number (its parking spot), TruckLabel: string,
+--   SirenOn: boolean, Driver: number (UserId, 0 = none),
 --   InstanceId: string ("" for player trucks)
 -- Optional hook: PhysicsFxService:TruckHit(truck: Model, target: Model | BasePart, velocity: Vector3): boolean
 --   (true = handled; otherwise this service ragdolls players itself). Loose props are launched here only
 --   when PhysicsFxService is absent (it ploughs its own registered props in front of moving trucks).
 -- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns,
 --   truck_door_bonks, truck_doors_lost, truck_door_rehinged, truck_rescued (fished out from under the map)
--- Test hooks (DevHook only): _selftest(), _seat(player)
+--   truck_claims (someone drove another player's truck), truck_spare_given, truck_spawn_retries
+-- Test hooks (DevHook only): _selftest(), _seat(player, truck?), _owners()
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local HttpService = game:GetService("HttpService")
@@ -96,9 +101,8 @@ type Truck = {
 	driver: Player?,
 	driveStart: Vector3?,
 	lastHonk: number,
-	owner: Player?,
-	bay: number, -- 1..4 = TruckBay, 0 = reserve row
-	reserve: number, -- reserve slot when bay == 0
+	owner: Player?, -- whoever drove it last (or it was spawned for); nil = a legacy mission truck
+	spot: number, -- parking spot (= truck number): 1..4 the bays, then VehicleConfig.OverflowSpots; 0 = none
 	occupants: { [Seat | VehicleSeat]: Player },
 	removing: boolean, -- destroyed on purpose (no auto-respawn)
 	doors: { [string]: Door },
@@ -116,7 +120,8 @@ local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "Fender_", "CabStep_", 
 
 local services: { [string]: any } = {}
 local byModel: { [Model]: Truck } = {}
-local byOwner: { [Player]: Truck } = {}
+-- every truck a player owns, most recently driven first (owned[p][1] = GetTruck(p)); at most MaxOwned
+local owned: { [Player]: { Truck } } = {}
 local byInstance: { [string]: Truck } = {} -- legacy per-mission trucks
 local lastRespawn: { [Player]: number } = {}
 local runOverAt: { [Player]: number } = {}
@@ -124,6 +129,7 @@ local propHitAt: { [BasePart]: number } = {}
 local bonkAt: { [Player]: number } = {}
 local trucksFolder: Folder? = nil
 local spawnFor: (player: Player) -> any -- forward (register's auto-respawn needs it)
+local claim: (t: any, player: Player) -> () -- forward (a new driver owns the truck)
 
 ---------------------------------------------------------------------------- helpers
 
@@ -343,73 +349,139 @@ local function anchorCF(): CFrame
 	return CFrame.new(0, 0, 0)
 end
 
--- Overflow spot k (1..): VehicleConfig.OverflowSpots (the station's parking lot), then a row on the apron.
-local function reserveCF(k: number): CFrame
+-- Parking spot k (= the truck's number): 1..4 the TruckBays, then VehicleConfig.OverflowSpots (the
+-- station's empty parking lot, each { x, z, yaw } in bay 1's frame), then a row on the apron as a last resort.
+local function spotCF(k: number): CFrame
+	local bays = bayParts()
+	if k >= 1 and k <= 4 and bays[k] then
+		local part = bays[k]
+		return groundCF(part.Position, part.CFrame.LookVector)
+	end
 	local a = anchorCF()
 	local spots = (VehicleConfig :: any).OverflowSpots
-	if type(spots) == "table" and spots[k] and next(bayParts()) ~= nil then
-		local o = spots[k] :: Vector3
-		local spot = a * CFrame.new(o.X, 0, o.Z)
-		return groundCF(spot.Position, a.LookVector)
-	end
 	local n = if type(spots) == "table" then #spots else 0
-	local r = math.max(1, k - n)
+	local o = if type(spots) == "table" and next(bays) ~= nil then spots[k - 4] else nil
+	if type(o) == "table" then
+		local cf = a * CFrame.new(o[1], 0, o[2]) * CFrame.Angles(0, math.rad(o[3] or 0), 0)
+		return groundCF(cf.Position, cf.LookVector)
+	end
+	local r = math.max(1, k - 4 - n)
 	local spot = a * CFrame.new((r - 2.5) * VehicleConfig.ReserveSpacing, 0, -VehicleConfig.ReserveAhead)
 	return groundCF(spot.Position, a.LookVector)
 end
 
-local function helmetOf(player: Player): number
-	local h = player:GetAttribute(Names.Attr.Helmet)
-	return if type(h) == "number" then math.floor(h) else 0
+local function homeCF(t: Truck): CFrame
+	return spotCF(math.max(t.spot, 1))
 end
 
--- Bay = helmet if that TruckBay exists and no other truck holds it; else the first free reserve slot.
-local function assignHome(t: Truck, player: Player)
-	local want = helmetOf(player)
-	local bays = bayParts()
-	local taken = false
-	for _, o in byOwner do
-		if o ~= t and o.bay == want then
-			taken = true
-		end
-	end
-	if want >= 1 and bays[want] and not taken then
-		t.bay = want
-		t.reserve = 0
-	else
-		t.bay = 0
-		local used: { [number]: boolean } = {}
-		for _, o in byOwner do
-			if o ~= t and o.bay == 0 then
-				used[o.reserve] = true
+-- another truck physically standing on ground cframe `cf` (trucks never spawn / park inside each other)
+local function blocker(cf: CFrame, except: Truck?): Truck?
+	for _, o in byModel do
+		if o ~= except and o.chassis.Parent then
+			local d = o.chassis.Position - cf.Position
+			if Vector3.new(d.X, 0, d.Z).Magnitude < 12 and math.abs(d.Y) < 12 then
+				return o
 			end
 		end
-		local k = 1
-		while used[k] do
-			k += 1
-		end
-		t.reserve = k
 	end
-	t.model:SetAttribute("Bay", t.bay)
-	-- truck number: the bay (1-4), overflow spots count on from 5
-	local no = if t.bay >= 1 then t.bay else 4 + t.reserve
-	t.model:SetAttribute("TruckNo", no)
-	t.model:SetAttribute("TruckLabel", `{player.DisplayName}'s Truck`)
+	return nil
+end
+
+-- the lowest-numbered spot no other truck holds or stands on
+local function freeSpot(except: Truck?): number
+	local used: { [number]: boolean } = {}
+	for _, o in byModel do
+		if o ~= except and o.spot > 0 then
+			used[o.spot] = true
+		end
+	end
+	local k = 1
+	while used[k] or (k <= 16 and blocker(spotCF(k), except) ~= nil) do
+		k += 1
+	end
+	return k
+end
+
+-- Park `t` on its own spot. An idle truck someone left standing there goes to ITS spot first.
+local function sendHome(t: Truck, depth: number?)
+	local cf = homeCF(t)
+	local b = blocker(cf, t)
+	if b and (depth or 0) < 3 and next(b.occupants) == nil and b.driver == nil and b.spot > 0 and b.spot ~= t.spot then
+		sendHome(b, (depth or 0) + 1)
+	end
+	place(t, cf)
+end
+
+local function ownedBy(p: Player): { Truck }
+	local list = owned[p]
+	if not list then
+		list = {}
+		owned[p] = list
+	end
+	return list
+end
+
+local function playerTrucks(): number
+	local n = 0
+	for _, t in byModel do
+		if t.spot > 0 then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- about one truck per player plus a little slack (a second truck someone took), never past MaxTrucks
+local function truckCap(): number
+	return math.min(VehicleConfig.MaxTrucks, #Players:GetPlayers() + (tonumber((VehicleConfig :: any).TruckSlack) or 2))
+end
+
+local function relabel(t: Truck)
+	local owner = t.owner
+	local name = if owner then owner.DisplayName else "Crew"
+	t.model:SetAttribute("OwnerUserId", if owner then owner.UserId else nil)
+	t.model:SetAttribute("TruckNo", t.spot)
+	t.model:SetAttribute("Bay", if t.spot >= 1 and t.spot <= 4 then t.spot else 0)
+	t.model:SetAttribute("TruckLabel", `{name}'s Truck`)
 	local tag = t.model:FindFirstChild("OwnerTag", true)
 	local l = tag and tag:FindFirstChild("Label")
 	if l and l:IsA("TextLabel") then
-		l.Text = `{player.DisplayName}'s Truck #{no}`
+		l.Text = `{name}'s Truck #{t.spot}`
+	end
+	for _, p in t.seatPrompts do
+		p.ObjectText = `{name}'s Truck`
 	end
 end
 
-local function homeCF(t: Truck): CFrame
-	if t.bay >= 1 then
-		local part = bayParts()[t.bay]
-		if part then
-			return groundCF(part.Position, part.CFrame.LookVector)
+-- owner = p (front of p's list); nil = nobody (being destroyed)
+local function setOwner(t: Truck, p: Player?)
+	local old = t.owner
+	if old then
+		local list = owned[old]
+		local i = list and table.find(list, t)
+		if list and i then
+			table.remove(list, i)
 		end
 	end
-	return reserveCF(math.max(t.reserve, 1))
+	t.owner = p
+	if p then
+		local list = ownedBy(p)
+		local i = table.find(list, t)
+		if i then
+			table.remove(list, i)
+		end
+		table.insert(list, 1, t)
+	end
+	relabel(t)
+	-- OwnerRank: 1 = the truck its owner drove last (clients pick "my truck" by it)
+	for _, who in { old, p } do
+		for k, o in (if who then owned[who] or {} else {}) do
+			o.model:SetAttribute("OwnerRank", k)
+		end
+	end
+	if not p then
+		t.model:SetAttribute("OwnerRank", nil)
+	end
 end
 
 -- v1 decor trucks (no owner) parked where a player truck goes are cleared away.
@@ -685,6 +757,7 @@ local function onDriverChanged(t: Truck)
 		VehicleService.Driven:Fire(old, studs)
 	end
 	if player then
+		pcall(claim, t, player) -- whoever drives it last owns it
 		t.driver = player
 		t.driveStart = t.chassis.Position
 		t.model:SetAttribute("Driver", player.UserId)
@@ -915,13 +988,7 @@ local function rig(t: Truck)
 	t.seatPrompts[seat] = dp
 	dp.Triggered:Connect(function(player: Player)
 		if VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner then
-			local mine = byOwner[player]
-			local no = mine and mine.model:GetAttribute("TruckNo")
-			Net.notify(
-				player,
-				`{ownerName}'s truck! Ride shotgun or hop on the back.{if no then ` Yours is truck #{no}.` else ""}`,
-				"info"
-			)
+			Net.notify(player, `{t.owner.DisplayName}'s truck! Ride shotgun or hop on the back.`, "info")
 			return
 		end
 		local hum = canSit(player)
@@ -998,8 +1065,7 @@ local function register(m: Model, instanceId: string, owner: Player?): Truck?
 		driveStart = nil,
 		lastHonk = 0,
 		owner = owner,
-		bay = 0,
-		reserve = 0,
+		spot = 0,
 		occupants = {},
 		removing = false,
 		doors = {},
@@ -1016,16 +1082,21 @@ local function register(m: Model, instanceId: string, owner: Player?): Truck?
 		if instanceId ~= "" and byInstance[instanceId] == t then
 			byInstance[instanceId] = nil
 		end
-		if owner and byOwner[owner] == t then
-			byOwner[owner] = nil
-			-- blown up / fell out of the world: a fresh one at the bay
-			if not t.removing and owner.Parent == Players then
+		local o = t.owner
+		if o then
+			local list = owned[o]
+			local i = list and table.find(list, t)
+			if list and i then
+				table.remove(list, i)
+			end
+			-- blown up / fell out of the world and it was their last one: a fresh one at the station
+			if not t.removing and o.Parent == Players and #ownedBy(o) == 0 then
 				task.delay(2, function()
-					if owner.Parent == Players and not byOwner[owner] then
+					if o.Parent == Players and #ownedBy(o) == 0 then
 						count("truck_respawns")
-						local ok, err = pcall(spawnFor, owner)
+						local ok, err = pcall(spawnFor, o)
 						if not ok then
-							warn(`[VehicleService] respawn for {owner.Name} failed: {err}`)
+							warn(`[VehicleService] respawn for {o.Name} failed: {err}`)
 						end
 					end
 				end)
@@ -1038,39 +1109,133 @@ end
 
 ---------------------------------------------------------------------------- per-player trucks
 
-function spawnFor(player: Player): Truck?
-	if byOwner[player] then
-		return byOwner[player]
-	end
-	local n = 0
-	for _ in byOwner do
-		n += 1
-	end
-	if n >= (VehicleConfig.MaxTrucks or math.huge) then
-		return nil -- the station is full: this one rides along in someone's crew seat
-	end
+-- A new truck for `player` on the lowest free parking spot (or `spot`), owned by them.
+local function build(player: Player, spot: number?): Truck?
 	local m = TruckBuilder.Build(folder(), CFrame.new(0, 2000, 0)) -- built out of sight, then placed
-	m.Name = `FireTruck_{player.UserId}`
 	m:SetAttribute("OwnerUserId", player.UserId)
 	local t = register(m, "", player)
 	if not t then
 		m:Destroy()
 		return nil
 	end
-	byOwner[player] = t
-	assignHome(t, player)
+	t.spot = spot or freeSpot(t)
+	m.Name = `FireTruck_No{t.spot}` -- by number: trucks change hands, so never by owner
+	setOwner(t, player)
 	local cf = homeCF(t)
 	clearDecor(cf)
-	place(t, cf)
+	sendHome(t)
 	return t
 end
 
+local function occupied(t: Truck): boolean
+	return next(t.occupants) ~= nil or t.driver ~= nil
+end
+
+-- someone sitting in it (the driver first), not `except`
+local function someoneIn(t: Truck, except: Player?): Player?
+	if t.driver and t.driver ~= except then
+		return t.driver
+	end
+	for _, p in t.occupants do
+		if p ~= except then
+			return p
+		end
+	end
+	return nil
+end
+
+-- Make sure `player` owns a truck: the one they own, else a fresh one (under the cap), else an idle
+-- spare from whoever owns two. Returns their preferred truck.
+function spawnFor(player: Player): Truck?
+	local list = ownedBy(player)
+	if #list > 0 then
+		return list[1]
+	end
+	if playerTrucks() < truckCap() then
+		return build(player)
+	end
+	for _, other in owned do
+		if #other >= 2 then
+			for k = #other, 2, -1 do
+				local spare = other[k]
+				if not occupied(spare) then
+					setOwner(spare, player)
+					count("truck_spare_given")
+					return spare
+				end
+			end
+		end
+	end
+	return build(player) -- everyone's spare is in use: one over the cap beats a player with no truck
+end
+
+local function destroyTruck(t: Truck)
+	t.removing = true
+	setOwner(t, nil)
+	t.model:Destroy()
+end
+
+-- At most MaxOwned per player: the oldest idle extras go to `needy` (a player left with none) or away.
+local function trimOwned(player: Player, keep: Truck, needy: Player?)
+	local maxOwned = tonumber((VehicleConfig :: any).MaxOwned) or 2
+	local list = ownedBy(player)
+	local k = #list
+	while #list > maxOwned and k >= 1 do
+		local t = list[k]
+		if t ~= keep then
+			local rider = someoneIn(t, player)
+			if needy and needy.Parent == Players and #ownedBy(needy) == 0 and not occupied(t) then
+				setOwner(t, needy)
+			elseif rider then
+				setOwner(t, rider)
+			elseif not occupied(t) then
+				destroyTruck(t)
+			end
+		end
+		k -= 1
+	end
+end
+
+-- `player` sat behind the wheel of `t`: they own it now ("<Name>'s Truck"). Nobody is ever left without
+-- a truck: the previous owner gets their own back (a spare of the new driver's, a fresh one, ...).
+function claim(t: Truck, player: Player)
+	if t.spot == 0 then
+		return -- a legacy mission truck: nobody owns those
+	end
+	local prev = t.owner
+	if prev == player then
+		setOwner(t, player) -- most recently driven first
+		return
+	end
+	setOwner(t, player)
+	count("truck_claims")
+	if prev and prev.Parent == Players then
+		Net.notify(prev, `{player.DisplayName} took your truck! It's theirs now.`, "info")
+	end
+	-- the new driver's oldest spare goes to the previous owner if they're out of trucks, else away
+	trimOwned(player, t, prev)
+	if prev and prev.Parent == Players and #ownedBy(prev) == 0 then
+		local fresh = spawnFor(prev)
+		if fresh then
+			Net.notify(prev, `Your new truck #{fresh.spot} is waiting at the station.`, "info")
+		end
+	end
+end
+
+-- Leaving: their trucks go too, unless someone is in one (then it's theirs).
 local function despawnFor(player: Player)
-	local t = byOwner[player]
-	byOwner[player] = nil
-	if t then
-		t.removing = true
-		t.model:Destroy()
+	local list = owned[player]
+	owned[player] = nil
+	for _, t in (list or {}) do
+		local rider = someoneIn(t, player)
+		t.owner = nil
+		if rider then
+			setOwner(t, rider)
+			trimOwned(rider, t, nil)
+		else
+			t.removing = true
+			t.model:Destroy()
+		end
 	end
 end
 
@@ -1083,35 +1248,19 @@ local function onPlayer(player: Player)
 		if (player:GetAttribute(Names.Attr.InstanceId) or "") == "" then
 			return
 		end
-		local t = byOwner[player]
-		if t and t.seat and occupantPlayer(t.seat) == player then
-			setSiren(t, true)
+		for _, t in ownedBy(player) do
+			if t.seat and occupantPlayer(t.seat) == player then
+				setSiren(t, true)
+			end
 		end
 	end)
 	task.spawn(function()
-		-- SquadService hands out helmets on join; give it a moment so the bay matches
-		local t0 = os.clock()
-		while helmetOf(player) == 0 and os.clock() - t0 < 4 and player.Parent == Players do
-			task.wait(0.2)
-		end
 		if player.Parent ~= Players then
 			return
 		end
 		local ok, err = pcall(spawnFor, player)
 		if not ok then
 			warn(`[VehicleService] truck for {player.Name} failed: {err}`)
-		end
-	end)
-	player:GetAttributeChangedSignal(Names.Attr.Helmet):Connect(function()
-		local t = byOwner[player]
-		if not t or t.driver or next(t.occupants) ~= nil then
-			return
-		end
-		local atHome = (t.chassis.Position - (homeCF(t) * GROUND_TO_PIVOT).Position).Magnitude < 4
-		local old = t.bay
-		assignHome(t, player)
-		if atHome and (t.bay ~= old or t.bay == 0) then
-			place(t, homeCF(t))
 		end
 	end)
 end
@@ -1342,10 +1491,6 @@ local function nearestRoadCF(pos: Vector3): CFrame?
 	return groundCF(Vector3.new(p.X, p.Y + 4, p.Z), heads[best]) -- ray starts under any tunnel roof
 end
 
-local function occupied(t: Truck): boolean
-	return next(t.occupants) ~= nil or t.driver ~= nil
-end
-
 -- Under the map: below RescueBelowY, or nothing under the chassis for RescueNoGroundSeconds.
 local noGroundSince: { [Truck]: number } = {}
 local function underMap(t: Truck, now: number): boolean
@@ -1377,18 +1522,19 @@ local function ensureTrucks(now: number)
 		return
 	end
 	for _, p in Players:GetPlayers() do
-		if not byOwner[p] and now - (ensureAt[p] or now) >= 3 then
+		local has = #ownedBy(p) > 0
+		if not has and now - (ensureAt[p] or now) >= 3 then
 			ensureAt[p] = now
 			local ok, err = pcall(spawnFor, p)
 			if not ok then
 				warn(`[VehicleService] truck retry for {p.Name} failed: {err}`)
-			elseif byOwner[p] then
+			elseif #ownedBy(p) > 0 then
 				count("truck_spawn_retries")
 			end
 			return -- one build per tick: never a burst of 300-part builds in one frame
-		elseif not byOwner[p] and not ensureAt[p] then
+		elseif not has and not ensureAt[p] then
 			ensureAt[p] = now -- grace for the normal join path
-		elseif byOwner[p] then
+		elseif has then
 			ensureAt[p] = nil
 		end
 	end
@@ -1399,10 +1545,15 @@ local function lostTick()
 		task.wait(0.25)
 		local now = os.clock()
 		ensureTrucks(now)
-		local rebuild: { Player } = {}
-		for owner, t in byOwner do
+		local rebuild: { Truck } = {}
+		for _, t in byModel do
 			local c = t.chassis
-			if not c.Parent then
+			if t.spot == 0 and t.owner and c.Parent and c.Position.Y > 1500 then
+				t.removing = true -- half-built (the spawn thread died before it got a spot): ensureTrucks rebuilds
+				t.model:Destroy()
+				continue
+			end
+			if t.spot == 0 or not c.Parent then
 				continue
 			end
 			-- built out of sight (y 2000) but never placed: a server hitch killed the spawn thread mid-way
@@ -1415,9 +1566,9 @@ local function lostTick()
 				noGroundSince[t] = nil
 				count("truck_rescued")
 				local cf = if occupied(t) then nearestRoadCF(c.Position) else nil
-				local ok = pcall(place, t, cf or homeCF(t))
+				local ok = if cf then pcall(place, t, cf) else pcall(sendHome, t)
 				if not ok or c.Position.Y < VehicleConfig.LostBelowY then
-					table.insert(rebuild, owner)
+					table.insert(rebuild, t)
 				elseif t.driver then
 					Popup.show(t.driver, "Truck fished out from under the road!", "info", t.driver)
 				end
@@ -1428,15 +1579,13 @@ local function lostTick()
 				noGroundSince[t] = nil
 			end
 		end
-		for _, owner in rebuild do
-			local t = byOwner[owner]
-			if t then
-				t.removing = true
-				byOwner[owner] = nil
-				t.model:Destroy()
-			end
+		for _, t in rebuild do
+			local owner, spot = t.owner, t.spot
+			destroyTruck(t)
 			count("truck_respawns")
-			pcall(spawnFor, owner)
+			if owner and owner.Parent == Players then
+				pcall(build, owner, spot)
+			end
 		end
 	end
 end
@@ -1510,7 +1659,7 @@ function VehicleService:Start()
 		if (t.chassis.Position - root.Position).Magnitude > range then
 			return
 		end
-		local mayDrive = not (VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner)
+		local mayDrive = not (VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner) -- anyone (OwnerOnlyDrives = false)
 		local pick: (Seat | VehicleSeat)? = nil
 		if mayDrive and t.seat and not t.seat.Occupant then
 			pick = t.seat
@@ -1532,19 +1681,7 @@ function VehicleService:Start()
 	end)
 
 	Players.PlayerRemoving:Connect(function(p: Player)
-		local had = byOwner[p] ~= nil
 		despawnFor(p)
-		if had then
-			-- a bay freed up: the first player without a truck gets one
-			task.defer(function()
-				for _, other in Players:GetPlayers() do
-					if other ~= p and not byOwner[other] then
-						pcall(spawnFor, other)
-						break
-					end
-				end
-			end)
-		end
 		runOverAt[p] = nil
 		bonkAt[p] = nil
 		lastRespawn[p] = nil
@@ -1576,8 +1713,13 @@ end
 
 function VehicleService:GetTruck(who: any): Model?
 	if isPlayer(who) then
-		local t = byOwner[who :: Player]
-		return if t and t.model.Parent then t.model else nil
+		-- the truck they drove last (owned[p][1])
+		for _, t in ownedBy(who :: Player) do
+			if t.model.Parent then
+				return t.model
+			end
+		end
+		return nil
 	end
 	if type(who) == "string" and who ~= "" then
 		local t = byInstance[who]
@@ -1599,11 +1741,15 @@ end
 function VehicleService:ParkAt(who: any, cf: CFrame?): boolean
 	if isPlayer(who) then
 		local player = who :: Player
-		local t = byOwner[player] or spawnFor(player)
+		local t = spawnFor(player) -- their preferred truck (spawned if they somehow have none)
 		if not t then
 			return false
 		end
-		place(t, cf or homeCF(t))
+		if cf then
+			place(t, cf)
+		else
+			sendHome(t)
+		end
 		return true
 	end
 	if type(who) == "string" and VehicleConfig.PerMissionTrucks then
@@ -1622,7 +1768,7 @@ function VehicleService:RespawnTruck(player: Player): boolean
 	end
 	lastRespawn[player] = now
 	count("truck_respawns")
-	local t = byOwner[player]
+	local t: Truck? = ownedBy(player)[1]
 	local doorLost = false
 	if t then
 		for _, d in t.doors do
@@ -1635,46 +1781,46 @@ function VehicleService:RespawnTruck(player: Player): boolean
 				unseat(seat)
 			end
 		end
+		local spot = if t then t.spot else nil
 		if t then
-			t.removing = true
-			byOwner[player] = nil
-			t.model:Destroy()
+			destroyTruck(t)
 		end
-		local fresh = spawnFor(player)
+		local fresh = if spot and spot > 0 then build(player, spot) else spawnFor(player)
 		Net.notify(player, "Fresh truck waiting at the station!", "info")
 		return fresh ~= nil
 	end
+	local tr = t :: Truck
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local near = root ~= nil and (root.Position - t.chassis.Position).Magnitude <= VehicleConfig.UnflipRange
+	local near = root ~= nil and (root.Position - tr.chassis.Position).Magnitude <= VehicleConfig.UnflipRange
 	if near then
 		-- flip it back on its wheels right here (a little drop for the boing)
-		local c = t.chassis
+		local c = tr.chassis
 		local g = groundCF(c.Position, c.CFrame.LookVector)
-		place(t, g + Vector3.new(0, 3, 0))
+		place(tr, g + Vector3.new(0, 3, 0))
 	else
-		for seat in t.occupants do
+		for seat in tr.occupants do
 			unseat(seat)
 		end
-		place(t, homeCF(t))
-		Net.notify(player, "Your truck is back at the station.", "info")
+		sendHome(tr)
+		Net.notify(player, `Your truck #{tr.spot} is back at the station.`, "info")
 	end
 	return true
 end
 
 function VehicleService:ResetTruck(player: Player?)
-	for owner, t in byOwner do
-		if player == nil or owner == player then
+	for _, t in byModel do
+		if t.spot > 0 and (player == nil or t.owner == player) then
 			for seat in t.occupants do
 				unseat(seat)
 			end
-			place(t, homeCF(t))
+			sendHome(t)
 		end
 	end
 end
 
-function VehicleService:_seat(player: Player): boolean
-	local t = byOwner[player]
+function VehicleService:_seat(player: Player, truck: Model?): boolean
+	local t = if truck then byModel[truck] else ownedBy(player)[1]
 	local hum = canSit(player)
 	if not t or not t.seat or not hum or t.seat.Occupant then
 		return false
@@ -1699,6 +1845,25 @@ function VehicleService:_selftest(): (boolean, string)
 		return false, `no truck for {table.concat(missing, ", ")}`
 	end
 	return true, `{n} player truck(s) live`
+end
+
+-- Test hook: build a truck for `player` on the next free spot, past every cap (parking layout checks)
+function VehicleService:_build(player: Player): string?
+	local t = build(player)
+	return if t then t.model.Name else nil
+end
+
+-- Test hook: { [ownerName]: { "#spot model", ... } } plus totals
+function VehicleService:_owners(): { [string]: any }
+	local out: { [string]: any } = { total = playerTrucks(), cap = truckCap() }
+	for p, list in owned do
+		local names = {}
+		for _, t in list do
+			table.insert(names, `#{t.spot} {t.model.Name}`)
+		end
+		out[p.Name] = names
+	end
+	return out
 end
 
 return VehicleService

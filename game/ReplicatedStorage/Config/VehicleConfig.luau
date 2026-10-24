@@ -9,23 +9,30 @@ return Config.define({
 	HomeLocation = "Station", -- where TruckBay parts / the reserve parking are looked up first
 
 	Drivable = true, -- false = static trucks (no seat prompts, stay anchored)
-	PerPlayerTrucks = true, -- v2: FireTruck_<UserId> per player at their TruckBay
-	MaxTrucks = 8, -- every player gets their own (server max is 8): bays 1-4 first, then overflow parking
+	PerPlayerTrucks = true, -- every player always owns at least one truck (spawned at the station)
+	-- Shared trucks: ANYONE can drive ANY truck; whoever drove it last owns it ("<Name>'s Truck"). A player
+	-- owns at most MaxOwned; the previous owner of a truck someone took gets a spare / a fresh one.
+	MaxOwned = 2,
+	TruckSlack = 2, -- trucks allowed beyond one per player (somebody's second truck)
+	MaxTrucks = 10, -- hard cap (8 players + slack): bays 1-4, then the 6 OverflowSpots
 	PerMissionTrucks = false, -- v1 fallback: MissionService:ParkAt(instanceId) builds a truck inside the instance
-	OwnerOnlyDrives = true, -- others can still ride the back benches
+	OwnerOnlyDrives = false, -- true = only the owner may take the wheel (others ride)
 	TapEnterRange = 22, -- studs from the chassis: a tap on the truck (touch) sits you straight in (Vehicle/Enter)
 
 	-- Parking
-	-- Overflow parking (bays 1-4 full): the station's east parking lot, nose toward its exit drive.
-	-- Offsets in bay 1's frame (x = truck-right, z = truck-back; bay 1 faces out of its door), so
-	-- (-110, 0, 7) is 110 studs east of bay 1, 7 studs further in. Checked clear in Studio (11x30 box).
+	-- Overflow parking (truck numbers 5..): the station's empty east parking lot. One column of trucks
+	-- side by side along its west edge (14 studs apart), noses east toward the open lane, which runs south
+	-- to the lot drive. Each { x, z, yaw } is in bay 1's frame (x = truck-right, z = truck-back; bay 1
+	-- faces out of its door), yaw in degrees (90 = facing east). World: X 108, Z 165 / 151 / ... / 95.
 	OverflowSpots = {
-		Vector3.new(-110, 0, 7),
-		Vector3.new(-124, 0, 7),
-		Vector3.new(-138, 0, 7),
-		Vector3.new(-152, 0, 7),
+		{ -118, -23, 90 },
+		{ -118, -9, 90 },
+		{ -118, 5, 90 },
+		{ -118, 19, 90 },
+		{ -118, 33, 90 },
+		{ -118, 47, 90 },
 	},
-	-- past OverflowSpots (no station layout / >8 trucks): a row on the apron in front of the bays
+	-- past OverflowSpots (no station layout / past MaxTrucks): a row on the apron in front of the bays
 	ReserveAhead = 46, -- studs in front of the station anchor for that row
 	ReserveSpacing = 15, -- studs between its spots
 	RespawnCooldown = 4, -- seconds between RespawnTruck calls per player
