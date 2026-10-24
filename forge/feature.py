@@ -5,7 +5,8 @@
     patcher / fixer       -> each hook-in edit (exact edits for big files; destructive guard applies)
     compile check + fixer -> then a saved version "feature: <request>"
     iterate (optional)    -> playtest, critic, fixer, reflector, auto-rollback on a score drop
-    verified              -> the feature's telemetry counters appear in the last playtest
+    verified              -> the feature's telemetry counters appear in the last playtest, and (a feature
+                             with client UI) a tester really clicked one of its buttons
 
 Everything happens in runs/<slug>/game, versioned (forge versions / forge rollback).
 """
@@ -13,6 +14,7 @@ Everything happens in runs/<slug>/game, versioned (forge versions / forge rollba
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 from forge.config import Settings
@@ -145,8 +147,10 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
         report = store.load_iteration_json(last, "report.json", {}) if last is not None else {}
         counters = (report or {}).get("counters") or {}
         if plan["telemetry"] and use_studio:
-            verified = all((counters.get(t) or 0) > 0 for t in plan["telemetry"])
-            log(f"[feature] telemetry {dict((t, counters.get(t)) for t in plan['telemetry'])} -> "
+            feature = {"request": request, "plan": plan}
+            verified = feature_verified(feature, counters, (report or {}).get("ui_presses") or [])
+            log(f"[feature] telemetry {dict((t, counters.get(t)) for t in plan['telemetry'])}"
+                f"{', needs a tester UI press' if feature_has_ui(feature) else ''} -> "
                 f"{'verified' if verified else 'not seen in the playtest'}")
     polished = await polish_feature(settings, slug, cycles=polish, log=log) if polish > 0 and use_studio else []
     if polished:
@@ -178,21 +182,30 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
     llm = llm or make_llm(settings, log_path=ImproveStore(settings, slug).dir / "calls.jsonl")
     results: list[dict] = []
 
+    needs_ui = bool(latest) and feature_has_ui(latest)
+
     async def go(h, pt):
         for _ in range(max(0, cycles)):
             goal = (f"Play a full round and use the new feature: {latest.get('request', '')}" if latest
                     else "Play a full round and use every feature of the game")
+            if needs_ui:
+                goal += (". It has on-screen UI: use it like a player, through its buttons (`ui` + press): open "
+                         "its panel and press its action buttons (claim, buy, equip), and check what changed")
             cycle = await run_cycle(settings, slug, llm=llm, harness=h, playtest=pt, faults=[], goal=goal,
                                     rounds=1, steps=12, fix=True, max_fixes=3, edit_human=True, log=log,
                                     focus=focus)
             peaks: dict = {}
+            presses: list[dict] = []
             for d in cycle.get("before", []):
                 for k, v in (d.get("counters") or {}).items():
                     peaks[k] = max(peaks.get(k, 0), v or 0)
-            cycle["feature_verified"] = bool(telemetry) and all(peaks.get(t, 0) > 0 for t in telemetry)
+                presses += d.get("ui_presses") or []
+            cycle["feature_verified"] = feature_verified(latest, peaks, presses) if latest else False
+            cycle["feature_ui_presses"] = len(feature_ui_presses(latest, presses)) if needs_ui else None
             log(f"[feature] polish cycle {cycle['cycle']}: open {cycle['open']}, kept "
                 f"{cycle['code_kept']}/{len(cycle.get('code_fixes') or [])}, feature counters "
-                f"{dict((t, peaks.get(t)) for t in telemetry)}")
+                f"{dict((t, peaks.get(t)) for t in telemetry)}"
+                + (f", feature UI presses that fired {cycle['feature_ui_presses']}" if needs_ui else ""))
             results.append(cycle)
             if cycle["backlog"]:
                 log(f"[feature] {len(cycle['backlog'])} anomalies outside this feature left for `forge fix`")
@@ -216,8 +229,54 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
 def feature_focus(feature: dict) -> Callable[[dict], bool]:
     """Anomalies that belong to a feature: they name one of its files, counters or key request words.
     Generic: built from the feature's own plan, nothing per game."""
-    import re
+    tokens = feature_tokens(feature)
 
+    def belongs(anomaly: dict) -> bool:
+        text = " ".join(str(anomaly.get(k, "")) for k in ("title", "system", "observed", "expected")).lower()
+        return any(t in text for t in tokens)
+    return belongs
+
+
+_UI_STEM = re.compile(r"(ui|gui|hud|menu|panel|screen|shop|window)", re.IGNORECASE)
+
+
+def feature_has_ui(feature: dict) -> bool:
+    """The feature ships client UI: a new or edited client script, or a module named like UI."""
+    plan = feature.get("plan") or {}
+    paths = [str(m.get("path", "")) for m in plan.get("new_modules") or []]
+    paths += [str(e.get("path", "")) for e in plan.get("edits") or []]
+    for path in paths:
+        stem = path.rsplit("/", 1)[-1].split(".")[0]
+        if path.startswith("StarterPlayerScripts/") or path.startswith("StarterGui/") or _UI_STEM.search(stem):
+            return True
+    return False
+
+
+def feature_ui_presses(feature: dict, presses: list[dict]) -> list[dict]:
+    """Real GUI clicks (from playtest digests) that fired a button belonging to this feature."""
+    tokens = feature_tokens(feature)
+    hits = []
+    for p in presses or []:
+        if not isinstance(p, dict) or p.get("fired") is not True:
+            continue
+        text = " ".join(str(p.get(k) or "") for k in ("text", "path", "gui")).lower()
+        if any(t in text for t in tokens):
+            hits.append(p)
+    return hits
+
+
+def feature_verified(feature: dict, counters: dict, presses: list[dict]) -> bool:
+    """Counters alone can be bumped by server code no player ever reached. A feature with client UI is
+    verified only when its planned counters moved AND a tester really clicked one of its buttons."""
+    telemetry = list((feature.get("plan") or {}).get("telemetry") or [])
+    if not telemetry or not all((counters.get(t) or 0) > 0 for t in telemetry):
+        return False
+    return not feature_has_ui(feature) or bool(feature_ui_presses(feature, presses))
+
+
+def feature_tokens(feature: dict) -> set[str]:
+    """Lower-case words that name a feature: its file stems (and their CamelCase words), counters and
+    long request words."""
     plan = feature.get("plan") or {}
     tokens = set()
     for m in plan.get("new_modules") or []:
@@ -230,8 +289,4 @@ def feature_focus(feature: dict) -> Callable[[dict], bool]:
     tokens.update(str(t).lower() for t in plan.get("telemetry") or [])
     tokens.update(w.lower() for w in re.findall(r"[A-Za-z]{5,}", str(feature.get("request", ""))))
     tokens -= {"service", "controller", "config", "client", "server", "players", "player", "game", "games"}
-
-    def belongs(anomaly: dict) -> bool:
-        text = " ".join(str(anomaly.get(k, "")) for k in ("title", "system", "observed", "expected")).lower()
-        return any(t in text for t in tokens)
-    return belongs
+    return tokens

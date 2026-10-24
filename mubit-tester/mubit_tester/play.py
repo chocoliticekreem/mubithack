@@ -33,7 +33,8 @@ for _role in ("player", "judge"):
         llm_mod.ROLES = tuple(llm_mod.ROLES) + (_role,)
 
 ACTIONS = ("move_to", "move_to_instance", "interact", "key", "spray", "equip", "wait", "done")
-OBS_MAX_CHARS = 3000
+OBS_MAX_CHARS = 4000  # room for `ui` (on-screen buttons) next to things/prompts/hud
+UI_KEEP = 4
 PROBE_EVERY = 5
 HISTORY = 5
 LLM_TIMEOUT = 180.0
@@ -274,6 +275,14 @@ def compact_observation(obs: dict, limit: int = OBS_MAX_CHARS) -> dict:
                 if len(_dumps(obs)) >= limit:
                     obs.pop("probe", None)
                 continue
+            # on-screen buttons are how testers reach a feature's UI: trimmed late, never below UI_KEEP
+            for key in ("panels", "ui"):
+                items = obs.get(key)
+                if isinstance(items, list) and len(items) > UI_KEEP:
+                    obs[key] = items[:-1]
+                    trimmed = True
+            if trimmed:
+                continue
             for key in order:
                 if isinstance(obs.get(key), list) and obs[key]:
                     obs[key] = obs[key][:-1]
@@ -421,6 +430,12 @@ def _obs_brief(obs: dict) -> str:
                                          for t in obs["touchables"][:3]))
     if obs.get("hud"):
         parts.append("hud=" + _clip(" | ".join(obs["hud"][:4]), 120))
+    if obs.get("panels"):
+        parts.append("panels=" + ",".join(str(p.get("title") or p.get("path")) for p in obs["panels"][:3]
+                                          if isinstance(p, dict)))
+    if obs.get("ui"):
+        parts.append("ui=" + _clip(",".join(str(b.get("text") or b.get("path")) for b in obs["ui"][:6]
+                                            if isinstance(b, dict)), 120))
     return "; ".join(parts)
 
 
