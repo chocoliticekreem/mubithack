@@ -1,9 +1,12 @@
 --!strict
 -- VehicleService [owner: Vehicle agent]. v2: ONE fire truck per player (docs/game/08 "Vehicles").
 -- On join each player gets "FireTruck_<UserId>" (attr OwnerUserId, Bay) built by
--- Lib/Map/Props/TruckBuilder at the TruckBay whose attr Bay = their Helmet (1-4), or at a reserve
--- spot in front of the station when that bay is taken / there are no TruckBay parts yet. Trucks live
--- in Workspace.Trucks (so a station rebuild never eats them) and are destroyed when the owner leaves.
+-- Lib/Map/Props/TruckBuilder at the TruckBay whose attr Bay = their Helmet (1-4), or at an overflow
+-- spot (VehicleConfig.OverflowSpots: the station's parking lot) when that bay is taken / there are no
+-- TruckBay parts yet; up to MaxTrucks = 8, so everyone in a full server has their own. Trucks are
+-- numbered (attr TruckNo: the bay, overflow spots count on from 5) and labelled "<Name>'s Truck #<n>"
+-- on the roof. They live in Workspace.Trucks (so a station rebuild never eats them) and are destroyed
+-- when the owner leaves. Idle trucks are anchored (no physics cost).
 -- The cab doors are PHYSICAL (HingeConstraint "DoorHinge", servo + bouncy limits): "Open door" on the
 -- handle (or pull it with physics hands) swings it open with a wobble. Getting in no longer needs it
 -- (VehicleConfig.SeatNeedsOpenDoor = false): "Drive" (owner, left) / "Ride shotgun" (right) show with the
@@ -35,7 +38,7 @@
 --          else the nearest free seat. No door to open first, so no door swinging into you.
 --          Vehicle/Honked (S->C all: truck: Model), Vehicle/Pop (S->C all: part, text, kind) for SLAM!/BONK!
 -- Truck attrs also: DoorOpen_L/R, DoorGone_L/R (booleans). Optional: HandsService:RegisterGrabbable(doorPanel).
--- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), SirenOn: boolean, Driver: number (UserId, 0 = none),
+-- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), TruckNo: number, TruckLabel: string, SirenOn: boolean, Driver: number (UserId, 0 = none),
 --   InstanceId: string ("" for player trucks)
 -- Optional hook: PhysicsFxService:TruckHit(truck: Model, target: Model | BasePart, velocity: Vector3): boolean
 --   (true = handled; otherwise this service ragdolls players itself). Loose props are launched here only
@@ -340,9 +343,18 @@ local function anchorCF(): CFrame
 	return CFrame.new(0, 0, 0)
 end
 
+-- Overflow spot k (1..): VehicleConfig.OverflowSpots (the station's parking lot), then a row on the apron.
 local function reserveCF(k: number): CFrame
 	local a = anchorCF()
-	local spot = a * CFrame.new((k - 2.5) * VehicleConfig.ReserveSpacing, 0, -VehicleConfig.ReserveAhead)
+	local spots = (VehicleConfig :: any).OverflowSpots
+	if type(spots) == "table" and spots[k] and next(bayParts()) ~= nil then
+		local o = spots[k] :: Vector3
+		local spot = a * CFrame.new(o.X, 0, o.Z)
+		return groundCF(spot.Position, a.LookVector)
+	end
+	local n = if type(spots) == "table" then #spots else 0
+	local r = math.max(1, k - n)
+	local spot = a * CFrame.new((r - 2.5) * VehicleConfig.ReserveSpacing, 0, -VehicleConfig.ReserveAhead)
 	return groundCF(spot.Position, a.LookVector)
 end
 
@@ -379,6 +391,15 @@ local function assignHome(t: Truck, player: Player)
 		t.reserve = k
 	end
 	t.model:SetAttribute("Bay", t.bay)
+	-- truck number: the bay (1-4), overflow spots count on from 5
+	local no = if t.bay >= 1 then t.bay else 4 + t.reserve
+	t.model:SetAttribute("TruckNo", no)
+	t.model:SetAttribute("TruckLabel", `{player.DisplayName}'s Truck`)
+	local tag = t.model:FindFirstChild("OwnerTag", true)
+	local l = tag and tag:FindFirstChild("Label")
+	if l and l:IsA("TextLabel") then
+		l.Text = `{player.DisplayName}'s Truck #{no}`
+	end
 end
 
 local function homeCF(t: Truck): CFrame
@@ -879,7 +900,13 @@ local function rig(t: Truck)
 	t.seatPrompts[seat] = dp
 	dp.Triggered:Connect(function(player: Player)
 		if VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner then
-			Net.notify(player, `{ownerName}'s truck! Ride shotgun or hop on the back. Yours is in bay {helmetOf(player)}.`, "info")
+			local mine = byOwner[player]
+			local no = mine and mine.model:GetAttribute("TruckNo")
+			Net.notify(
+				player,
+				`{ownerName}'s truck! Ride shotgun or hop on the back.{if no then ` Yours is truck #{no}.` else ""}`,
+				"info"
+			)
 			return
 		end
 		local hum = canSit(player)
@@ -916,16 +943,17 @@ local function nameTag(t: Truck)
 	end
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "OwnerTag"
-	gui.Size = UDim2.fromOffset(200, 40)
+	gui.Size = UDim2.new(12, 0, 1.8, 0) -- studs: side-by-side trucks (14 apart) never overlap tags
 	gui.StudsOffset = Vector3.new(0, 4.5, 0)
 	gui.MaxDistance = 160
 	gui.AlwaysOnTop = false
 	local l = Instance.new("TextLabel")
+	l.Name = "Label"
 	l.BackgroundTransparency = 1
 	l.Size = UDim2.fromScale(1, 1)
 	l.Font = Enum.Font.LuckiestGuy
 	l.TextScaled = true
-	l.Text = `{owner.DisplayName}'s 67`
+	l.Text = `{owner.DisplayName}'s Truck`
 	l.TextColor3 = Color3.fromRGB(255, 244, 196)
 	l.TextStrokeTransparency = 0
 	l.Parent = gui
@@ -1327,10 +1355,35 @@ end
 -- Safety net, 4 Hz. A truck under the map is put back upright on the nearest road node with whoever
 -- rides it still inside (they're welded to their seats, so the pivot carries them); an empty one goes
 -- home to its bay. Only a truck that is gone entirely (or lost and the rescue failed) is rebuilt.
+local ensureAt: { [Player]: number } = {}
+-- Every player owns a truck: a build that failed (or a spawn thread killed by a server hitch) is retried.
+local function ensureTrucks(now: number)
+	if not VehicleConfig.PerPlayerTrucks then
+		return
+	end
+	for _, p in Players:GetPlayers() do
+		if not byOwner[p] and now - (ensureAt[p] or now) >= 3 then
+			ensureAt[p] = now
+			local ok, err = pcall(spawnFor, p)
+			if not ok then
+				warn(`[VehicleService] truck retry for {p.Name} failed: {err}`)
+			elseif byOwner[p] then
+				count("truck_spawn_retries")
+			end
+			return -- one build per tick: never a burst of 300-part builds in one frame
+		elseif not byOwner[p] and not ensureAt[p] then
+			ensureAt[p] = now -- grace for the normal join path
+		elseif byOwner[p] then
+			ensureAt[p] = nil
+		end
+	end
+end
+
 local function lostTick()
 	while true do
 		task.wait(0.25)
 		local now = os.clock()
+		ensureTrucks(now)
 		local rebuild: { Player } = {}
 		for owner, t in byOwner do
 			local c = t.chassis
@@ -1474,6 +1527,7 @@ function VehicleService:Start()
 		runOverAt[p] = nil
 		bonkAt[p] = nil
 		lastRespawn[p] = nil
+		ensureAt[p] = nil
 	end)
 	RunService.Heartbeat:Connect(collisionTick)
 
