@@ -29,6 +29,9 @@
 --          Driven(driver: Player, studs: number)          -- a driver got out (studs travelled)
 --          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
 -- Remotes: Vehicle/Horn (C->S), Vehicle/Siren (C->S toggle), Vehicle/Respawn (C->S),
+--          Vehicle/Enter (C->S: truck: Model) one-tap entry (touch, Controllers/TapUseController): within
+--          VehicleConfig.TapEnterRange studs you sit straight in: the driver seat when it's yours and free,
+--          else the nearest free seat. No door to open first, so no door swinging into you.
 --          Vehicle/Honked (S->C all: truck: Model), Vehicle/Pop (S->C all: part, text, kind) for SLAM!/BONK!
 -- Truck attrs also: DoorOpen_L/R, DoorGone_L/R (booleans). Optional: HandsService:RegisterGrabbable(doorPanel).
 -- Truck attrs: OwnerUserId: number, Bay: number (0 = reserve), SirenOn: boolean, Driver: number (UserId, 0 = none),
@@ -1418,6 +1421,37 @@ function VehicleService:Start()
 		VehicleService:RespawnTruck(player)
 	end)
 	Net.event("Vehicle", "Honked")
+	Net.onServer(Net.event("Vehicle", "Enter"), { rate = 2, burst = 2 }, function(player: Player, model: any)
+		local t = if typeof(model) == "Instance" and model:IsA("Model") then byModel[model] else nil
+		local hum = canSit(player)
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not t or not hum or not root or not t.chassis.Parent then
+			return
+		end
+		local range = tonumber((VehicleConfig :: any).TapEnterRange) or 22
+		if (t.chassis.Position - root.Position).Magnitude > range then
+			return
+		end
+		local mayDrive = not (VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner)
+		local pick: (Seat | VehicleSeat)? = nil
+		if mayDrive and t.seat and not t.seat.Occupant then
+			pick = t.seat
+		else
+			local best = math.huge
+			for seat in t.seatPrompts do
+				if seat ~= t.seat and not seat.Occupant then
+					local d = (seat.Position - root.Position).Magnitude
+					if d < best then
+						pick, best = seat, d
+					end
+				end
+			end
+		end
+		if pick then
+			pick:Sit(hum)
+			count("truck_tap_enter")
+		end
+	end)
 
 	Players.PlayerRemoving:Connect(function(p: Player)
 		local had = byOwner[p] ~= nil
