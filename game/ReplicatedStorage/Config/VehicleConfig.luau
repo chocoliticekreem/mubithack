@@ -10,14 +10,24 @@ return Config.define({
 
 	Drivable = true, -- false = static trucks (no seat prompts, stay anchored)
 	PerPlayerTrucks = true, -- v2: FireTruck_<UserId> per player at their TruckBay
-	MaxTrucks = 4, -- one per station bay; everyone else rides along in a crew seat
+	MaxTrucks = 8, -- every player gets their own (server max is 8): bays 1-4 first, then overflow parking
 	PerMissionTrucks = false, -- v1 fallback: MissionService:ParkAt(instanceId) builds a truck inside the instance
 	OwnerOnlyDrives = true, -- others can still ride the back benches
 	TapEnterRange = 22, -- studs from the chassis: a tap on the truck (touch) sits you straight in (Vehicle/Enter)
 
 	-- Parking
-	ReserveAhead = 46, -- studs in front of the station anchor for the reserve row
-	ReserveSpacing = 15, -- studs between reserve spots
+	-- Overflow parking (bays 1-4 full): the station's east parking lot, nose toward its exit drive.
+	-- Offsets in bay 1's frame (x = truck-right, z = truck-back; bay 1 faces out of its door), so
+	-- (-110, 0, 7) is 110 studs east of bay 1, 7 studs further in. Checked clear in Studio (11x30 box).
+	OverflowSpots = {
+		Vector3.new(-110, 0, 7),
+		Vector3.new(-124, 0, 7),
+		Vector3.new(-138, 0, 7),
+		Vector3.new(-152, 0, 7),
+	},
+	-- past OverflowSpots (no station layout / >8 trucks): a row on the apron in front of the bays
+	ReserveAhead = 46, -- studs in front of the station anchor for that row
+	ReserveSpacing = 15, -- studs between its spots
 	RespawnCooldown = 4, -- seconds between RespawnTruck calls per player
 	UnflipRange = 150, -- R within this many studs of your truck = flip it upright in place; farther = back to bay
 	LostBelowY = -60, -- chassis below this = lost, rebuilt at the bay
