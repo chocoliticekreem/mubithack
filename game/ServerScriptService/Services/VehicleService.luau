@@ -111,6 +111,9 @@ type Truck = {
 
 -- TruckBuilder's PrimaryPart (Chassis) sits 2 studs above the ground point it was built on.
 local GROUND_TO_PIVOT = CFrame.new(0, 2, 0)
+-- A truck stays anchored this long after its driver sits, so the seat weld can never drag it round
+-- (covers the round trip until the driver's client has its body in the seat).
+local SEAT_SETTLE = 0.4
 -- Parts that only look like wheels: the suspension rays carry the truck, so these never touch the road.
 local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "Fender_", "CabStep_", "SideSkirt_" }
 
@@ -704,9 +707,19 @@ local function onDriverChanged(t: Truck)
 		t.driver = player
 		t.driveStart = t.chassis.Position
 		t.model:SetAttribute("Driver", player.UserId)
-		t.chassis.Anchored = false
-		pcall(function()
-			t.chassis:SetNetworkOwner(player)
+		-- Stay parked (anchored) for a beat after the driver sits. The driver's client owns their body and
+		-- only learns of the seat weld a round trip later; if the truck were already unanchored and theirs
+		-- by then, that client would satisfy the weld by moving the TRUCK onto its own stale copy of the
+		-- body (standing beside the cab, facing wherever they looked): the truck jumped and turned to the
+		-- player's orientation. Anchored, the weld can only pull the body into the seat.
+		task.delay(SEAT_SETTLE, function()
+			if t.driver ~= player or not t.chassis.Parent or not t.chassis.Anchored then
+				return
+			end
+			t.chassis.Anchored = false
+			pcall(function()
+				t.chassis:SetNetworkOwner(player)
+			end)
 		end)
 		for _, d in t.doors do
 			if not d.gone then
@@ -757,6 +770,17 @@ local function watchSeat(t: Truck, seat: Seat | VehicleSeat)
 		end
 		if seat == t.seat then
 			onDriverChanged(t)
+		else
+			-- a passenger's weld changes the truck's assembly, which can hand its physics to the passenger's
+			-- client (whose copy of their own body may still stand where they tapped): keep it the driver's
+			task.defer(function()
+				local d = t.driver
+				if d and t.chassis.Parent and not t.chassis.Anchored then
+					pcall(function()
+						t.chassis:SetNetworkOwner(d)
+					end)
+				end
+			end)
 		end
 		refreshPrompts(t)
 	end)
@@ -769,6 +793,16 @@ local function canSit(player: Player): Humanoid?
 		return nil
 	end
 	return hum
+end
+
+-- Seat `hum` in `seat`: first square the character up on the seat (its exact CFrame, raised), so the
+-- weld never has to swing a body that faced sideways or backwards into place. The truck itself never moves.
+local function sitIn(seat: Seat | VehicleSeat, hum: Humanoid)
+	local char = hum.Parent
+	if char and char:IsA("Model") then
+		char:PivotTo(seat.CFrame * CFrame.new(0, 2.5, 0))
+	end
+	seat:Sit(hum)
 end
 
 local function prompt(parent: Instance, name: string, action: string, objectText: string, key: Enum.KeyCode, dist: number): ProximityPrompt
@@ -911,7 +945,7 @@ local function rig(t: Truck)
 		end
 		local hum = canSit(player)
 		if hum and not seat.Occupant then
-			seat:Sit(hum)
+			sitIn(seat, hum)
 		end
 	end)
 	for i = 1, 5 do
@@ -927,7 +961,7 @@ local function rig(t: Truck)
 			p.Triggered:Connect(function(player: Player)
 				local hum = canSit(player)
 				if hum and not s.Occupant then
-					s:Sit(hum)
+					sitIn(s, hum)
 				end
 			end)
 		end
@@ -1505,7 +1539,7 @@ function VehicleService:Start()
 			end
 		end
 		if pick then
-			pick:Sit(hum)
+			sitIn(pick, hum)
 			count("truck_tap_enter")
 		end
 	end)
@@ -1658,7 +1692,7 @@ function VehicleService:_seat(player: Player): boolean
 	if not t or not t.seat or not hum or t.seat.Occupant then
 		return false
 	end
-	t.seat:Sit(hum)
+	sitIn(t.seat, hum)
 	return true
 end
 
