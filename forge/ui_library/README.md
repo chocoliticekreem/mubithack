@@ -18,6 +18,10 @@ can use it.
 | `RewardPopup.luau` | level up, chest, unlock, win |
 | `PriceBillboard.luau` | world price tags that turn green when affordable |
 | `FloatingText.luau` | "+1" over a world point |
+| `Leaderboard.luau` | live top-players panel by a leaderstat |
+| `ShopGrid.luau` | shop / upgrade-tree item cards with levels and buy buttons |
+| `RebirthPanel.luau` | rebirth card: requirement bar, multiplier, pulsing button |
+| `BuyPad.luau` | step-on unlock pad with a bobbing price (server Script) |
 
 `index.json` holds `name, file, when_to_use, keywords, needs_theme` for selection. When you add a
 snippet: one-line header comment, generic (no game-specific names), under ~2.5k chars, add it to the

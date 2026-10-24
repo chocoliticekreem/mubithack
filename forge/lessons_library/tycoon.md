@@ -1,0 +1,12 @@
+# Roblox tycoon best practices
+- Give the player their own plot instantly on join (auto-claim, or a big glowing CLAIM pad beside spawn) and teleport them onto it.
+- Core loop: droppers spawn ore parts that roll along a conveyor into a collector that pays cash; the player walks onto buy pads to unlock the next item. The first dropper is FREE or costs what the player earns in ~5 seconds.
+- Use 3+ dropper tiers (different colours and values), conveyor speed upgrades, a collector multiplier and decorative unlocks (walls, floor, lamps, sign) so the plot visibly grows from bare to busy.
+- Buy pads: a Neon pad with a PriceBillboard, green when affordable and red when not; only the next 1-3 pads are visible so the path is obvious. On purchase the pad vanishes with a pop, the unlocked model rises/scales in with a Back tween, sparkles burst, a purchase sound plays and the cash counter punches.
+- Rebirth: at a cash threshold, reset cash and unlocks for a permanent multiplier (x1.5, x2, ...); show the requirement as a progress bar and celebrate with a RewardPopup plus a camera shake.
+- Upgrade tree: 3 branches (income, speed, luck), each with 3-5 levels and growing costs, shown in a Panel with StyledButtons.
+- Leaderboard: leaderstats Cash and Rebirths, plus a top-players board (HUD or in-world).
+- Economy pacing: the next purchase is reachable in 15-40 s early on; costs x1.4 per step; income per second is visible on the HUD ("+$12/s").
+- Collector feedback: each ore collected flashes the collector, plays a soft tick and shows "+$N" floating text; batch client updates (at most ~10 remote events per second).
+- Server-authoritative cash; buy pads check cash and plot ownership on the server; ore parts are destroyed on collection and capped (e.g. 60 live ores per plot) so the server never lags.
+- Telemetry counters: plot_claimed, ore_spawned, ore_collected, cash_earned, item_bought, upgrade_bought, rebirth.

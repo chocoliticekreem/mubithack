@@ -28,5 +28,17 @@
    "keywords": ["billboard", "billboardgui", "price", "pad", "buy pad", "tycoon", "dropper", "cost", "nameplate", "sign", "tag", "affordable"]},
   {"name": "FloatingText", "file": "FloatingText.luau", "needs_theme": true,
    "when_to_use": "Rising '+1' / '+$50' text over a world point for pickups, hits and payouts (client).",
-   "keywords": ["floating", "+1", "pickup", "collect", "damage", "hit", "payout", "popup text", "effect", "juice", "earn"]}
+   "keywords": ["floating", "+1", "pickup", "collect", "damage", "hit", "payout", "popup text", "effect", "juice", "earn"]},
+  {"name": "Leaderboard", "file": "Leaderboard.luau", "needs_theme": true,
+   "when_to_use": "Live top-players HUD panel sorted by a leaderstat (cash, stage, rebirths), local player highlighted.",
+   "keywords": ["leaderboard", "top", "ranking", "rank", "best", "scoreboard", "highscore", "players"]},
+  {"name": "ShopGrid", "file": "ShopGrid.luau", "needs_theme": true,
+   "when_to_use": "Grid of item/upgrade cards (emoji icon, name, price, level x/max, buy button) inside a shop or upgrade Panel.",
+   "keywords": ["shop", "store", "items", "upgrade", "upgrades", "tree", "grid", "catalog", "buy", "cards", "level"]},
+  {"name": "RebirthPanel", "file": "RebirthPanel.luau", "needs_theme": true,
+   "when_to_use": "Rebirth/prestige card: requirement progress bar, x current -> x next multiplier, pulsing button when ready.",
+   "keywords": ["rebirth", "prestige", "multiplier", "reset", "ascend"]},
+  {"name": "BuyPad", "file": "BuyPad.luau", "needs_theme": false,
+   "when_to_use": "Glowing step-on pad that buys/unlocks the next item (droppers, walls, upgrades, zones), bobbing price, debounce. Server Script.",
+   "keywords": ["buy pad", "pad", "unlock", "dropper", "droppers", "conveyor", "plot", "gate", "zone", "purchase", "button pad"]}
 ]

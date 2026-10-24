@@ -1,0 +1,18 @@
+{
+  "doc": "Sound kit for GameAssets.luau (forge/director.py). Every id must play in a Studio playtest: rbxasset://sounds/* files ship with every Roblox client (checked against /Applications/RobloxStudio.app/Contents/Resources/content/sounds); rbxassetid:// ids are only added after being heard in a Studio playtest. pitch is the default PlaybackSpeed. keywords pick the kit sound for a director's sound description.",
+  "sounds": {
+    "Coin":   {"id": "rbxasset://sounds/volume_slider.ogg", "pitch": 1.7, "describe": "short bright tick-ding for coins, cash, pickups", "keywords": ["coin", "coins", "cash", "money", "ding", "pickup", "collect", "collected", "gem", "earn", "payout", "bright", "chime"], "volume": 0.6},
+    "Buy":    {"id": "rbxasset://sounds/volume_slider.ogg", "pitch": 1.15, "describe": "purchase confirm for buy pads and shop buttons", "keywords": ["buy", "purchase", "bought", "unlock", "unlocked", "upgrade", "register", "kaching", "cha"], "volume": 0.7},
+    "Click":  {"id": "rbxasset://sounds/volume_slider.ogg", "pitch": 1.0, "describe": "UI button click", "keywords": ["click", "button", "tap", "ui", "menu", "press", "select", "toggle"], "volume": 0.5},
+    "Pop":    {"id": "rbxasset://sounds/action_jump_land.mp3", "pitch": 1.8, "describe": "soft pop for things appearing", "keywords": ["pop", "appear", "spawn", "spawned", "drop", "dropper", "bubble", "plop"], "volume": 0.4},
+    "Error":  {"id": "rbxasset://sounds/oof.ogg", "pitch": 1.3, "describe": "can't do that: not enough cash, locked", "keywords": ["error", "fail", "denied", "locked", "not", "enough", "cant", "buzz", "wrong"], "volume": 0.35},
+    "Whoosh": {"id": "rbxasset://sounds/action_jump.mp3", "pitch": 0.8, "describe": "whoosh for jump pads, dashes, teleports, panels opening", "keywords": ["whoosh", "swoosh", "pad", "launch", "dash", "teleport", "open", "boost", "wind"], "volume": 0.5},
+    "Jump":   {"id": "rbxasset://sounds/action_jump.mp3", "pitch": 1.0, "describe": "character jump / bounce", "keywords": ["jump", "bounce", "hop", "spring", "trampoline"], "volume": 0.5},
+    "Land":   {"id": "rbxasset://sounds/action_jump_land.mp3", "pitch": 1.0, "describe": "landing thud, heavy object placed", "keywords": ["land", "thud", "place", "placed", "stomp", "heavy", "impact"], "volume": 0.5},
+    "Boom":   {"id": "rbxasset://sounds/impact_explosion_03.mp3", "pitch": 1.0, "describe": "big moment: rebirth, explosion, level up", "keywords": ["boom", "explosion", "explode", "rebirth", "big", "blast", "crash", "level", "levelup"], "volume": 0.4},
+    "Splash": {"id": "rbxasset://sounds/impact_water.mp3", "pitch": 1.0, "describe": "water splash, liquid, slime", "keywords": ["splash", "water", "liquid", "slime", "pour"], "volume": 0.5},
+    "Hurt":   {"id": "rbxasset://sounds/ouch.ogg", "pitch": 1.0, "describe": "player hurt or touched a kill brick", "keywords": ["hurt", "ouch", "damage", "die", "died", "death", "kill", "lava", "fall"], "volume": 0.5},
+    "Win":    {"id": "rbxasset://sounds/action_get_up.mp3", "pitch": 1.4, "describe": "checkpoint / reward / win sting", "keywords": ["win", "victory", "checkpoint", "reward", "fanfare", "complete", "finish", "achievement", "stage", "celebrate", "success"], "volume": 0.6},
+    "Music":  {"id": "", "pitch": 1.0, "describe": "looping background music (empty until a verified id is added; music() is then a no-op)", "keywords": ["music", "background", "loop", "theme", "song"], "volume": 0.25}
+  }
+}

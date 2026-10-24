@@ -18,7 +18,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
+from forge import director
 from forge.config import Settings, load_settings
+from forge.fun import FUN_BAR
 from forge.patch import PATCH_ABOVE_LINES
 from forge.versions import GameVersions
 from forge.memory import (
@@ -413,12 +415,14 @@ class Run:
         modules = topo_order(self.spec.get("modules", []))
         self.ui.header(f"build  {len(modules)} modules")
         for module in modules:
+            if module.get("prebuilt"):
+                continue  # written by the art pass (director.install_kit), not the coder
             deps = {}
             for d in module.get("depends", []):
                 src = self.read(d) if clean_rel_path(d) else ""
                 if src:
                     deps[d] = src
-            lessons = read_lessons(self.settings)
+            lessons = director.coder_notes(self.spec, read_lessons(self.settings))
             try:
                 source = await self.call("coder", module["path"], roles.code_module, self.spec, module,
                                          deps, lessons, session_id=self.slug)
@@ -489,6 +493,10 @@ class Run:
                 ok, val, _ = await step("screenshot", studio.screenshot(it_dir / "screenshot.png"))
                 if ok and val:
                     self.ui.line("studio", "screenshot", True, self.ui.dim(_rel(val, self.settings.repo_root)))
+                from forge import fun  # scene census for the fun critic and `forge done` (forge/fun.py)
+                ok, val, _ = await step("census", fun.census(studio))
+                if ok and isinstance(val, dict):
+                    report["census"] = val
         finally:
             with contextlib.suppress(Exception):
                 ok, _, _ = await step("stop", studio.stop())
@@ -559,6 +567,12 @@ class Run:
             rec["summary"] = str(critique.get("summary", ""))
             rec["issues"] = [i for i in critique.get("issues") or [] if isinstance(i, dict)]
             rec["done"] = bool(critique.get("done")) or score >= TARGET_SCORE
+            # fun critic (forge/fun.py): its issues join the critic's, and "done" needs fun >= bar too
+            fun_res = await self.fun_pass(n, files, report)
+            if fun_res is not None:
+                rec["fun"] = {k: fun_res.get(k) for k in ("score", "scores", "summary", "missing_juice")}
+                rec["issues"] = (rec["issues"] + fun_res["issues"])[:8]
+                rec["done"] = rec["done"] and fun_res["score"] >= FUN_BAR
             stop = rec["done"]
             colour = self.ui.green if score >= TARGET_SCORE else (self.ui.yellow if score >= 5 else self.ui.red)
             self.ui.line("score", f"{colour(f'{score:g}/10')}  {len(rec['issues'])} issues", None,
@@ -608,6 +622,24 @@ class Run:
         self.store.save_state(state)
         return rec, stop
 
+    async def fun_pass(self, n: int, files: dict[str, str], report: dict) -> dict | None:
+        """Fun critic on this iteration (off with FORGE_FUN_CRITIC=0 and for seeded human games)."""
+        from forge import fun
+
+        if os.environ.get("FORGE_FUN_CRITIC", "1") == "0" or self.spec.get("base_files"):
+            return None
+        try:
+            res = await self.call("fun_critic", f"{len(files)} files", fun.fun_critique, self.spec, files, report,
+                                  census=report.get("census"), session_id=self.slug)
+        except Exception as e:
+            self.ui.line("fun", "fun critic", False, self.ui.red(str(e)[:80]))
+            return None
+        fun.FunStore(self.settings, self.slug).save(n, res)
+        sc = res["scores"]
+        self.ui.line("fun", f"{res['score']:g}/10", res["score"] >= FUN_BAR,
+                     self.ui.dim(" ".join(f"{k} {v:g}" for k, v in sc.items())))
+        return res
+
     async def fix_issues(self, rec: dict, report: dict) -> None:
         from forge import roles
 
@@ -621,7 +653,7 @@ class Run:
             if path and path not in self.base_files:
                 by_path[path].append(issue)
         runtime = report.get("errors") or []
-        lessons = read_lessons(self.settings)
+        lessons = director.coder_notes(self.spec, read_lessons(self.settings))
         for path, issues in by_path.items():
             problem = "Playtest critique:\n" + "\n".join(
                 f"- {i.get('problem', '')}" + (f" (hint: {i['fix_hint']})" if i.get("fix_hint") else "")
@@ -710,7 +742,8 @@ class Run:
 # ================================================================ public API
 
 async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
-                   settings: Settings | None = None, llm: Any = None, ui: UI | None = None) -> str:
+                   settings: Settings | None = None, llm: Any = None, ui: UI | None = None,
+                   use_director: bool | None = None) -> str:
     """Design, build and iterate a new game. Returns its slug."""
     from forge import roles
 
@@ -723,14 +756,23 @@ async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
     run.ui.header(f"forge new  {slug}")
     run.ui.print(f"  {run.ui.dim('idea:')} {idea}")
 
-    spec = await run.call("designer", "spec.json", roles.design, idea, read_lessons(settings),
-                          session_id=slug)
+    if use_director is None:
+        use_director = os.environ.get("FORGE_DIRECTOR", "1") != "0"
+    if use_director:  # director design doc -> designer (forge/director.py)
+        spec = await run.call("director", "design doc + spec.json", director.plan, idea,
+                              read_lessons(settings), session_id=slug)
+    else:
+        spec = await run.call("designer", "spec.json", roles.design, idea, read_lessons(settings),
+                              session_id=slug)
     spec = normalize_spec(spec, slug)
     run.spec = spec
     store.save_spec(spec)
     run.ui.print(f"  {run.ui.bold(spec.get('title', slug))} - {run.ui.dim(str(spec.get('pitch', '')))}")
+    if spec.get("director"):
+        run.ui.print("  " + run.ui.dim(json.dumps(director.spec_stats(spec))))
 
     copy_base_game(settings, store.game_dir)
+    director.install_kit(spec, store.game_dir)  # art pass: GameAssets.luau before the coder runs
     await run.build_all()
     await run.iterate(iterations, use_studio)
     print_summary(run)
@@ -749,6 +791,8 @@ async def run_game(slug: str, iterations: int = 3, use_studio: bool = True, *,
     run.ui.header(f"forge run  {slug}")
     if not store.game_dir.exists():
         copy_base_game(settings, store.game_dir)
+    if not (store.game_dir / director.GAME_ASSETS).exists():
+        director.install_kit(run.spec, store.game_dir)
     missing = [m for m in run.spec.get("modules", []) if not run.read(m["path"])]
     if missing:
         spec_all = run.spec

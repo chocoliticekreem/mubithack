@@ -1,0 +1,382 @@
+"""Forge quality brain, part 1: the game director and the art/asset pass.
+
+idea -> director (Mubit task `director`, forge/prompts/director.md) -> design doc
+     -> designer (existing frozen task) with the doc in its USER message -> richer spec
+     -> art pass: ReplicatedStorage/GameAssets.luau (palette, verified sounds, particles, juice helpers)
+        written into the game before the coder runs, so every module can require real sounds and effects.
+
+All per-call text (idea, genre lessons, doc, scope) lives in user messages; the prompt files are fixed.
+
+    genre_lessons(text) -> str                         curated forge/lessons_library/*.md that fit the idea
+    direct(llm, idea, lessons, *, session_id) -> dict  the design doc (normalized)
+    design_from_doc(llm, idea, doc, lessons, *, session_id) -> dict   spec with spec["director"], ["first_60s"]
+    plan(llm, idea, lessons, *, session_id) -> dict    direct + design_from_doc
+    coder_notes(spec, lessons) -> str                  style + juice block prepended to coder/fixer lessons
+    install_kit(spec, game_dir) -> list[str]           writes the prebuilt kit files (GameAssets.luau)
+    spec_stats(spec) -> dict                           module/juice/beat counts for before/after reports
+"""
+
+from __future__ import annotations
+
+import functools
+import json
+import re
+from pathlib import Path
+
+from forge import roles, ui_kit
+from forge.llm import LLM, LLMError
+
+LIBRARY = Path(__file__).parent / "lessons_library"
+KIT_DIR = Path(__file__).parent / "kit"
+GAME_ASSETS = "ReplicatedStorage/GameAssets.luau"
+DOC_KEYS = ["fantasy", "core_loop", "systems", "juice", "first_60_seconds", "visual_style", "module_budget"]
+MIN_MODULES, MAX_MODULES = 4, 12
+PLAN_MAX_TOKENS = 16_000  # doc and spec are long, and the model reasons first (6000 was cut off)
+
+# genre -> words in the idea that pick it
+GENRES = {
+    "tycoon": ("tycoon", "dropper", "conveyor", "factory", "plot", "idle", "business", "rebirth"),
+    "obby": ("obby", "obstacle", "parkour", "checkpoint", "tower", "jump", "stages", "climb"),
+    "simulator": ("simulator", "sim", "backpack", "clicker", "click", "gather", "mine", "mining", "pets",
+                  "zones", "sell"),
+}
+
+
+# ------------------------------------------------------------------------------- genre lessons
+
+
+@functools.cache
+def _lesson_file(name: str) -> str:
+    p = LIBRARY / f"{name}.md"
+    return p.read_text(encoding="utf-8").strip() if p.exists() else ""
+
+
+def genres(text: str) -> list[str]:
+    words = set(re.findall(r"[a-z]+", (text or "").lower()))
+    return [g for g, kws in GENRES.items() if words & set(kws)]
+
+
+def genre_lessons(text: str) -> str:
+    """Curated lessons for this idea: the genre files it matches, then the fun rules every game gets."""
+    parts = [_lesson_file(g) for g in genres(text)] + [_lesson_file("fun")]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _merge_lessons(curated: str, learned: str) -> str:
+    learned = (learned or "").strip()
+    return curated + ("\n\n# Lessons from past builds\n" + learned if learned else "")
+
+
+# ------------------------------------------------------------------------------- sound kit
+
+
+@functools.cache
+def sound_kit() -> dict:
+    """forge/kit/sounds.json: {name: {id, describe, keywords, volume}}; ids are verified to play in Studio."""
+    return json.loads((KIT_DIR / "sounds.json").read_text(encoding="utf-8"))["sounds"]
+
+
+def match_sound(text: str) -> str:
+    """Best kit sound for a description like 'short bright coin ding'."""
+    words = set(re.findall(r"[a-z]+", (text or "").lower()))
+    best, score = "Pop", 0
+    for name, s in sound_kit().items():
+        hits = len(words & set(s["keywords"])) + (3 if name.lower() in words else 0)
+        if hits > score:
+            best, score = name, hits
+    return best
+
+
+def sound_table_block() -> str:
+    lines = ["## Sound table (ReplicatedStorage/GameAssets.luau: GameAssets.play(name, parentOrNil))"]
+    lines += [f"- {n}: {s['describe']}" for n, s in sound_kit().items()]
+    return "\n".join(lines) + "\n"
+
+
+# ------------------------------------------------------------------------------- director
+
+
+def _as_list(v) -> list:
+    return v if isinstance(v, list) else []
+
+
+def normalize_doc(doc: dict) -> dict:
+    out = dict(doc)
+    for k in ("progression", "systems", "juice", "first_60_seconds", "rewards", "sounds", "acceptance"):
+        out[k] = _as_list(doc.get(k))
+    beats = []
+    for b in out["first_60_seconds"]:
+        if not isinstance(b, dict) or not b.get("beat"):
+            continue
+        counter = re.sub(r"[^a-z0-9_]+", "_", str(b.get("counter") or "").lower()).strip("_")
+        try:
+            t = float(b.get("t") or 0)
+        except (TypeError, ValueError):
+            t = 0.0
+        try:
+            mn = max(1, int(b.get("min") or 1))
+        except (TypeError, ValueError):
+            mn = 1
+        beats.append({"t": t, "beat": str(b["beat"]), "counter": counter, "min": mn})
+    out["first_60_seconds"] = sorted(beats, key=lambda b: b["t"])
+    try:
+        budget = int(doc.get("module_budget") or 7)
+    except (TypeError, ValueError):
+        budget = 7
+    out["module_budget"] = max(MIN_MODULES, min(MAX_MODULES, budget))
+    vs = doc.get("visual_style")
+    out["visual_style"] = vs if isinstance(vs, dict) else {}
+    out["sounds"] = [s for s in out["sounds"] if isinstance(s, dict) and s.get("id")]
+    for s in out["sounds"]:
+        s["id"] = re.sub(r"[^A-Za-z0-9_]", "", str(s["id"])) or "Sound"
+        s["kit"] = match_sound(f"{s.get('id')} {s.get('for', '')} {s.get('describe', '')}")
+    return out
+
+
+def direct(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:
+    curated = genre_lessons(idea)
+    user = roles._fit(
+        "## Game idea\n"
+        f"{roles._truncate(idea.strip(), 3000, label='idea')}\n\n"
+        "## Curated genre lessons\n"
+        f"{roles._truncate(curated, 6000, label='genre lessons')}\n\n"
+        f"{roles._lessons_block(lessons, 4000)}\n"
+        f"{sound_table_block()}\n"
+        f"{ui_kit.designer_block()}\n"
+        "Return only the design doc JSON object."
+    )
+    doc, _ = llm.complete_json("director", user, session_id=session_id, required=DOC_KEYS, max_tokens=PLAN_MAX_TOKENS)
+    return normalize_doc(doc)
+
+
+# ------------------------------------------------------------------------------- designer with the doc
+
+
+def doc_block(doc: dict, limit: int = 11_000) -> str:
+    """The doc as compact JSON, one top-level key per line (readable, and ~30% smaller than indented)."""
+    keep = {k: doc.get(k) for k in ("fantasy", "core_loop", "progression", "systems", "juice",
+                                    "first_60_seconds", "rewards", "visual_style") if doc.get(k)}
+    keep["sounds"] = [{"id": s["id"], "for": s.get("for", ""), "kit": s["kit"]} for s in doc.get("sounds") or []]
+    text = "\n".join(f"{k}: {json.dumps(v, ensure_ascii=False)}" for k, v in keep.items())
+    return roles._truncate(text, limit, label="design doc")
+
+
+def _scope_block(doc: dict) -> str:
+    n = doc["module_budget"]
+    return (
+        "## Scope (the director's decision; it overrides the 3-7 module guideline)\n"
+        f"- Use {max(MIN_MODULES, n - 2)} to {n} modules so every system above has a home; each module keeps one clear job "
+        "and stays under ~300 lines.\n"
+        f"- `{GAME_ASSETS}` is PREBUILT and always present: do NOT list it in modules, but add it to `depends` "
+        "of any module that plays sounds or effects. API: GameAssets.Palette {name: Color3}, "
+        "GameAssets.Sounds {name: soundId}, GameAssets.play(name, parent?) -> Sound?, "
+        "GameAssets.burst(at: BasePart | Vector3, color: Color3?, count: number?), "
+        "GameAssets.shake(intensity?, seconds?) (client only), GameAssets.styleLighting() (server), "
+        "GameAssets.part(props) -> Part (never default grey).\n"
+        "- Every juice moment above must be named in some module's purpose (the sound name, the effect, the tween).\n"
+        "- Every first-60-seconds counter must be bumped by the server and named in acceptance.\n"
+        "- One client module builds a styled HUD with the UI kit; world builders use the palette, never default grey.\n"
+    )
+
+
+def _prebuilt_module() -> dict:
+    return {"path": GAME_ASSETS, "prebuilt": True, "depends": [],
+            "purpose": "PREBUILT (do not rewrite): palette, sound ids, play(name, parent?), burst(at, color?, count?), "
+                       "shake(intensity?, seconds?) client-only, styleLighting() server, part(props) -> Part."}
+
+
+def _attach(spec: dict, doc: dict) -> dict:
+    """Prebuilt kit module first, the doc saved on the spec, beats appended to acceptance."""
+    mods = [m for m in spec.get("modules") or [] if isinstance(m, dict) and m.get("path") != GAME_ASSETS]
+    spec["modules"] = [_prebuilt_module()] + mods
+    spec["director"] = doc
+    spec["first_60s"] = doc.get("first_60_seconds") or []
+    acc = list(spec.get("acceptance") or [])
+    for b in spec["first_60s"]:
+        if b["counter"]:
+            line = f"{b['counter']} counter reaches {b['min']} within {b['t']:g}s ({b['beat']})"
+            if not any(b["counter"] in a for a in acc):
+                acc.append(line)
+    spec["acceptance"] = acc
+    return spec
+
+
+def _problems(spec: dict, budget: int) -> list[str]:
+    probs = [p for p in roles.validate_spec(spec) if not p.startswith("too many modules")]
+    n = len([m for m in spec.get("modules") or [] if isinstance(m, dict) and m.get("path") != GAME_ASSETS])
+    if n > budget + 1:
+        probs.append(f"too many modules ({n}); the director's budget is {budget}")
+    return probs
+
+
+def design_from_doc(llm: LLM, idea: str, doc: dict, lessons: str, *, session_id: str) -> dict:
+    curated = genre_lessons(idea)
+    user = roles._fit(
+        "## Game idea\n"
+        f"{roles._truncate(idea.strip(), 2000, label='idea')}\n\n"
+        "## Director's design doc (build this game, not a smaller one)\n"
+        f"{doc_block(doc)}\n\n"
+        f"{_scope_block(doc)}\n"
+        f"{roles._lessons_block(_merge_lessons(curated, lessons), 4000)}\n"
+        f"{ui_kit.designer_block()}\n"
+        "Return only the Spec JSON object."
+    )
+    spec, _ = llm.complete_json("designer", user, session_id=session_id, required=roles.SPEC_KEYS, max_tokens=PLAN_MAX_TOKENS)
+    problems = _problems(spec, doc["module_budget"])
+    if problems:
+        retry = (f"{user}\n\n## Your previous spec has problems\n" + "\n".join(f"- {p}" for p in problems)
+                 + "\n\nPrevious spec:\n" + roles._truncate(json.dumps(spec, ensure_ascii=False), 6000, label="spec")
+                 + "\n\nReturn only the corrected Spec JSON object.")
+        spec, _ = llm.complete_json("designer", retry, session_id=session_id, required=roles.SPEC_KEYS,
+                                    max_tokens=PLAN_MAX_TOKENS)
+        problems = _problems(spec, doc["module_budget"])
+        if problems:
+            raise LLMError("designer spec invalid: " + "; ".join(problems))
+    # the kit module is a known dependency during normalization, then goes first in the module list
+    spec["modules"] = [_prebuilt_module()] + [m for m in spec["modules"]
+                                              if isinstance(m, dict) and m.get("path") != GAME_ASSETS]
+    spec = roles._normalize_spec(spec)
+    return _attach(spec, doc)
+
+
+def plan(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:
+    doc = direct(llm, idea, lessons, session_id=session_id)
+    return design_from_doc(llm, idea, doc, lessons, session_id=session_id)
+
+
+# ------------------------------------------------------------------------------- coder notes
+
+
+def coder_notes(spec: dict, lessons: str, limit: int = 2600) -> str:
+    """Lessons for coder/fixer calls on a directed game: style + juice first (they survive truncation)."""
+    doc = spec.get("director") or {}
+    if not doc:
+        return lessons
+    vs = doc.get("visual_style") or {}
+    juice = "; ".join(
+        f"{j.get('moment')}: {', '.join(str(j.get(k)) for k in ('sound', 'vfx', 'ui', 'camera') if j.get(k) and j.get(k) != 'none')}"
+        for j in doc.get("juice") or [] if isinstance(j, dict))
+    sounds = ", ".join(f"{s['id']}->{s['kit']}" for s in doc.get("sounds") or [])
+    block = (
+        "# This game's style and juice (from the director; apply wherever your module touches it)\n"
+        f"- Palette: {', '.join(map(str, vs.get('palette') or []))}; materials: "
+        f"{', '.join(map(str, vs.get('materials') or []))}; lighting: {vs.get('lighting', '')}\n"
+        f"- Use GameAssets (ReplicatedStorage/GameAssets.luau): play(name), burst(at), shake() on the client, "
+        f"part(props) for every world part. Sound names: {', '.join(sound_kit())}. Director sounds: {sounds}\n"
+        f"- Juice: {juice}\n"
+    )
+    block = roles._truncate(block, limit, label="style")
+    return block + "\n" + (lessons or "")
+
+
+# ------------------------------------------------------------------------------- art pass
+
+
+def _hex(c: str) -> tuple[int, int, int] | None:
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(c).strip())
+    if not m:
+        return None
+    v = m.group(1)
+    return int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)
+
+
+def render_game_assets(spec: dict) -> str:
+    """GameAssets.luau from the kit template, with this game's palette and director sound aliases."""
+    doc = spec.get("director") or {}
+    palette = [p for p in (_hex(c) for c in (doc.get("visual_style") or {}).get("palette") or []) if p]
+    pal_lines = "".join(f"\tC{i + 1} = Color3.fromRGB({r}, {g}, {b}),\n" for i, (r, g, b) in enumerate(palette[:8]))
+    snd_lines = "".join(f"\t{n} = \"{s['id']}\",\n" for n, s in sound_kit().items())
+    vol_lines = "".join(f"\t{n} = {s.get('volume', 0.5)},\n" for n, s in sound_kit().items())
+    pitch_lines = "".join(f"\t{n} = {s.get('pitch', 1)},\n" for n, s in sound_kit().items())
+    alias, seen = "", set(sound_kit())
+    for s in doc.get("sounds") or []:
+        if s["id"] not in seen:
+            seen.add(s["id"])
+            alias += (f"GameAssets.Sounds.{s['id']} = GameAssets.Sounds.{s['kit']}\n"
+                      f"VOLUMES.{s['id']}, PITCHES.{s['id']} = VOLUMES.{s['kit']}, PITCHES.{s['kit']}\n")
+    tpl = (KIT_DIR / "GameAssets.luau").read_text(encoding="utf-8")
+    return (tpl.replace("--[[PALETTE]]\n", pal_lines)
+               .replace("--[[SOUNDS]]\n", snd_lines)
+               .replace("--[[VOLUMES]]\n", vol_lines)
+               .replace("--[[PITCHES]]\n", pitch_lines)
+               .replace("--[[ALIASES]]\n", alias))
+
+
+def install_kit(spec: dict, game_dir: Path) -> list[str]:
+    """Write the prebuilt kit files into a game. Returns the relative paths written."""
+    if not any(m.get("path") == GAME_ASSETS for m in spec.get("modules") or []):
+        return []
+    out = Path(game_dir) / GAME_ASSETS
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_game_assets(spec), encoding="utf-8")
+    return [GAME_ASSETS]
+
+
+# ------------------------------------------------------------------------------- reporting
+
+
+def spec_stats(spec: dict) -> dict:
+    doc = spec.get("director") or {}
+    mods = [m for m in spec.get("modules") or [] if isinstance(m, dict)]
+    return {
+        "modules": len(mods),
+        "written_by_coder": len([m for m in mods if not m.get("prebuilt")]),
+        "acceptance": len(spec.get("acceptance") or []),
+        "systems": len(doc.get("systems") or []),
+        "juice": len(doc.get("juice") or []),
+        "first_60s_beats": len(spec.get("first_60s") or []),
+        "sounds": len(doc.get("sounds") or []),
+        "rewards": len(doc.get("rewards") or []),
+        "progression_steps": len(doc.get("progression") or []),
+        "purpose_chars": sum(len(m.get("purpose") or "") for m in mods),
+        "juice_in_purposes": _juice_in_purposes(spec),
+    }
+
+
+_JUICE_RX = re.compile(r"\b(sound|sfx|play\(|particle|burst|sparkle|tween|pop|punch|shake|flash|glow|confetti)",
+                       re.IGNORECASE)
+
+
+def _juice_in_purposes(spec: dict) -> int:
+    """How many coder-written module purposes name a sound/effect/tween (juice the coder will build)."""
+    return sum(1 for m in spec.get("modules") or []
+               if isinstance(m, dict) and not m.get("prebuilt") and _JUICE_RX.search(m.get("purpose") or ""))
+
+
+def dry_run(settings, idea: str, *, compare: bool = False, llm: LLM | None = None) -> dict:
+    """`forge direct`: director + designer (with compare, also the plain designer) without building.
+    Saves runs/plans/<slug>/{doc,spec,spec_plain,stats}.json."""
+    from forge.llm import make_llm
+    from forge.memory import read_lessons, slugify
+
+    slug = slugify(idea)
+    out_dir = settings.runs_dir / "plans" / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    llm = llm or make_llm(settings, out_dir / "calls.jsonl")
+    lessons = read_lessons(settings)
+    session = f"plan-{slug}"
+    after = plan(llm, idea, lessons, session_id=session)
+    stats = {"after": spec_stats(after)}
+    (out_dir / "doc.json").write_text(json.dumps(after["director"], indent=1, ensure_ascii=False))
+    (out_dir / "spec.json").write_text(json.dumps(after, indent=1, ensure_ascii=False))
+    before = None
+    if compare:
+        before = roles.design(llm, idea, lessons, session_id=session)
+        stats["before"] = spec_stats(before)
+        (out_dir / "spec_plain.json").write_text(json.dumps(before, indent=1, ensure_ascii=False))
+    (out_dir / "stats.json").write_text(json.dumps(stats, indent=1))
+    return {"slug": slug, "dir": str(out_dir), "stats": stats, "spec": after, "spec_plain": before}
+
+
+def render_compare(out: dict) -> str:
+    st = out["stats"]
+    lines = [f"plan: {out['dir']}", f"{'':<20}{'designer only':>14}{'director':>10}"]
+    for k in st["after"]:
+        b = st.get("before", {}).get(k, "-")
+        lines.append(f"{k:<20}{b!s:>14}{st['after'][k]!s:>10}")
+    lines.append("\nmodules (director):")
+    lines += [f"  {m['path']}" + ("  [prebuilt]" if m.get("prebuilt") else "") for m in out["spec"]["modules"]]
+    lines.append("first 60 seconds:")
+    lines += [f"  {b['t']:>4g}s  {b['counter'] or '-':<22} {b['beat'][:70]}"
+              for b in out["spec"].get("first_60s") or []]
+    return "\n".join(lines)

@@ -9,11 +9,24 @@ def _settings(tmp_path):
     return dataclasses.replace(load_settings(), runs_dir=tmp_path / "runs")
 
 
-def _game(tmp_path, *, spec=None, state=None, scores=None, results=None, features=None):
+BEATS = [{"t": 5, "beat": "claims a plot", "counter": "plot_claimed", "min": 1},
+         {"t": 20, "beat": "buys the first dropper", "counter": "item_bought", "min": 1}]
+CENSUS = {"source": "playtest", "parts": 120, "grey": 4, "sounds": 3, "screen_guis": 2}
+FUN = {"score": 8.5, "scores": {"fun": 8, "juice": 9, "clarity": 8, "visuals": 9}, "census": CENSUS}
+
+
+def _game(tmp_path, *, spec=None, state=None, scores=None, results=None, features=None, fun=None,
+          report=None):
     run = tmp_path / "runs" / "g"
     (run / "improve").mkdir(parents=True)
     (run / "spec.json").write_text(json.dumps(spec or {}))
     (run / "state.json").write_text(json.dumps(state or {}))
+    if fun is not None:
+        (run / "fun").mkdir()
+        (run / "fun" / "latest.json").write_text(json.dumps(fun))
+    if report is not None:
+        (run / "iterations" / "2").mkdir(parents=True)
+        (run / "iterations" / "2" / "report.json").write_text(json.dumps(report))
     if scores is not None:
         (run / "improve" / "scores.json").write_text(json.dumps(scores))
     if results is not None:
@@ -26,10 +39,48 @@ def _game(tmp_path, *, spec=None, state=None, scores=None, results=None, feature
 def test_ready_when_every_part_is_proved(tmp_path):
     _game(tmp_path, state={"iterations": [{"score": 6}, {"score": 8.5}]}, scores=[{"cycle": 3, "open": 0}],
           results=[{"id": "a", "ok": True}, {"id": "b", "ok": True}],
-          features=[{"request": "pass", "verified": False}, {"request": "pass", "verified": True}])
+          features=[{"request": "pass", "verified": False}, {"request": "pass", "verified": True}],
+          spec={"first_60s": BEATS}, fun=FUN, report={"counters": {"plot_claimed": 1, "item_bought": 2}})
     r = readiness(_settings(tmp_path), "g")
     assert r["ready"], r
     assert "READY" in render(r)
+    parts = {p["part"]: p for p in r["parts"]}
+    assert "2/2 beats" in parts["first60"]["detail"] and "4/120" in parts["visuals"]["detail"]
+
+
+def test_fun_bar_grey_hud_sounds_and_first60_each_block(tmp_path):
+    grey = {**CENSUS, "grey": 90, "sounds": 0, "screen_guis": 0}
+    _game(tmp_path, spec={"first_60s": BEATS}, fun={**FUN, "score": 7, "census": grey},
+          report={"counters": {"plot_claimed": 1}})
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert not parts["fun"]["ok"] and "7/10" in parts["fun"]["detail"]
+    assert not parts["visuals"]["ok"] and "90/120" in parts["visuals"]["detail"]
+    assert not parts["hud"]["ok"] and not parts["sounds"]["ok"]
+    assert not parts["first60"]["ok"] and "item_bought" in parts["first60"]["detail"]
+
+
+def test_census_falls_back_to_report_then_source(tmp_path):
+    _game(tmp_path, report={"census": CENSUS, "counters": {}})
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert parts["sounds"]["ok"] and "(playtest)" in parts["sounds"]["detail"]
+    assert not parts["first60"]["ok"] and "director" in parts["first60"]["detail"]
+
+    game = tmp_path / "runs" / "g" / "game" / "StarterPlayerScripts"
+    game.mkdir(parents=True)
+    (game / "Hud.client.luau").write_text('local g = Instance.new("ScreenGui")\nGameAssets.play("Coin")\n')
+    (tmp_path / "runs" / "g" / "iterations" / "2" / "report.json").write_text("{}")
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert parts["hud"]["ok"] and parts["sounds"]["ok"] and "(static)" in parts["hud"]["detail"]
+
+
+def test_first60_reads_fix_cycle_rounds_and_critic_for_counterless_beats(tmp_path):
+    beats = BEATS + [{"t": 30, "beat": "sees the rebirth bar", "counter": "", "min": 1}]
+    _game(tmp_path, spec={"first_60s": beats}, scores=[{"cycle": 1, "open": 0}],
+          fun={**FUN, "first_60_seconds": [{"beat": "sees the rebirth bar", "ok": True}]})
+    (tmp_path / "runs" / "g" / "improve" / "1.json").write_text(json.dumps(
+        {"before": [{"counters": {"plot_claimed": 1}}, {"counters": {"item_bought": 1}}]}))
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert parts["first60"]["ok"], parts["first60"]
 
 
 def test_unknown_is_never_ready(tmp_path):
@@ -50,6 +101,7 @@ def test_failures_are_named(tmp_path):
     assert "claim-works" in parts["checks"]["detail"] and "1/2" in parts["checks"]["detail"]
     assert "not verified" in parts["features"]["detail"] and "2 high/medium open" in parts["open"]["detail"]
     assert parts["critic"]["ok"] and "n/a" in parts["critic"]["detail"]
+    assert parts["fun"]["ok"] and parts["first60"]["ok"]  # seeded human games: n/a
     assert "not ready yet" in render(r)
 
 
