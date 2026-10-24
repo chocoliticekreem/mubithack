@@ -307,6 +307,11 @@ def test_gate_rolls_back_on_any_hard_regression():
                      ({"physics": {"flagged": [1, 2]}}, "physics")]:
         g = apm.gate(base, {**base, **bad})
         assert g["verdict"] == "rolled_back" and any(why in x for x in g["regressions"]), bad
+    # a counter the jobs added themselves is not proof: with a critic dip and nothing else, roll back
+    g = apm.gate(base, {**base, "critic": 5, "counters": {**base["counters"], "fix_applied": 1}})
+    assert g["verdict"] == "rolled_back" and "fix_applied" in g["notes"][0]
+    g = apm.gate({**base, "declared": ["coins_bought"]}, {**base, "counters": {**base["counters"], "coins_bought": 2}})
+    assert g["improvements"] == ["counters now moving: coins_bought"]
     # a one-point critic dip with a measured gain (an error gone, a check passing) is LLM noise: kept
     g = apm.gate(base, {**base, "errors": [], "critic": 5})
     assert g["verdict"] == "kept" and any("soft dip" in x for x in g["improvements"])

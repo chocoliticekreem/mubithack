@@ -342,6 +342,7 @@ def gate(before: dict, after: dict) -> dict:
     critic or fun down by >= 1, more physics flags. Improvements are listed for the journal."""
     reg: list[str] = []
     imp: list[str] = []
+    notes: list[str] = []
     if after.get("compile_errors"):
         reg.append(f"{len(after['compile_errors'])} files fail luau-compile")
     b_boot, a_boot = int(before.get("boot_errors") or 0), int(after.get("boot_errors") or 0)
@@ -363,8 +364,13 @@ def gate(before: dict, after: dict) -> dict:
         if dead:
             reg.append(f"core counters stopped moving: {', '.join(sorted(dead)[:6])}")
         alive = [k for k, v in ac.items() if v > 0 and bc.get(k, 0) == 0 and not evm.PERF_RX.search(k)]
-        if alive:
-            imp.append(f"counters now moving: {', '.join(sorted(alive)[:6])}")
+        known = set(bc) | set(before.get("declared") or [])
+        proof = [k for k in alive if k in known]  # a counter the jobs just added can't prove their own work
+        if proof:
+            imp.append(f"counters now moving: {', '.join(sorted(proof)[:6])}")
+        if len(proof) < len(alive):
+            notes.append(f"new counters (added this round, not counted as proof): "
+                         f"{', '.join(sorted(set(alive) - set(proof))[:6])}")
         pb = len((before.get("physics") or {}).get("flagged") or [])
         pa = len((after.get("physics") or {}).get("flagged") or [])
         if pa >= pb + PHYSICS_RISE:
@@ -397,7 +403,7 @@ def gate(before: dict, after: dict) -> dict:
     bh, ah = before.get("swarm_high"), after.get("swarm_high")
     if bh is not None and ah is not None and ah < bh:
         imp.append(f"high-severity swarm bugs {bh} -> {ah}")
-    return {"verdict": "rolled_back" if reg else "kept", "regressions": reg, "improvements": imp}
+    return {"verdict": "rolled_back" if reg else "kept", "regressions": reg, "improvements": imp, "notes": notes}
 
 
 # ---------------------------------------------------------------- options and the loop
@@ -1245,6 +1251,7 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
              checks={"pass": sum(1 for x in results if x.get("ok")), "fail": sum(1 for x in results if not x.get("ok")),
                      "passing": [x["id"] for x in results if x.get("ok")],
                      "failing": [x["id"] for x in results if not x.get("ok")]} if results else {})
+    m["declared"] = evm.declared_counters(gapmod.game_sources(store.game_dir), _read(store.spec_path, {}) or {})
     m["bridge_events"] = [e for e in evm.bridge_events() if float(e.get("time") or 0) >= t0 - 1]
     if ap.opts.critic and not compile_errors and (ap.calls_left() is None or ap.calls_left() > 4):
         files = gapmod.game_sources(store.game_dir)
