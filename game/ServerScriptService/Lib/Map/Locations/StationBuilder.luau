@@ -17,9 +17,10 @@
 --       jamb strips (attr Bay). Painted bay numbers, back-wall "BAY n" plates, tool bench, hose reels,
 --       axe rack, O2 tanks, trampoline, door to the hose tower.
 --   West wing X -60..-20, ground floor:
---       Locker room (Z -40..6): 4 numbered gear racks on the west wall (part "GearRack", tag GearRack,
---       attr Slot 1..4, Attachments GearPoint_Hand / GearPoint_Back / GearPoint_Head), StationSpawn
---       pads in front of each (attrs Slot + Helmet 1..4), lockers, bench, stairs up, fire pole + Mat.
+--       Locker room (Z -40..6): 8 numbered gear racks, 1..4 on the west wall and 5..8 on the free-standing
+--       "GearSpine" (part "GearRack", tag GearRack, attr Slot 1..8, Attachments GearPoint_Hand /
+--       GearPoint_Back / GearPoint_Head), StationSpawn pads in front of each (attrs Slot + Helmet 1..8),
+--       lockers, bench, stairs up, fire pole + Mat.
 --       Watch room (X -60..-40, Z 6..30): dispatch desk + monitors, big "DispatchScreen" (SurfaceGui
 --       "DispatchGui" > TextLabel "Text"; AlarmController writes DISPATCH on it), city map, front door.
 --       Kitchen (X -40..-20, Z 6..30): counters, stove with the chili pot, fridge, table, coffee.
@@ -893,12 +894,15 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 
 	------------------------------------------------------------ locker room
-	-- gear racks 1..8 on the west wall (squads of up to 8), spawn pads in front of them
-	for i = 1, 8 do
-		local z = -37 + (i - 1) * 5.3
+	-- 8 gear racks, 8 studs apart so the 3 loadout pegs and the R locker prompt of neighbours never
+	-- overlap: 1..4 on the west wall, 5..8 on a freestanding "GearSpine" facing the partition door.
+	-- Every rack faces +X; its StationSpawn pad sits 7.7 studs in front of the board.
+	-- numbered from the south so they read 01..04 left to right from inside the room
+	local RACK_Z = { -4, -12, -20, -28 }
+	local function gearRack(i: number, bx: number, z: number)
 		local rack = folder(lockerRoom, `GearRack{i}`)
 		rack:SetAttribute(ATTR_SLOT, i)
-		local board = part(rack, "GearRack", facing(-58.7, FLOOR + 4.6, z, 1, 0), V(4.8, 7.6, 0.6), C.TruckRed)
+		local board = part(rack, "GearRack", facing(bx, FLOOR + 4.6, z, 1, 0), V(4.8, 7.6, 0.6), C.TruckRed)
 		CollectionService:AddTag(board, TAG_GEAR_RACK)
 		board:SetAttribute(ATTR_SLOT, i)
 		board:SetAttribute(Names.Attr.Helmet, i)
@@ -913,36 +917,52 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			a.Position = pos
 			a.Parent = board
 		end
-		local np = plate(rack, "RackNumber", -58.3, FLOOR + 9.4, z, 1, 0, 3, 1.6, C.Trim, string.format("%02d", i), C.TruckRed, Enum.Font.LuckiestGuy)
+		local np = plate(rack, "RackNumber", bx + 0.4, FLOOR + 9.7, z, 1, 0, 3.6, 2, C.Trim, string.format("%02d", i), C.TruckRed, Enum.Font.LuckiestGuy)
 		np.CanCollide = false
-		box(rack, "Shelf", -57.6, FLOOR + 7.0, z, 2.2, 0.4, 4.8, C.WoodLight)
-		helmet(rack, -57.6, FLOOR + 7.2, z, 1, 0)
+		-- helmet hangs on the left hook, below GearService's "LOCKER [R]" sign at the top of the board
+		box(rack, "Shelf", bx + 0.7, FLOOR + 6.9, z, 1.4, 0.3, 4.8, C.WoodLight)
+		helmet(rack, bx + 1.2, FLOOR + 4.7, z - 1.4, 1, 0)
 		for _, dz in { -1.4, 0, 1.4 } do
-			cyl(rack, "Hook", CFrame.new(-57.8, FLOOR + 5.4, z + dz), "x", 1.2, 0.3, C.Chrome)
+			cyl(rack, "Hook", CFrame.new(bx + 0.9, FLOOR + 5.4, z + dz), "x", 1.2, 0.3, C.Chrome)
 		end
-		box(rack, "Coat", -57.9, FLOOR + 3.6, z + 1.3, 0.8, 3.4, 1.8, C.Coat, { collide = false })
-		box(rack, "CoatBand", -57.85, FLOOR + 2.7, z + 1.3, 0.9, 0.5, 1.9, C.Lime, { collide = false })
-		box(rack, "BootL", -57.2, FLOOR + 0.8, z - 1, 1.6, 1.6, 1, C.Ink)
-		box(rack, "BootR", -57.2, FLOOR + 0.8, z + 0.2, 1.6, 1.6, 1, C.Ink)
+		box(rack, "Coat", bx + 0.8, FLOOR + 3.6, z + 1.3, 0.8, 3.4, 1.8, C.Coat, { collide = false })
+		box(rack, "CoatBand", bx + 0.85, FLOOR + 2.7, z + 1.3, 0.9, 0.5, 1.9, C.Lime, { collide = false })
+		box(rack, "BootL", bx + 1.5, FLOOR + 0.8, z - 1, 1.6, 1.6, 1, C.Ink)
+		box(rack, "BootR", bx + 1.5, FLOOR + 0.8, z + 0.2, 1.6, 1.6, 1, C.Ink)
 		-- spawn pad (StationSpawn)
-		local pad = box(spawns, `SpawnPad{i}`, -51, FLOOR - 0.1, z, 4.4, 0.4, 4.4, C.Line)
+		local px = bx + 7.7
+		local pad = box(spawns, `SpawnPad{i}`, px, FLOOR - 0.1, z, 4.4, 0.4, 4.4, C.Line)
 		CollectionService:AddTag(pad, Names.Tag.StationSpawn)
 		pad:SetAttribute(ATTR_SLOT, i)
 		pad:SetAttribute(Names.Attr.Helmet, i)
-		local inner = box(spawns, `SpawnPadInner{i}`, -51, FLOOR, z, 3.4, 0.4, 3.4, C.TruckRed)
+		local inner = box(spawns, `SpawnPadInner{i}`, px, FLOOR, z, 3.4, 0.4, 3.4, C.TruckRed)
 		label(inner, Enum.NormalId.Top, string.format("%02d", i), C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	end
-	plate(lockerRoom, "SuitUp", -59, FLOOR + 10.8, -18, 1, 0, 14, 1.4, C.TruckRed, "SUIT UP - GRAB YOUR GEAR", C.Trim, Enum.Font.LuckiestGuy)
+	for k, z in RACK_Z do
+		gearRack(k, -58.7, z)
+	end
+	-- the gear spine: a free-standing half wall (back at x -43.2) carrying racks 5..8 on its east face
+	local SPINE_X = -42.9
+	box(lockerRoom, "GearSpine", SPINE_X, FLOOR + 5.3, -16, 0.6, 10.6, 30, C.Plaster)
+	box(lockerRoom, "GearSpineCap", SPINE_X, FLOOR + 10.75, -16, 1.2, 0.3, 30.4, C.TruckRed)
+	for _, ez in { -31, -1 } do
+		box(lockerRoom, "GearSpineEnd", SPINE_X, FLOOR + 5.3, ez, 1.2, 10.6, 0.6, C.TruckRed)
+	end
+	for k, z in RACK_Z do
+		gearRack(4 + k, SPINE_X + 0.6, z)
+	end
+	plate(lockerRoom, "SuitUp", SPINE_X - 0.5, FLOOR + 8.6, -16, -1, 0, 16, 1.6, C.TruckRed, "SUIT UP - GRAB YOUR GEAR", C.Trim, Enum.Font.LuckiestGuy)
 	-- spare lockers on the front wall (between the doors), facing into the room
 	for k, x in { -45.5, -42.5, -39.5, -36.5, -33.5 } do
 		prop("locker", lockerRoom, facing(x, FLOOR, 4.6, 0, -1), { door = true, helmet = k }, function()
 			box(lockerRoom, "Locker", x, FLOOR + 3.75, 4.6, 3, 7.5, 2, C.Locker)
 		end)
 	end
-	prop("bench", lockerRoom, facing(-40, FLOOR, -14, 0, 1), { length = 12 }, function()
-		box(lockerRoom, "Bench", -40, FLOOR + 1.4, -14, 12, 0.8, 2, C.WoodLight)
+	-- bench along the back of the spine, facing the west-wall racks
+	prop("bench", lockerRoom, facing(-44.8, FLOOR, -16, -1, 0), { length = 10 }, function()
+		box(lockerRoom, "Bench", -44.8, FLOOR + 1.4, -16, 2, 0.8, 10, C.WoodLight)
 	end)
-	hoseCoil(lockerRoom, -36, FLOOR, -20)
+	hoseCoil(lockerRoom, -31, FLOOR, -37)
 	-- fire pole: Mat at the bottom, "Pole" to just above the upstairs floor, "PoleTop" to the roof
 	local pole = folder(lockerRoom, "FirePole")
 	local px, pz = -25, -30
@@ -961,10 +981,10 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	plate(upstairs, "PoleSign", -24, F2 + 8, -38.8, 0, 1, 6, 1.6, C.Line, "SLIDE, DON'T JUMP", C.Ink, Enum.Font.LuckiestGuy)
 	-- dog corner
 	local dogArea = folder(lockerRoom, "DogCorner")
-	cyl(dogArea, "DogBed", CFrame.new(-30, FLOOR + 0.4, -6), "y", 0.8, 4.6, C.HoseRed)
-	cyl(dogArea, "Cushion", CFrame.new(-30, FLOOR + 0.5, -6), "y", 0.8, 3.6, C.Cream)
-	cyl(dogArea, "Bowl", CFrame.new(-26.5, FLOOR + 0.3, -4), "y", 0.6, 1.4, hex("4FB3D9"))
-	local dogCf = facing(-30, FLOOR, -6, 1, 1)
+	cyl(dogArea, "DogBed", CFrame.new(-25.5, FLOOR + 0.4, -6), "y", 0.8, 4.6, C.HoseRed)
+	cyl(dogArea, "Cushion", CFrame.new(-25.5, FLOOR + 0.5, -6), "y", 0.8, 3.6, C.Cream)
+	cyl(dogArea, "Bowl", CFrame.new(-23, FLOOR + 0.3, -2.5), "y", 0.6, 1.4, hex("4FB3D9"))
+	local dogCf = facing(-25.5, FLOOR, -6, -1, 1)
 	npc("Dog", dogArea, dogCf, { pose = "stand" }, function()
 		fallbackDog(dogArea, dogCf)
 	end)
@@ -973,8 +993,8 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			fluoro(lights, x, SLAB0 - 0.25, z)
 		end
 	end
-	alarmLight(alarms, -40, SLAB0, -22, true, 0)
-	alarmSpeaker(alarms, facing(-40, SLAB0 - 1.2, -4, 0, -1), 0, 140)
+	alarmLight(alarms, -36, SLAB0, -24, true, 0)
+	alarmSpeaker(alarms, facing(-30, SLAB0 - 1.2, -4, 0, -1), 0, 140)
 
 	------------------------------------------------------------ watch room
 	local screen = part(watch, "DispatchScreen", facing(-40.7, FLOOR + 6.4, 20, -1, 0), V(14, 6.4, 0.3), C.Screen, { neon = true })
