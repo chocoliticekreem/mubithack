@@ -396,10 +396,68 @@ local function dropStream(player: Player)
 	end
 end
 
+-- Where your spray goes. The server cools fires in a narrow cone from your HEAD along this direction,
+-- so it must point from the head at what you're looking at: the raw camera LookVector (what we sent
+-- before) points down at your own penguin in third person, so on phones the water landed in front of
+-- your feet and fires never went out. Touch also gets aim assist: the nearest burning part roughly in
+-- front of you (within AIM_ASSIST_DEG of the camera's heading) is aimed at directly.
+local AIM_ASSIST_DEG = 40
+local AIM_ASSIST_RANGE = 30
+local function sprayAim(): Vector3?
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return nil
+	end
+	local look = cam.CFrame.LookVector
+	local char = LocalPlayer.Character
+	local head = char and char:FindFirstChild("Head") :: BasePart?
+	if not head then
+		return look
+	end
+	if InputHints.isTouch() then
+		local flatLook = Vector3.new(look.X, 0, look.Z)
+		if flatLook.Magnitude > 1e-3 then
+			flatLook = flatLook.Unit
+			local minDot = math.cos(math.rad(AIM_ASSIST_DEG))
+			local best: Vector3? = nil
+			local bestScore = -math.huge
+			for _, inst in CollectionService:GetTagged(Names.Tag.Burning) do
+				if inst:IsA("BasePart") then
+					local d = inst.Position - head.Position
+					local dist = d.Magnitude
+					if dist > 0.5 and dist <= AIM_ASSIST_RANGE then
+						local flat = Vector3.new(d.X, 0, d.Z)
+						local dot = if flat.Magnitude > 1e-3 then flat.Unit:Dot(flatLook) else 1
+						if dot >= minDot then
+							local score = dot * 2 - dist / AIM_ASSIST_RANGE -- centred first, then closest
+							if score > bestScore then
+								bestScore, best = score, d.Unit
+							end
+						end
+					end
+				end
+			end
+			if best then
+				return best
+			end
+		end
+	end
+	-- what's under the middle of the screen, aimed at from the head
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { char :: Model }
+	local hit = workspace:Raycast(cam.CFrame.Position, look * 200, rp)
+	local target = if hit then hit.Position else cam.CFrame.Position + look * 60
+	local d = target - head.Position
+	if d.Magnitude < 2 then
+		return look
+	end
+	return d.Unit
+end
+
 local function aimOf(player: Player): Vector3?
 	if player == LocalPlayer then
-		local cam = workspace.CurrentCamera
-		return cam and cam.CFrame.LookVector
+		return sprayAim()
 	end
 	local char = player.Character
 	local head = char and char:FindFirstChild("Head") :: BasePart?
@@ -949,7 +1007,7 @@ function ToolController:Start()
 		if h and cam and kind == h and not blocked(LocalPlayer) then
 			local left = resource(LocalPlayer, kind)
 			if left > 0 then
-				Spray:FireServer(cam.CFrame.LookVector)
+				Spray:FireServer(sprayAim() or cam.CFrame.LookVector)
 				local p = pressureOf(LocalPlayer, kind)
 				local ramp = math.clamp((os.clock() - sprayStartedAt) / 0.4, 0.4, 1)
 				shake(ToolMath.shake(p, ToolConfig.SprayShakeBase, ToolConfig.SprayShakeExtra) * 0.45 * ramp, 0.18)
