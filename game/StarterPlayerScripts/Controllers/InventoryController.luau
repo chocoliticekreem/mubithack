@@ -390,8 +390,8 @@ function rebind()
 		ContextActionService:SetTitle("InvDrop", "DROP")
 		ContextActionService:SetTitle("InvThrow", "THROW")
 		-- touch: one thumb cluster around the jump button (ClientLib/ThumbLayout), clear of the squad strip
-		ThumbLayout.place("InvDrop", "upleft")
-		ThumbLayout.place("InvThrow", "left")
+		ThumbLayout.place("InvDrop", "upleft", onDrop)
+		ThumbLayout.place("InvThrow", "left", onThrow)
 		boundItem = true
 	elseif not wantItem and boundItem and not held.InvDrop and not held.InvThrow then
 		ThumbLayout.forget("InvDrop")
@@ -405,7 +405,7 @@ function rebind()
 	if wantSwap and not boundSwap then
 		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
 		ContextActionService:SetTitle("InvSwap", "SWAP")
-		ThumbLayout.place("InvSwap", "above")
+		ThumbLayout.place("InvSwap", "above", onSwap)
 		boundSwap = true
 	elseif not wantSwap and boundSwap and not held.InvSwap then
 		ThumbLayout.forget("InvSwap")

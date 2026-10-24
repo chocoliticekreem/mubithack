@@ -579,10 +579,10 @@ local function enterDrive(truck: Model)
 	ContextActionService:SetTitle("TruckExit", "OUT")
 	-- touch: one cluster round the jump button (ClientLib/ThumbLayout) instead of Roblox's default
 	-- spots, which piled DRIFT / HONK / SIREN / OUT on top of each other on some phones
-	ThumbLayout.place("TruckHandbrake", "primary")
-	ThumbLayout.place("TruckExit", "above")
-	ThumbLayout.place("TruckHorn", "upleft")
-	ThumbLayout.place("TruckSiren", "left")
+	ThumbLayout.place("TruckHandbrake", "primary", onAction)
+	ThumbLayout.place("TruckExit", "above", onAction)
+	ThumbLayout.place("TruckHorn", "upleft", onAction)
+	ThumbLayout.place("TruckSiren", "left", onAction)
 	-- first-person players (zoomed all the way in) start in the cab view, everyone else in the chase cam
 	camMode = if VehicleConfig.DefaultCam == "cab" or onFootFirstPerson then "cab" else "chase"
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
@@ -981,7 +981,7 @@ local function updateSeated()
 				Enum.KeyCode.ButtonB
 			)
 			ContextActionService:SetTitle("TruckExit", "OFF")
-			ThumbLayout.place("TruckExit", "above")
+			ThumbLayout.place("TruckExit", "above", onAction)
 		end
 	end
 	if truck ~= hintTruck then
