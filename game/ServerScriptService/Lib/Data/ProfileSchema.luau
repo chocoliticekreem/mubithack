@@ -23,6 +23,8 @@
 --   ProfileSchema.setSetting(p, key, value): boolean
 --   ProfileSchema.guideSeen(p, missionId): boolean          -- v4: first-time mission guide done
 --   ProfileSchema.markGuideSeen(p, missionId): boolean      -- true = newly marked
+--   ProfileSchema.hasReceipt(p, purchaseId): boolean         -- v5: donation receipt already applied
+--   ProfileSchema.addDonation(p, purchaseId, robux): boolean -- v5: false = duplicate receipt (idempotent)
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
 --   ProfileSchema.ownsLock(envelope, jobId, now): boolean
@@ -47,9 +49,13 @@ export type Profile = {
 	settings: { [string]: any },
 	gear: { unlocked: { [string]: boolean }, loadout: { string } }, -- v3: locker (Lib/Items/Progression)
 	guides: { seen: { [string]: boolean } }, -- v4: MissionCatalog ids whose first-time guide ran (MissionGuideService)
+	donations: Donations, -- v5: Robux donated through developer products (MonetizationService)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
+-- receipts = the newest MaxReceipts PurchaseIds already applied (oldest first), so a re-sent receipt
+-- is never counted twice even if the global purchase ledger write failed.
+export type Donations = { robux: number, count: number, receipts: { string } }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -65,7 +71,8 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 4
+ProfileSchema.Version = 5
+ProfileSchema.MaxReceipts = 50 -- donation PurchaseIds remembered per profile
 ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
 -- Level curve: reaching level L+1 from L costs Base + Step * (L - 1) XP. Level 1 -> 2 = 100 XP.
@@ -135,6 +142,7 @@ function ProfileSchema.default(now: number): Profile
 		settings = settings,
 		gear = { unlocked = {}, loadout = {} },
 		guides = { seen = {} },
+		donations = { robux = 0, count = 0, receipts = {} },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -228,6 +236,11 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 		t.guides = { seen = seen }
 		t.version = 4
 	end,
+	-- v4 -> v5: Robux donations (developer products). Nobody had donated before v5.
+	[4] = function(t: any, _now: number)
+		t.donations = { robux = 0, count = 0, receipts = {} }
+		t.version = 5
+	end,
 }
 
 local function fillMap(t: any, key: string)
@@ -320,6 +333,22 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 			p.guides.seen[id] = nil
 		end
 	end
+
+	fillMap(p, "donations")
+	p.donations.robux = count(p.donations.robux)
+	p.donations.count = count(p.donations.count)
+	local receipts: { string } = {}
+	if type(p.donations.receipts) == "table" then
+		for _, id in p.donations.receipts do
+			if type(id) == "string" then
+				table.insert(receipts, id)
+			end
+		end
+	end
+	while #receipts > ProfileSchema.MaxReceipts do
+		table.remove(receipts, 1)
+	end
+	p.donations.receipts = receipts
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -567,6 +596,38 @@ function ProfileSchema.markGuideSeen(p: Profile, missionId: string): boolean
 		return false
 	end
 	p.guides.seen[missionId] = true
+	return true
+end
+
+------------------------------------------------------------------------------------- donations
+
+function ProfileSchema.hasReceipt(p: Profile, purchaseId: string): boolean
+	local d = (p :: any).donations
+	return type(d) == "table" and type(d.receipts) == "table" and table.find(d.receipts, purchaseId) ~= nil
+end
+
+-- Applies one donation receipt. Idempotent: the same PurchaseId never counts twice.
+function ProfileSchema.addDonation(p: Profile, purchaseId: string, robux: number): boolean
+	if type(purchaseId) ~= "string" or purchaseId == "" then
+		return false
+	end
+	local amount = count(robux)
+	if amount <= 0 then
+		return false
+	end
+	if type((p :: any).donations) ~= "table" then
+		(p :: any).donations = { robux = 0, count = 0, receipts = {} }
+	end
+	if ProfileSchema.hasReceipt(p, purchaseId) then
+		return false
+	end
+	local d = p.donations
+	d.robux += amount
+	d.count += 1
+	table.insert(d.receipts, purchaseId)
+	while #d.receipts > ProfileSchema.MaxReceipts do
+		table.remove(d.receipts, 1)
+	end
 	return true
 end
 

@@ -9,6 +9,8 @@ assert(Shared, "[BattlePassConfig] ReplicatedStorage.Shared missing")
 local ConfigModule = Shared:WaitForChild("Config", 10)
 assert(ConfigModule, "[BattlePassConfig] Shared.Config missing")
 local Config = require(ConfigModule :: ModuleScript) :: any
+-- the premium pass id lives in MonetizationConfig (one source of truth for every Robux id)
+local MonetizationConfig = require(script.Parent:WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 
 local function title(id: string): { [string]: any }
 	return { Kind = "Title", Id = id }
@@ -47,7 +49,7 @@ local Tiers: { { [string]: any } } = {
 
 return Config.define({
 	SeasonId = "S1",
-	GamePassId = 0, -- 0 = not configured: purchase prompts skipped, premium via debug attribute
+	GamePassId = MonetizationConfig.GamePasses.PremiumPass, -- set it in MonetizationConfig; 0 = not configured: prompts skipped, premium via debug attribute
 	MaxTier = 20,
 	XpPerTier = 50, -- tier 1 after ~25s of Active play (2 XP/s)
 	PremiumXpMultiplier = 1.5,
