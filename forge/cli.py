@@ -384,7 +384,8 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
                                     faults=faults, goal=args.goal, rounds=args.rounds,
                                     players=args.players, steps=args.steps, fix=fix,
                                     max_fixes=getattr(args, "max_fixes", 3), extra_anomalies=extra,
-                                    edit_human=getattr(args, "edit_human_files", False))
+                                    edit_human=getattr(args, "edit_human_files", False),
+                                    repro=not getattr(args, "no_repro", False))
             if fix and cycle["open"] == 0:
                 print(f"quality bar met after {n + 1} cycle(s): no high or medium anomalies left")
                 break
@@ -653,6 +654,8 @@ def build_parser() -> argparse.ArgumentParser:
     fx.add_argument("--round-seconds", type=int, default=None, help="length of the started round")
     fx.add_argument("--edit-human-files", action="store_true",
                     help="let the fixer edit a seeded game's human files (in runs/<slug>/game only)")
+    fx.add_argument("--no-repro", action="store_true",
+                    help="old loop: no reproducer checks; the verifier alone judges each fix")
 
     db = sub.add_parser("dashboard", help="live view of jobs, games, fix cycles, versions and Mubit calls")
     db.add_argument("--port", type=int, default=8765)

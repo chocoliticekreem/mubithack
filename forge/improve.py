@@ -221,6 +221,9 @@ class ImproveStore:
                                      "unmatched", "fixed_verified")}
         row.update({"open": cycle.get("open", 0), "code_kept": cycle.get("code_kept", 0),
                     "code_tried": len(cycle.get("code_fixes") or [])})
+        if cycle.get("repro"):
+            ck = cycle.get("checks") or {}
+            row.update({"proven": len(ck.get("proven") or []), "checks_kept": len(ck.get("kept") or [])})
         self.scores_path.write_text(json.dumps(self.scores() + [row], indent=2), encoding="utf-8")
         return path
 
@@ -414,9 +417,14 @@ def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | N
 async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
                    llm: LLM, harness, playtest: Playtest, resync: Resync, goal: str, players=None,
                    steps: int = 15, max_fixes: int = 3, session_id: str, edit_human: bool = False,
-                   retries: int = 1, investigate_first: bool = True,
+                   retries: int = 1, investigate_first: bool = True, repro: bool = True,
                    log: Callable[[str], None] = print) -> list[dict]:
     """Fix real anomalies in code, one at a time: fixer -> compile -> resync -> replay -> verifier.
+
+    With `repro` (and a live Studio), every anomaly is reproduced first (forge/repro.py): the reproducer
+    writes a check that must fail in the live game, or the anomaly is unproven and skipped. A fix is then
+    kept only if that check passes, every check that passed before still passes, and server errors did
+    not rise; the verifier's playtest verdict is evidence, and only a `regression` verdict can veto.
 
     The game folder is versioned (forge/versions.py): the state before the first fix is a version,
     and every kept fix is a new one, so any of them can be restored later (`forge rollback`).
@@ -424,14 +432,25 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
     rejected (a correction in the fixer's Mubit task). If none is verified `fixed`, the file is
     restored and Studio resynced. Human-owned files (a seeded game's base_files) only get a saved
     patch unless `edit_human` is set; the Forge runtime is never edited."""
+    from forge import repro as frepro
     from forge import roles
     from forge import sync as fsync
+    from forge.checks import load_checks, run_check, run_checks
     from forge.loop import RUNTIME_FILES
     from forge.memory import read_lessons
     from forge.versions import GameVersions
 
     store = ImproveStore(settings, slug)
     root = store.run.game_dir
+    studio = getattr(harness, "studio", None)
+    repro = repro and studio is not None
+    guards: list = []  # checks that pass now: a fix must keep every one of them passing
+    if repro:
+        suite = load_checks(store.run.dir)
+        if suite:
+            await harness.ensure_ready()
+            guards = [c for c, r in zip(suite, await run_checks(studio, suite)) if r.get("ok")]
+            log(f"[checks] regression guards: {len(guards)}/{len(suite)} saved checks pass before the fixes")
     spec = store.run.load_spec() if store.run.spec_path.exists() else {}
     protected = set(RUNTIME_FILES)
     if not edit_human:
@@ -446,28 +465,40 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                   key=lambda x: store.was_unproven(x))  # stable: unproven-before anomalies go last
     for a in todo[:max(0, max_fixes)]:
         found = None
-        studio = getattr(harness, "studio", None)
         if investigate_first and studio is not None:
             await harness.ensure_ready()
             found = await investigate(settings, slug, a, llm=llm, studio=studio, session_id=session_id, log=log)
         concl = (found or {}).get("conclusion") or {}
-        if found is not None and unproven(concl):
+        check, rp = None, None
+        if repro:
+            check, rp = await _reproduce(settings, slug, a, found, llm=llm, harness=harness, session_id=session_id,
+                                         log=log)
+            if check is None:
+                store.mark_unproven(a)
+                results.append({"anomaly": a["title"], "status": "unproven", "investigation": found, "repro": rp})
+                log(f"[fix] {a['title']}: no failing check reproduces it, skipped")
+                continue
+        elif found is not None and unproven(concl):
             store.mark_unproven(a)
             results.append({"anomaly": a["title"], "status": "unproven", "investigation": found})
             log(f"[fix] {a['title']}: investigator could not prove a code cause, skipped")
             continue
         rel = concl.get("file") or candidate_file(settings, root, a)
         if rel is None:
-            results.append({"anomaly": a["title"], "status": "no_file", "investigation": found})
+            results.append({"anomaly": a["title"], "status": "no_file", "investigation": found, "repro": rp})
             log(f"[fix] {a['title']}: no matching file")
             continue
         old = (root / rel).read_text(encoding="utf-8")
         problem = (f"Playtest anomaly ({a['kind']}, {a['severity']}, system {a['system']}): {a['title']}\n"
                    f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
+        if check is not None:
+            problem += "\n\n" + frepro.problem_block(check, rp["before"])
         if concl:
             problem += (f"\n\n## Root cause (from experiments in the running game)\n{concl.get('root_cause', '')}\n"
                         f"Evidence: {concl.get('evidence', '')}\nFix hint: {concl.get('fix_hint', '')}")
         rec: dict = {"anomaly": a["title"], "path": rel, "attempts": [], "investigation": found}
+        if rp is not None:
+            rec["repro"] = rp
         if rel in protected:
             new = await asyncio.to_thread(roles.fix_file, llm, rel, old, problem, context,
                                           read_lessons(settings), session_id=session_id)
@@ -517,21 +548,42 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                     log(f"[fix] {a['title']}: attempt {attempt + 1} failed to compile")
                     continue
                 await resync(root)
+                checked: dict = {}
+                if check is not None:
+                    await harness.ensure_ready()
+                    checked = {"repro": await run_check(studio, check),
+                               "guards": await run_checks(studio, [g for g in guards if g.id != check.id])}
+                    rejected = _check_rejection(checked)
+                    if rejected:
+                        # exact evidence, so no playtest round is spent on a fix that is already rejected
+                        rec["attempts"].append({"status": rejected[0], "error": rejected[1], "checks": checked})
+                        why = rejected[1]
+                        log(f"[fix] {a['title']}: attempt {attempt + 1} {rejected[0]}: {rejected[1][:120]}")
+                        continue
+                    log(f"[fix] {a['title']}: check {check.id} passes now, {len(checked['guards'])} guard(s) hold")
                 after = await _rounds(settings, playtest, 1, len(before) + 1, goal=goal, players=players,
                                       steps=steps, llm=llm, harness=harness)
                 v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
                                             session_id=session_id)
                 hard = hard_regressions(before, after)
-                if v["verdict"] == "fixed" and hard:
-                    v = {**v, "verdict": "regression", "regressions": v["regressions"] + hard,
+                verdict = v["verdict"]
+                if check is not None and verdict != "regression":
+                    verdict = "fixed"  # the check is exact; a noisy playtest's not_fixed/inconclusive is not
+                if verdict == "fixed" and hard:
+                    v = {**v, "regressions": v["regressions"] + hard,
                          "evidence": v["evidence"] + " Overruled by computed regressions: " + "; ".join(hard)}
-                rec["attempts"].append({"status": v["verdict"], "verdict": v})
-                if v["verdict"] == "fixed":
+                    verdict = "regression"
+                rec["attempts"].append({"status": verdict, "verdict": v, **({"checks": checked} if checked else {})})
+                if verdict == "fixed":
                     status = "kept"
-                    rec["version"] = versions.snapshot(
-                        f"fix: {a['title']} in {rel} (verifier: fixed, {v['request_id']})")
-                    log(f"[fix] {a['title']}: {rel} fixed and verified, kept as {rec['version']}")
+                    judge = f"check {check.id} passes, verifier {v['verdict']}" if check is not None else "verifier: fixed"
+                    rec["version"] = versions.snapshot(f"fix: {a['title']} in {rel} ({judge}, {v['request_id']})")
+                    if check is not None:
+                        rec["repro"]["saved"] = str(frepro.promote(store.run.dir, check))
+                        guards.append(check)
+                    log(f"[fix] {a['title']}: {rel} fixed ({judge}), kept as {rec['version']}")
                     break
+                v = {**v, "verdict": verdict}
                 why = f"The verifier said {v['verdict']}: {v['evidence']}" + (
                     f" Regressions: {'; '.join(v['regressions'])}" if v["regressions"] else "")
                 log(f"[fix] {a['title']}: attempt {attempt + 1} {v['verdict']} {v['request_id']}")
@@ -560,6 +612,45 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
         results.append({**rec, "status": status})
     await learn_from_fixes(settings, results, llm=llm, session_id=session_id, log=log)
     return results
+
+
+def _check_rejection(checked: dict) -> tuple[str, str] | None:
+    """(status, why) when the checks after a fix reject it: the repro still fails, or a guard broke."""
+    repro = checked["repro"]
+    if not repro.get("ok"):
+        out = repro.get("error") or repro.get("detail", "")
+        return ("check_failed", f"The failing check still fails after your fix: {str(out)[:400]}. "
+                "Make the behaviour the check asserts true.")
+    broke = [r for r in checked["guards"] if not r.get("ok")]
+    if broke:
+        return ("check_regression", "Your fix broke checks that passed before: " + "; ".join(
+            f"{r['id']}: {str(r.get('error') or r.get('detail', ''))[:160]}" for r in broke))
+    return None
+
+
+async def _reproduce(settings: Settings, slug: str, a: dict, found: dict | None, *, llm: LLM, harness,
+                     session_id: str, log: Callable[[str], None]) -> tuple[Any, dict]:
+    """(failing check or None, record). A saved check named by the anomaly is reused, else the reproducer
+    writes one; a newly proven check is saved to checks/pending/ until a fix makes it pass."""
+    from forge import repro as frepro
+    from forge.checks import run_check
+
+    await harness.ensure_ready()
+    run_dir = ImproveStore(settings, slug).run.dir
+    saved = frepro.find(run_dir, a["check"]) if a.get("check") else None
+    if saved is not None:
+        res = await run_check(harness.studio, saved)
+        if not res.get("ok") and not res.get("error"):
+            return saved, {"check": saved.id, "source": "saved", "before": res, "attempts": []}
+        log(f"[reproducer] saved check {saved.id} no longer fails cleanly, writing a new one")
+    out = await frepro.reproduce(settings, slug, a, found, llm=llm, studio=harness.studio, session_id=session_id,
+                                 log=log)
+    rec = {"check": None, "source": "reproducer", "before": out["result"], "attempts": out["attempts"]}
+    if out["check"] is None:
+        return None, rec
+    rec["saved"] = str(frepro.save_pending(run_dir, out["check"]))
+    rec["check"] = out["check"].id
+    return out["check"], rec
 
 
 REFLECT_HEADER = ("Fix loop outcomes. Turn the REJECTED attempts below into general lessons about fixing game code "
@@ -699,17 +790,38 @@ def pending_report_anomalies(store: ImproveStore) -> list[dict]:
     return out
 
 
+def _checks_record(start: list[dict], code_fixes: list[dict]) -> dict:
+    """What the checks did this cycle, for the ledger and dashboard: suite results at the start, checks
+    the reproducer proved, anomalies it could not prove, and checks that joined the suite with a kept fix."""
+    reps = [f.get("repro") or {} for f in code_fixes]
+    return {
+        "start": start,
+        "start_failing": [r["id"] for r in start if not r.get("ok")],
+        "proven": [r["check"] for r in reps if r.get("check")],
+        "written": [r["check"] for r in reps if r.get("check") and r.get("source") == "reproducer"],
+        "unproven": [f["anomaly"] for f in code_fixes if f.get("repro") and not f["repro"].get("check")],
+        "kept": [f["repro"]["check"] for f in code_fixes if f["status"] == "kept" and (f.get("repro") or {}).get("check")],
+    }
+
+
 async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtest: Playtest,
                     faults: list[dict], goal: str, rounds: int = 3, players=None, steps: int = 15,
                     log: Callable[[str], None] = print, fix: bool = False, max_fixes: int = 3,
                     extra_anomalies: list[dict] | None = None, resync: Resync | None = None,
-                    edit_human: bool = False, focus: Callable[[dict], bool] | None = None) -> dict:
+                    edit_human: bool = False, focus: Callable[[dict], bool] | None = None,
+                    repro: bool = True) -> dict:
+    from forge import repro as frepro
+
     store = ImproveStore(settings, slug)
     spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
     n = len(store.scores()) + 1
     session_id = f"improve-{slug}-{n}"
 
     await harness.ensure_ready()
+    repro = repro and fix and getattr(harness, "studio", None) is not None
+    # saved checks run first, before any fault is planted: a failing one is an anomaly with its repro in hand
+    suite_start = (await frepro.run_suite(harness.studio, store.run.dir, log=log)) if repro else {
+        "results": [], "anomalies": []}
     old = await plant(harness, faults)
     log(f"[cycle {n}] planted {len(faults)} faults: {', '.join(f['id'] for f in faults)}")
     try:
@@ -748,7 +860,8 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
 
     store.learn([by_id[fid].get("lesson", "") for fid in sc["missed"]])
 
-    real = [found["anomalies"][i] for i in sc["unmatched_anomalies"]] + list(extra_anomalies or [])
+    real = (suite_start["anomalies"] + [found["anomalies"][i] for i in sc["unmatched_anomalies"]]
+            + list(extra_anomalies or []))
     # focus (e.g. one feature): only these anomalies are fixed and count as open; the rest is a backlog
     backlog = [a for a in real if focus is not None and not focus(a)]
     real = [a for a in real if focus is None or focus(a)]
@@ -763,7 +876,7 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         code_fixes = await fix_code(settings, slug, real, baseline, llm=llm, harness=harness,
                                     playtest=playtest, resync=resync, goal=goal, players=players,
                                     steps=steps, max_fixes=max_fixes, session_id=session_id,
-                                    edit_human=edit_human, log=log)
+                                    edit_human=edit_human, repro=repro, log=log)
     cycle = {
         "cycle": n, "ts": now_iso(), "session_id": session_id, "goal": goal,
         "planted": len(faults), "detected": len(sc["detected"]), "missed": len(sc["missed"]),
@@ -773,11 +886,16 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         "before": before, "open": sum(1 for a in real if a["severity"] in FIX_SEVERITIES),
         "code_fixes": code_fixes, "code_kept": sum(1 for f in code_fixes if f["status"] == "kept"),
         "backlog": backlog,
+        "repro": repro, "checks": _checks_record(suite_start["results"], code_fixes),
     }
     path = store.save_cycle(cycle)
     log(f"[cycle {n}] detected {cycle['detected']}/{cycle['planted']}, unmatched anomalies "
         f"{cycle['unmatched']}, fixed+verified {cycle['fixed_verified']}, open {cycle['open']}, "
         f"code fixes kept {cycle['code_kept']}/{len(code_fixes)} -> {path}")
+    if repro:
+        ck = cycle["checks"]
+        log(f"[checks] cycle {n}: proven {len(ck['proven'])} (new checks {len(ck['written'])}), unproven "
+            f"{len(ck['unproven'])}, joined the suite {len(ck['kept'])}, failing at start {len(ck['start_failing'])}")
     return cycle
 
 

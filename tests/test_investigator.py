@@ -94,7 +94,7 @@ async def test_fix_uses_the_investigated_file_and_root_cause(settings):
 
     cycle = await run_cycle(settings, "fab", llm=llm, harness=StudioHarness(FakeStudio([])),
                             playtest=fake_playtest([]), faults=[], goal="play", rounds=1, fix=True,
-                            resync=resync, log=lambda _: None)
+                            resync=resync, log=lambda _: None, repro=False)
     fx = cycle["code_fixes"][0]
     assert fx["status"] == "kept" and fx["path"] == RACK_FILE  # not the keyword guess (HoseService)
     assert (game / RACK_FILE).read_text().strip() == "return {rack = 2}"
