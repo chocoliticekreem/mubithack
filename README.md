@@ -73,25 +73,25 @@ The `forge` plugin's tools:
 | Group | Tools |
 |---|---|
 | Setup | `setup`, `doctor` |
-| Build | `new_game`, `iterate`, `correct`, `feature` |
-| Improve | `fix`, `improve`, `tester_report`, `tester_reports` |
+| Build | `build_game`, `iterate`, `correct`, `feature` |
+| Improve | `improve_game`, `done`, `fault_drill`, `tester_report`, `tester_reports` |
 | Versions | `versions`, `rollback` |
 | Watch | `dashboard` |
 | Jobs | `job`, `jobs`, `cancel_job` |
 | Read | `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls` |
 | Ship | `seed`, `promote`, `sync` |
 
-Building and improving take minutes, so `new_game`, `iterate`, `correct`, `fix`, `improve` and
-`tester_report` start a background job (log in `runs/jobs/`) and return its id at once. Claude
-polls `job(id)`. A typical session:
+Building and improving take minutes, so they run as a background job (log in `runs/jobs/`).
+`build_game` and `improve_game` follow the job for a few minutes, streaming progress, and return a
+summary first; `job(id, wait_seconds=300)` keeps following it. A typical session:
 
 1. `setup` until it says ready.
-2. `new_game("lava obby with checkpoints", iterations=2)`, then `job(id)` until finished.
+2. `build_game("lava obby with checkpoints", iterations=2)`, then `job(id, wait_seconds=300)` until finished.
 3. `game(slug)` and `read_file(slug, path)` to see what it made.
-4. `fix(slug)`: playtest, find anomalies, fix, verify, until clean.
+4. `improve_game(slug)`: playtest, find anomalies, fix, verify; repeat until `done(slug)` says READY.
 5. `correct(slug, "ServerScriptService/Round.server.luau", "rounds never end")`: a human correction,
    recorded in the fixer's Mubit task. The job log ends with the request id to rate Good.
-6. `tester_report(slug, "the hose feels useless")` after real people play, then `fix(slug)` again.
+6. `tester_report(slug, "the hose feels useless")` after real people play, then `improve_game(slug)` again.
 7. `scores(slug)` and `calls(slug)` for the numbers and the Mubit request ids.
 
 Other servers that work alongside it:

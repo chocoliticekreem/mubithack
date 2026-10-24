@@ -4,16 +4,21 @@
   "owner": {
     "name": "mubithack team"
   },
+  "metadata": {
+    "version": "0.3.0"
+  },
   "plugins": [
     {
       "name": "mubit-tester",
       "source": "./mubit-tester",
-      "description": "Mubit-powered Roblox game tester for Claude Code: multiplayer harness, scenarios, AI playtesters"
+      "version": "0.3.0",
+      "description": "Mubit-powered Roblox game tester for Claude Code: one-call test_feature with a verdict, run diffs, version bisect, multiplayer harness, scenarios, AI playtesters, plus skills (testing features, triaging reports, corrections to Mubit training, swarm tests) and a QA lead agent"
     },
     {
       "name": "forge",
       "source": "./forge-plugin",
-      "description": "Make Roblox games from an idea and keep improving them (build, playtest, auditor, fixer, verifier), every LLM call through Mubit"
+      "version": "0.2.0",
+      "description": "Make Roblox games from an idea and keep improving them until `done` is READY (build, playtest, auditor, fixer, verifier), with streamed job progress and skills for building and improving; every LLM call through Mubit"
     }
   ]
 }

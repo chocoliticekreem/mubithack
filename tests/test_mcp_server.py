@@ -55,11 +55,11 @@ async def test_registers_exactly_the_documented_tools():
     assert names == set(fm.TOOL_NAMES)
 
 
-def test_job_runs_detached_and_reports_finish(settings):
+async def test_job_runs_detached_and_reports_finish(settings):
     meta = fm.start_job("t", ["x"], argv=[sys.executable, "-c", "print('hello'); print('done')"])
     st = _wait(meta["id"])
     assert st["status"] == "finished" and st["tail"] == ["hello", "done"]
-    assert "finished" in fm.job(meta["id"]) and meta["id"] in fm.jobs()
+    assert "finished" in await fm.job(meta["id"]) and meta["id"] in fm.jobs()
 
 
 def test_job_failure_shows_exit_code(settings):
@@ -76,34 +76,34 @@ def test_cancel_stops_a_running_job(settings):
     assert "not running" in fm.cancel_job(meta["id"])
 
 
-def test_unknown_job_is_a_tool_error(settings):
+async def test_unknown_job_is_a_tool_error(settings):
     with pytest.raises(ToolError):
-        fm.job("nope")
+        await fm.job("nope")
 
 
-def test_build_tools_start_the_right_forge_command(settings, monkeypatch):
+async def test_build_tools_start_the_right_forge_command(settings, monkeypatch):
     seen = []
     monkeypatch.setattr(fm, "start_job", lambda kind, args, env=None, argv=None:
                         seen.append((kind, args, env)) or {"id": f"{kind}-1"})
     _game(settings)
-    assert "new-1" in fm.new_game("lava obby", iterations=2, studio="Forge-ai")
+    assert "new-1" in await fm.build_game("lava obby", iterations=2, studio="Forge-ai", wait_seconds=0)
     fm.iterate("g1", 2, use_studio=False)
     fm.correct("g1", "ServerScriptService/Round.server.luau", "rounds never end")
-    fm.improve("flame-and-blame", cycles=2, only="dry", studio="abc")
+    fm.fault_drill("flame-and-blame", cycles=2, only="dry", studio="abc")
     assert seen[0] == ("new", ["new", "lava obby", "--iterations", "2"], {"FORGE_STUDIO": "Forge-ai"})
     assert seen[1][1] == ["run", "g1", "--iterations", "2", "--no-studio"]
     assert seen[2][1] == ["correct", "g1", "ServerScriptService/Round.server.luau", "rounds never end"]
     assert seen[3][1][-4:] == ["--only", "dry", "--studio", "abc"]
     fm.tester_report("g1", "hose broken", run_ids=["pt-1", "pt-2"], reporter="sam")
     assert seen[4][1] == ["report", "g1", "hose broken", "--run", "pt-1", "--run", "pt-2", "--by", "sam"]
-    fm.fix("g1", cycles=4, max_fixes=2, studio="abc", edit_human_files=True)
+    await fm.improve_game("g1", cycles=4, max_fixes=2, studio="abc", edit_human_files=True, wait_seconds=0)
     assert seen[5][1] == ["fix", "g1", "--cycles", "4", "--rounds", "2", "--steps", "15", "--max-fixes", "2",
                           "--reports", "--edit-human-files", "--studio", "abc"]
 
 
-def test_build_tools_reject_bad_input(settings):
+async def test_build_tools_reject_bad_input(settings):
     with pytest.raises(ToolError):
-        fm.new_game("   ")
+        await fm.build_game("   ")
     with pytest.raises(ToolError):
         fm.iterate("missing-game")
     _game(settings)
@@ -126,7 +126,7 @@ def test_read_tools(settings):
 
 
 def test_empty_runs_dir_gives_next_step(settings):
-    assert "new_game" in fm.games()
+    assert "build_game" in fm.games()
 
 
 async def test_stdio_server_lists_tools_end_to_end():
@@ -198,3 +198,61 @@ def test_cli_rollback_without_sync(settings, monkeypatch, capsys):
     assert "restored v1 as v3" in capsys.readouterr().out
     assert cli.main(["versions", "g1"]) == 0
     assert "rollback to v1: by hand" in capsys.readouterr().out
+
+
+LOG = """
+━━ forge new  lava-obby ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [designer]  spec                                           ✓  3.1s  req_ab
+━━ build  4 modules ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [coder]     ServerScriptService/Round.server.luau          ✓  9.0s  req_cd
+  [compile]   Round.server.luau                              ✗  line 4: expected end
+━━ iteration 1  lava-obby ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [critic]    score 6.5/10                                   ✓  4.0s
+"""
+
+
+def test_summarize_log_reads_phase_steps_score_and_failures():
+    sm = fm.summarize_log(LOG.splitlines())
+    assert sm["phase"] == "iteration 1 lava-obby" and sm["ok"] == 3 and sm["failed"] == 1
+    assert sm["score"] == "6.5" and "expected end" in sm["fails"][0]
+
+
+async def test_job_wait_streams_progress_and_summarizes(settings):
+    code = ("import time,sys\n"
+            "for ln in " + repr(LOG.splitlines()) + ":\n"
+            "    print(ln, flush=True); time.sleep(0.05)\n")
+    meta = fm.start_job("t", ["new", "x"], argv=[sys.executable, "-c", code])
+
+    class Ctx:
+        msgs = []
+
+        async def report_progress(self, n, total=None, message=None):
+            self.msgs.append(message)
+    ctx = Ctx()
+    md = await fm.job(meta["id"], wait_seconds=20, ctx=ctx)
+    first = md.splitlines()[0]
+    assert first.startswith(f"## Job `{meta['id']}`: finished; phase: iteration 1 lava-obby; 3 step(s) ok, 1 failed")
+    assert "last score 6.5" in first and "Recent failures: [compile]" in md
+    assert any("iteration 1" in m for m in ctx.msgs) and any("✗" in m for m in ctx.msgs)
+    running = fm.start_job("t", ["x"], argv=[sys.executable, "-c", "import time; print('━━ build  1 ━━'); time.sleep(5)"])
+    md = await fm.job(running["id"], wait_seconds=0.5)
+    assert ": running; phase: build 1" in md.splitlines()[0] and "wait_seconds=300" in md
+    fm.cancel_job(running["id"])
+
+
+async def test_improve_game_appends_readiness_when_finished(settings, monkeypatch):
+    _game(settings)
+    real = fm.start_job
+    monkeypatch.setattr(fm, "start_job", lambda kind, args, env=None, argv=None:
+                        real(kind, args, argv=[sys.executable, "-c", "print('━━ fix cycle 1 ━━')"]))
+    md = await fm.improve_game("g1", wait_seconds=15)
+    assert "finished" in md.splitlines()[0] and "g1: not ready yet" in md and "[ ] checks" in md
+
+
+def test_done_tool(settings):
+    _game(settings)
+    md = fm.done("g1")
+    assert md.startswith("## g1: not ready") and "**Next:**" in md and "improve_game(slug)" in md
+    with pytest.raises(ToolError):
+        fm.done("nope")
+

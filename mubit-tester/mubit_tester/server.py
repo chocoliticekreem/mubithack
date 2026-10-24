@@ -1,11 +1,17 @@
 """`forge mcp`: the `mubit-tester` stdio MCP server (contract: docs/TESTER.md).
 
+One shot: test_feature (sync, play, plan, run, errors, screenshot, stop -> verdict first),
+         diff_since_last_run, test_runs, bisect_versions, watch_errors, swarm.
 Session: status, studios, play_start, play_stop, multiplayer_start, sync, preview.
 World:   players, observe, query, inspect, counters, events, errors, console, screenshot.
 Control: act, act_all, teleport, ignite, extinguish, set_attr, config, reset, round.
 Squads:  squads, instances, queue, launch, mission_start, mission_end (lobby, pads, mission instances).
 Testing: scenario_run, scenario_list.
-AI:      playtest, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
+AI:      playtest, qa_test, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
+
+Extensions: other modules add tools with `register(mcp)` (see `EXTENSIONS` / `load_extensions`),
+e.g. `mubit_tester.studio_bridge.register(mcp)` for the Studio plugin bridge. They may use the
+helpers here (`open_studio`, `harness_for`, `progress_reporter`, `tool_errors`).
 
 Multiplayer routing: harness calls run in the Server datamodel of the selected Studio window. A
 "Clients and Servers" test opens separate Server/Client windows; `multiplayer_start` picks the
@@ -26,16 +32,19 @@ from __future__ import annotations
 
 import builtins
 import contextlib
+import importlib
+import inspect as _inspect
 import io
 import json
 import os
+import socket
 import sys
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 import anyio
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.types import Image
 
@@ -44,16 +53,17 @@ from mubit_tester.harness import Harness, HarnessError
 
 INSTRUCTIONS = (
     "mubit-tester drives the Roblox game open in Studio through an in-game harness (ForgeTest) that "
-    "controls EVERY player (Studio test clients or real Team Test friends) and knows the game's tags "
-    "and attributes. Typical loop after a code change: sync -> play_start (or multiplayer_start) -> "
-    "scenario_run smoke (and any scenario for the feature) -> errors -> play_stop. Use players/observe/"
-    "query/events to look, act/act_all/teleport/ignite/... to poke. For open-ended checks use playtest "
-    "(Mubit AI players + judge) or explore (bug hunt); if an AI player chose wrong, playtest_correct "
-    "records the right choice as a Mubit training example. Players are addressed by name, UserId or "
-    "helmet number '1'..'4'. Multiplayer: multiplayer_start(players=N) (or a Team Test with friends), "
-    "then squads/queue/launch for the station lobby, instances/mission_start/mission_end for parallel "
-    "mission instances, and instance_id on players/observe/query/events to look at one instance; "
-    "playtest(mode='squads', squads=2) runs AI squads through lobby -> mission -> results."
+    "controls EVERY player and knows the game's tags and attributes. To check that a feature works, "
+    "call test_feature(description) first: it syncs, plays, plans (smoke + matching scenarios + the "
+    "game's executable checks + an AI playtest), runs, collects errors and a screenshot, stops play and "
+    "returns a verdict (PASS / FAIL / ERRORS / INCONCLUSIVE) with the next step. After a fix run it "
+    "again and diff_since_last_run; bisect_versions finds the Forge game version that broke a check. "
+    "For hands-on work: sync -> play_start (or multiplayer_start) -> players/observe/query/events to "
+    "look, act/act_all/teleport/ignite/... to poke, watch_errors while poking -> play_stop. AI tools "
+    "(playtest, explore, suggest_fix, playtest_correct) call Mubit; playtest_correct turns a wrong AI "
+    "choice into a Mubit training example. Players are addressed by name, UserId or helmet '1'..'8'. "
+    "Multiplayer: multiplayer_start(players=N), then squads/queue/launch/instances/mission_start/"
+    "mission_end, instance_id on players/observe/query/events. Always end with play_stop."
 )
 
 mcp = MCPServer("mubit-tester", instructions=INSTRUCTIONS)
@@ -199,13 +209,21 @@ def format_report(report: dict) -> str:
 
 
 def format_correction(res: dict) -> str:
+    """The corrected call went to the same Mubit task as the call it corrects: `player` for a
+    playtest step, `explorer`, or `test_planner` / `step_judge` / `visual_judge` for a QA protocol
+    run (res["role"]). Name that task so the user rates the right one."""
+    role = res.get("role") or "player"
+    what = {"test_planner": "the QA plan", "step_judge": f"step {res.get('step')}'s judgement",
+            "visual_judge": "the visual review"}.get(role, f"step {res.get('step')}")
+    rid = res.get("request_id")
     return "\n".join([
-        f"## Correction recorded: `{res.get('run_id')}` step {res.get('step')}"
+        f"## Correction recorded in the `{role}` task: `{res.get('run_id')}` {what}"
         + (f" (player {res['player']})" if res.get("player") else ""), "",
         f"**Before:** {_cell(res.get('before'), 300)}",
         f"**After:** {_cell(res.get('after'), 300)}", "",
-        f"Mubit request id: `{res.get('request_id') or '-'}` (same player task, so it counts as a "
-        "training example).",
+        f"Mubit request id: `{rid or '-'}`: a new call in the same `{role}` task, so it is a training "
+        "example once rated Good (Mubit console → Requests"
+        + (f" → {rid}" if rid else "") + "; a task trains its adapter at 25 kept examples).",
     ])
 
 
@@ -405,6 +423,73 @@ async def _harness() -> AsyncIterator[Harness]:
                       client_windows=STATE.get("clients"))
 
 
+def harness_for(studio: Any, **kw: Any) -> Harness:
+    """A Harness on an open studio, routed like every tool's (server window / client relay)."""
+    return Harness(studio, relocate=lambda: _relocate(studio), mode=STATE.get("mode") or "server",
+                   client_windows=STATE.get("clients"), **kw)
+
+
+tool_errors = _tool_errors  # public names for extension modules (register(mcp))
+
+
+def progress_reporter(ctx: Context | None, total: float | None = None):
+    """async say(msg): an MCP progress notification (when the client sent a progress token) and a stderr line.
+    Never raises: progress is best effort (the CLI mirror has no request context)."""
+    n = [0]
+
+    async def say(msg: str) -> None:
+        n[0] += 1
+        print(f"mubit-tester: {msg}", file=sys.stderr, flush=True)
+        if ctx is None:
+            return
+        with contextlib.suppress(Exception):
+            await ctx.report_progress(n[0], total, msg)
+    return say
+
+
+def game_root(game: str | None) -> tuple[Path, str | None]:
+    """(folder, slug): None -> the human game/ folder; a Forge slug -> runs/<slug>/game; else a path."""
+    s = load_settings()
+    if not game:
+        return s.base_game_dir, None
+    run = s.runs_dir / game / "game"
+    if run.is_dir():
+        return run, game
+    p = Path(game).expanduser()
+    if not p.is_absolute():
+        p = s.repo_root / p
+    if p.is_dir():
+        slug = p.parent.name if p.name == "game" and p.parent.parent == s.runs_dir else None
+        return p, slug
+    have = ", ".join(sorted(d.parent.name for d in s.runs_dir.glob("*/game"))) or "none"
+    raise ToolError(f"no game {game!r}: give a Forge slug (runs/<slug>/game; have: {have}) or a folder")
+
+
+def _free_port(preferred: int) -> int:
+    with socket.socket() as sock:
+        if sock.connect_ex(("127.0.0.1", preferred)) != 0:
+            return preferred  # nobody listening: ours to use
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+async def sync_into(studio: Any, root: Path, prune: bool = False, shared_ok: bool = False) -> str:
+    """luau-compile check, refuse a shared Team Create place, then push `root` into `studio`.
+    Uses the configured sync port, or a free one when another agent's sync server holds it."""
+    from forge import sync as fsync
+    from forge.watch import is_shared
+    errs = fsync.check(Path(root).resolve())
+    if errs:
+        raise ToolError("not synced, luau-compile errors:\n" + "\n".join(f"  {p}: {m.strip()}" for p, m in errs[:20]))
+    name = next((str(x.get("name", "")) for x in await studio.list_studios() if x.get("id") == studio.studio_id), "")
+    if is_shared(name) and not shared_ok:
+        raise ToolError(f"'{name}' is a shared Team Create place; syncing would overwrite teammates' scripts. "
+                        "Select your own local place with studios(select=...).")
+    port = _free_port(load_settings().sync_port)
+    return str(await studio.sync(Path(root).resolve(), port, prune=prune)).strip()
+
+
 def _play():
     from mubit_tester import play  # lazy: heavy imports stay off server start
     return play
@@ -460,6 +545,9 @@ async def run_correct(run_id: str, step: int, note: str, player: str | None = No
             res = await _play().correct_step(s, run_id, step, note)
             if player:
                 res = {**res, "note": "player ignored: single-player correction"}
+        if not res.get("role"):  # player / explorer runs: the run's agent role is the task
+            with contextlib.suppress(Exception):
+                res = {**res, "role": _play().load_report(s, run_id).get("agent_role") or "player"}
     return format_correction(res)
 
 
@@ -489,24 +577,26 @@ def doctor_text() -> str:
 
 @mcp.tool()
 async def status() -> str:
-    """One-glance health: Mubit key, selected Studio, play state/datamodels, and whether the in-game
-    ForgeTest harness answers (with its player count)."""
+    """One-glance health, verdict first: Mubit key, selected Studio, play state, whether the in-game
+    ForgeTest harness answers, live game services and the next thing to do."""
     with _tool_errors():
         s = load_settings()
-        lines = ["## mubit-tester status",
-                 f"- mubit: {'key set' if s.mubit_api_key else 'MUBIT_API_KEY missing (AI tools will fail)'} "
-                 f"({s.provider} via {s.base_url}, model {s.model})"]
+        lines = [f"- mubit: {'key set' if s.mubit_api_key else 'MUBIT_API_KEY missing (AI tools will fail)'} "
+                 f"({s.provider}, model {s.model})"]
+        head, nxt = "NOT READY", ""
         try:
             async with open_studio() as st:
-                lines.append(f"- studio: `{st.studio_id}` (hint {STATE.get('hint')!r})")
+                name = next((x.get("name") for x in await st.list_studios() if x.get("id") == st.studio_id), "?")
+                lines.append(f"- studio: {name} `{st.studio_id}` (hint {STATE.get('hint')!r})")
                 state = await st.state()
                 lines.append(f"- play: {'running' if state.get('playing') else 'stopped'}; "
                              f"datamodels {state.get('datamodels')}")
                 if state.get("playing") or STATE.get("mode") == "client":
-                    h = Harness(st, relocate=lambda: _relocate(st), mode=STATE.get("mode") or "server",
-                                client_windows=STATE.get("clients"))
+                    h = harness_for(st)
                     try:
                         ping = await h.call("ping")
+                        n = ping.get("players", "?") if isinstance(ping, dict) else "?"
+                        head = f"READY: playing, harness ok ({n} player(s))"
                         lines.append(f"- harness: ok via {h.mode} {_cell(ping, 200)}")
                         try:
                             caps = await h.caps()
@@ -519,37 +609,64 @@ async def status() -> str:
                         except HarnessError:
                             lines.append("- game services: unknown (old harness: sync ForgeTest.server.luau)")
                     except HarnessError as e:
+                        head = "NOT READY: playing but the harness doesn't answer"
+                        nxt = "`sync` (ForgeTest missing?) then `play_start`"
                         lines.append(f"- harness: NOT ready ({e})")
                 else:
-                    lines.append("- harness: needs play (`play_start` or `multiplayer_start`)")
+                    head = f"IDLE: {name} connected, not playing"
+                    nxt = "`test_feature(description)`, or `play_start` for hands-on work"
+                    lines.append("- harness: needs play")
         except Exception as e:  # noqa: BLE001
+            head = "NO STUDIO"
+            nxt = "open your place in Roblox Studio with Enable Studio as MCP server on, then `studios`"
             lines.append(f"- studio: unavailable ({type(e).__name__}: {e})")
-        return "\n".join(lines)
+        if not s.mubit_api_key:
+            nxt = (nxt + "; " if nxt else "") + "set MUBIT_API_KEY for AI tools"
+        return "\n".join([f"## {head}"] + ([f"**Next:** {nxt}"] if nxt else []) + lines)
 
 
 @mcp.tool()
 async def studios(select: str | None = None) -> str:
-    """List connected Roblox Studio windows (id, name). `select` (id or part of a name) pins which
-    one every other tool uses; a name containing `placeId` is the shared Team Create place."""
+    """List connected Roblox Studio windows (id, name); `*` marks the one tools use. `select` (id or
+    part of a name) pins it. A name containing `placeId` is a shared Team Create place: never sync
+    into it."""
     with _tool_errors():
         async with open_studio(select=False) as st:
             if select:
                 sid = await st.select(select)  # strict: an ambiguous name is an error, not a guess
                 STATE.update(hint=sid, pinned=sid, studio_id=sid, mode="server", clients=[], server_window=None)
             items = await st.list_studios()
-        rows = [f"| {'*' if x['id'] == STATE.get('studio_id') else ''} | `{x['id']}` | {_cell(x.get('name'), 80)} |"
-                for x in items]
-        return "\n".join(["| sel | id | name |", "|---|---|---|", *rows]) if rows else "No Studio connected."
+            chosen = STATE.get("studio_id")
+            if not chosen and items:
+                with contextlib.suppress(Exception):
+                    chosen = await st.select(STATE.get("hint"))
+        rows = [f"| {'*' if x['id'] == chosen else ''} | `{x['id']}` | {_cell(x.get('name'), 80)}"
+                f"{' (shared)' if 'placeId' in str(x.get('name')) else ''} |" for x in items]
+        if not rows:
+            return ("No Studio connected: open a place and turn on Assistant → ⋯ → Manage MCP Servers → "
+                    "Enable Studio as MCP server.")
+        sel = next((x.get("name") for x in items if x["id"] == chosen), None)
+        return "\n".join([f"{len(rows)} Studio window(s); tools use: {sel or 'none matched'}", "",
+                          "| sel | id | name |", "|---|---|---|", *rows])
 
 
 @mcp.tool()
-async def play_start() -> str:
-    """Start a solo playtest (if not already playing) and wait until ForgeTest answers `ping`."""
+async def play_start(timeout: float = 90) -> str:
+    """Start a solo playtest (if not already playing) and wait until ForgeTest answers `ping`
+    (up to `timeout` seconds)."""
     with _tool_errors():
         STATE["mode"] = "server"
+        t0 = time.monotonic()
         async with _harness() as h:
-            ping = await h.ensure_ready(timeout=45)
-            return f"play running (started now: {h.started_play}). ping: {_cell(ping, 400)}"
+            try:
+                ping = await h.ensure_ready(timeout=timeout)
+            except Exception as e:  # noqa: BLE001
+                raise ToolError(
+                    f"play did not become ready in {time.monotonic() - t0:.0f}s: {e}. Check `status` (right "
+                    "window?), a modal dialog open in Studio, or ForgeTest missing (`sync`). Many Studios at "
+                    "once start play slowly: retry with a larger timeout.") from e
+            return (f"play running ({'started now' if h.started_play else 'already running'}, "
+                    f"{time.monotonic() - t0:.0f}s). ping: {_cell(ping, 300)}")
 
 
 @mcp.tool()
@@ -658,11 +775,16 @@ async def multiplayer_start(players: int = 2, add: bool = False) -> str:
 
 
 @mcp.tool()
-async def sync(prune: bool = False) -> str:
-    """Push game/ into the selected Studio (luau-compile check first; stops play). No prune by default."""
+async def sync(game: str | None = None, prune: bool = False) -> str:
+    """Push a game's Luau into the selected Studio (luau-compile check first; stops play). `game`:
+    omit for the human game in game/, a Forge slug for runs/<slug>/game, or a folder. `prune`
+    deletes synced scripts that no longer exist on disk. Refuses shared Team Create places."""
     with _tool_errors():
-        from forge.watch import sync_once
-        return str(await sync_once(load_settings(), _root(), STATE.get("hint"), prune=prune)).strip()
+        root, _ = game_root(game)
+        t0 = time.monotonic()
+        async with open_studio() as st:
+            out = await sync_into(st, root, prune=prune)
+        return f"synced `{root}` in {time.monotonic() - t0:.0f}s: {out}"
 
 
 @mcp.tool()
@@ -695,18 +817,43 @@ async def observe(player: str, radius: float = 120, max: int = 12, instance_id: 
             return _j(await h.observe(player, radius, max, instance_id), f"observe {player}")
 
 
+def format_query(res: Any, attrs: list[str] | None = None) -> str:
+    if not isinstance(res, list):
+        return _j(res, "query")
+    if not res:
+        return "query: 0 hits"
+    keys = list(attrs or [])
+    out = [f"## query: {len(res)} hit(s)", "", "| name | dist | pos | instance | " + " | ".join(keys) + (" |" if keys else "") + " path |",
+           "|---|---|---|---|" + "---|" * len(keys) + "---|"]
+    for r in res:
+        if not isinstance(r, dict):
+            out.append(f"| {_cell(r, 80)} |")
+            continue
+        pos = r.get("pos")
+        if isinstance(pos, list):
+            pos = [builtins.round(x, 1) if isinstance(x, (int, float)) else x for x in pos]
+        dist = r.get("dist")
+        dist = builtins.round(dist, 1) if isinstance(dist, (int, float)) else dist
+        a = r.get("attrs") or {}
+        vals = [_cell(a.get(k, r.get(k)), 24) for k in keys]
+        out.append(f"| {_cell(r.get('name'), 24)} | {_cell(dist, 8)} | {_cell(pos, 26)} | {_cell(r.get('instanceId'), 10)} | "
+                   + "".join(f"{v} | " for v in vals) + f"{_cell(r.get('path'), 90)} |")
+    return "\n".join(out)
+
+
 @mcp.tool()
 async def query(tag: str | None = None, near: str | list[float] | None = None, radius: float | None = None,
                 attrs: list[str] | None = None, limit: int = 25, instance_id: str | None = None,
                 where: dict | None = None) -> str:
     """Find instances by CollectionService tag, optionally near a position [x,y,z] or a player
-    (name/userId/helmet), returning path, name, tags, pos, dist, instanceId and the requested attrs.
-    `instance_id` keeps only things inside that mission instance; `where` {attr: value} filters."""
+    (name/userId/helmet). Table of name, dist, pos, instance, the requested `attrs`, path (nearest
+    first when `near`). `instance_id` keeps only things inside that mission instance; `where`
+    {attr: value} filters."""
     with _tool_errors():
         async with _harness() as h:
             res = await h.query(tag=tag, near=near, radius=radius, attrs=attrs, limit=limit,
                                 instanceId=instance_id, where=where)
-            return _j(res, f"query ({len(res)} hit(s))")
+            return format_query(res, attrs)
 
 
 @mcp.tool()
@@ -767,21 +914,52 @@ async def console(tail: int = 80) -> str:
         return "\n".join(lines[-tail:]) or "(console empty)"
 
 
+async def _focus_camera(focus: str, distance: float = 22) -> tuple[list[float], list[float]]:
+    """Camera/look_at framing a player (name/userId/helmet) or an instance path, from above-behind."""
+    async with _harness() as h:
+        pos = None
+        with contextlib.suppress(HarnessError):
+            for p in await h.players():
+                if focus in (str(p.get("name")), str(p.get("userId")), str(p.get("helmet"))):
+                    pos = p.get("pos")
+                    break
+        if pos is None:
+            info = await h.inspect(focus)
+            pos = info.get("pos") or info.get("position") if isinstance(info, dict) else None
+    if not (isinstance(pos, list) and len(pos) == 3):
+        raise ToolError(f"can't find a position for {focus!r} (a player or an instance path while playing)")
+    d = distance
+    return [pos[0] + d * 0.7, pos[1] + d * 0.6, pos[2] + d * 0.7], list(pos)
+
+
 @mcp.tool(structured_output=False)
-async def screenshot(camera: list[float] | None = None, look_at: list[float] | None = None) -> list:
-    """Capture the Studio viewport (optionally from camera [x,y,z] looking at look_at [x,y,z]).
-    Returns the image and its saved path under runs/screens/."""
+async def screenshot(focus: str | None = None, camera: list[float] | None = None,
+                     look_at: list[float] | None = None, distance: float = 22) -> list:
+    """Capture the Studio viewport: the image itself plus its saved path (runs/screens/). `focus`
+    frames a player (name/userId/helmet) or an instance path from `distance` studs (needs play);
+    or give camera [x,y,z] + look_at [x,y,z]; or neither for the current view."""
     with _tool_errors():
         s = load_settings()
-        out = s.runs_dir / "screens" / f"shot-{time.strftime('%Y%m%d-%H%M%S')}.png"
+        if focus:
+            camera, look_at = await _focus_camera(focus, distance)
+        label = "".join(c if c.isalnum() else "-" for c in (focus or "view"))[:24]
+        out = s.runs_dir / "screens" / f"shot-{time.strftime('%Y%m%d-%H%M%S')}-{label}.png"
         async with open_studio() as st:
             saved = await st.screenshot(out, camera, look_at)
         if not saved:
-            return ["screen_capture returned no image"]
-        return [f"saved {saved}", Image(path=saved)]
+            raise ToolError("screen_capture returned no image (is the Studio window minimised or covered?)")
+        return [f"saved `{saved}`" + (f" (focus {focus})" if focus else ""), Image(path=saved)]
 
 
 # ================================================================ MCP tools: control
+
+def format_act(res: Any) -> str:
+    if isinstance(res, dict) and "done" in res:
+        extra = {k: v for k, v in res.items() if k not in ("done", "detail")}
+        return (f"{'done' if res.get('done') else 'NOT done'}: {_cell(res.get('detail'), 600)}"
+                + (f"\n{_cell(extra, 800)}" if extra else ""))
+    return _j(res)
+
 
 @mcp.tool()
 async def act(player: str, action: str, args: dict | None = None) -> str:
@@ -791,10 +969,11 @@ async def act(player: str, action: str, args: dict | None = None) -> str:
     counters, HUD text, events): go_touch {path}, go_use {path}, chase {path, touches<=5},
     repeat {action, args, times<=5}; press {path|text} (a real mouse click on one of the
     player's GUI buttons from `observe`'s `ui`; only for a player a Studio window drives; returns whether
-    the button fired and what changed on screen). Returns {done, detail}."""
+    the button fired and what changed on screen). Any action takes `target_player` to aim at another
+    player. Returns "done: <detail>" or "NOT done: <why>"."""
     with _tool_errors():
         async with _harness() as h:
-            return _j(await h.act(player, action, **(args or {})))
+            return format_act(await h.act(player, action, **(args or {})))
 
 
 @mcp.tool()
@@ -1011,6 +1190,71 @@ async def playtest(goal: str, players: int | None = None, steps: int = 20, roles
         return await run_playtest(goal, steps, None, players, roles, mode, squads)
 
 
+def format_qa(rep: dict, shots: list[dict]) -> str:
+    """Summary first: verdict, acceptance counts, bugs, then key screenshots and where it's saved."""
+    met = rep.get("goal_met")
+    head = "PASS" if met is True else "FAIL" if met is False else "INCONCLUSIVE"
+    acc = rep.get("acceptance") or []
+    counts: dict[str, int] = {}
+    for a in acc:
+        counts[str(a.get("status"))] = counts.get(str(a.get("status")), 0) + 1
+    out = [f"## QA {head}: {_cell(rep.get('goal'), 120)}",
+           f"{_cell(rep.get('summary'), 600)}",
+           f"Run `{rep.get('run_id')}`, {len(rep.get('steps') or [])} step(s), "
+           f"{((rep.get('timings') or {}).get('total_ms') or 0) / 1000:.0f}s; acceptance: "
+           + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "none"), ""]
+    bugs = rep.get("bugs") or []
+    out.append(f"### Bugs ({len(bugs)})")
+    for b in bugs[:8]:
+        out.append(f"- **{b.get('id')}. [{b.get('severity')}] {_cell(b.get('title'), 100)}**: "
+                   f"expected {_cell(b.get('expected'), 100)}; actual {_cell(b.get('actual'), 100)} "
+                   f"(fix target `{b.get('fix_target') or '?'}`)")
+    if not bugs:
+        out.append("- none found")
+    fails = [a for a in acc if a.get("status") == "fail"]
+    if fails:
+        out += ["", "### Failing acceptance items"] + [f"- {_cell(a.get('text'), 160)} (steps {a.get('steps')})" for a in fails[:8]]
+    if rep.get("errors"):
+        out += ["", f"Run errors: {_cell(rep['errors'], 300)}"]
+    out += ["", "### Key screenshots"] + ([f"- step {c['n']}: `{c['path']}` ({_cell(c.get('what'), 80)})" for c in shots]
+                                         or ["- none"])
+    out += ["", f"Full report: `{Path(str(rep.get('test_dir', ''))) / 'report.md'}`",
+            f"Correct a judgement: `playtest_correct(run_id=\"{rep.get('run_id')}\", step=<n>, note=...)` "
+            "(step 0 = the plan, n = step n's judge, -1 = the visual review)."]
+    return "\n".join(out)
+
+
+@mcp.tool(structured_output=False)
+async def qa_test(focus: str | None = None, steps: int = 12, game: str | None = None,
+                  ctx: Context | None = None) -> list:
+    """QA protocol tester (Mubit, with vision): understand the game, plan up to `steps` test steps
+    (optionally around `focus`, e.g. "the hydrant refill"), execute them with screenshots, investigate
+    mismatches, and report acceptance items and bugs. Returns the summary first, bugs, the key
+    screenshot paths (and the first two images), and the report path. `game`: a Forge slug or omit
+    for game/. Stops play it started. Several minutes; slower and deeper than test_feature."""
+    with _tool_errors():
+        ai = _ai()
+        if ai is None or not hasattr(ai, "qa_test"):
+            raise ToolError("qa_test needs mubit_tester.ai.qa_test (the QA protocol), which isn't available")
+        say = progress_reporter(ctx)
+        root, slug = game_root(game)
+        await say(f"QA protocol on {slug or root.name}" + (f", focus: {focus}" if focus else ""))
+        async with open_studio() as st:
+            h = harness_for(st)
+            kw: dict = {"game_dir": root, "max_steps": max(1, int(steps)), "studio": st, "harness": h, "stop": True}
+            if slug:
+                kw["slug"] = slug
+            rep = await ai.qa_test(load_settings(), focus, **kw)
+        from mubit_tester import protocol
+        shots = protocol.pick_key_shots(rep, protocol.KEY_IMAGES)
+        await say(f"done: {rep.get('summary', '')[:120]}")
+        parts: list = [format_qa(rep, shots)]
+        for c in shots[:2]:
+            if Path(str(c["path"])).exists():
+                parts.append(Image(path=c["path"]))
+        return parts
+
+
 @mcp.tool()
 async def explore(minutes: float = 3, players: int | None = None) -> str:
     """Unscripted AI bug hunt (Mubit `explorer` role) for `minutes`; returns the bugs it found."""
@@ -1025,8 +1269,10 @@ async def explore(minutes: float = 3, players: int | None = None) -> str:
 
 @mcp.tool()
 async def playtest_correct(run_id: str, step: int, note: str, player: str | None = None) -> str:
-    """Correct an AI player's choice at one step ("it should have ..."): a new call in the same
-    Mubit task, i.e. a training example. `player` picks whose step in a multiplayer run."""
+    """Correct an AI call at one step ("it should have ..."): a new call in the same Mubit task, i.e.
+    a training example once rated Good. Playtest runs: step n of `player` (whose step in a
+    multiplayer run). QA protocol runs (qa_test): step 0 = the plan (test_planner), n = step n's
+    judge (step_judge), -1 = the visual review (visual_judge). The reply names the task."""
     with _tool_errors():
         return await run_correct(run_id, step, note, player)
 
@@ -1063,14 +1309,284 @@ def reports() -> str:
         return get_list()
 
 
+# ================================================================ MCP tools: one-shot testing
+
+@mcp.tool(structured_output=False)
+async def test_feature(description: str, game: str | None = None, scenarios: list[str] | None = None,
+                       checks: bool = True, playtest: bool = True, players: int | None = None,
+                       steps: int = 12, sync: bool = True, screenshot: bool = True,
+                       ctx: Context | None = None) -> list:
+    """Test one feature end to end in a single call and get a verdict: sync the code, start play,
+    plan (smoke + the scenarios matching `description` + the game's saved executable checks + an AI
+    playtest toward `description`), run it all, read ForgeProbe errors, take a screenshot, stop play.
+    Returns the verdict first (PASS / FAIL / ERRORS / INCONCLUSIVE, why, next step), then a result
+    table, bugs, errors and the plan; saved under runs/tests/<id>/ for `diff_since_last_run`.
+    `game`: a Forge slug (runs/<slug>/game, whose checks run) or omit for game/. `scenarios` replaces
+    the automatic pick. `playtest=false` skips the LLM (fast, no Mubit). `players` > 1 starts a
+    multiplayer test first. Takes ~1-4 min; progress is streamed."""
+    with _tool_errors():
+        from mubit_tester import testrun
+        if not description.strip():
+            raise ToolError("describe the feature, e.g. 'refilling the hose at a hydrant restores water'")
+        say = progress_reporter(ctx)
+        root, slug = game_root(game)
+        settings = load_settings()
+        if players and players > 1:
+            await say(f"starting a {players}-player test")
+            await multiplayer_start(players=players)
+        ai = _ai() if playtest else None
+        play_mod = None
+        if playtest and (ai is None or not hasattr(ai, "multi_playtest")):
+            play_mod = _play()
+        async with open_studio() as st:
+            h = harness_for(st)
+            rec = await testrun.run_feature_test(
+                settings=settings, description=description, studio=st, harness=h, game_root=root, game=slug,
+                ai=ai, play_mod=play_mod,
+                do_sync=(lambda: sync_into(st, root)) if sync else None,
+                scenarios=scenarios, run_checks=checks, playtest=playtest, players=players, steps=steps,
+                screenshot=screenshot, stop=True, progress=say)
+        if players and players > 1:
+            STATE["mode"], STATE["clients"] = "server", []
+        text = testrun.format_record(rec)
+        await say(f"done: {rec['verdict'][0]}")
+        if rec.get("screenshot") and Path(rec["screenshot"]).exists():
+            return [text, Image(path=rec["screenshot"])]
+        return [text]
+
+
+@mcp.tool()
+def test_runs(limit: int = 15) -> str:
+    """Saved `test_feature` runs, newest first: id, verdict, seconds, description."""
+    with _tool_errors():
+        from mubit_tester import testrun
+        recs = testrun.load_records(load_settings())[::-1][:max(1, limit)]
+        if not recs:
+            return "No feature tests yet: `test_feature(description)`."
+        out = ["| test | verdict | s | game | description |", "|---|---|---|---|---|"]
+        for r in recs:
+            v = (r.get("verdict") or ["?"])[0]
+            out.append(f"| `{r['id']}` | {v} | {r.get('seconds', 0):.0f} | {r.get('game') or ''} | {_cell(r.get('description'), 70)} |")
+        return "\n".join(out)
+
+
+@mcp.tool()
+def diff_since_last_run(test_id: str | None = None, against: str | None = None) -> str:
+    """What changed between two `test_feature` runs: verdict trend, checks/scenarios/playtest that
+    flipped (fixed or regressed), new and vanished script errors and AI-found bugs, and the game
+    files that changed in between. Default: the latest run vs the previous run of the same test
+    (same game + description); `against` picks the older run explicitly."""
+    with _tool_errors():
+        from mubit_tester import testrun
+        s = load_settings()
+        recs = testrun.load_records(s)
+        if not recs:
+            raise ToolError("no feature tests yet: run `test_feature(description)` twice")
+        new = testrun.load_record(s, test_id) if test_id else recs[-1]
+        old = testrun.load_record(s, against) if against else testrun.previous_record(recs, new)
+        if old is None:
+            return f"`{new['id']}` is the only run so far: nothing to compare. Run the test again after a change."
+        return testrun.format_diff(testrun.diff(old, new))
+
+
+def _probe_errors(rep: dict) -> dict[str, dict]:
+    out = {}
+    for e in rep.get("errors") or []:
+        if isinstance(e, dict):
+            key = " ".join(str(e.get("message")).split())[:200]
+            out[key] = {"count": int(e.get("count") or 1), "script": e.get("script"), "trace": e.get("trace")}
+        else:
+            out[" ".join(str(e).split())[:200]] = {"count": 1}
+    return out
+
+
+@mcp.tool()
+async def watch_errors(seconds: float = 30, poll: float = 3, ctx: Context | None = None) -> str:
+    """Watch the running game for NEW script errors for `seconds` (while you or AI players poke
+    it): polls ForgeProbe every `poll` s, streams each new error as progress, then returns a summary
+    (count first) with traces. Errors already logged before the call don't count. Needs play."""
+    with _tool_errors():
+        say = progress_reporter(ctx, total=None)
+        seconds = max(1.0, min(float(seconds), 600.0))
+        async with open_studio() as st:
+            base = await st.probe_report()
+            if base.get("error") and not base.get("errors"):
+                raise ToolError(f"ForgeProbe unavailable ({base['error']}): is play running? `play_start` first")
+            seen = {k: v["count"] for k, v in _probe_errors(base).items()}
+            new: dict[str, dict] = {}
+            t0 = time.monotonic()
+            polls = 0
+            while time.monotonic() - t0 < seconds:
+                await anyio.sleep(max(0.5, poll))
+                polls += 1
+                rep = await st.probe_report()
+                for k, v in _probe_errors(rep).items():
+                    grew = v["count"] - seen.get(k, 0)
+                    if grew > 0:
+                        first = k not in new
+                        new.setdefault(k, {**v, "new": 0, "t": builtins.round(time.monotonic() - t0, 1)})
+                        new[k]["new"] += grew
+                        new[k]["trace"] = v.get("trace") or new[k].get("trace")
+                        seen[k] = v["count"]
+                        if first:
+                            await say(f"new error at +{new[k]['t']}s: {k[:160]}")
+        took = time.monotonic() - t0
+        if not new:
+            return f"## 0 new script errors in {took:.0f}s ({polls} polls)"
+        out = [f"## {len(new)} new script error(s) in {took:.0f}s ({sum(v['new'] for v in new.values())} occurrences)", ""]
+        for k, v in new.items():
+            out.append(f"- **{_cell(k, 300)}** x{v['new']} first at +{v['t']}s ({_cell(v.get('script'), 80)})")
+            if v.get("trace"):
+                out.append(f"  trace: {_cell(v['trace'], 400)}")
+        return "\n".join(out)
+
+
+async def _run_check_spec(st: Any, h: Harness, slug: str, check: str) -> tuple[bool, str]:
+    """A saved executable check id, a scenario name, or an inline Luau check body."""
+    from forge import checks as fchecks
+    from mubit_tester.scenario import load_scenario, run_scenario
+    s = load_settings()
+    saved = {c.id: c for c in fchecks.load_checks(s.runs_dir / slug)}
+    if check in saved:
+        r = await fchecks.run_check(st, saved[check])
+        return bool(r.get("ok")), r.get("error") or r.get("detail") or ""
+    if "return" in check and "\n" in check or check.strip().startswith("local "):
+        r = await fchecks.run_check(st, fchecks.parse(check, "inline"))
+        return bool(r.get("ok")), r.get("error") or r.get("detail") or ""
+    res = await run_scenario(h, load_scenario(check, s.repo_root))
+    if res.get("skipped"):
+        return False, f"SKIP {res.get('reason')}"
+    bad = next((x.get("detail") for x in res.get("steps") or [] if not x.get("ok")), "")
+    return bool(res.get("passed")), bad or f"{len(res.get('steps') or [])} steps ok"
+
+
+@mcp.tool()
+async def bisect_versions(game: str, check: str, good: str | None = None, bad: str | None = None,
+                          ctx: Context | None = None) -> str:
+    """Find the saved version of a Forge game (forge `versions`: v1, v2, ...) that broke a check, by
+    binary search: each tested version is exported to a scratch folder, synced into Studio, played,
+    and `check` run (a saved executable check id from runs/<game>/checks, a scenario name, or an
+    inline Luau check returning {ok=, detail=}). `good` defaults to v1, `bad` to the latest.
+    Returns the first bad version, its message and changed files; then re-syncs the current game.
+    Each step is one playtest (~30-60 s); progress is streamed."""
+    with _tool_errors():
+        from forge.versions import GameVersions
+        from mubit_tester import bisect as bs
+        root, slug = game_root(game)
+        if not slug:
+            raise ToolError(f"{game!r} is not a Forge game with versions (runs/<slug>/game)")
+        gv = GameVersions(root)
+        tags = gv.tags()
+        say = progress_reporter(ctx, total=None)
+
+        async def run_at(folder: Path) -> tuple[bool, str]:
+            async with open_studio() as st:
+                await sync_into(st, folder, prune=True)
+                h = harness_for(st)
+                try:
+                    await h.ensure_ready(timeout=90)
+                    return await _run_check_spec(st, h, slug, check)
+                finally:
+                    with contextlib.suppress(Exception):
+                        await st.stop()
+        try:
+            res = await bs.bisect(root, tags, run_at, good=good, bad=bad, progress=say)
+        except bs.BisectError as e:
+            raise ToolError(str(e)) from e
+        finally:
+            with contextlib.suppress(Exception):
+                async with open_studio() as st:
+                    await sync_into(st, root, prune=True)
+                await say("re-synced the current version")
+        changed: list[str] = []
+        if res.get("first_bad") and res.get("last_good"):
+            with contextlib.suppress(Exception):
+                changed = gv._git("diff", "--name-only", res["last_good"], res["first_bad"]).splitlines()
+        return bs.format_bisect(res, gv.log(), changed)
+
+
+@mcp.tool()
+async def swarm(goal: str, testers: int = 10, minutes: float = 5, ctx: Context | None = None) -> str:
+    """Swarm test: many AI testers (default 10) play the game in parallel toward `goal`, then one
+    merged report (verdict, deduplicated bugs, per-tester notes). Thin wrapper over
+    `mubit_tester.swarm.run_swarm`; heavy on Studio: run it alone, then `play_stop`."""
+    with _tool_errors():
+        try:
+            sw = importlib.import_module("mubit_tester.swarm")
+        except ModuleNotFoundError as e:
+            if e.name != "mubit_tester.swarm":
+                raise
+            raise ToolError("swarm testing isn't in this checkout yet (mubit_tester.swarm). Meanwhile: "
+                            "multiplayer_start(players=N) then playtest(goal, players=N).") from e
+        fn = getattr(sw, "run_swarm", None) or getattr(sw, "swarm", None)
+        if fn is None:
+            raise ToolError("mubit_tester.swarm has no run_swarm()")
+        offer = {"settings": load_settings(), "goal": goal, "testers": max(1, int(testers)),
+                 "minutes": float(minutes), "progress": progress_reporter(ctx), "studio_hint": STATE.get("hint"),
+                 "open_studio": open_studio}
+        params = _inspect.signature(fn).parameters
+        takes_any = any(p.kind is p.VAR_KEYWORD for p in params.values())
+        kw = {k: v for k, v in offer.items() if takes_any or k in params}
+        res = fn(**kw)
+        if _inspect.isawaitable(res):
+            res = await res
+        fmt = getattr(sw, "format_swarm", None) or getattr(sw, "format_report", None)
+        if isinstance(res, str):
+            return res
+        if fmt:
+            return fmt(res)
+        if isinstance(res, dict) and ("bugs" in res or "steps" in res):
+            return format_report(res)
+        return _j(res, "swarm")
+
+
+# ================================================================ extensions
+
+# Modules that add their own tools: each exposes register(mcp). Missing ones are skipped, so a
+# lane can ship its module later without touching this file. Extra ones: MUBIT_TESTER_EXTENSIONS
+# (comma-separated module names).
+EXTENSIONS = ("mubit_tester.studio_bridge",)
+LOADED_EXTENSIONS: list[str] = []
+
+
+def load_extensions(names: tuple[str, ...] | list[str] | None = None) -> list[str]:
+    names = list(names if names is not None else EXTENSIONS)
+    names += [n.strip() for n in os.environ.get("MUBIT_TESTER_EXTENSIONS", "").split(",") if n.strip()]
+    for name in names:
+        if name in LOADED_EXTENSIONS:
+            continue
+        try:
+            mod = importlib.import_module(name)
+        except ModuleNotFoundError as e:
+            if e.name == name:
+                continue
+            print(f"mubit-tester: extension {name} failed to import: {e}", file=sys.stderr)
+            continue
+        except Exception as e:  # noqa: BLE001  a broken extension must not take the server down
+            print(f"mubit-tester: extension {name} failed to import: {type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        register = getattr(mod, "register", None)
+        if register is None:
+            continue
+        try:
+            register(mcp)
+            LOADED_EXTENSIONS.append(name)
+        except Exception as e:  # noqa: BLE001
+            print(f"mubit-tester: extension {name}.register failed: {type(e).__name__}: {e}", file=sys.stderr)
+    return LOADED_EXTENSIONS
+
+
 TOOL_NAMES = (
+    "test_feature", "test_runs", "diff_since_last_run", "watch_errors", "bisect_versions", "swarm",
     "status", "studios", "play_start", "play_stop", "multiplayer_start", "sync", "preview",
     "players", "observe", "query", "inspect", "counters", "events", "errors", "console", "screenshot",
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "explore", "playtest_correct", "suggest_fix", "report", "reports",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 )
+
+load_extensions()
 
 
 def main() -> None:

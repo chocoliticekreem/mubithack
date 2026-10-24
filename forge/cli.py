@@ -358,7 +358,7 @@ def _add_test_parsers(sub) -> None:
             if name in required:
                 tp.add_argument(name, metavar=name, help=f"{hint}")
             elif types == {"boolean"}:
-                tp.add_argument(f"--{name.replace('_', '-')}", dest=name, action="store_true",
+                tp.add_argument(f"--{name.replace('_', '-')}", dest=name, action=argparse.BooleanOptionalAction,
                                 default=None, help=f"(default {prop.get('default')})")
             else:
                 tp.add_argument(f"--{name.replace('_', '-')}", dest=name, metavar=hint.upper(),

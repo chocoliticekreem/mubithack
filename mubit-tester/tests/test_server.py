@@ -96,12 +96,13 @@ def _text(result) -> str:
 
 
 CONTRACT_TOOLS = [
+    "test_feature", "test_runs", "diff_since_last_run", "watch_errors", "bisect_versions", "swarm",
     "status", "studios", "play_start", "play_stop", "multiplayer_start", "sync", "preview",
     "players", "observe", "query", "inspect", "counters", "events", "errors", "console", "screenshot",
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "explore", "playtest_correct", "suggest_fix", "report", "reports",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 ]
 
 
@@ -275,8 +276,9 @@ async def test_play_start_status_stop(fake_studio, monkeypatch):
     fake_studio.playing = False
     assert "needs play" in _text(await ms.mcp.call_tool("status", {}))
     md = _text(await ms.mcp.call_tool("play_start", {}))
-    assert "started now: True" in md and fake_studio.played == 1
-    assert "harness: ok" in _text(await ms.mcp.call_tool("status", {}))
+    assert "started now" in md and fake_studio.played == 1
+    md = _text(await ms.mcp.call_tool("status", {}))
+    assert md.startswith("## READY") and "harness: ok" in md
     assert "stopped" in _text(await ms.mcp.call_tool("play_stop", {}))
     assert fake_studio.stopped == 1
 
@@ -490,7 +492,7 @@ def test_cli_test_mirrors_every_tool():
                "set_attr": ["W.X", "Water", "5"], "config": ["Hose", "Range"], "scenario_run": ["smoke"],
                "queue": ["1"], "mission_end": ["M1"],
                "playtest": ["goal"], "playtest_correct": ["r", "2", "note"], "suggest_fix": ["r"],
-               "report": ["r"]}.get(name, [])
+               "report": ["r"], "qa_test": [], "test_feature": ["x"], "bisect_versions": ["g", "c"], "swarm": ["goal"]}.get(name, [])
         a = p.parse_args(["test", name, *req])
         assert a.cmd == "test" and a.tool == name
     a = p.parse_args(["test", "act-all", "use", "--args", '{"seconds": 2}'])
@@ -521,3 +523,37 @@ async def test_tool_errors_surface_message(monkeypatch):
     from mcp.server.mcpserver.exceptions import ToolError
     with pytest.raises(ToolError, match="no runs/playtests dir"):
         await ms.mcp.call_tool("reports", {})
+
+
+def test_correction_names_the_right_task():
+    md = ms.format_correction({"run_id": "qa-1", "step": 0, "role": "test_planner", "before": "a", "after": "b",
+                               "request_id": "req-7"})
+    assert "`test_planner` task" in md and "the QA plan" in md and "player task" not in md and "req-7" in md
+    md = ms.format_correction({"run_id": "qa-1", "step": 3, "role": "step_judge", "before": "a", "after": "b"})
+    assert "`step_judge` task" in md and "step 3's judgement" in md
+    md = ms.format_correction({"run_id": "pt-1", "step": 2, "before": "a", "after": "b", "request_id": "r"})
+    assert "`player` task" in md and "Rate" not in md.split("`player` task")[0]
+
+
+async def test_qa_test_tool(fake_studio, monkeypatch, tmp_path):
+    shot = tmp_path / "step-01.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    got = {}
+
+    async def qa_test(settings, focus=None, **kw):
+        got.update(focus=focus, **kw)
+        return {"run_id": "qa-9", "goal": "QA: hydrant", "goal_met": False, "test_dir": str(tmp_path),
+                "summary": "2/3 acceptance items pass, 1 fail.", "timings": {"total_ms": 61000},
+                "acceptance": [{"n": 1, "status": "pass", "text": "a", "steps": [1]},
+                               {"n": 2, "status": "fail", "text": "refill restores water", "steps": [2]}],
+                "bugs": [{"id": 1, "severity": "high", "title": "Refill does nothing", "expected": "Water 100",
+                          "actual": "Water 0", "fix_target": "HydrantService.luau"}],
+                "steps": [{"n": 1, "screenshot": str(shot), "final": {"verdict": "fail"}, "intent": "refill"}]}
+    ai = types.ModuleType("mubit_tester.ai")
+    ai.qa_test = qa_test
+    monkeypatch.setattr(ms, "_ai", lambda: ai)
+    res = await ms.mcp.call_tool("qa_test", {"focus": "the hydrant refill", "steps": 4})
+    md = _text(res)
+    assert md.startswith("## QA FAIL") and "1 fail, 1 pass" in md and "Refill does nothing" in md
+    assert str(shot) in md and "report.md" in md and any(getattr(c, "type", "") == "image" for c in res.content)
+    assert got["focus"] == "the hydrant refill" and got["max_steps"] == 4 and got["harness"].studio is fake_studio

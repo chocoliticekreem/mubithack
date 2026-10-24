@@ -1,15 +1,18 @@
 """`forge server`: the `forge` stdio MCP server. Make a Roblox game with Forge from any MCP client.
 
 Setup:   setup (guided first run: Mubit key, model, luau, Roblox Studio, MCP toggle)
-Build:   doctor, new_game, iterate, correct, improve, fix, tester_report (long ones start a background job)
+Build:   doctor, build_game, iterate, feature, correct, improve_game, fault_drill, tester_report
 Lead:    orchestrate, gaps, orchestrator (gap finder -> job queue -> workers with Studio/LLM leases)
+Ready?:  done (one readiness bar: checks, features, nothing open, critic)
 Jobs:    job, jobs, cancel_job
-Read:    games, game, read_file, scores, playbook, lessons, calls
+Read:    games, game, read_file, scores, playbook, lessons, calls, versions, rollback, dashboard
 Ship:    seed, promote, sync
 
-Long work (designing, coding, playtesting, improve cycles) takes minutes, so it runs as a `forge`
-CLI subprocess with its own log under runs/jobs/. A tool returns the job id at once; `job` shows
-progress. The process survives client timeouts and writes `__exit <code>` as its last log line.
+Long work (designing, coding, playtesting, fix cycles) takes minutes, so it runs as a `forge` CLI
+subprocess with its own log under runs/jobs/. The process survives client timeouts and writes
+`__exit <code>` as its last log line. build_game / improve_game / job(wait_seconds=...) follow the
+job for a while, streaming progress notifications (phase, steps done, failures) and return a
+summary first; call job(id, wait_seconds=...) again to keep following.
 
 Playing and inspecting the game in Studio is the `mubit-tester` server's job (docs/TESTER.md).
 Every LLM call goes through Mubit (MUBIT_API_KEY in .env), one Mubit task per role.
@@ -33,7 +36,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from forge.config import Settings, load_settings
@@ -43,12 +46,14 @@ INSTRUCTIONS = (
     "forge builds Roblox games from an idea and improves them, with every LLM call going through "
     "Mubit so corrections become model updates. ALWAYS call setup first in a new session and walk the "
     "user through every step it marks as missing (it can save their Mubit key, install luau and open "
-    "a Studio place for them); only build once it says ready. new_game(idea) designs, codes and "
-    "playtests a game in the connected Roblox Studio; it returns a job id, so poll job(id) until it "
-    "says finished. iterate(slug) keeps improving it, correct(slug, path, note) applies a human "
-    "correction (a Mubit training example), improve(slug) runs the anomaly loop (planted faults, "
-    "auditor, verifier). Read results with games, game, read_file, scores, playbook and calls. "
-    "Use the mubit-tester server to play and inspect the game in Studio."
+    "a Studio place for them); only build once it says ready. build_game(idea) designs, codes and "
+    "playtests a game in the connected Roblox Studio as a background job and follows it for a few "
+    "minutes; then job(id, wait_seconds=300) until it says finished. improve_game(slug) runs the "
+    "self-improving fix loop and ends with the done(slug) readiness bar; repeat until done says "
+    "READY. iterate(slug) runs more critic rounds, feature(slug, request) adds a feature, "
+    "correct(slug, path, note) applies a human correction (a Mubit training example). Read results "
+    "with games, game, read_file, versions, scores and calls. Use the mubit-tester server "
+    "(test_feature) to play and check the game in Studio."
 )
 
 mcp = MCPServer("forge", instructions=INSTRUCTIONS)
@@ -122,18 +127,98 @@ def job_state(job_id: str, tail: int = 60) -> dict:
     lines = log.read_text(encoding="utf-8", errors="replace").splitlines() if log.exists() else []
     code = next((ln[len(EXIT_MARK):].strip() for ln in reversed(lines) if ln.startswith(EXIT_MARK)), None)
     lines = [ln for ln in lines if not ln.startswith(EXIT_MARK)]
+    all_lines = lines
     if code is not None:
         status = "finished" if code == "0" else f"failed (exit {code})"
     elif meta.get("cancelled"):
         status = "cancelled"
     else:
         status = "running" if _alive(meta["pid"]) else "stopped (no exit code)"
-    return {**meta, "status": status, "tail": lines[-tail:]}
+    return {**meta, "status": status, "tail": lines[-tail:], "all_lines": all_lines}
+
+
+_HEADER = re.compile(r"^\s*━━\s*(.+?)\s*━*\s*$")
+_STEP = re.compile(r"^\s*\[([^\]]+)\]\s+(.*?)\s+([✓✗·])\s*(.*)$")
+_SCORE = re.compile(r"\bscore\b[^0-9]{0,12}(\d+(?:\.\d+)?)", re.I)
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def summarize_log(lines: list[str]) -> dict:
+    """Phase (last ━━ header), steps ok/failed, last score, last failures, from a forge job log."""
+    phase, ok, bad, score, fails = None, 0, 0, None, []
+    for raw in lines:
+        ln = _ANSI.sub("", raw)
+        m = _HEADER.match(ln)
+        if m:
+            phase = " ".join(m.group(1).split())
+            continue
+        m = _STEP.match(ln)
+        if m:
+            if m.group(3) == "✓":
+                ok += 1
+            elif m.group(3) == "✗":
+                bad += 1
+                fails.append(f"[{m.group(1)}] {' '.join(m.group(2).split())} {m.group(4).strip()}"[:160])
+        m = _SCORE.search(ln)
+        if m:
+            score = m.group(1)
+    return {"phase": phase, "ok": ok, "failed": bad, "score": score, "fails": fails[-3:]}
+
+
+def _summary_line(st: dict) -> str:
+    sm = summarize_log(st.get("all_lines") or st["tail"])
+    bits = [st["status"]]
+    if sm["phase"]:
+        bits.append(f"phase: {sm['phase']}")
+    bits.append(f"{sm['ok']} step(s) ok, {sm['failed']} failed")
+    if sm["score"]:
+        bits.append(f"last score {sm['score']}")
+    return "; ".join(bits)
 
 
 def _job_reply(meta: dict, what: str) -> str:
     return (f"Started {what}: job `{meta['id']}`.\n"
-            f"Poll with job(\"{meta['id']}\") every minute or so; it takes several minutes.")
+            f"Follow it with job(\"{meta['id']}\", wait_seconds=300); it takes several minutes.")
+
+
+async def follow_job(job_id: str, wait_seconds: float, ctx: Context | None = None, poll: float = 2.0) -> dict:
+    """Wait until the job ends or `wait_seconds` pass, streaming each new phase / failure / score as
+    an MCP progress notification. Returns the final job_state (with all_lines)."""
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    seen = len(job_state(job_id, 1).get("all_lines") or [])
+    n = 0
+    while True:
+        st = job_state(job_id, 400)
+        lines = st.get("all_lines") or []
+        new = lines[seen:]
+        seen = len(lines)
+        for ln in new:
+            clean = _ANSI.sub("", ln)
+            if _HEADER.match(clean) or "✗" in clean or _SCORE.search(clean):
+                n += 1
+                if ctx is not None:
+                    try:
+                        await ctx.report_progress(n, None, " ".join(clean.split())[:200])
+                    except Exception:  # noqa: BLE001  progress is best effort
+                        pass
+        if st["status"] != "running" or time.monotonic() >= deadline:
+            return st
+        await asyncio.sleep(poll)
+
+
+def _job_text(st: dict, tail: int = 25, extra: str = "") -> str:
+    sm = summarize_log(st.get("all_lines") or st["tail"])
+    head = [f"## Job `{st['id']}`: {_summary_line(st)}"]
+    if st["status"] == "running":
+        head.append(f"**Next:** job(\"{st['id']}\", wait_seconds=300) to keep following it.")
+    elif st["status"].startswith("failed"):
+        head.append("**Next:** read the log tail below; fix the cause and start the job again.")
+    if sm["fails"]:
+        head.append("Recent failures: " + " | ".join(sm["fails"]))
+    if extra:
+        head += ["", extra]
+    body = "\n".join(_ANSI.sub("", ln) for ln in st["tail"][-tail:])
+    return _clip("\n".join(head) + f"\n\n`forge {shlex.join(st['args'])}` (started {st['started']})\n```\n{body}\n```")
 
 
 # ---------------------------------------------------------------- setup (guided first run)
@@ -280,8 +365,8 @@ async def setup(mubit_api_key: str | None = None, install_luau: bool = False,
     if todo:
         out += ["", "### Next", *[f"{i}. {t}" for i, t in enumerate(todo, 1)]]
     else:
-        out += ["", "Try: `new_game(\"co-op lava escape where you carry friends\", iterations=2)`, then "
-                "`job(<id>)`. Later: `fix(slug)` to let it find and fix problems, and "
+        out += ["", "Try: `build_game(\"co-op lava escape where you carry friends\", iterations=2)`, then "
+                "`job(<id>, wait_seconds=300)`. Later: `improve_game(slug)` until `done(slug)` is READY, and "
                 f"`calls(slug)` to see the Mubit requests ({CONSOLE_URL})."]
     return "\n".join(out)
 
@@ -304,15 +389,22 @@ def doctor() -> str:
 
 
 @mcp.tool()
-def new_game(idea: str, iterations: int = 3, use_studio: bool = True, studio: str | None = None) -> str:
-    """Design, code and playtest a new Roblox game from an idea (background job).
+async def build_game(idea: str, iterations: int = 2, use_studio: bool = True, studio: str | None = None,
+                     wait_seconds: float = 240, ctx: Context | None = None) -> str:
+    """Design, code and playtest a new Roblox game from an idea (background job, ~5-15 min).
 
-    `iterations` playtest-critique-fix rounds after the first build. `studio` picks the Studio
-    window by name part or id (default: FORGE_STUDIO, else the first connected one)."""
+    Follows the job for `wait_seconds` (streaming progress: phase, steps, failures, critic score),
+    then returns a summary and the job id; continue with job(id, wait_seconds=300). `iterations`:
+    playtest-critic-fix rounds after the first build. `studio` picks the Studio window by name part
+    or id (default FORGE_STUDIO, else the first connected one). use_studio=False: compile-only."""
     if not idea.strip():
         raise ToolError("idea is empty")
     args = ["new", idea, "--iterations", str(max(0, iterations))] + ([] if use_studio else ["--no-studio"])
-    return _job_reply(start_job("new", args, _studio_env(studio)), "a new game")
+    meta = start_job("new", args, _studio_env(studio))
+    if wait_seconds <= 0:
+        return _job_reply(meta, "a new game")
+    st = await follow_job(meta["id"], wait_seconds, ctx)
+    return _job_text(st, extra="When it finishes: games() for the slug, then improve_game(slug) until done(slug) is READY.")
 
 
 @mcp.tool()
@@ -337,32 +429,41 @@ def correct(slug: str, path: str, note: str, use_studio: bool = True, studio: st
 
 
 @mcp.tool()
-def improve(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: str | None = None,
-            studio: str | None = None) -> str:
-    """Self-improving loop (docs/MUBIT_LOOP.md): plant faults, playtest, auditor, fix, verifier.
-
-    Needs a game whose services read the faulted config keys (forge/faults/<slug>.json) and the
-    ForgeTest harness in Studio. `only` is a comma-separated list of fault ids."""
+def fault_drill(slug: str, cycles: int = 1, rounds: int = 3, steps: int = 15, only: str | None = None,
+                studio: str | None = None) -> str:
+    """Planted-fault benchmark (docs/MUBIT_LOOP.md; was `improve`): plant known faults, playtest,
+    auditor, fix, verifier, and score detected/missed/fixed per cycle (see scores). Only for games
+    with forge/faults/<slug>.json and the ForgeTest harness. `only`: comma-separated fault ids. For
+    improving a real game use improve_game."""
     args = ["improve", slug, "--cycles", str(max(1, cycles)), "--rounds", str(max(1, rounds)),
             "--steps", str(max(1, steps))]
     if only:
         args += ["--only", only]
     if studio:
         args += ["--studio", studio]
-    return _job_reply(start_job("improve", args), f"{cycles} improve cycle(s) on {slug}")
+    return _job_reply(start_job("improve", args), f"{cycles} fault-drill cycle(s) on {slug}")
+
+
+def _readiness_text(slug: str) -> str:
+    from forge.done import readiness, render
+    try:
+        return "```\n" + render(readiness(_settings(), slug)) + "\n```"
+    except Exception as e:  # noqa: BLE001
+        return f"(readiness unavailable: {type(e).__name__}: {e})"
 
 
 @mcp.tool()
-def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes: int = 3,
-        reports: bool = True, studio: str | None = None, edit_human_files: bool = False,
-        start_round: bool = False) -> str:
-    """The self-improving loop on the real game (background job): playtest rounds, the auditor
-    finds anomalies (plus new tester reports), the fixer rewrites the file behind each one, the game
-    is resynced and replayed, and the verifier keeps the fix or rolls it back. Repeats until no high
-    or medium anomaly is left or `cycles` run out. Each kept fix is a saved version (see
-    versions/rollback); a rejected fix is retried once with the verifier's evidence, then undone.
-    Human-owned files only get a saved patch unless `edit_human_files` (the edits stay in
-    runs/<slug>/game until promoted)."""
+async def improve_game(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes: int = 3,
+                       reports: bool = True, studio: str | None = None, edit_human_files: bool = False,
+                       start_round: bool = False, wait_seconds: float = 240, ctx: Context | None = None) -> str:
+    """Make an existing game better with the self-improving loop (background job; was `fix`):
+    playtest rounds, the auditor finds anomalies (plus new tester reports), the fixer rewrites the
+    file behind each one, the game is resynced and replayed, and the verifier keeps the fix or rolls
+    it back (each kept fix is a saved version). Stops when no high/medium anomaly is left or
+    `cycles` run out. Follows the job for `wait_seconds` with streamed progress and, once finished,
+    appends the done(slug) readiness bar. Human-owned files only get a saved patch unless
+    `edit_human_files`."""
+    _store(slug)
     args = ["fix", slug, "--cycles", str(max(1, cycles)), "--rounds", str(max(1, rounds)),
             "--steps", str(max(1, steps)), "--max-fixes", str(max(1, max_fixes))]
     if reports:
@@ -373,7 +474,30 @@ def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes:
         args.append("--start-round")
     if studio:
         args += ["--studio", studio]
-    return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")
+    meta = start_job("fix", args)
+    if wait_seconds <= 0:
+        return _job_reply(meta, f"up to {cycles} fix cycle(s) on {slug}")
+    st = await follow_job(meta["id"], wait_seconds, ctx)
+    extra = _readiness_text(slug) if st["status"] != "running" else ""
+    return _job_text(st, extra=extra)
+
+
+@mcp.tool()
+def done(slug: str) -> str:
+    """Is the game ready? One bar for every game, each part proved by a record: executable checks
+    all pass, every agent-added feature verified, the last fix cycle left nothing high/medium open,
+    and the critic score >= 8 (n/a for games seeded from human code). READY or what's missing."""
+    from forge.done import readiness, render
+    _store(slug)
+    r = readiness(_settings(), slug)
+    missing = [p for p in r["parts"] if not p["ok"]]
+    head = (f"## {slug}: READY" if r["ready"] else
+            f"## {slug}: not ready ({len(missing)} of {len(r['parts'])} part(s) missing)")
+    hints = {"checks": "run the game's executable checks (mubit-tester test_feature(..., game=slug))",
+             "features": "verify each feature (feature job, or test_feature for it)",
+             "open": "improve_game(slug)", "critic": "iterate(slug) or improve_game(slug)"}
+    nxt = "; ".join(f"{p['part']}: {hints.get(p['part'], '')}" for p in missing)
+    return "\n".join([head] + ([f"**Next:** {nxt}"] if nxt else []) + ["```", render(r), "```"])
 
 
 @mcp.tool()
@@ -538,11 +662,15 @@ def tester_reports(slug: str) -> str:
 
 
 @mcp.tool()
-def job(job_id: str, tail: int = 60) -> str:
-    """Status and the last `tail` log lines of a background job."""
-    st = job_state(job_id, max(1, min(tail, 400)))
-    head = f"## Job `{st['id']}`: {st['status']}\n`forge {shlex.join(st['args'])}`  (started {st['started']})"
-    return _clip(head + "\n```\n" + "\n".join(st["tail"]) + "\n```")
+async def job(job_id: str, wait_seconds: float = 0, tail: int = 25, ctx: Context | None = None) -> str:
+    """A background job: status and summary first (phase, steps ok/failed, last score, recent
+    failures), then the last `tail` log lines. `wait_seconds` > 0 follows it until it ends or the
+    time is up, streaming progress."""
+    if wait_seconds > 0:
+        st = await follow_job(job_id, min(float(wait_seconds), 1800.0), ctx)
+    else:
+        st = job_state(job_id, 400)
+    return _job_text(st, max(1, min(tail, 400)))
 
 
 @mcp.tool()
@@ -554,7 +682,7 @@ def jobs() -> str:
     rows = ["| job | status | command |", "|---|---|---|"]
     for p in metas[:30]:
         st = job_state(p.stem, 1)
-        rows.append(f"| `{st['id']}` | {st['status']} | `forge {shlex.join(st['args'])[:80]}` |")
+        rows.append(f"| `{st['id']}` | {_summary_line(job_state(p.stem, 400))[:90]} | `forge {shlex.join(st['args'])[:70]}` |")
     return "\n".join(rows)
 
 
@@ -584,7 +712,7 @@ def games() -> str:
     """Every game Forge has made: iterations, last and best critic score, human corrections."""
     slugs = RunStore.list_games(_settings())
     if not slugs:
-        return "No games yet. Start one with new_game(idea)."
+        return "No games yet. Start one with build_game(idea)."
     rows = ["| game | iterations | last | best | corrections |", "|---|---|---|---|---|"]
     for slug in slugs:
         state = RunStore(_settings(), slug).load_state()
@@ -639,7 +767,7 @@ def scores(slug: str) -> str:
 
     rows = ImproveStore(_settings(), slug).scores()
     if not rows:
-        return f"No improve cycles for {slug} yet. Run improve({slug!r})."
+        return f"No improve cycles for {slug} yet. Run fault_drill({slug!r})."
     out = ["| cycle | planted | detected | missed | unmatched | fixed+verified | open | code kept |",
            "|---|---|---|---|---|---|---|---|"]
     out += [f"| {r['cycle']} | {r['planted']} | {r['detected']} | {r['missed']} | {r['unmatched']} | "
@@ -716,8 +844,8 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
     return _clip("\n".join(lines[-5:]))
 
 
-TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
-              "fix", "feature", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
+TOOL_NAMES = ("setup", "doctor", "build_game", "iterate", "correct", "fault_drill", "job", "jobs", "cancel_job",
+              "improve_game", "done", "feature", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
               "seed", "promote", "sync", "orchestrate", "gaps", "orchestrator")
 

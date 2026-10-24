@@ -48,7 +48,7 @@ async def test_good_key_is_saved_and_setup_turns_ready(env):
     assert "ready" in out and "Mubit key works" in out and "`Forge.rbxlx`" in out
     text = (root / ".env").read_text()
     assert "MUBIT_API_KEY=mbt_good" in text and "FORGE_MODEL=claude-sonnet-5-5" in text
-    assert "new_game(" in out
+    assert "build_game(" in out
 
 
 async def test_bad_key_is_rejected_and_not_saved(env):

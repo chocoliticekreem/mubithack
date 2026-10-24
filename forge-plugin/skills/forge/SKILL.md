@@ -1,6 +1,6 @@
 ---
 name: forge
-description: Use when the user wants to make a Roblox game from an idea, keep improving or fixing one, apply a correction to a generated game, file a tester's bug report, or check how Forge's self-improving loop (auditor, fixer, verifier, Mubit training) is doing. Drives the forge MCP tools.
+description: Use when driving the forge MCP tools (build_game, improve_game, done, correct, tester_report, versions, rollback, jobs) on Forge-made Roblox games, or checking how Forge's self-improving loop (auditor, fixer, verifier, Mubit training) is doing.
 ---
 
 # Making and improving Roblox games with Forge
@@ -23,8 +23,10 @@ verifier, triage) is one Mubit task, so every correction becomes training data. 
    tools. Use a local place for Forge, never a shared Team Create place someone is working in.
 
 ## Make a game
-1. `new_game(idea, iterations=2)` returns a job id. Building takes several minutes.
-2. `job(id)` every minute or so until it says `finished` (or `failed`: read the log tail).
+Full workflow: the **building-games-with-forge** skill.
+1. `build_game(idea, iterations=2, studio=...)` starts the job and follows it for a few minutes,
+   streaming progress. It returns a summary first and the job id.
+2. `job(id, wait_seconds=300)` until it says `finished` (or `failed`: read the log tail).
 3. `games()`, then `game(slug)` for the spec, modules, critic scores and files. `read_file(slug,
    path)` to read code.
 4. `iterate(slug, iterations=1)` for more playtest, critic and fix rounds.
@@ -32,7 +34,8 @@ verifier, triage) is one Mubit task, so every correction becomes training data. 
 No Studio? Pass `use_studio=False`: compile-only, which still builds and fixes.
 
 ## Fix and improve it (the self-improving loop)
-- `fix(slug, cycles=3)`:
+Until-ready workflow: the **improving-games-until-done** skill. `done(slug)` is the finish line.
+- `improve_game(slug, cycles=3)` (was `fix`):
   1. plays rounds and the auditor finds anomalies (plus new tester reports);
   2. for each high or medium anomaly the fixer rewrites the likely file;
   3. Studio is resynced and a round replayed;
@@ -44,8 +47,8 @@ No Studio? Pass `use_studio=False`: compile-only, which still builds and fixes.
   call is recorded in the fixer's Mubit task. The job log ends with the request id; tell the user to
   rate it Good in the Mubit console (Requests).
 - `tester_report(slug, text, run_ids=[...])`: a human tester's words become anomalies (triage), and
-  anything the auditor missed becomes an auditor correction. `fix(..., reports=True)` then fixes them.
-- `improve(slug)`: the planted-fault benchmark (only for games with a `forge/faults/<slug>.json`).
+  anything the auditor missed becomes an auditor correction. `improve_game(..., reports=True)` then fixes them.
+- `fault_drill(slug)` (was `improve`): the planted-fault benchmark (only for games with a `forge/faults/<slug>.json`).
   `scores(slug)` shows detected, missed, open, and code fixes kept per cycle.
 
 ## Report back
