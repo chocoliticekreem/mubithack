@@ -2,7 +2,7 @@
 --
 -- Answers ReplicatedStorage.ForgeTestRemote.OnClientInvoke("ForgeTest", cmd, args) for its own
 -- player and returns {ok, result, error}. Commands:
---   act {action, args}  walk_to {pos|path, timeout?}, jump, interact {path?}, equip {name|slot},
+--   act {action, args}  walk_to {pos|path, timeout?, arrive_radius?=1}, jump, interact {path?}, equip {name|slot},
 --                       unequip, use {seconds?, aim?}, look_at {pos|path}, say {text, chat?},
 --                       wait {seconds}; macros (one decision = one whole interaction, HUD diff
 --                       included): go_touch {path}, go_use {path}, chase {path, touches<=5}
@@ -38,7 +38,9 @@ end)
 ProximityPromptService.PromptHidden:Connect(function(p)
 	shownPrompts[p] = nil
 end)
-local ARRIVE = 4 -- studs from the target that count as arrived (plus the target's half size)
+local ARRIVE = 1 -- walk_to: horizontal studs from the target point that count as arrived (arrive_radius)
+local WAYPOINT_NEAR = 2.5 -- a path waypoint counts as reached this close (keeps the walk smooth)
+local STALLS = 2 -- last stretch: give up after this many 2 s pushes that gain < 0.3 studs (blocked)
 local SPRAY_HZ = 10 -- Tool/Spray is limited to 12/s on the server
 
 ------------------------------------------------------------------------------- helpers
@@ -197,7 +199,7 @@ local function aimCamera(pos: Vector3)
 	cam.CFrame = CFrame.lookAt(focus - dir.Unit * zoom, focus)
 end
 
-local function moveStep(hum: Humanoid, root: BasePart, pos: Vector3, limit: number): boolean
+local function moveStep(hum: Humanoid, root: BasePart, pos: Vector3, limit: number, near: number?): boolean
 	local reached = false
 	local conn = hum.MoveToFinished:Connect(function(ok)
 		reached = ok
@@ -205,9 +207,10 @@ local function moveStep(hum: Humanoid, root: BasePart, pos: Vector3, limit: numb
 	hum:MoveTo(pos)
 	local t0 = os.clock()
 	local lastPos, lastMove = root.Position, os.clock()
+	local close = near or WAYPOINT_NEAR
 	while os.clock() - t0 < limit do
-		task.wait(0.1)
-		if reached or flatDist(root.Position, pos) < 2.5 then
+		task.wait(0.05)
+		if (reached and flatDist(root.Position, pos) <= math.max(close, 1)) or flatDist(root.Position, pos) <= close then
 			reached = true
 			break
 		end
@@ -230,7 +233,10 @@ local function walkTo(args)
 	local goal, inst = target(args)
 	local timeout = math.clamp(tonumber(args.timeout) or 20, 1, 120)
 	local deadline = os.clock() + timeout
-	local arrive = ARRIVE + halfSize(inst)
+	-- arrived = within arrive_radius of the target point (default 1 stud), so walking to a pad's path
+	-- ends standing on it. A solid target can't be reached: then beside it (half size + 1.5) counts.
+	local arrive = math.clamp(tonumber(args.arrive_radius) or ARRIVE, 0.5, 50)
+	local beside = if inst then halfSize(inst) + 1.5 else nil
 	if hum.Sit then
 		hum.Sit = false
 		hum.Jump = true
@@ -282,16 +288,23 @@ local function walkTo(args)
 	else
 		how = "straight (no path: " .. (if ok then path.Status.Name else "ComputeAsync failed") .. ")"
 	end
-	-- straight-line fallback / last stretch (path ends at the nearest walkable point)
-	while os.clock() < deadline and flatDist(root.Position, goal) > arrive and hum.Health > 0 do
-		moveStep(hum, root, goal, math.min(4, deadline - os.clock()))
+	-- straight-line fallback / last stretch (path ends at the nearest walkable point); stop when blocked
+	local stalls = 0
+	while os.clock() < deadline and flatDist(root.Position, goal) > arrive and hum.Health > 0 and stalls < STALLS do
+		local before = flatDist(root.Position, goal)
+		moveStep(hum, root, goal, math.min(2, deadline - os.clock()), arrive)
+		stalls = if before - flatDist(root.Position, goal) < 0.3 then stalls + 1 else 0
 	end
 	hum:MoveTo(root.Position) -- stop
 	local d = flatDist(root.Position, goal)
 	local done = d <= arrive
+	local why = if done then "" elseif stalls >= STALLS then " (blocked)" else " (timeout)"
+	if not done and beside and d <= beside then
+		done, why = true, " (beside it: the target is solid)"
+	end
 	return {
 		done = done,
-		detail = string.format("%s %.1f studs from target via %s%s", if done then "arrived" else "stopped", d, how, if done then "" else " (timeout)"),
+		detail = string.format("%s %.1f studs from target via %s%s", if done then "arrived" else "stopped", d, how, why),
 		dist = r1(d),
 		pos = { r1(root.Position.X), r1(root.Position.Y), r1(root.Position.Z) },
 	}

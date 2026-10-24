@@ -1907,7 +1907,7 @@ local actRaw: (args: any) -> any
 local PathfindingService = game:GetService("PathfindingService")
 local BOT_ID_BASE = 1000
 local BOT_RESPAWN = 3
-local BOT_ARRIVE = 5 -- studs (horizontal) that count as "arrived"
+local BOT_ARRIVE = 1 -- walk_to: horizontal studs from the target point that count as arrived (arrive_radius)
 local botFolder: Folder? = nil
 local nextBotId = 1
 
@@ -2103,7 +2103,21 @@ local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
 
-local function botWalk(b, char: Model, hum: Humanoid, root: BasePart, target: Vector3, timeout: number)
+local function footprint(inst: Instance?): number?
+	if inst and inst:IsA("BasePart") then
+		return math.max(inst.Size.X, inst.Size.Z) / 2
+	elseif inst and inst:IsA("Model") then
+		local ok, _, size = pcall(inst.GetBoundingBox, inst)
+		return if ok then math.min(math.max(size.X, size.Z) / 2, 20) else nil
+	end
+	return nil
+end
+
+-- Same arrival rule as the client agent: within `arrive` studs of the target point (so a walk to a
+-- pad ends on it); a solid target that blocks the last stretch counts when the bot is beside it.
+local function botWalk(b, char: Model, hum: Humanoid, root: BasePart, target: Vector3, timeout: number,
+	arrive: number?, inst: Instance?)
+	arrive = math.clamp(arrive or BOT_ARRIVE, 0.5, 50)
 	local t0 = os.clock()
 	local start = root.Position
 	local path = PathfindingService:CreatePath({ AgentRadius = 2, AgentHeight = 5, AgentCanJump = true })
@@ -2132,15 +2146,30 @@ local function botWalk(b, char: Model, hum: Humanoid, root: BasePart, target: Ve
 		end
 		conn:Disconnect()
 	end
+	-- last stretch straight at the point (paths end at the nearest walkable spot); stop when blocked
+	local stalls = 0
+	while char.Parent and hum.Health > 0 and os.clock() - t0 < timeout and stalls < 2
+		and (flat(root.Position) - flat(target)).Magnitude > arrive do
+		local before = (flat(root.Position) - flat(target)).Magnitude
+		hum:MoveTo(target)
+		local p0 = os.clock()
+		while os.clock() - p0 < 2 and os.clock() - t0 < timeout and (flat(root.Position) - flat(target)).Magnitude > arrive do
+			task.wait(0.05)
+		end
+		stalls = if before - (flat(root.Position) - flat(target)).Magnitude < 0.3 then stalls + 1 else 0
+	end
 	if char.Parent == nil or hum.Health <= 0 then
 		return { done = false, detail = b.Name .. " died or fell out of the world while walking", dead = true }
 	end
+	hum:MoveTo(root.Position) -- stop
 	local dist = (flat(root.Position) - flat(target)).Magnitude
 	local moved = (root.Position - start).Magnitude
 	local secs = os.clock() - t0
-	if dist <= BOT_ARRIVE then
-		return { done = true, detail = string.format("%s walk: arrived %.1f studs from target in %.1fs", via, dist, secs),
-			dist = r(dist), pos = v3(root.Position) }
+	local side = footprint(inst)
+	if dist <= arrive or (side and dist <= side + 1.5) then
+		return { done = true, dist = r(dist), pos = v3(root.Position), detail = string.format(
+			"%s walk: arrived %.1f studs from target in %.1fs%s", via, dist, secs,
+			if dist <= arrive then "" else " (beside it: the target is solid)") }
 	end
 	return { done = false, dist = r(dist), pos = v3(root.Position), detail = string.format(
 		"%s walk: stopped %.1f studs short after %.1fs, moved %.1f (blocked or unreachable)", via, dist, secs, moved) }
@@ -2155,25 +2184,32 @@ local function botAct(b, action: string, a)
 	if not hum or not root or hum.Health <= 0 then
 		return { done = false, detail = b.Name .. " is dead or respawning" }
 	end
+	local goalInst: Instance? = nil
 	local function target(): Vector3
 		local v = toVec(a.pos)
 		if not v and a.path then
-			v = posOf(mustPath(a.path))
+			goalInst = mustPath(a.path)
+			v = posOf(goalInst)
 		end
 		if not v then
 			error("pos or path required")
 		end
 		return v :: Vector3
 	end
+	local function walk()
+		local goal = target()
+		return botWalk(b, char, hum, root, goal, math.clamp(tonumber(a.timeout) or WALK_TIMEOUT, 1, 60),
+			tonumber(a.arrive_radius), goalInst)
+	end
 	if action == "walk_to" or action == "go_touch" or action == "chase" then
-		local res = botWalk(b, char, hum, root, target(), math.clamp(tonumber(a.timeout) or WALK_TIMEOUT, 1, 60))
+		local res = walk()
 		if action ~= "walk_to" and res.done then
 			task.wait(0.5) -- stand on it so Touched handlers run
 			res.detail = action .. ": touched it (" .. res.detail .. ")"
 		end
 		return res
 	elseif action == "go_use" then
-		local res = botWalk(b, char, hum, root, target(), math.clamp(tonumber(a.timeout) or WALK_TIMEOUT, 1, 60))
+		local res = walk()
 		res.done = false
 		res.detail = res.detail .. "; bot testers can't hold ProximityPrompts (client input), a real player has to"
 		return res

@@ -18,7 +18,8 @@ Step kinds:
   several players; `offset` [dx,dy,dz] walks/aims relative to that player's current position
   (fills args.pos). Fails if a reply has done=false.
 - `wait_until` / `assert` {cmd, args?, path, op, value?, from?, timeout?, interval?}: poll the
-  command (wait_until, default 10 s) or check it once (assert). `any: [cond, ...]` passes when any
+  command (wait_until, default 10 s) or check it once (assert). `{var: "<saved>", path, op, value}`
+  checks a value an earlier step saved instead (e.g. an act's reply: `result.dist`). `any: [cond, ...]` passes when any
   of the sub-conditions holds.
 - `wait` seconds.
 - `parallel` [step, ...]: run call / act / wait_until / assert / wait sub-steps at the same time
@@ -414,8 +415,8 @@ async def _step_cond(h, spec: dict, vars: dict, poll: bool) -> tuple[bool, str, 
     interval = float(spec.get("interval", DEFAULT_INTERVAL))
     bases: list[Any] = []
     for c in conds:
-        if "cmd" not in c:
-            raise ScenarioError("condition needs a 'cmd'")
+        if "cmd" not in c and "var" not in c:
+            raise ScenarioError("condition needs a 'cmd' (or a saved 'var')")
         if "from" in c:
             try:
                 bases.append(resolve(c["from"], vars))
@@ -430,7 +431,12 @@ async def _step_cond(h, spec: dict, vars: dict, poll: bool) -> tuple[bool, str, 
         for i, c in enumerate(conds):
             c = {**c, "value": resolve(c.get("value"), vars)}
             try:
-                result = await _run_cmd(h, c["cmd"], resolve(c.get("args") or {}, vars))
+                if "var" in c:  # a value saved by an earlier step (e.g. an act's reply)
+                    if c["var"] not in vars:
+                        raise ScenarioError(f"no saved var {c['var']!r}")
+                    result = vars[c["var"]]
+                else:
+                    result = await _run_cmd(h, c["cmd"], resolve(c.get("args") or {}, vars))
             except HarnessError as e:
                 last.append(f"{c['cmd']}: {e}")
                 continue

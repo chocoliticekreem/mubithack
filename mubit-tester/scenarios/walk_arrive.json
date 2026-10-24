@@ -1,0 +1,11 @@
+{
+  "name": "walk_arrive",
+  "description": "walk_to ends within 1 stud of its target point by default (so walking to a pad's path ends standing on it), and arrive_radius loosens that.",
+  "steps": [
+    {"label": "player spawned", "wait_until": {"cmd": "players", "path": "result.0.health", "op": ">", "value": 0, "timeout": 20}},
+    {"label": "walk 12 studs", "act": {"player": "all", "action": "walk_to", "offset": [12, 0, 0], "args": {"timeout": 15}}, "save": "walk"},
+    {"label": "arrived within 1 stud", "assert": {"var": "walk", "path": "result.*.dist", "op": "<=", "value": 1.0}},
+    {"label": "walk back with arrive_radius 4", "act": {"player": "all", "action": "walk_to", "offset": [-12, 0, 0], "args": {"timeout": 15, "arrive_radius": 4}}, "save": "loose"},
+    {"label": "stopped within 4 studs", "assert": {"var": "loose", "path": "result.*.dist", "op": "<=", "value": 4.0}}
+  ]
+}

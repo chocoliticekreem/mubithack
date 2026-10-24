@@ -59,8 +59,10 @@ Commands (args are a JSON object):
 | `multi` | `{calls: [{cmd, args}], timeout?=90}` | run several commands concurrently (one thread each) in ONE call; returns `[{ok, result?, error?}]` in order |
 
 Client `act` actions (run on that player's client by the agent):
-`walk_to {pos | path, timeout?}` (PathfindingService, falling back to MoveTo; returns arrival
-distance), `jump`, `interact {path?}` (nearest enabled ProximityPrompt, or the one on that part:
+`walk_to {pos | path, timeout?, arrive_radius?=1}` (PathfindingService, then a straight last
+stretch; done when within `arrive_radius` studs of the target point horizontally, so a walk to a
+pad's path ends standing on it; a solid target that blocks the way counts once beside it; returns
+`dist` and `pos`; scenario `walk_arrive`), `jump`, `interact {path?}` (nearest enabled ProximityPrompt, or the one on that part:
 `InputHoldBegin`, wait HoldDuration + 0.1, `InputHoldEnd`), `equip {name | slot}`, `unequip`,
 `use {seconds?, aim?: [x,y,z] | path}` (faces the target, `Tool:Activate()`, holds for `seconds`,
 also fires `Net.Tool.Spray` with the aim direction while held if that remote exists), `look_at
