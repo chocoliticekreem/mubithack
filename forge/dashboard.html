@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forge Workshop</title>
+<title>MuHack Workshop</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -542,8 +542,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">FORGE</div>
-    <div class="tag">What Forge's agents are doing, and what each one did.</div>
+    <div class="logo">MUHACK</div>
+    <div class="tag">What MuHack's agents are doing, and what each one did.</div>
     <select class="pick" id="pick" aria-label="Pick a game"></select>
     <button class="btn ghost small" id="moreBtn" aria-pressed="false" aria-controls="more">More</button>
   </header>
@@ -562,7 +562,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for MuHack. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -979,7 +979,7 @@ function renderLanes(g) {
     <div class="tile ${best ? "hot" : ""}"><div class="k">Speed-up</div><div class="v">${best ? `×${best.x}` : "–"}<small>${best ? ` ${secs(best.before_secs)} → ${secs(best.after_secs)}` : ""}</small></div></div>
     <div class="tile"><div class="k">Corrections fed</div><div class="v">${led.corrections ?? 0}<small> · ${led.verified ?? 0} kept</small></div></div>
   </div>`;
-  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as Forge makes its first Mubit call.</div>`;
+  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as MuHack makes its first Mubit call.</div>`;
   const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
   return `${tiles}<div class="lanes">${L.lanes.map((ln, li) => laneRow(ln, li, span, liveSpan)).join("")}</div>
     <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
@@ -1072,9 +1072,9 @@ function renderSpeed(g) {
   const ups = (sp.speedups || []).map(s => `<div class="tile hot"><div class="k">${esc(s.stage)}</div><div class="v">${s.x ? `×${s.x}` : "–"}<small> ${secs(s.before_secs)} → ${secs(s.after_secs)}</small></div></div>`).join("");
   const bars = sp.stages.map(s => `<div class="brow"><div class="bl"><span><span class="nm">${esc(s.stage)}</span>${s.parallel > 1 ? ` <span class="muted">×${s.parallel} at once</span>` : ""}</span>
       <span>${secs(s.secs)}${s.running ? " …" : ""}${s.x ? ` <span class="xf">×${s.x} faster</span>` : ""}</span></div>
-    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="Forge: ${secs(s.secs)}"></i></div></div>`).join("");
+    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="MuHack: ${secs(s.secs)}"></i></div></div>`).join("");
   return `${ups ? `<div class="tiles">${ups}</div>` : ""}
-    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>Forge, agents side by side</span></div>
+    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>MuHack, agents side by side</span></div>
     <div class="bars">${bars}</div>
     <div class="small muted" style="margin-top:10px">${sp.calls} Mubit calls · median ${ms(sp.p50_ms) || "–"} · p90 ${ms(sp.p90_ms) || "–"}${g.team.has_timings ? "" : " · from calls.jsonl"}</div>`;
 }
@@ -1129,7 +1129,7 @@ function renderTeamInto(g) {
   if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub", "tAuto"]) delete last[k]; put("team", TEAM_SKELETON); }
   $("tAutoCard").style.display = g.autopilot ? "" : "none";
   put("tAuto", renderAutopilot(g));
-  put("mcSub", `Every Forge agent and tester, side by side${g.live ? " · live" : ""}`);
+  put("mcSub", `Every MuHack agent and tester, side by side${g.live ? " · live" : ""}`);
   put("tLanes", renderLanes(g));
   for (const k of Object.keys(SHOTS)) if (!k.startsWith("agent#")) delete SHOTS[k];
   put("tFeed", renderFeed(g));
@@ -1386,7 +1386,7 @@ async function refresh() {
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent(); testPopup();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for Forge · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for MuHack · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }

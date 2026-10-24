@@ -91,7 +91,7 @@ def test_server_serves_page_and_state(settings):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         page = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read().decode()
-        assert "<title>Forge Workshop</title>" in page and "/api/state" in page and "/api/rollback" in page
+        assert "<title>MuHack Workshop</title>" in page and "/api/state" in page and "/api/rollback" in page
         state = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=5).read())
         assert state["games"][0]["slug"] == "g1"
         with pytest.raises(urllib.error.HTTPError):

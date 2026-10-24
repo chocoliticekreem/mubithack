@@ -233,12 +233,12 @@ end
 -- ---------------------------------------------------------------- dock widget (Edit only)
 
 local function buildUi()
-	local toolbar = plugin:CreateToolbar("Forge")
-	local button = toolbar:CreateButton("ForgeBridgePanel", "Show Forge status, ask Forge to fix, run tests", "", "Forge")
+	local toolbar = plugin:CreateToolbar("MuHack")
+	local button = toolbar:CreateButton("ForgeBridgePanel", "Show MuHack status, ask MuHack to fix, run tests", "", "MuHack")
 	button.ClickableWhenViewportHidden = true
 	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, true, false, 320, 380, 260, 280)
 	local widget = plugin:CreateDockWidgetPluginGui("ForgeBridgeStatus", info)
-	widget.Title = "Forge"
+	widget.Title = "MuHack"
 	widget.Name = "ForgeBridgeStatus"
 	table.insert(connections, button.Click:Connect(function() widget.Enabled = not widget.Enabled end))
 
@@ -323,12 +323,12 @@ local function buildUi()
 		return table.unpack(out)
 	end
 
-	local title = label("Forge", 20, true)
+	local title = label("MuHack", 20, true)
 	local conn = label("connecting…", 14)
-	local fix, tests = buttonRow({ "Ask Forge to fix this", "Run tests" })
+	local fix, tests = buttonRow({ "Ask MuHack to fix this", "Run tests" })
 	local labels = {}
 	local values = {}
-	for _, f in { "Job", "Role at work", "Last test", "Selected", "Last error", "Forge says" } do
+	for _, f in { "Job", "Role at work", "Last test", "Selected", "Last error", "MuHack says" } do
 		local k, v = field(f)
 		labels[f] = k
 		values[f] = v
@@ -397,7 +397,7 @@ local function buildUi()
 		values["Selected"].Text = path or "select a script in the Explorer"
 		values["Last error"].Text = if err then clip(err.message, 300) else "none seen"
 		values["Last error"].TextColor3 = if err then Color3.fromRGB(215, 58, 73) else color("MainText")
-		values["Forge says"].Text = note or forge.message or "—"
+		values["MuHack says"].Text = note or forge.message or "—"
 		foot.Text = string.format("events sent %d  ·  commands run %d%s", stats.sent, stats.cmds,
 			if stats.lastMs then string.format("  ·  last command %.1f ms in Studio", stats.lastMs) else "")
 	end
