@@ -2928,9 +2928,12 @@ function Plan:courseDist(x: number, z: number, stop: number?): number
 	return best
 end
 
--- is anything taller than 6 studs allowed here? (not within COURSE_CLEAR of any course's clearance stretch)
+-- is anything taller than 6 studs allowed here? (not within COURSE_CLEAR of any course's clearance stretch). A
+-- piece faces a random way and `r` is its round size, so a long piece's corner can reach past r: keep OPEN_MARGIN more.
+local OPEN_MARGIN = 3
 function Plan:open(x: number, z: number, r: number): boolean
-	return self:courseDist(x, z, COURSE_CLEAR + r) >= COURSE_CLEAR + r
+	local need = COURSE_CLEAR + r + OPEN_MARGIN
+	return self:courseDist(x, z, need) >= need
 end
 
 -- is (x, z) inside the park, `margin` studs grown: the fenced circle or a course's corridor
