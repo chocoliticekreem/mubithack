@@ -96,6 +96,7 @@ def _text(result) -> str:
 
 
 CONTRACT_TOOLS = [
+    "test_feature", "test_runs", "diff_since_last_run", "watch_errors", "bisect_versions", "swarm",
     "status", "studios", "play_start", "play_stop", "multiplayer_start", "sync", "preview",
     "players", "observe", "query", "inspect", "counters", "events", "errors", "console", "screenshot",
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
@@ -275,8 +276,9 @@ async def test_play_start_status_stop(fake_studio, monkeypatch):
     fake_studio.playing = False
     assert "needs play" in _text(await ms.mcp.call_tool("status", {}))
     md = _text(await ms.mcp.call_tool("play_start", {}))
-    assert "started now: True" in md and fake_studio.played == 1
-    assert "harness: ok" in _text(await ms.mcp.call_tool("status", {}))
+    assert "started now" in md and fake_studio.played == 1
+    md = _text(await ms.mcp.call_tool("status", {}))
+    assert md.startswith("## READY") and "harness: ok" in md
     assert "stopped" in _text(await ms.mcp.call_tool("play_stop", {}))
     assert fake_studio.stopped == 1
 
@@ -490,7 +492,7 @@ def test_cli_test_mirrors_every_tool():
                "set_attr": ["W.X", "Water", "5"], "config": ["Hose", "Range"], "scenario_run": ["smoke"],
                "queue": ["1"], "mission_end": ["M1"],
                "playtest": ["goal"], "playtest_correct": ["r", "2", "note"], "suggest_fix": ["r"],
-               "report": ["r"]}.get(name, [])
+               "report": ["r"], "test_feature": ["x"], "bisect_versions": ["g", "c"], "swarm": ["goal"]}.get(name, [])
         a = p.parse_args(["test", name, *req])
         assert a.cmd == "test" and a.tool == name
     a = p.parse_args(["test", "act-all", "use", "--args", '{"seconds": 2}'])
