@@ -90,6 +90,15 @@ def ledger(settings: Settings) -> dict:
             if c.get("request_id"):
                 entries.append({"slug": game.name, "role": "fixer", "kind": "correction", "ts": c.get("ts"),
                                 "request_id": c["request_id"], "why": f"human: {str(c.get('note', ''))[:120]}"})
+        try:  # forge gaps --correct: developer corrections in the gap_finder task (forge/gaps.py)
+            gap_corr = [json.loads(ln) for ln in (game / "orchestrator" / "corrections.jsonl").read_text(
+                encoding="utf-8").splitlines() if ln.strip()]
+        except (OSError, ValueError):
+            gap_corr = []
+        for c in gap_corr:
+            if c.get("request_id"):
+                entries.append({"slug": game.name, "role": "gap_finder", "kind": "correction", "ts": c.get("ts"),
+                                "request_id": c["request_id"], "why": f"human: {str(c.get('note', ''))[:120]}"})
     by_role = Counter(c.get("role") for c in calls)
     roles = []
     for role, n in by_role.most_common():

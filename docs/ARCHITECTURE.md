@@ -115,6 +115,15 @@ forge/                 Python package (uv), entry point `forge`
                        lessons) -> (result, runs/bench/<stamp>.json + .md); compare(a, b) -> markdown deltas (docs/BENCH.md)
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
                        snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
+  broker.py            shared resources + job queue for `forge orchestrate` (see "Orchestrator" below):
+                       StudioSlots (same dir/semantics as scripts/studio-slot.sh), Broker (all-or-nothing leases on
+                       pools, stale-lease reclaim), JobQueue (priority, deps/after, claim with leases, crash recovery)
+  gaps.py              trace-driven gap finder: collect_evidence -> gap_message -> gap_finder (Mubit) -> parse_gaps;
+                       find_gaps / correct_gaps / latest / render; genre CHECKLISTS (tycoon, generic)
+  prompts/gap_finder.md  Mubit task: everything recorded about a game -> ranked gaps {title, kind, impact,
+                       confidence, evidence[refs], job{kind fix|feature|visual, request, path?}}
+  orchestrator.py      `forge orchestrate`: Orchestrator(settings, slug, Options, *, llm, runner, broker, queue,
+                       keeper, slots).run() -> {before, after, rounds, stop_reason, budget, queue}
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
   prompts/auditor.md, prompts/verifier.md, prompts/triage.md   Mubit tasks: anomaly detection,
                        fix verification, tester-report triage (improve.file_report)
@@ -184,7 +193,8 @@ def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else Mub
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, ..., `scenarist`
 (test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
-`triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`.
+`triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`, `gap_finder`
+(ranked gaps, forge/gaps.py).
 
 Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
 `FORGE_FUN_CRITIC=0` skips the fun critic; tests default both off in the root conftest.py):
@@ -335,7 +345,62 @@ forge versions <slug>                                # saved versions (iteration
 forge rollback <slug> <vN> [--studio S] [--no-sync]  # restore a version, resync Studio
 forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
 forge checks <slug> [--plan [--max N]] [--run] [--studio S]  # scenario designer; no flag: list checks
+forge orchestrate <slug> --goal G [--studio P1,P2 | --no-studio] [--workers 4] [--max-calls 300] [--minutes 120]
+                  [--rounds 3] [--per-round 4] [--min-rank 2] [--no-checks] [--no-fix-cycle]   # team lead loop
+forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json]  # ranked gap list
+forge queue <slug>                                   # orchestrator jobs, leases, budget
 ```
+
+### Orchestrator (forge/orchestrator.py, forge/broker.py, forge/gaps.py)
+```
+round r:  gaps job (gap_finder, lease llm) -> gaps/<n>.json
+          top --per-round gaps with rank >= --min-rank (max 2 tries per gap id) -> build jobs, priority = rank:
+             fix + path -> forge correct <slug> <path> <request> --no-studio            leases llm, game
+             feature | visual (| fix without path) -> forge feature <slug> <brief> -n 1 --polish 1
+                                                      (--no-studio: -n 0 --no-studio)  leases studio, sync, llm, game
+          verify (after: all builds; luau-compile, in-process)
+          playtest (deps: verify)      forge run <slug> -n 1      leases studio, sync, llm, game
+          checks (after: playtest)     forge checks --plan --run  leases studio, sync, llm
+          fix_cycle (after: checks)    forge fix --cycles 1       leases studio, sync, llm, game
+          score(): forge done parts + latest critic (+ fun); stop when ready and critic >= 8
+stop: target met | no gap above the bar | --rounds done | budget (--max-calls: calls.jsonl lines under runs/<slug>/
+      since start; --minutes) -> queued jobs cancelled, running ones SIGTERM
+```
+- Leases (Broker, state in $FORGE_BROKER_DIR=/tmp/forge-broker/leases.json, flock): pools `llm` (llm-1..
+  $FORGE_LLM_SLOTS, default 6), `game` (one writer per runs/<slug>), `sync` (ports 34901-34908, passed as
+  FORGE_SYNC_PORT), `studio` (--studio places; granting one also takes a machine-wide slot in
+  /tmp/forge-studio-slots like scripts/studio-slot.sh; the job gets FORGE_STUDIO=<studio id>). A job gets all
+  its leases or none and waits in the queue meanwhile. Leases whose pid died or whose heartbeat is older
+  than 180 s are reclaimed. The Studio window is opened (place built from runs/<slug>/game) when a Studio
+  lease is first used and closed, freeing the slot, when no queued/running job needs Studio.
+- Queue (runs/<slug>/orchestrator/queue.json): job {id, kind, title, priority, deps (must be done), after
+  (must be final), args, needs, gap, round, status queued|running|done|failed|skipped|cancelled, worker,
+  pid, attempts, max_attempts (2), leases, heartbeat, result, error}. recover(): running jobs whose pid died
+  or that stopped heartbeating go back to queued (or failed after max_attempts); run() calls it first, so
+  restarting `forge orchestrate` resumes.
+- Each subprocess job is also an MCP-style job (runs/jobs/orch-<job>-<attempt>.{json,log}, `__exit <code>`).
+- Files: orchestrator/{status.json (state, budget, queue, jobs, rounds, before/after), timings.json
+  (dashboard lanes: one per worker; calls: one per job run; stages: one per round), rounds.json, gaps/<n>.json,
+  corrections.jsonl, rejected.json, calls.jsonl, traces/}; runs/orchestrate-<slug>.log. dashboard.team_view
+  merges orchestrator/timings.json; game_view exposes status.json as game["orchestrator"]; ledger counts
+  corrections.jsonl as gap_finder corrections.
+```python
+# gaps.py
+def collect_evidence(settings, slug, goal="") -> {slug, spec, genre, scan, done, evidence: Evidence}
+    # evidence refs: critic:<n>[#i], test:<run>[#bugN|/step-NN], check:<id>, cycle:<n>[#aI], feature:<i>,
+    # report:<i>, calls:<role>, done:<part>, code:<path>, genre:<checklist id>|genre:grey_scan
+def parse_gaps(obj, refs, *, rejected_titles=None, files=None) -> {summary, score, gaps}
+    # gap {id (slug of title), title, area, kind broken|missing|polish, impact 1-10, confidence 0-1,
+    #      rank = impact*confidence*(1 if any real evidence else 0.5), evidence, unverified, why, job}
+def find_gaps(settings, slug, *, llm, goal="", session_id=None, done_jobs=None, correction=None,
+              previous=None, round=None) -> rec   # saved as orchestrator/gaps/<n>.json
+def correct_gaps(settings, slug, note, *, llm, goal="", reject=None, session_id=None) -> rec
+    # same gap_finder task; user msg += previous list + "## Correction from the developer"; rejected ids
+    # -> rejected.json (never proposed again); corrections.jsonl {ts, note, rejected, request_id, before, after}
+```
+MCP (forge server): `orchestrate(slug, goal, max_calls, minutes, rounds, workers, per_round, studio,
+use_studio)` (job), `gaps(slug, find, correct, reject, goal)` (job when find/correct, else the latest list),
+`orchestrator(slug)` (queue view). Claude Code skill: `.claude/skills/forge-orchestrate/SKILL.md`.
 
 ### checks.py + scenarios.py (executable checks and the scenario designer)
 A check is `runs/<slug>/checks/<id>.luau`: header `-- check: <title>` / `-- covers: <acceptance item

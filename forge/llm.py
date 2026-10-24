@@ -25,7 +25,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 PROMPT_DIRS = (PROMPTS_DIR, Path(__file__).resolve().parent.parent / "mubit-tester" / "prompts")
 ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge",
          "auditor", "verifier", "triage", "investigator", "patcher", "planner", "scenarist",
-         "check_reviewer", "reproducer", "director", "fun_critic")
+         "check_reviewer", "reproducer", "director", "fun_critic", "gap_finder")
 
 MAX_TRIES = 3  # total attempts for retryable gateway errors (429 / 503 / 529 overloaded)
 RETRY_STATUSES = {429, 503, 529}

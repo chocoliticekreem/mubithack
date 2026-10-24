@@ -293,6 +293,8 @@ def game_view(settings: Settings, slug: str, runs: list[dict] | None = None) -> 
                      "anomalies": (r.get("triage") or {}).get("anomalies", []),
                      "auditor_missed": r.get("auditor_missed", [])} for r in reports],
         "calls": dict(Counter(c.get("role") for c in calls if c.get("request_id"))),
+        # forge orchestrate: state, budget, queue, rounds (before/after scores) and the latest gap list
+        "orchestrator": _read_json(store.dir / "orchestrator" / "status.json", None),
     }
 
 
@@ -808,6 +810,9 @@ def team_view(settings: Settings, slug: str, game: dict, now: float | None = Non
     store = RunStore(settings, slug)
     calls = _calls(store.calls_log) + _calls(store.dir / "improve" / "calls.jsonl")
     timings = read_timings(store.dir / "timings.json")
+    orch = read_timings(store.dir / "orchestrator" / "timings.json")  # forge orchestrate: one lane per worker
+    for key in ("stages", "lanes", "calls"):
+        timings[key] = timings[key] + orch[key]
     testers = testers_view(store.dir, slug, now)
     live = game.get("live") or {}
     lanes = lanes_view(store.dir, calls, live.get("role"), timings, testers, now, live.get("updated"))
