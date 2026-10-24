@@ -14,6 +14,9 @@
 --   * Custom events (LogCustomEvent): FirstSpraySeconds (CustomField01 New | Returning),
 --     SessionMinutes (on leave, CustomField01 New | Returning), OnboardingQuitStep (new players on leave:
 --     value = furthest step number, CustomField01 = its step name), TutorialSkipped, FirstCallDeclined.
+--     UpdateLogShown, NotifyPrompted, NotifyAccepted, FavoritePrompted, FavoriteAccepted (UpdateLogService
+--     through FunnelService:LogCustom).
+-- Public API: FunnelService:LogCustom(player, event, value, field?) -- event must be a Funnel.Events name
 -- Server-side only; every AnalyticsService call is pcall'd (a failing call counts analytics_error).
 -- Counters: analytics_onboarding_step, analytics_mission_step, analytics_custom, analytics_error
 -- Test hooks (DevHook only): _state(player) -> JSON, _log() -> JSON (last 60 calls made)
@@ -259,6 +262,16 @@ local function arrivalLoop()
 			end
 		end
 	end
+end
+
+-- Other services log their own custom events here (only Funnel.Events names: AnalyticsService caps
+-- distinct event names). field = CustomField01 (keep it a small constant set too).
+function FunnelService:LogCustom(player: Player, event: string, value: number?, field: string?): boolean
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or (Funnel.Events :: any)[event] ~= event then
+		return false
+	end
+	custom(player, event, tonumber(value) or 1, if type(field) == "string" and field ~= "" then field else nil)
+	return true
 end
 
 ------------------------------------------------------------------------------------------ lifecycle

@@ -30,6 +30,7 @@
 --                                             time, never over a modal or a HudLayout.setBusy(name, true)
 --                                             screen (results). A tap / click anywhere calls hide() and
 --                                             moves on; calm screens (ClientLib/Calm) cap it at 2.5 s
+--   HudLayout.isBusy() -> boolean            any setBusy screen up (results / on a call): pop-ups wait
 --   HudLayout.reserve(obj)                    a HUD widget that edge arrows must stay off
 --   HudLayout.clear(x, y, radius, key?, prio?) -> (x, y)
 --                                             pull a full-bleed screen point toward the centre until a
@@ -447,6 +448,11 @@ end
 function HudLayout.setBusy(name: string, on: boolean)
 	busy[name] = if on then true else nil
 	pump()
+end
+
+-- true while a HudLayout.setBusy screen is up (results, on a call): a panel that pops up by itself waits
+function HudLayout.isBusy(): boolean
+	return next(busy) ~= nil
 end
 
 HudLayout.ModalChanged.Event:Connect(function()

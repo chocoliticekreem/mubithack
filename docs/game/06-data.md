@@ -31,6 +31,7 @@ guides = { seen[missionId] = true }                              -- v4: first-ti
 donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux donated (MonetizationService; last 50 receipts)
 pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy }  -- v6: battle pass (BattlePassService)
 gifts = { passes = { [key] = { by = UserId, at = unix } } }  -- v7: owner-gifted pass entitlements (AdminService :giftpass)
+updates = { lastSeen, prompted }                                 -- v8: WHAT'S NEW panel (UpdateLogService; Config/UpdateLog versions)
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
 meta = { created, lastSeen, sessions }
 ```
@@ -54,6 +55,9 @@ resets the pass when `season` changes, and keeps claims idempotent through
 v7 added `gifts.passes`: an owner's `:giftpass` (AdminService) stores an in-game entitlement that
 MonetizationService treats exactly like owning the pass (`Pass_<Key>`, plus `PassGifted_<Key>` so the
 store says GIFTED). It is not a Roblox game pass. Specs: `game/tests/admin.spec.luau`.
+v8 added `updates`: `lastSeen` is the newest `Config/UpdateLog` version the player closed the WHAT'S
+NEW panel for, `prompted` the version they were last offered the update-notification opt-in on
+(UpdateLogService). Everyone migrates to "" so the newest update shows once.
 
 ## Session locking and saving
 

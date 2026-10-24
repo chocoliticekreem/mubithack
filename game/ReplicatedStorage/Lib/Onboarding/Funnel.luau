@@ -47,6 +47,12 @@ Funnel.Events = table.freeze({
 	OnboardingQuitStep = "OnboardingQuitStep", -- value: furthest onboarding step number when a new player left
 	TutorialSkipped = "TutorialSkipped", -- value: onboarding step number when they pressed SKIP
 	FirstCallDeclined = "FirstCallDeclined", -- value: seconds left on the countdown when they pressed NOT YET
+	-- WHAT'S NEW panel (Services/UpdateLogService; CustomField01 = the Config/UpdateLog version)
+	UpdateLogShown = "UpdateLogShown", -- value: 1 = popped up on join, 2 = opened from the NEWS chip
+	NotifyPrompted = "NotifyPrompted", -- value: 1; the update-notification opt-in prompt opened
+	NotifyAccepted = "NotifyAccepted", -- value: 1; reserved: Roblox doesn't report the opt-in answer to the game
+	FavoritePrompted = "FavoritePrompted", -- value: 1; the favorite-the-game prompt opened
+	FavoriteAccepted = "FavoriteAccepted", -- value: 1; PromptSetFavoriteCompleted said Success
 })
 
 export type Track = { last: number }

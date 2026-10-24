@@ -269,4 +269,30 @@ Spec.test("lock keeps the data and wraps a bare legacy profile", function()
 	Spec.eq(env2.data.xp, 3)
 end)
 
+Spec.test("v7 -> v8 adds updates (nothing seen yet) and keeps gifts", function()
+	local p = Schema.migrate({ version = 7, xp = 120, gifts = { passes = { vip = { by = 1, at = 2 } } } }, NOW) :: any
+	Spec.eq(p.version, Schema.Version)
+	Spec.eq(p.updates.lastSeen, "")
+	Spec.eq(p.updates.prompted, "")
+	Spec.truthy(p.gifts.passes.vip, "v7 data kept")
+	Spec.eq(Schema.default(NOW).updates.lastSeen, "")
+end)
+
+Spec.test("markUpdateSeen / markNotifyPrompted are once per version and repair junk", function()
+	local p = Schema.migrate({ version = 8, updates = { lastSeen = 5, prompted = string.rep("x", 40), junk = true } }, NOW) :: any
+	Spec.eq(p.updates.lastSeen, "", "wrong type reset")
+	Spec.eq(p.updates.prompted, "", "too long reset")
+	Spec.eq(p.updates.junk, nil, "unknown key dropped")
+	Spec.eq(Schema.markUpdateSeen(p, "2026.10.24"), true)
+	Spec.eq(Schema.markUpdateSeen(p, "2026.10.24"), false, "second time is a no-op")
+	Spec.eq(p.updates.lastSeen, "2026.10.24")
+	Spec.eq(Schema.markUpdateSeen(p, ""), false)
+	Spec.eq(Schema.markUpdateSeen(p, 7 :: any), false)
+	Spec.eq(Schema.markNotifyPrompted(p, "2026.10.24"), true)
+	Spec.eq(Schema.markNotifyPrompted(p, "2026.10.24"), false)
+	Spec.eq(Schema.markNotifyPrompted(p, "2026.11.01"), true, "a new version may prompt once more")
+	p.updates = nil
+	Spec.eq(Schema.markUpdateSeen(p, "2026.11.01"), true, "missing table is recreated")
+end)
+
 return Spec.finish()
