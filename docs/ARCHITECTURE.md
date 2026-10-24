@@ -146,7 +146,8 @@ class MubitLLM(LLM):  # __init__(settings, log_path: Path | None)
 class FakeLLM(LLM):   # __init__(responses: dict[str, list[str]]) — pops scripted replies per role
 def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else MubitLLM; raises if no key
 ```
-Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`.
+Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, ..., `scenarist`
+(test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 
 ### roles.py (all go through LLM; user-message builders live here)
 ```python
@@ -265,6 +266,30 @@ forge reports <slug>
 forge versions <slug>                                # saved versions (iterations, fixes, rollbacks)
 forge rollback <slug> <vN> [--studio S] [--no-sync]  # restore a version, resync Studio
 forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
+forge checks <slug> [--plan [--max N]] [--run] [--studio S]  # scenario designer; no flag: list checks
+```
+
+### checks.py + scenarios.py (executable checks and the scenario designer)
+A check is `runs/<slug>/checks/<id>.luau`: header `-- check: <title>` / `-- covers: <acceptance item
+or edge>`, body runs in the Server datamodel during play and returns `{ ok, detail }`, cleaning up
+after itself. Results: `runs/<slug>/checks/results.json`.
+```python
+def plan_checks(settings, slug, *, llm, max_checks=15, session_id=None, log=print) -> list[Check]
+    # scenarist (Mubit task): spec + file map + key server code (scenarios.key_code) -> checks;
+    # each body must compile after checks.wrap (luau-compile; skipped if not installed), one
+    # correction call for the ones that don't, the rest dropped. Saved as NN-<title-id>.luau in plan
+    # order; a check whose title id already exists is never overwritten.
+async def run_plan(studio, slug, *, settings, llm=None, session_id=None, log=print) -> list[dict]
+    # reversible checks share one playtest; each check whose covers says "irreversible" gets a
+    # fresh one. Play is always stopped. A detail containing "inconclusive" is a failure.
+    # Failures -> ONE check_reviewer call (Mubit task): game_bug | check_bug. Check bugs are rewritten
+    # once and re-run (pass -> check_bug_fixed, saved; else dropped -> checks/dropped/).
+    # result: {id, title, covers, ok, detail, error?, verdict: pass|game_bug|check_bug_fixed|dropped,
+    #          reason?, kind?, system?, severity?, expected?, first_run?}
+def as_anomalies(results) -> list[dict]
+    # game_bug failures in the auditor's shape {title, kind, severity, system, observed, expected,
+    # evidence} + check (the id that reproduces it), for run_cycle(extra_anomalies=...)
+def load_results(run_dir) -> list[dict]
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],

@@ -495,6 +495,32 @@ def cmd_done(args) -> int:
     return 0 if r["ready"] else 1
 
 
+async def _checks(args) -> None:
+    from forge.llm import make_llm
+    from forge.scenarios import plan_checks, run_plan
+    from forge.studio import Studio
+
+    s = load_settings()
+    llm = make_llm(s, log_path=RunStore(s, args.slug).calls_log)
+    if args.plan:
+        plan_checks(s, args.slug, llm=llm, max_checks=args.max)
+    if args.run:
+        async with Studio(s) as studio:
+            await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
+            await run_plan(studio, args.slug, settings=s, llm=llm)
+
+
+def cmd_checks(args) -> int:
+    from forge.checks import load_checks
+
+    if not (args.plan or args.run):
+        for c in load_checks(RunStore(load_settings(), args.slug).dir):
+            print(f"{c.id}\n    {c.title}\n    covers: {c.covers}")
+        return 0
+    asyncio.run(_checks(args))
+    return 0
+
+
 def cmd_scores(args) -> int:
     from forge.improve import ImproveStore
     rows = ImproveStore(load_settings(), args.slug).scores()
@@ -681,6 +707,13 @@ def build_parser() -> argparse.ArgumentParser:
     dn.add_argument("slug")
     dn.add_argument("--json", action="store_true")
 
+    ck = sub.add_parser("checks", help="scenario designer: plan executable checks from the spec, run them live")
+    ck.add_argument("slug")
+    ck.add_argument("--plan", action="store_true", help="generate a test plan (scenarist) into runs/<slug>/checks/")
+    ck.add_argument("--run", action="store_true", help="play, run every check, review failures, stop play")
+    ck.add_argument("--max", type=int, default=15, help="most checks to plan")
+    ck.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
     return p
@@ -694,7 +727,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
