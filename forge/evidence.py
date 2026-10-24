@@ -42,6 +42,10 @@ MAX_CANDIDATES = 20
 REWARD_RX = re.compile(r"cash|coin|money|reward|xp|earn|collect|gem|point|score|sold|paid|payout|loot", re.I)
 PERF_RX = re.compile(r"over_budget|overrun|budget_exceeded|lag|slow|throttl|timeout", re.I)
 SETUP_RX = re.compile(r"(^|_)(built|loaded|indexed|registered|parts|sites|graph|ms|rebuilt|init|ready)(_|$)", re.I)
+# counters of bad events: 0 is the good value, so never "untouched", and falling to 0 is no regression
+BAD_EVENT_RX = re.compile(r"fail|error|lost|afk|crash|reject|denied|died|death|kick_fail|net_dropped|exploit|"
+                          r"desync|timeout|over_budget|overrun|stuck", re.I)
+UNTOUCHED_SHOWN = 5    # more untouched counters than this are summarised in one candidate
 DECLARED_RX = re.compile(r"""(?:ForgeTelemetry|Telemetry)\s*[.:]\s*count\(\s*["']([A-Za-z0-9_]+)["']""")
 PASSIVE_ACTIONS = ("wait", "observe", "look", "report", "done", "idle", "screenshot")
 # what the LLM reads first when the evidence does not fit its budget
@@ -524,6 +528,8 @@ def prefilter(current: dict, previous: dict | None, st: EvidenceStore, *, declar
     if previous:
         for k, before in prev_c.items():
             now = cur_c.get(k, 0.0)
+            if BAD_EVENT_RX.search(k):
+                continue
             if before > 0 and now == 0 and not SETUP_RX.search(k):
                 out.append(_cand("regression", k, "high", f"{k} was {before:g} in the previous version, now 0",
                                  [f"metric:counter:{k}"], value=now, baseline=before))
@@ -580,15 +586,23 @@ def prefilter(current: dict, previous: dict | None, st: EvidenceStore, *, declar
     # flat / untouched: counters the game declares that never moved
     soak_moved = {m.split(":", 1)[1] for m, pts in st.series.items() if m.startswith("soak:")
                   and len({p["value"] for p in pts}) > 1}
+    quiet: list[dict] = []
     for k in declared or []:
-        if cur_c.get(k, 0.0) == 0 and k not in soak_moved and not SETUP_RX.search(k):
+        if cur_c.get(k, 0.0) == 0 and k not in soak_moved and not SETUP_RX.search(k) and not BAD_EVENT_RX.search(k):
             moved_before = any(v > 0 for v in st.values(f"counter:{k}")[:-1])
             kind = "flat" if moved_before else "untouched"
-            out.append(_cand(kind, k, "high" if REWARD_RX.search(k) else "medium",
-                             f"{k} is declared by the game but stayed 0 this version"
-                             + (" (it moved in an earlier version)" if moved_before else " (no tester or player ever "
-                                                                                         "triggered it)"),
-                             [f"metric:counter:{k}", f"untouched:{k}"], value=0))
+            quiet.append(_cand(kind, k, "high" if (REWARD_RX.search(k) or moved_before) else "medium",
+                               f"{k} is declared by the game but stayed 0 this version"
+                               + (" (it moved in an earlier version)" if moved_before else " (no tester or player ever "
+                                                                                           "triggered it)"),
+                               [f"metric:counter:{k}", f"untouched:{k}"], value=0))
+    quiet.sort(key=lambda c: (c["kind"] != "flat", c["severity"] != "high"))
+    out += quiet[:UNTOUCHED_SHOWN]
+    if len(quiet) > UNTOUCHED_SHOWN:
+        rest = quiet[UNTOUCHED_SHOWN:]
+        out.append(_cand("untouched", f"+{len(rest)}", "medium", f"{len(rest)} more declared counters never moved: "
+                         + ", ".join(c["metric"] for c in rest[:30]), [f"untouched:{c['metric']}" for c in rest[:6]],
+                         value=len(rest)))
 
     for sp in stuck or []:
         out.append(_cand("stuck", f"{sp.get('run')}@{sp.get('from')}", "medium",

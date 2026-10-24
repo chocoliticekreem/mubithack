@@ -191,6 +191,19 @@ def test_prefilter_flags_spikes_regressions_errors_and_untouched():
     assert sev == sorted(sev, key=lambda s: {"high": 0, "medium": 1, "low": 2}[s])
 
 
+def test_prefilter_ignores_bad_event_counters_and_groups_untouched():
+    st = _series_store({"counter:data_save_failed": [1, 0], "counter:lobby_afk": [1, 0]})
+    prev = {"label": "v0", "counters": {"data_save_failed": 1, "lobby_afk": 1}, "errors": []}
+    cur = {"label": "now", "counters": {"data_save_failed": 0, "lobby_afk": 0}, "errors": []}
+    declared = ["data_save_failed", "net_dropped"] + [f"gear_{i}" for i in range(8)] + ["coins_earned"]
+    cands = evm.prefilter(cur, prev, st, declared=declared)
+    ids = [c["id"] for c in cands]
+    assert not any("data_save_failed" in i or "lobby_afk" in i or "net_dropped" in i for i in ids)
+    assert ids[0] == "stat:untouched:coins_earned"  # reward-like counters first
+    assert len([i for i in ids if i.startswith("stat:untouched:")]) == evm.UNTOUCHED_SHOWN + 1
+    assert "stat:untouched:+4" in ids
+
+
 def test_prefilter_quiet_on_a_healthy_stable_version():
     st = _series_store({"counter:coins_collected": [5, 6, 5, 6, 6]})
     m = {"label": "now", "counters": {"coins_collected": 6}, "errors": []}
