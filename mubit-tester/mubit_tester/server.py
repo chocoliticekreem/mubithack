@@ -23,9 +23,13 @@ stdout is the MCP wire. Everything else goes to stderr: tool bodies run under
 `redirect_stdout(sys.stderr)` so progress prints never corrupt the protocol stream. (The mcp SDK
 also points fd 1 at stderr while serving, which covers subprocesses.)
 
-Each tool opens its own short-lived StudioMCP connection (`open_studio`), so nothing crosses
-request task groups. The chosen Studio (by `studios(select=...)` or `multiplayer_start`) is
-remembered in `STATE` for the life of the server.
+One StudioMCP session lives as long as the server (`_lifespan` starts an owner task that holds
+`async with Studio()`; about 67 ms per call instead of about 220 ms for a fresh connection). Every
+tool borrows it through `open_studio`. The owner task enters and exits the session, so no task-group
+scope crosses request tasks. The Studio object also keeps its sync state (incremental pushes, the
+file server) between calls. Outside a running server (tests, the `forge test` CLI mirror)
+`open_studio` falls back to one connection per call. The chosen Studio (by `studios(select=...)` or
+`multiplayer_start`) is remembered in `STATE` for the life of the server.
 """
 
 from __future__ import annotations
@@ -37,7 +41,6 @@ import inspect as _inspect
 import io
 import json
 import os
-import socket
 import sys
 import time
 from pathlib import Path
@@ -66,7 +69,54 @@ INSTRUCTIONS = (
     "mission_end, instance_id on players/observe/query/events. Always end with play_stop."
 )
 
-mcp = MCPServer("mubit-tester", instructions=INSTRUCTIONS)
+# ---------------------------------------------------------------- the persistent Studio session
+
+_SHARED: dict[str, Any] = {"tg": None, "studio": None}
+_SHARED_LOCK = anyio.Lock()
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_server: Any) -> AsyncIterator[dict]:
+    """While the server runs: a task group that owns the shared Studio session (started lazily)."""
+    async with anyio.create_task_group() as tg:
+        _SHARED["tg"] = tg
+        try:
+            yield {}
+        finally:
+            _SHARED["tg"] = _SHARED["studio"] = None
+            tg.cancel_scope.cancel()
+
+
+async def _studio_owner(*, task_status: Any = anyio.TASK_STATUS_IGNORED) -> None:
+    from forge.studio import Studio
+    try:
+        async with Studio(load_settings()) as st:
+            _SHARED["studio"] = st
+            task_status.started(st)
+            await anyio.sleep_forever()
+    finally:
+        _SHARED["studio"] = None
+
+
+async def shared_studio() -> Any | None:
+    """The server-lifetime Studio, connecting on first use; None outside a running server or when
+    StudioMCP can't start (callers then open their own connection, which reports the error)."""
+    tg = _SHARED["tg"]
+    if tg is None:
+        return None
+    if _SHARED["studio"] is not None:
+        return _SHARED["studio"]
+    async with _SHARED_LOCK:
+        if _SHARED["studio"] is None:
+            try:
+                return await tg.start(_studio_owner)
+            except Exception as e:  # noqa: BLE001
+                print(f"mubit-tester: shared StudioMCP session failed to start: {e}", file=sys.stderr)
+                return None
+        return _SHARED["studio"]
+
+
+mcp = MCPServer("mubit-tester", instructions=INSTRUCTIONS, lifespan=_lifespan)
 
 STATE: dict[str, Any] = {"studio_id": None, "hint": os.environ.get("FORGE_STUDIO") or None,
                          "mode": "server", "clients": [], "pinned": None, "server_window": None}
@@ -350,20 +400,30 @@ def _tool_errors():
 
 @contextlib.asynccontextmanager
 async def _default_open_studio(select: bool = True) -> AsyncIterator[Any]:
-    """Connected forge.studio.Studio; with select, pinned to STATE's studio (or the hint/first one)."""
+    """Connected forge.studio.Studio (the shared session while the server runs); with select,
+    pinned to STATE's studio (or the hint)."""
+    shared = await shared_studio()
+    if shared is not None:
+        if select:
+            await _pin(shared)
+        yield shared
+        return
     from forge.studio import Studio
     async with Studio(load_settings()) as studio:
-        if not select:
-            yield studio
-            return
-        sid = STATE.get("studio_id")
-        if sid and sid in _known_windows() and any(s.get("id") == sid for s in await studio.list_studios()):
-            studio.studio_id = sid
-        else:
-            # strict: the pinned Studio (FORGE_STUDIO / studios(select)) or an error, never another window
-            STATE["pinned"] = STATE["studio_id"] = await studio.select(STATE.get("hint"))
-            STATE["mode"], STATE["clients"], STATE["server_window"] = "server", [], None
+        if select:
+            await _pin(studio)
         yield studio
+
+
+async def _pin(studio: Any) -> None:
+    """Point `studio` at STATE's window: the remembered one if still connected, else the pinned hint."""
+    sid = STATE.get("studio_id")
+    if sid and sid in _known_windows() and any(s.get("id") == sid for s in await studio.list_studios()):
+        studio.studio_id = sid
+    else:
+        # strict: the pinned Studio (FORGE_STUDIO / studios(select)) or an error, never another window
+        STATE["pinned"] = STATE["studio_id"] = await studio.select(STATE.get("hint"))
+        STATE["mode"], STATE["clients"], STATE["server_window"] = "server", [], None
 
 
 def _known_windows() -> list[str]:
@@ -465,18 +525,10 @@ def game_root(game: str | None) -> tuple[Path, str | None]:
     raise ToolError(f"no game {game!r}: give a Forge slug (runs/<slug>/game; have: {have}) or a folder")
 
 
-def _free_port(preferred: int) -> int:
-    with socket.socket() as sock:
-        if sock.connect_ex(("127.0.0.1", preferred)) != 0:
-            return preferred  # nobody listening: ours to use
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 async def sync_into(studio: Any, root: Path, prune: bool = False, shared_ok: bool = False) -> str:
     """luau-compile check, refuse a shared Team Create place, then push `root` into `studio`.
-    Uses the configured sync port, or a free one when another agent's sync server holds it."""
+    Studio.sync keeps one file server per folder and moves to a free port when another agent holds
+    the configured one; pushes are incremental against what this session pushed before."""
     from forge import sync as fsync
     from forge.watch import is_shared
     errs = fsync.check(Path(root).resolve())
@@ -486,8 +538,7 @@ async def sync_into(studio: Any, root: Path, prune: bool = False, shared_ok: boo
     if is_shared(name) and not shared_ok:
         raise ToolError(f"'{name}' is a shared Team Create place; syncing would overwrite teammates' scripts. "
                         "Select your own local place with studios(select=...).")
-    port = _free_port(load_settings().sync_port)
-    return str(await studio.sync(Path(root).resolve(), port, prune=prune)).strip()
+    return str(await studio.sync(Path(root).resolve(), prune=prune)).strip()
 
 
 def _play():
