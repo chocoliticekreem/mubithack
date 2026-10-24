@@ -16,8 +16,11 @@ return Config.define({
 	DefaultFuel = 150, -- seconds a part burns before it is Charred
 	CharredColor = Color3.fromRGB(35, 30, 28),
 	CharredMaterial = Enum.Material.Slate,
-	HoseRange = 28,
-	HoseConeCos = 0.94, -- ~20 degree cone
+	HoseRange = 30,
+	HoseConeCos = 0.86, -- ~30 degree cone, measured to the NEAREST point of the burning part
+	HoseNearRadius = 9, -- studs: anything burning this close and roughly in front gets hit (point-blank spraying)
+	HoseNearFrontDot = -0.1, -- "roughly in front": flat direction dot >= this
+	TrainingCoolMultiplier = 3, -- the tutorial's training fire goes out 3x faster
 	CoolPerLitre = 9,
 	-- client effects budget (FireFxController)
 	MaxClientFx = 40, -- burning parts with emitters, nearest first
