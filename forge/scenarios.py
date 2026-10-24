@@ -353,7 +353,8 @@ async def run_in_sessions(studio: Any, checks: list[Check], log: Callable[[str],
 
 
 async def run_plan(studio: Any, slug: str, *, settings: Settings, llm: LLM | None = None,
-                   session_id: str | None = None, log: Callable[[str], None] = print) -> list[dict]:
+                   session_id: str | None = None, log: Callable[[str], None] = print,
+                   only: set[str] | None = None, prior: list[dict] | None = None) -> list[dict]:
     """Run every saved check in live playtests (started and always stopped here), review the failures
     with one check_reviewer call when an llm is given, re-run rewritten checks once, and save
     checks/results.json. Each result: {id, title, covers, ok, detail, error?, verdict: pass | game_bug |
@@ -362,6 +363,8 @@ async def run_plan(studio: Any, slug: str, *, settings: Settings, llm: LLM | Non
     checks = load_checks(store.dir)
     if not checks:
         raise SystemExit(f"no checks in {checks_dir(store.dir)}; run `forge checks {slug} --plan` first")
+    if only is not None:  # e.g. the checks that did not pass headless (checks.triage); `prior` holds the rest
+        checks = [c for c in checks if c.id in only]
     by_id = {c.id: c for c in checks}
     got = await run_in_sessions(studio, checks, log)
     results = [{**got[c.id], "covers": c.covers, "verdict": "pass" if got[c.id]["ok"] else "game_bug"}
@@ -376,6 +379,7 @@ async def run_plan(studio: Any, slug: str, *, settings: Settings, llm: LLM | Non
         if rewrites:
             reruns = await run_in_sessions(studio, rewrites, log)
             _finish_rewrites(store.dir, rewrites, results, reruns, log)
+    results = list(prior or []) + results
     save_results(store.dir, results)
     log(summary(results))
     return results

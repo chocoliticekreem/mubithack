@@ -198,3 +198,46 @@ def test_retry_then_fail_and_cancel(tmp_path):
     assert q.cancel_pending("budget") == 1
     assert q.get(other["id"])["status"] == "cancelled"
     assert q.idle()
+
+
+def test_shared_slots_file_locks_and_exclusive_holds(tmp_path):
+    b = _broker(tmp_path, {"game": ["g#1", "g#2", "g#3"]})
+    a = b.try_acquire(["game", "lock:A.luau"], holder="fix-a", pid=1)
+    assert a and {ls["pool"] for ls in a} == {"game", "lock:A.luau"}
+    assert b.try_acquire(["game", "lock:A.luau"], holder="fix-a2", pid=1) is None  # same file: waits
+    assert b.last_blocked == "lock:A.luau"
+    assert b.try_acquire(["game", "lock:B.luau"], holder="fix-b", pid=1)  # other file: in parallel
+    assert b.try_acquire(["game:all"], holder="feature", pid=1) is None  # whole-game writer waits
+    assert b.last_blocked == "game"
+    b.release("fix-a")
+    b.release("fix-b")
+    got = b.try_acquire(["game:all"], holder="feature", pid=1)
+    assert sorted(ls["slot"] for ls in got) == ["g#1", "g#2", "g#3"]
+    assert b.try_acquire(["game", "lock:C.luau"], holder="fix-c", pid=1) is None
+
+
+def test_a_waiting_high_priority_job_is_not_starved(tmp_path):
+    b = _broker(tmp_path, {"game": ["g#1", "g#2"], "llm": ["l1", "l2", "l3", "l4"]})
+    q = JobQueue(tmp_path / "q")
+    b.try_acquire(["game", "lock:X"], holder="running-fix", pid=1)  # a fix already holds one game slot
+    q.add("feature", "big", priority=9, needs=["llm", "game:all"])
+    small = q.add("fix", "small", priority=1, needs=["llm", "game", "lock:Y"])
+    other = q.add("gaps", "gap finder", priority=0.5, needs=["llm"])
+    job, _ = q.claim("w", b)
+    # the small fix could start (a game slot is free), but the big job is waiting for the game: it doesn't
+    assert job["id"] == other["id"]
+    assert q.get(small["id"])["status"] == "queued"
+    b.release("running-fix")
+    job, leases = q.claim("w", b)
+    assert job["title"] == "big" and {ls["slot"] for ls in leases if ls["pool"] == "game"} == {"g#1", "g#2"}
+
+
+def test_finish_can_settle_a_follow_up_job(tmp_path):
+    q = JobQueue(tmp_path / "q")
+    first = q.add("checks_offline", "headless", priority=2)
+    studio = q.add("checks", "studio checks", priority=1, deps=[first["id"]], needs=["studio"])
+    q.update_args(first["id"], studio_job=studio["id"])
+    assert q.get(first["id"])["args"]["studio_job"] == studio["id"]
+    q.claim("w")
+    q.finish(first["id"], True, {"n": 1}, also_done={studio["id"]: {"skipped": "all passed headless"}})
+    assert q.get(studio["id"])["status"] == "done" and q.claim("w") is None

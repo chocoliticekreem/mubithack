@@ -177,6 +177,7 @@ class Broker:
         self.alive = alive
         self.clock = clock
         self.studio_slots = studio_slots
+        self.last_blocked: str | None = None
         self.path = self.root / "leases.json"
         self.lock = self.root / "leases.lock"
 
@@ -204,37 +205,61 @@ class Broker:
                 self._save(keep)
             return gone
 
+    @staticmethod
+    def pool_of(need: str) -> str:
+        """'game:all' -> 'game'; 'lock:<name>' -> 'lock:<name>'; 'llm' -> 'llm'."""
+        return need[:-4] if need.endswith(":all") else need
+
     def try_acquire(self, needs: list[str], holder: str, *, pid: int | None = None,
                     ttl: float | None = None) -> list[dict] | None:
-        """Lease one free slot from each pool in `needs`, or nothing. Unknown pools never grant."""
+        """Lease what `needs` asks for, all of it or nothing:
+        - "<pool>": one free slot of that pool (unknown pools never grant);
+        - "<pool>:all": every slot of the pool (an exclusive hold, e.g. a whole-game writer);
+        - "lock:<name>": a mutex made on demand (e.g. one writer per file).
+        On None, `self.last_blocked` names the pool that was busy (claim uses it to avoid starvation)."""
         pid = pid or os.getpid()
+        self.last_blocked = None
         with file_lock(self.lock):
             now = self.clock()
             leases, gone = self._reclaim(self._load(), now)
             taken = {(ls["pool"], ls["slot"]) for ls in leases}
             got: list[dict] = []
             studio_taken: list[str] = []
-            for pool in dict.fromkeys(needs):  # unique, in order
-                slot = None
-                for cand in self.pools.get(pool) or []:
-                    if (pool, cand) in taken:
-                        continue
-                    if pool == "studio" and self.studio_slots is not None:
-                        already = self.studio_slots.held_by(cand)
-                        if not already and not self.studio_slots.try_acquire(cand):
+
+            def lease(pool: str, slot: str) -> dict:
+                return {"id": uuid.uuid4().hex[:10], "pool": pool, "slot": slot, "holder": holder,
+                        "pid": pid, "acquired": now, "heartbeat": now, "ttl": ttl or self.ttl}
+
+            for need in dict.fromkeys(needs):  # unique, in order
+                pool = self.pool_of(need)
+                if need.startswith("lock:"):
+                    slots = [] if (pool, "held") in taken else ["held"]
+                elif need.endswith(":all"):
+                    every = self.pools.get(pool) or []
+                    slots = every if every and not any((pool, s) in taken for s in every) else []
+                else:
+                    slots = []
+                    for cand in self.pools.get(pool) or []:
+                        if (pool, cand) in taken:
                             continue
-                        if not already:
-                            studio_taken.append(cand)
-                    slot = cand
-                    break
-                if slot is None:
+                        if pool == "studio" and self.studio_slots is not None:
+                            already = self.studio_slots.held_by(cand)
+                            if not already and not self.studio_slots.try_acquire(cand):
+                                continue
+                            if not already:
+                                studio_taken.append(cand)
+                        slots = [cand]
+                        break
+                if not slots:
                     for cand in studio_taken:  # don't keep a window slot for a job that can't start
                         self.studio_slots.release(cand)  # type: ignore[union-attr]
                     if gone:
                         self._save(leases)
+                    self.last_blocked = pool
                     return None
-                got.append({"id": uuid.uuid4().hex[:10], "pool": pool, "slot": slot, "holder": holder,
-                            "pid": pid, "acquired": now, "heartbeat": now, "ttl": ttl or self.ttl})
+                for s in slots:
+                    got.append(lease(pool, s))
+                    taken.add((pool, s))
             self._save(leases + got)
             return got
 
@@ -367,6 +392,7 @@ class JobQueue:
             jobs = self._load()
             self._settle(jobs)
             by_id = {j["id"]: j for j in jobs}
+            reserved: set[str] = set()  # pools a higher-priority ready job is waiting for
             for j in sorted(jobs, key=self._order):
                 if j["status"] != "queued" or self._dep_state(j, by_id) != "ready":
                     continue
@@ -374,8 +400,13 @@ class JobQueue:
                     continue
                 leases: list[dict] = []
                 if j.get("needs") and broker is not None:
+                    pools = {Broker.pool_of(n) for n in j["needs"]}
+                    if pools & reserved:
+                        continue  # no starvation: lower priority never takes what a waiting job needs
                     got = broker.try_acquire(j["needs"], holder=j["id"], pid=pid)
                     if got is None:
+                        if broker.last_blocked and not broker.last_blocked.startswith("lock:"):
+                            reserved.add(broker.last_blocked)
                         continue
                     leases = got
                 now = self.clock()
@@ -387,6 +418,14 @@ class JobQueue:
             self._save(jobs)
             return None
 
+    def update_args(self, job_id: str, **args) -> None:
+        with file_lock(self.lock):
+            jobs = self._load()
+            for j in jobs:
+                if j["id"] == job_id:
+                    j["args"] = {**(j.get("args") or {}), **args}
+            self._save(jobs)
+
     def heartbeat(self, job_id: str, **fields) -> None:
         with file_lock(self.lock):
             jobs = self._load()
@@ -397,7 +436,9 @@ class JobQueue:
             self._save(jobs)
 
     def finish(self, job_id: str, ok: bool, result: Any = None, error: str | None = None,
-               broker: Broker | None = None) -> dict | None:
+               broker: Broker | None = None, also_done: dict[str, Any] | None = None) -> dict | None:
+        """Mark a running job done/failed. `also_done` {job id: result} marks queued jobs done in the
+        same atomic step (a job that made a follow-up unnecessary, e.g. every check passed headless)."""
         with file_lock(self.lock):
             jobs = self._load()
             out = None
@@ -406,6 +447,9 @@ class JobQueue:
                     j.update(status="done" if ok else "failed", ended=self.clock(), result=result,
                              error=None if ok else (error or "failed"))
                     out = dict(j)
+                elif ok and j["id"] in (also_done or {}) and j["status"] == "queued":
+                    j.update(status="done", ended=self.clock(), result=(also_done or {})[j["id"]],
+                             attempts=0)
             self._settle(jobs)
             self._save(jobs)
         if broker is not None:

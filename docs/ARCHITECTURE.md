@@ -402,7 +402,8 @@ forge reports <slug>
 forge versions <slug>                                # saved versions (iterations, fixes, rollbacks)
 forge rollback <slug> <vN> [--studio S] [--no-sync]  # restore a version, resync Studio
 forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
-forge checks <slug> [--plan [--max N]] [--run] [--studio S]  # scenario designer; no flag: list checks
+forge checks <slug> [--plan [--max N]] [--run [--headless-first]] [--studio S]  # scenario designer; no flag:
+                                                     # list checks; --headless-first: checks.triage, Studio runs the rest
 forge orchestrate <slug> --goal G [--studio P1,P2 | --no-studio] [--workers 4] [--max-calls 300] [--minutes 120]
                   [--rounds 3] [--per-round 4] [--min-rank 2] [--no-checks] [--no-fix-cycle]   # team lead loop
 forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json]  # ranked gap list
@@ -413,32 +414,42 @@ forge queue <slug>                                   # orchestrator jobs, leases
 ```
 round r:  gaps job (gap_finder, lease llm) -> gaps/<n>.json
           top --per-round gaps with rank >= --min-rank (max 2 tries per gap id) -> build jobs, priority = rank:
-             fix + path -> forge correct <slug> <path> <request> --no-studio            leases llm, game
-             feature | visual (| fix without path) -> forge feature <slug> <brief> -n 1 --polish 1
-                                                      (--no-studio: -n 0 --no-studio)  leases studio, sync, llm, game
+             fix + path -> forge correct <slug> <path> <request> --no-studio   leases llm, game, lock:<file>
+                                       (fixes to different files run in parallel, up to $FORGE_GAME_SLOTS=4)
+             feature | visual -> forge feature <slug> <brief> -n 1 --polish 1     leases studio, sync, llm, game:all
+                                 (--no-studio: -n 0 --no-studio)
+             fix without path -> forge feature <slug> "Fix this bug: ..." -n 0 --no-studio  leases llm, game:all
           verify (after: all builds; luau-compile, in-process)
-          playtest (deps: verify)      forge run <slug> -n 1      leases studio, sync, llm, game
-          checks (after: playtest)     forge checks --plan --run  leases studio, sync, llm
-          fix_cycle (after: checks)    forge fix --cycles 1       leases studio, sync, llm, game
+          playtest (deps: verify)      forge run <slug> -n 1      leases studio, sync, llm, game:all
+          checks_offline (after: playtest; in-process): plan_checks if none, then checks.triage (headless);
+                                       all pass -> results saved (source "headless") and the Studio job is done
+          checks (deps: checks_offline) forge checks --run --headless-first  leases studio, sync, llm
+          fix_cycle (after: checks)    forge fix --cycles 1       leases studio, sync, llm, game:all
           score(): forge done parts + latest critic (+ fun); stop when ready and critic >= 8
 stop: target met | no gap above the bar | --rounds done | budget (--max-calls: calls.jsonl lines under runs/<slug>/
       since start; --minutes) -> queued jobs cancelled, running ones SIGTERM
 ```
 - Leases (Broker, state in $FORGE_BROKER_DIR=/tmp/forge-broker/leases.json, flock): pools `llm` (llm-1..
-  $FORGE_LLM_SLOTS, default 6), `game` (one writer per runs/<slug>), `sync` (ports 34901-34908, passed as
-  FORGE_SYNC_PORT), `studio` (--studio places; granting one also takes a machine-wide slot in
-  /tmp/forge-studio-slots like scripts/studio-slot.sh; the job gets FORGE_STUDIO=<studio id>). A job gets all
-  its leases or none and waits in the queue meanwhile. Leases whose pid died or whose heartbeat is older
-  than 180 s are reclaimed. The Studio window is opened (place built from runs/<slug>/game) when a Studio
-  lease is first used and closed, freeing the slot, when no queued/running job needs Studio.
+  $FORGE_LLM_SLOTS, default 6: forge processes doing LLM work; each runs FORGE_JOBS concurrent calls,
+  llm.jobs_from_env), `game` ($FORGE_GAME_SLOTS shared slots per runs/<slug>), `sync` (ports 34901-34908,
+  passed as FORGE_SYNC_PORT), `studio` (--studio places; granting one also takes a machine-wide slot in
+  /tmp/forge-studio-slots like scripts/studio-slot.sh; the job gets FORGE_STUDIO=<studio id>). A need is
+  "<pool>" (one slot), "<pool>:all" (every slot: exclusive) or "lock:<name>" (a mutex made on demand).
+  A job gets all its leases or none and waits in the queue meanwhile; try_acquire sets `last_blocked`, and
+  claim() never gives a lower-priority job a pool a higher-priority ready job is waiting for (no starvation).
+  Leases whose pid died or whose heartbeat is older than 180 s are reclaimed. The Studio window is opened
+  (place built from runs/<slug>/game) when a Studio lease is first used and closed, freeing the slot, when no
+  queued/running job needs Studio.
 - Queue (runs/<slug>/orchestrator/queue.json): job {id, kind, title, priority, deps (must be done), after
   (must be final), args, needs, gap, round, status queued|running|done|failed|skipped|cancelled, worker,
   pid, attempts, max_attempts (2), leases, heartbeat, result, error}. recover(): running jobs whose pid died
   or that stopped heartbeating go back to queued (or failed after max_attempts); run() calls it first, so
-  restarting `forge orchestrate` resumes.
+  restarting `forge orchestrate` resumes. finish(..., also_done={id: result}) settles a queued follow-up in the
+  same locked step; update_args(id, **args).
 - Each subprocess job is also an MCP-style job (runs/jobs/orch-<job>-<attempt>.{json,log}, `__exit <code>`).
 - Files: orchestrator/{status.json (state, budget, queue, jobs, rounds, before/after), timings.json
-  (dashboard lanes: one per worker; calls: one per job run; stages: one per round), rounds.json, gaps/<n>.json,
+  (forge.timings.Timeline: stages "resume" + one per round, one call per job run with role lanes), rounds.json,
+  gaps/<n>.json,
   corrections.jsonl, rejected.json, calls.jsonl, traces/}; runs/orchestrate-<slug>.log. dashboard.team_view
   merges orchestrator/timings.json; game_view exposes status.json as game["orchestrator"]; ledger counts
   corrections.jsonl as gap_finder corrections.
@@ -470,7 +481,8 @@ def plan_checks(settings, slug, *, llm, max_checks=15, session_id=None, log=prin
     # each body must compile after checks.wrap (luau-compile; skipped if not installed), one
     # correction call for the ones that don't, the rest dropped. Saved as NN-<title-id>.luau in plan
     # order; a check whose title id already exists is never overwritten.
-async def run_plan(studio, slug, *, settings, llm=None, session_id=None, log=print) -> list[dict]
+async def run_plan(studio, slug, *, settings, llm=None, session_id=None, log=print, only=None, prior=None)
+    -> list[dict]   # only: check ids to run (the rest of a headless triage); prior: results kept in front
     # reversible checks share one playtest; each check whose covers says "irreversible" gets a
     # fresh one. Play is always stopped. A detail containing "inconclusive" is a failure.
     # Failures -> ONE check_reviewer call (Mubit task): game_bug | check_bug. The user message lists,
@@ -488,6 +500,10 @@ def load_results(run_dir) -> list[dict]
 forge fix <slug> [--cycles N --max-fixes M --reports --no-repro]  # real anomalies: repro check, fix, prove, until clean
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
+Playtest wait (loop.wait_for_game(studio, wait) -> {mode ready|fallback|fixed, secs, boot_secs?}): event-based,
+`studio.wait_ready()` returns once the server booted, then the game is watched FORGE_OBSERVE_SECONDS (4 s) so
+the core loop bumps its counters. An explicit FORGE_PLAY_SECONDS keeps the old fixed sleep; if wait_ready can't
+tell, the rest of the wait is slept out. Games with `playtest.start_round` keep the fixed round wait.
 
 Speed (`--jobs N`, default 8 = FORGE_JOBS; also on `feature`, `improve`, `fix`; `--no-cache` = FORGE_NO_CACHE=1):
 `Run(settings, store, llm, ui, *, jobs=None, command="run")` runs every LLM call on a bounded thread pool

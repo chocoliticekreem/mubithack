@@ -54,6 +54,36 @@ def play_seconds() -> float:
         return 8.0
 
 
+def observe_seconds() -> float:
+    """After the server booted: how long the playtest watches the game so the core loop bumps counters."""
+    try:
+        return max(0.0, float(os.environ.get("FORGE_OBSERVE_SECONDS", "4")))
+    except ValueError:
+        return 4.0
+
+
+async def wait_for_game(studio: Any, wait: float) -> dict:
+    """Event-based playtest wait instead of a fixed sleep: studio.wait_ready() returns once ForgeProbe exists
+    and the server booted, then the game is watched for observe_seconds(). FORGE_PLAY_SECONDS set explicitly
+    (or a Studio client without wait_ready) keeps the old fixed sleep; if wait_ready can't tell, the rest of
+    `wait` is slept out. -> {mode: ready|fallback|fixed, secs, boot_secs?, error?}"""
+    t0 = time.monotonic()
+    if "FORGE_PLAY_SECONDS" in os.environ or not callable(getattr(studio, "wait_ready", None)):
+        await asyncio.sleep(wait)
+        return {"mode": "fixed", "secs": round(time.monotonic() - t0, 2)}
+    try:
+        res = await studio.wait_ready(timeout=max(wait, 10.0))
+    except Exception as e:  # noqa: BLE001 - never fail a playtest over the wait
+        res = {"ready": False, "error": f"{type(e).__name__}: {e}"}
+    boot = round(time.monotonic() - t0, 2)
+    if not (isinstance(res, dict) and res.get("ready")):
+        await asyncio.sleep(max(0.0, wait - boot))
+        return {"mode": "fallback", "secs": round(time.monotonic() - t0, 2),
+                "error": str((res or {}).get("error") if isinstance(res, dict) else res)[:200]}
+    await asyncio.sleep(observe_seconds())
+    return {"mode": "ready", "secs": round(time.monotonic() - t0, 2), "boot_secs": boot}
+
+
 # ================================================================ terminal output
 
 class UI:
@@ -627,7 +657,12 @@ class Run:
                     ok2, val2, _ = await step("start_round", studio.execute_luau(build_call_luau("round", args), "Server"))
                     self.ui.line("studio", "start round", ok2, self.ui.dim(str(val2)[:60]))
                     wait = max(0.0, wait - START_ROUND_DELAY)
-                await asyncio.sleep(wait)
+                    await asyncio.sleep(wait)  # the round is already running: just let it play
+                else:
+                    waited = await wait_for_game(studio, wait)
+                    rec["steps"].append({"step": "wait", "ok": waited["mode"] != "fallback", **waited})
+                    self.ui.line("studio", f"game ready ({waited['mode']})", waited["mode"] != "fallback",
+                                 f"{waited['secs']:4.1f}s")
                 ok, val, _ = await step("probe_report", studio.probe_report())
                 if ok and isinstance(val, dict) and val.get("error") and "uptime" not in val:
                     report = val

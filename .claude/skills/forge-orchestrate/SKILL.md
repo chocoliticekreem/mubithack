@@ -18,7 +18,11 @@ description: Use when the user wants Forge to make an existing game much better 
    cycle (`forge fix --cycles 1`).
 3. **Workers** claim jobs by priority and dependencies. They lease what they need from a broker:
    Studio windows (machine-wide slots shared with `scripts/studio-slot.sh`, max 4), the Mubit pool,
-   sync ports (34901+), and one writer per game. A job whose lease is busy waits; it doesn't fail.
+   sync ports (34901+), and the game folder. Fixes to different files run in parallel, each holding
+   its file's lock. Whole-game writers (feature, playtest, fix cycle) hold the whole game. A job whose
+   lease is busy waits, and a higher-priority job waiting for a pool isn't starved by lower-priority
+   ones. Checks run headless first (`checks.triage`); only the ones that still fail or need Studio
+   take a Studio lease. Each Forge process runs `FORGE_JOBS` concurrent Mubit calls.
 4. **Re-score** with `forge done` and the critic. The loop stops when done is green and the critic is
    at least 8, or when `--max-calls`, `--minutes` or `--rounds` runs out.
 

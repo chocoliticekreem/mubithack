@@ -158,3 +158,53 @@ def test_lessons_seeded(settings):
     text = read_lessons(settings)
     assert "Forge lessons" in text
     assert (settings.runs_dir / "lessons.md").exists()
+
+
+
+class _ReadyStudio:
+    def __init__(self, res):
+        self.res = res
+        self.calls = []
+
+    async def wait_ready(self, timeout=30.0, grace=0.25):
+        self.calls.append(timeout)
+        if isinstance(self.res, Exception):
+            raise self.res
+        return self.res
+
+
+def _sleeps(monkeypatch):
+    import asyncio as aio
+
+    import forge.loop as lp
+    slept = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(lp.asyncio, "sleep", fake_sleep)
+    return aio, slept
+
+
+def test_playtest_wait_is_event_based(monkeypatch):
+    from forge.loop import wait_for_game
+    monkeypatch.delenv("FORGE_PLAY_SECONDS", raising=False)
+    monkeypatch.setenv("FORGE_OBSERVE_SECONDS", "3")
+    aio, slept = _sleeps(monkeypatch)
+    st = _ReadyStudio({"ready": True, "secs": 1.2})
+    res = aio.run(wait_for_game(st, 8.0))
+    assert res["mode"] == "ready" and slept == [3.0] and st.calls == [10.0]  # boot + 3 s, not a fixed 8 s
+
+
+def test_playtest_wait_falls_back_and_respects_an_explicit_setting(monkeypatch):
+    from forge.loop import wait_for_game
+    monkeypatch.delenv("FORGE_PLAY_SECONDS", raising=False)
+    aio, slept = _sleeps(monkeypatch)
+    res = aio.run(wait_for_game(_ReadyStudio({"ready": False, "error": "no ForgeProbe"}), 8.0))
+    assert res["mode"] == "fallback" and "ForgeProbe" in res["error"] and 7.0 < slept[-1] <= 8.0
+    res = aio.run(wait_for_game(_ReadyStudio(RuntimeError("studio gone")), 8.0))
+    assert res["mode"] == "fallback"
+    assert aio.run(wait_for_game(object(), 5.0))["mode"] == "fixed" and slept[-1] == 5.0  # no wait_ready
+    monkeypatch.setenv("FORGE_PLAY_SECONDS", "6")
+    st = _ReadyStudio({"ready": True})
+    assert aio.run(wait_for_game(st, 6.0))["mode"] == "fixed" and st.calls == []  # explicit: old behaviour

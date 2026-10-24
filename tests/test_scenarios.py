@@ -286,6 +286,18 @@ def test_inconclusive_pass_counts_as_failure(settings):
     assert [r["ok"] for r in results] == [False, True, True]
 
 
+def test_run_plan_only_runs_the_rest_and_keeps_headless_passes(settings):
+    store = _three_checks(settings)
+    studio = FakeStudio(['{"ok":true}'])
+    prior = [{"id": "passes", "ok": True, "verdict": "pass", "source": "headless"},
+             {"id": "bad-check", "ok": True, "verdict": "pass", "source": "headless"}]
+    results = asyncio.run(sc.run_plan(studio, "shop", settings=settings, llm=None, log=lambda m: None,
+                                      only={"real-bug"}, prior=prior))
+    assert [r["id"] for r in results] == ["passes", "bad-check", "real-bug"]
+    assert studio.events.count("check") == 1  # only the check that did not pass headless used Studio
+    assert {r["id"] for r in sc.load_results(store.dir)} == {"passes", "bad-check", "real-bug"}
+
+
 def test_as_anomalies_severity_from_covers_without_review():
     res = [{"id": "a", "title": "A", "covers": "acceptance: x", "ok": False, "detail": "d", "verdict": "game_bug"},
            {"id": "b", "title": "B", "covers": "edge: y", "ok": False, "detail": "d", "verdict": "game_bug"},

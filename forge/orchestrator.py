@@ -7,17 +7,22 @@
                  fix without a file  -> forge feature <slug> "Fix this bug: ..." -n 0 --no-studio
               verify  (after all builds)  : luau-compile every game file (no LLM, no Studio)
               playtest (after verify)     : forge run <slug> -n 1   (Studio: playtest, critic, fixer, screenshot)
-              fix cycle (after playtest)  : forge fix <slug> --cycles 1 (Studio: AI testers, auditor, repro, verify)
-              checks (after playtest)     : forge checks <slug> --plan --run (Studio, no game writes)
+              checks offline (after playtest): plan checks if none, run them headless (checks.triage, ~20 ms)
+              checks (deps: offline)      : forge checks <slug> --run --headless-first (Studio, only if some
+                                            check failed headless or needs Studio; otherwise marked done)
+              fix cycle (after checks)    : forge fix <slug> --cycles 1 (Studio: AI testers, auditor, repro, verify)
               re-score: forge done + latest critic score + the next gap list
     until `forge done` is green and the critic score >= 8, or --max-calls / --minutes / --rounds run out.
 
 Workers (threads) claim jobs from forge.broker.JobQueue and lease what they need from forge.broker.Broker:
-"llm" (Mubit concurrency pool), "game" (one writer per game folder), "studio" (a place window, also
-holding a machine-wide slot of scripts/studio-slot.sh) and "sync" (a sync port). A job whose leases are
-busy waits in the queue; LLM-only jobs keep flowing meanwhile. Jobs run as `forge` subprocesses logged
-like MCP jobs (runs/jobs/<id>.{json,log}), so `forge dashboard` shows each one live; the orchestrator also
-writes runs/<slug>/orchestrator/{status.json,timings.json,rounds.json} and runs/orchestrate-<slug>.log.
+"llm" (Mubit pool: forge processes doing LLM work; each runs FORGE_JOBS concurrent calls, forge/llm.py),
+"game" (GAME_SLOTS shared slots per game folder: fixes to *different* files run in parallel, each also
+holding "lock:<file>"; whole-game writers take "game:all"), "studio" (a place window, also holding a
+machine-wide slot of scripts/studio-slot.sh) and "sync" (a sync port). A job whose leases are busy waits in
+the queue, and lower-priority jobs never take a pool a higher-priority job is waiting for. Jobs run as
+`forge` subprocesses logged like MCP jobs (runs/jobs/<id>.{json,log}), so `forge dashboard` shows each one
+live; the orchestrator's own timeline is a forge.timings.Timeline (runs/<slug>/orchestrator/timings.json:
+one stage per round, one call per job, lanes per role), next to status.json and rounds.json.
 """
 
 from __future__ import annotations
@@ -39,26 +44,40 @@ from forge import gaps as gapmod
 from forge.broker import Broker, JobQueue, StudioSlots, file_lock, studio_window_running
 from forge.config import Settings
 from forge.memory import RunStore
+from forge.timings import Timeline
 
 EXIT_MARK = "__exit "
 CRITIC_BAR = 8.0
 SYNC_PORTS = [str(p) for p in range(34901, 34909)]  # never the default 34873 other agents use
 LLM_SLOTS = int(os.environ.get("FORGE_LLM_SLOTS") or 6)
+GAME_SLOTS = int(os.environ.get("FORGE_GAME_SLOTS") or 4)  # parallel single-file fixes per game
 HEARTBEAT_S = 10.0
 POLL_S = 1.0
 
-# kind -> (pools it leases, dashboard role)
+# kind -> (pools it leases, dashboard role). "game:all" = exclusive writer of the whole game folder.
 KINDS: dict[str, tuple[list[str], str]] = {
     "gaps": (["llm"], "gap_finder"),
-    "fix": (["llm", "game"], "fixer"),
-    "feature": (["studio", "sync", "llm", "game"], "coder"),
-    "visual": (["studio", "sync", "llm", "game"], "coder"),
+    "fix": (["llm", "game"], "fixer"),   # + lock:<file> (job_needs); without a file it is a feature
+    "feature": (["studio", "sync", "llm", "game:all"], "coder"),
+    "visual": (["studio", "sync", "llm", "game:all"], "coder"),
     "verify": ([], "verifier"),
-    "playtest": (["studio", "sync", "llm", "game"], "critic"),
-    "fix_cycle": (["studio", "sync", "llm", "game"], "auditor"),
+    "playtest": (["studio", "sync", "llm", "game:all"], "critic"),
+    "checks_offline": (["llm"], "tester"),
     "checks": (["studio", "sync", "llm"], "tester"),
+    "fix_cycle": (["studio", "sync", "llm", "game:all"], "auditor"),
 }
 STUDIO_KINDS = ("playtest", "fix_cycle", "checks")
+
+
+def job_needs(kind: str, args: dict, game_dir: Path, *, use_studio: bool) -> list[str]:
+    """Pools a job leases. A fix of one named file shares the game with other single-file fixes (each holds
+    that file's lock); anything else that writes the game holds all of it. No Studio: no studio/sync."""
+    needs = list(KINDS[kind][0])
+    if kind == "fix":  # a named file: share the game, lock the file; no file: a compile-only feature build
+        needs = needs + [f"lock:{game_dir}/{args['path']}"] if args.get("path") else ["llm", "game:all"]
+    if not use_studio:
+        needs = [n for n in needs if n not in ("studio", "sync")]
+    return needs
 
 
 def now_iso() -> str:
@@ -124,7 +143,7 @@ def job_argv(job: dict, slug: str, *, use_studio: bool) -> list[str] | None:
     if kind == "fix_cycle":
         return ["fix", slug, "--cycles", "1", "--rounds", "1", "--max-fixes", str(a.get("max_fixes", 3))]
     if kind == "checks":
-        return ["checks", slug, "--plan", "--run", "--max", str(a.get("max", 10))]
+        return ["checks", slug, "--run", "--headless-first"]
     return None
 
 
@@ -161,8 +180,10 @@ class CliRunner:
         log = jobs_dir / f"{jid}.log"
         cmd = shlex.join(_forge_argv(args))
         shell = f'{cmd} > {shlex.quote(str(log))} 2>&1; echo "{EXIT_MARK}$?" >> {shlex.quote(str(log))}'
+        from forge.llm import jobs_from_env  # concurrent LLM calls inside each forge process (#120)
         proc = subprocess.Popen(["/bin/sh", "-c", shell], cwd=self.settings.repo_root,
-                                env={**os.environ, "PYTHONUNBUFFERED": "1", **env}, start_new_session=True,
+                                env={**os.environ, "PYTHONUNBUFFERED": "1", "FORGE_JOBS": str(jobs_from_env()),
+                                     **env}, start_new_session=True,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         meta = {"id": jid, "kind": f"orchestrate:{job['kind']}", "args": args, "pid": proc.pid, "log": str(log),
                 "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "orchestrator_job": job["id"]}
@@ -308,7 +329,8 @@ class Orchestrator:
         self.clock = clock
         self.queue = queue or JobQueue(self.dir)
         self.slots = slots or StudioSlots()
-        pools = {"llm": [f"llm-{i}" for i in range(1, LLM_SLOTS + 1)], "game": [f"game:{self.store.dir}"],
+        pools = {"llm": [f"llm-{i}" for i in range(1, LLM_SLOTS + 1)],
+                 "game": [f"game:{self.store.dir}#{i}" for i in range(1, GAME_SLOTS + 1)],
                  "sync": SYNC_PORTS, "studio": list(opts.studios) if opts.use_studio else []}
         self.broker = broker or Broker(pools=pools, studio_slots=self.slots)
         self.runner = runner or CliRunner(settings, slug, opts.use_studio)
@@ -320,9 +342,8 @@ class Orchestrator:
         self.stop_reason: str | None = None
         self._stop = threading.Event()
         self._tlock = threading.Lock()
-        self.lanes: dict[str, dict] = {}
-        self.events: list[dict] = []
-        self.stages: list[dict] = []
+        # the dashboard-format timeline (forge/timings.py): one stage per round, one call per job
+        self.timeline = Timeline(f"forge orchestrate {slug}", self.dir / "timings.json", jobs=opts.workers)
         self.rounds: list[dict] = _read(self.dir / "rounds.json", []) or []
         self.gap_tries: dict[str, int] = {}
         for j in self.queue.jobs():
@@ -358,7 +379,8 @@ class Orchestrator:
         with self._tlock:
             jobs = self.queue.jobs()
             status = {"slug": self.slug, "goal": self.opts.goal, "state": state, "pid": os.getpid(),
-                      "updated": now_iso(), "started": datetime.fromtimestamp(self.started, timezone.utc).isoformat(timespec="seconds"),
+                      "updated": now_iso(),
+                      "started": datetime.fromtimestamp(self.started, timezone.utc).isoformat(timespec="seconds"),
                       "budget": self.budget(), "round": len(self.rounds) + (1 if state == "running" else 0),
                       "stop_reason": self.stop_reason, "queue": self.queue.summary(),
                       "leases": self.broker.status(),
@@ -369,20 +391,11 @@ class Orchestrator:
             tmp = self.dir / "status.json.tmp"
             tmp.write_text(json.dumps(status, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
             tmp.replace(self.dir / "status.json")
-            timings = {"lanes": list(self.lanes.values()), "calls": self.events[-200:], "stages": self.stages}
-            tmp = self.dir / "timings.json.tmp"
-            tmp.write_text(json.dumps(timings, indent=1, default=str), encoding="utf-8")
-            tmp.replace(self.dir / "timings.json")
+        self.timeline.save()
 
-    def _lane(self, worker: str, job: dict | None, status: str, thought: str = "") -> None:
-        with self._tlock:
-            ln = self.lanes.setdefault(worker, {"id": f"orch-{worker}", "label": f"orchestrator {worker}",
-                                                "role": "agent", "calls": 0})
-            if job:
-                ln.update(role=KINDS.get(job["kind"], ([], job["kind"]))[1], step=f"{job['kind']}: {job['title']}"[:140],
-                          start=self.clock(), end=None, status="running")
-            else:
-                ln.update(status=status, end=self.clock(), thought=thought[:160])
+    @staticmethod
+    def role(job: dict) -> str:
+        return KINDS.get(job["kind"], ([], job["kind"]))[1]
 
     # -- workers
 
@@ -399,11 +412,10 @@ class Orchestrator:
             self._run_job(name, job, leases)
 
     def _run_job(self, worker: str, job: dict, leases: list[dict]) -> None:
-        start = self.clock()
-        self._lane(worker, job, "running")
-        self.log(f"[{KINDS.get(job['kind'], ([], 'agent'))[1]}] {worker} start {job['id']} ({job['title'][:80]})"
-                 + (f" leases {', '.join(ls['pool'] + '=' + ls['slot'] for ls in leases if ls['pool'] != 'game')}"
-                    if leases else ""))
+        call = self.timeline.start_call(self.role(job), f"{job['kind']}: {job['title']}"[:140])
+        shown = [f"{ls['pool']}={ls['slot']}" for ls in leases if ls["pool"] in ("studio", "sync", "llm")]
+        self.log(f"[{self.role(job)}] {worker} start {job['id']} ({job['title'][:80]})"
+                 + (f" leases {', '.join(shown)}" if shown else ""))
         env: dict[str, str] = {}
         for ls in leases:
             if ls["pool"] == "sync":
@@ -412,8 +424,8 @@ class Orchestrator:
                 sid = self.keeper.prepare(ls["slot"])
                 env["FORGE_STUDIO"] = sid or ls["slot"]
                 if not sid:
-                    out = JobRun(False, None, f"Studio {ls['slot']} not connected", retry=True)
-                    self._done(worker, job, out, start)
+                    self._done(worker, job, JobRun(False, None, f"Studio {ls['slot']} not connected", retry=True),
+                               call)
                     return
 
         def beat() -> None:
@@ -426,29 +438,25 @@ class Orchestrator:
                 out = self._do_gaps(job)
             elif job["kind"] == "verify":
                 out = self._do_verify(job)
+            elif job["kind"] == "checks_offline":
+                out = self._do_checks_offline(job)
             else:
                 out = self.runner(job, env, lambda: self._stop.is_set() or bool(self.stop_reason), beat)
         except Exception as e:  # noqa: BLE001
             out = JobRun(False, None, f"{type(e).__name__}: {e}"[:300])
-        self._done(worker, job, out, start)
+        self._done(worker, job, out, call)
 
-    def _done(self, worker: str, job: dict, out: JobRun, start: float) -> None:
+    def _done(self, worker: str, job: dict, out: JobRun, call: dict) -> None:
+        also = (out.result or {}).pop("also_done", None) if isinstance(out.result, dict) else None
         if out.ok:
-            self.queue.finish(job["id"], True, out.result, broker=self.broker)
+            self.queue.finish(job["id"], True, out.result, broker=self.broker, also_done=also)
         elif out.retry and not self.stop_reason:
             self.queue.retry_or_fail(job["id"], out.error or "failed", broker=self.broker)
         else:
             self.queue.finish(job["id"], False, out.result, out.error, broker=self.broker)
-        end = self.clock()
+        self.timeline.end_call(call, ok=out.ok, error=out.error)
         verdict = "done" if out.ok else ("failed" if not out.retry else "retry")
-        self._lane(worker, None, verdict, out.error or "")
-        with self._tlock:
-            self.lanes[worker]["calls"] = self.lanes[worker].get("calls", 0) + 1
-            self.events.append({"role": KINDS.get(job["kind"], ([], job["kind"]))[1], "lane": f"orch-{worker}",
-                                "lane_label": f"orchestrator {worker}", "start": start, "end": end,
-                                "latency_ms": int((end - start) * 1000), "step": f"{job['kind']}: {job['title']}"[:140],
-                                "thought": (out.error or "ok")[:160], **({"error": out.error} if not out.ok else {})})
-        self.log(f"[{KINDS.get(job['kind'], ([], 'agent'))[1]}] {worker} {verdict} {job['id']} in {end - start:.0f}s"
+        self.log(f"[{self.role(job)}] {worker} {verdict} {job['id']} in {call.get('secs') or 0:.0f}s"
                  + (f": {out.error}" if out.error else ""))
         self.write_status("running")
 
@@ -458,13 +466,17 @@ class Orchestrator:
         return [f"{j['kind']}: {j['title']}" for j in self.queue.jobs()
                 if j["status"] == "done" and j["kind"] in ("fix", "feature", "visual")]
 
-    def _do_gaps(self, job: dict) -> JobRun:
+    def _llm(self) -> Any:
         if self.llm is None:
             from forge.llm import make_llm
             self.llm = make_llm(self.s, log_path=self.dir / "calls.jsonl")
+        return self.llm
+
+    def _do_gaps(self, job: dict) -> JobRun:
         prev = gapmod.latest(self.s, self.slug)
-        rec = gapmod.find_gaps(self.s, self.slug, llm=self.llm, goal=self.opts.goal, done_jobs=self._done_titles(),
-                               previous=(prev or {}).get("gaps"), round=job.get("round"))
+        rec = gapmod.find_gaps(self.s, self.slug, llm=self._llm(), goal=self.opts.goal,
+                               done_jobs=self._done_titles(), previous=(prev or {}).get("gaps"),
+                               round=job.get("round"))
         self.log(gapmod.render(rec, limit=8))
         return JobRun(True, {"gaps_file": rec["n"], "score": rec.get("score"), "n": len(rec["gaps"])})
 
@@ -475,6 +487,27 @@ class Orchestrator:
             return JobRun(False, {"errors": [list(e) for e in errors[:10]]},
                           f"{len(errors)} files fail luau-compile: {errors[0][0]}")
         return JobRun(True, {"compile": "ok"})
+
+    def _do_checks_offline(self, job: dict) -> JobRun:
+        """Plan checks if there are none (scenarist), then run them headless (checks.triage, no Studio).
+        If every check passes headless, the round's Studio checks job is marked done without a lease."""
+        from forge import checks as chk
+        if not chk.load_checks(self.store.dir):
+            from forge.scenarios import plan_checks
+            plan_checks(self.s, self.slug, llm=self._llm(), max_checks=int((job.get("args") or {}).get("max", 10)),
+                        log=self.log)
+        checks = chk.load_checks(self.store.dir)
+        passed, rest = chk.triage(self.store.game_dir, checks)
+        result: dict = {"checks": len(checks), "headless_passed": len(passed), "need_studio": [c.id for c in rest]}
+        studio_job = (job.get("args") or {}).get("studio_job")
+        if not rest and checks:
+            from forge.scenarios import save_results
+            save_results(self.store.dir, [{**r, "verdict": "pass", "source": "headless"} for r in passed])
+            if studio_job:
+                result["also_done"] = {studio_job: {"skipped": f"all {len(checks)} checks passed headless"}}
+        self.log(f"[tester] checks headless: {len(passed)}/{len(checks)} pass; "
+                 f"{len(rest)} need Studio" + ("" if rest else " (Studio checks job skipped)"))
+        return JobRun(True, result)
 
     # -- planning a round
 
@@ -488,6 +521,9 @@ class Orchestrator:
                 break
         return picked
 
+    def _needs(self, kind: str, args: dict | None = None) -> list[str]:
+        return job_needs(kind, args or {}, self.store.game_dir, use_studio=self.opts.use_studio)
+
     def enqueue_round(self, r: int, gaps: list[dict]) -> list[dict]:
         builds = []
         for g in self.accept(gaps):
@@ -495,7 +531,7 @@ class Orchestrator:
             kind = job["kind"] if job["kind"] in ("fix", "feature", "visual") else "feature"
             args = {"request": job["request"], **({"path": job["path"]} if job.get("path") else {})}
             builds.append(self.queue.add(kind, g["title"], priority=g["rank"], args=args,
-                                         needs=KINDS[kind][0], gap=g["id"], round=r))
+                                         needs=self._needs(kind, args), gap=g["id"], round=r))
             self.gap_tries[g["id"]] = self.gap_tries.get(g["id"], 0) + 1
         ids = [b["id"] for b in builds]
         verify = self.queue.add("verify", f"round {r}: compile every file", priority=1, needs=[], round=r, after=ids)
@@ -503,17 +539,17 @@ class Orchestrator:
                               needs=self._needs("playtest"), deps=[verify["id"]], round=r)
         jobs = builds + [verify, play]
         if self.opts.use_studio and self.opts.checks:
-            jobs.append(self.queue.add("checks", f"round {r}: plan + run executable checks", priority=0.9,
-                                       needs=self._needs("checks"), round=r, after=[play["id"]]))
+            offline = self.queue.add("checks_offline", f"round {r}: checks headless first", priority=0.95,
+                                     needs=self._needs("checks_offline"), round=r, after=[play["id"]])
+            studio = self.queue.add("checks", f"round {r}: checks that need Studio", priority=0.9,
+                                    needs=self._needs("checks"), round=r, deps=[offline["id"]])
+            self.queue.update_args(offline["id"], studio_job=studio["id"])
+            jobs += [offline, studio]
         if self.opts.use_studio and self.opts.fix_cycle:
             jobs.append(self.queue.add("fix_cycle", f"round {r}: AI testers + auditor + reproduce-first fixes",
                                        priority=0.8, needs=self._needs("fix_cycle"), round=r,
                                        after=[jobs[-1]["id"]]))
         return jobs
-
-    def _needs(self, kind: str) -> list[str]:
-        needs = KINDS[kind][0]
-        return needs if self.opts.use_studio else [n for n in needs if n not in ("studio", "sync")]
 
     # -- main loop
 
@@ -557,6 +593,38 @@ class Orchestrator:
         j = self.queue.get(job_id)
         return j is None or j["status"] in ("done", "failed", "skipped", "cancelled")
 
+    def _round(self, r: int) -> bool:
+        """One round. Returns False when the loop should stop (stop_reason says why)."""
+        t0 = self.clock()
+        gj = self.queue.add("gaps", f"round {r}: find gaps (Mubit gap_finder)", priority=100,
+                            needs=self._needs("gaps"), round=r)
+        self._wait(lambda: self._job_done(gj["id"]))
+        gj = self.queue.get(gj["id"]) or gj
+        if gj["status"] != "done":
+            self.stop_reason = self.stop_reason or f"gap finder failed: {gj.get('error')}"
+            return False
+        rec = gapmod.latest(self.s, self.slug) or {"gaps": []}
+        if not self.accept(rec["gaps"]):
+            self.stop_reason = "no gaps above the bar"
+            return False
+        jobs = self.enqueue_round(r, rec["gaps"])
+        self.log(f"[orchestrator] round {r}: {len(jobs)} jobs queued from {len(rec['gaps'])} gaps")
+        self._wait(self.queue.idle)
+        after = score(self.s, self.slug)
+        self.rounds.append({"round": r, "gaps_file": rec.get("n"), "gap_score": rec.get("score"),
+                            "gaps": [{k: g.get(k) for k in ("id", "title", "impact", "rank", "kind")}
+                                     for g in rec["gaps"]],
+                            "jobs": [{k: j.get(k) for k in ("id", "kind", "title", "status", "error")}
+                                     for j in self.queue.jobs() if j.get("round") == r],
+                            "score": after, "budget": self.budget(), "secs": round(self.clock() - t0, 1)})
+        (self.dir / "rounds.json").write_text(json.dumps(self.rounds, indent=1, default=str), encoding="utf-8")
+        self.log(f"[orchestrator] round {r} done: critic {after['critic']}, ready {after['ready']}, "
+                 f"{self.calls_used()} calls used")
+        if after["target_met"]:
+            self.stop_reason = "target met: forge done is green and critic >= 8"
+            return False
+        return True
+
     def run(self) -> dict:
         self.log(f"[orchestrator] {self.slug}: goal \"{self.opts.goal}\"; {self.opts.workers} workers, "
                  f"studios {self.opts.studios or 'none'}, budget {self.opts.max_calls} calls / {self.opts.minutes} min")
@@ -570,47 +638,18 @@ class Orchestrator:
                    for i in range(max(1, self.opts.workers))]
         for t in threads:
             t.start()
-        # finish whatever a previous (crashed) run left in the queue first
-        self._wait(self.queue.idle)
+        final = before
         try:
+            with self.timeline.stage("resume"):  # finish whatever a previous (crashed) run left queued
+                self._wait(self.queue.idle)
             start_r = len(self.rounds) + 1
             for r in range(start_r, start_r + self.opts.rounds):
                 if self.stop_reason or self.check_budget():
                     self.stop_reason = self.stop_reason or self.check_budget()
                     break
-                t0 = self.clock()
-                stage = {"name": f"round {r}", "start": t0, "end": None}
-                self.stages.append(stage)
-                gj = self.queue.add("gaps", f"round {r}: find gaps (Mubit gap_finder)", priority=100,
-                                    needs=KINDS["gaps"][0], round=r)
-                self._wait(lambda: self._job_done(gj["id"]))
-                gj = self.queue.get(gj["id"]) or gj
-                if gj["status"] != "done":
-                    self.log(f"[orchestrator] gap finder failed: {gj.get('error')}")
-                    stage["end"] = self.clock()
-                    break
-                rec = gapmod.latest(self.s, self.slug) or {"gaps": []}
-                if not self.accept(rec["gaps"]):
-                    self.stop_reason = "no gaps above the bar"
-                    stage["end"] = self.clock()
-                    break
-                jobs = self.enqueue_round(r, rec["gaps"])
-                self.log(f"[orchestrator] round {r}: {len(jobs)} jobs queued from {len(rec['gaps'])} gaps")
-                self._wait(self.queue.idle)
-                after = score(self.s, self.slug)
-                row = {"round": r, "gaps_file": rec.get("n"), "gap_score": rec.get("score"),
-                       "gaps": [{k: g.get(k) for k in ("id", "title", "impact", "rank", "kind")} for g in rec["gaps"]],
-                       "jobs": [{k: j.get(k) for k in ("id", "kind", "title", "status", "error")}
-                                for j in self.queue.jobs() if j.get("round") == r],
-                       "score": after, "budget": self.budget(), "secs": round(self.clock() - t0, 1)}
-                self.rounds.append(row)
-                (self.dir / "rounds.json").write_text(json.dumps(self.rounds, indent=1, default=str), encoding="utf-8")
-                stage["end"] = self.clock()
-                self.log(f"[orchestrator] round {r} done: critic {after['critic']}, ready {after['ready']}, "
-                         f"{self.calls_used()} calls used")
-                if after["target_met"]:
-                    self.stop_reason = "target met: forge done is green and critic >= 8"
-                    break
+                with self.timeline.stage(f"round {r}"):
+                    if not self._round(r):
+                        break
             else:
                 self.stop_reason = self.stop_reason or f"ran {self.opts.rounds} round(s)"
         finally:
@@ -622,6 +661,7 @@ class Orchestrator:
                     self.keeper.release(place)
             final = score(self.s, self.slug)
             self.write_status("finished", before=before, after=final)
+            self.timeline.finish()
             self.log(f"[orchestrator] finished: {self.stop_reason}; critic {before['critic']} -> {final['critic']}, "
                      f"ready {before['ready']} -> {final['ready']}, {self.calls_used()} Mubit calls")
         return {"before": before, "after": final, "rounds": self.rounds, "stop_reason": self.stop_reason,

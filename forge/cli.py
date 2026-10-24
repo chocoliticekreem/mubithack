@@ -579,9 +579,21 @@ async def _checks(args) -> None:
     if args.plan:
         plan_checks(s, args.slug, llm=llm, max_checks=args.max)
     if args.run:
+        only, prior = None, None
+        if getattr(args, "headless_first", False):
+            from forge import checks as chk
+            store = RunStore(s, args.slug)
+            passed, rest = chk.triage(store.game_dir, chk.load_checks(store.dir))
+            prior = [{**r, "verdict": "pass", "source": "headless"} for r in passed]
+            only = {c.id for c in rest}
+            print(f"[check] headless: {len(passed)} pass, {len(rest)} need Studio")
+            if not rest:
+                from forge.scenarios import save_results
+                save_results(store.dir, prior)
+                return
         async with Studio(s) as studio:
             await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
-            await run_plan(studio, args.slug, settings=s, llm=llm)
+            await run_plan(studio, args.slug, settings=s, llm=llm, only=only, prior=prior)
 
 
 def cmd_checks(args) -> int:
@@ -873,6 +885,8 @@ def build_parser() -> argparse.ArgumentParser:
     ck.add_argument("--run", action="store_true", help="play, run every check, review failures, stop play")
     ck.add_argument("--max", type=int, default=15, help="most checks to plan")
     ck.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+    ck.add_argument("--headless-first", action="store_true",
+                    help="with --run: run checks headless first (checks.triage); only the rest go to Studio")
 
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
