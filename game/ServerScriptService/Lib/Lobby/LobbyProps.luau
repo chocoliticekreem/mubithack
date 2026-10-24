@@ -260,7 +260,13 @@ local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: nu
 	-- sized in studs (it is a sign over the pad, not a HUD element) and kept small + high so standing
 	-- on the pad doesn't fill your screen; readable across the apron, gone from the far side of the bay
 	bb.Size = UDim2.new(6, 0, 3.75, 0)
-	bb.StudsOffsetWorldSpace = Vector3.new(0, 8.5, 0)
+	-- hung on an attachment 8.5 studs straight up: the pad is a cylinder lying on its side, and an
+	-- offset on the part itself left the sign at floor level on the pad's edge
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "PadBillboardAnchor"
+	anchor.Parent = pad
+	anchor.WorldCFrame = CFrame.new(pad.Position + Vector3.new(0, 8.5, 0))
+	bb.Adornee = anchor
 	bb.MaxDistance = 90
 	bb.LightInfluence = 0
 	bb.Parent = pad
