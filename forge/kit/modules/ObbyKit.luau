@@ -2393,6 +2393,15 @@ function ObbyKit.spend(player: Player, amount: number): boolean
 	return true
 end
 
+-- A coin anywhere in the world (a lobby trail, a secret ledge): the course's own spinning coin, paid into the
+-- ledger on touch and back after opts.coinRespawn seconds.
+function ObbyKit.placeCoin(parent: Instance, position: Vector3, value: number?): Part
+	ensureRuntime()
+	local c = coin(parent, position, CFrame.new())
+	c:SetAttribute("Value", math.max(1, trunc(num(value, 1))))
+	return c
+end
+
 function ObbyKit.addCoins(player: Player, amount: number)
 	local d = data[player]
 	amount = trunc(num(amount, 0))

@@ -67,6 +67,50 @@ local function onlyParkSpawn()
 	end
 end
 
+-- The first minute: a trail of coins from the spawn, in through the gate, to the changing room, so a new player
+-- can buy a first costume before the course starts.
+local function coinTrail(Obby: any, park: any, roomCf: CFrame)
+	local folder = Instance.new("Folder")
+	folder.Name = "LobbyCoins"
+	folder.Parent = workspace
+	local start = park.spawn.Position
+	local gate = start + park.spawn.LookVector * 52
+	local room = roomCf.Position
+	local toRoom = (room - gate) * Vector3.new(1, 0, 1)
+	local stop = gate + toRoom.Unit * math.max(0, toRoom.Magnitude - 18) -- short of the room's stands
+	local points = {}
+	for k, seg in { { start + park.spawn.LookVector * 8, gate }, { gate, stop } } do
+		local a, b = seg[1], seg[2]
+		local steps = math.max(1, math.floor((b - a).Magnitude / 8))
+		for i = (if k == 1 then 0 else 1), steps do -- the gate point once
+			table.insert(points, a:Lerp(b, i / steps))
+		end
+	end
+	for _, at in points do
+		Obby.placeCoin(folder, Vector3.new(at.X, start.Y + 3, at.Z), 1)
+	end
+	return #points
+end
+
+-- RESET (the HUD button): back to the player's checkpoint, for a player stuck on a mover or off the course.
+local function resetRemote(Obby: any)
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = "ParkReset"
+	remote.Parent = ReplicatedStorage
+	local last: { [Player]: number } = {}
+	remote.OnServerEvent:Connect(function(player)
+		if (last[player] or 0) > os.clock() - 2 then
+			return
+		end
+		last[player] = os.clock()
+		telemetry("reset_used", 1)
+		Obby.respawn(player)
+	end)
+	Players.PlayerRemoving:Connect(function(p)
+		last[p] = nil
+	end)
+end
+
 local function fireworks(at: Vector3, colors: { Color3 })
 	for i = 1, 14 do
 		task.delay(i * 0.12, function()
@@ -135,10 +179,10 @@ function ParkObby.startServer(config: { [string]: any }?)
 		balance = Obby.coins, -- one ledger: a purchase spends the coins the course pays out
 		spend = Obby.spend,
 	})
-	Cos.buildChangingRoom({
-		cframe = (park.lots and park.lots.changingRoom) or park.lobby * CFrame.new(-34, 0, 6),
-		title = "👕 CHANGING ROOM",
-	})
+	local roomCf = (park.lots and park.lots.changingRoom) or park.lobby * CFrame.new(-34, 0, 6)
+	Cos.buildChangingRoom({ cframe = roomCf, title = "👕 CHANGING ROOM" })
+	coinTrail(Obby, park, roomCf)
+	resetRemote(Obby)
 
 	local colors = {}
 	for _, z in zones do
@@ -256,6 +300,26 @@ local function buildHud(cfg: { [string]: any })
 
 	local banner = chunky(gui, "", UDim2.fromOffset(700, 90), UDim2.new(0.5, -350, 0.28, 0))
 	banner.Visible = false
+
+	local reset = Instance.new("TextButton")
+	reset.Name = "Reset"
+	reset.AnchorPoint = Vector2.new(0.5, 0.5)
+	reset.Position = UDim2.new(0, 100, 0.5, 110) -- under the COSTUMES button
+	reset.Size = UDim2.fromOffset(170, 48)
+	reset.BackgroundColor3 = Color3.fromRGB(255, 79, 109)
+	reset.Text = ""
+	reset.AutoButtonColor = true
+	reset.Parent = gui
+	corner(reset, 14)
+	stroke(reset, 3)
+	chunky(reset, "↩ RESET", UDim2.new(1, -16, 1, -10), UDim2.fromOffset(8, 5))
+	local remote = ReplicatedStorage:WaitForChild("ParkReset", 10)
+	reset.Activated:Connect(function()
+		if remote then
+			pop(reset)
+			remote:FireServer()
+		end
+	end)
 
 	local zoneColors: { [string]: Color3 } = {}
 	for _, z in cfg.Zones or {} do

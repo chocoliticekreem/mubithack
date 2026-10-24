@@ -207,7 +207,8 @@ forge/                 Python package (uv), entry point `forge`
                        it: a pad over the course or on a WorldKit tower gets none) stands on a non-colliding Support column
                        and Footing (workspace.Obby.Supports); start pads are dressed like their zone's checkpoints;
                        ObbyKit.coins(player), spend(player, n) -> bool, addCoins(player, n): the course's coin ledger (a
-                       shop spends through it, so the next pickup never refunds a purchase); tags Checkpoint, ObbyStart,
+                       shop spends through it, so the next pickup never refunds a purchase); placeCoin(parent, position,
+                       value?) -> Part: the course's coin anywhere in the world; tags Checkpoint, ObbyStart,
                        ObbyZoneStart, RideGate, RideGatePad,
                        RideEntrance, RideEntrancePad, ObbyStage, KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline,
                        Conveyor
@@ -217,9 +218,11 @@ forge/                 Python package (uv), entry point `forge`
                        the rides on each client; see "Kit modules" below
   kit/modules/ParkObby.luau  the park obby template: ParkObby.startServer(Config) builds the park (WorldKit), the course in
                        it (ObbyKit v2 with anchors, gates, spawn = the lobby, ObbyThemes), the changing room on
-                       lots.changingRoom with Cosmetics spending ObbyKit's ledger, and the finish reward; startClient(Config)
+                       lots.changingRoom with Cosmetics spending ObbyKit's ledger, a coin trail from the spawn through the
+                       gate to the changing room, the ParkReset remote (back to the checkpoint), and the finish reward;
+                       startClient(Config)
                        starts WorldKit.client, MusicPlayer (area = Config.Zones[player Zone].name, lobby before stage 1),
-                       CosmeticsClient and the HUD. Every kit is required: a missing one stops the boot with its name, as
+                       CosmeticsClient and the HUD (zone, stage n / total, coins, RESET). Every kit is required: a missing one stops the boot with its name, as
                        does a Config.Zones count that differs from the level zones
   template.py          template games (a kit entry with "template": {files}): rendered_files(spec) / render(spec, game_dir)
                        write ParkObby's ReplicatedStorage/Config.luau (zones from spec.levels.plan in order, each zone's
