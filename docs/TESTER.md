@@ -54,6 +54,9 @@ Commands (args are a JSON object):
 | `events` | `{since?: number}` | `{now, events: [{t, kind, data}]}` from a ring buffer (500), see below |
 | `reset` | `{location?}` | `MapService:RebuildLocation` or all, plus clearing the event log |
 | `round` | `{state?}` | read or force `Workspace.RoundState` via MissionService if present |
+| `bot_spawn` | `{names: [..] \| n, colors?: [[r,g,b]], near?: pos \| player, radius?=10}` | swarm bot testers: server-driven R15 NPCs in `Workspace.ForgeTestBots`, in a ring around `near`; returns their `players` info (`bot: true`, UserIds -1001, -1002, ...) |
+| `bots` / `bot_clear` | `{}` | list the bots / destroy them all |
+| `multi` | `{calls: [{cmd, args}], timeout?=90}` | run several commands concurrently (one thread each) in ONE call; returns `[{ok, result?, error?}]` in order |
 
 Client `act` actions (run on that player's client by the agent):
 `walk_to {pos | path, timeout?}` (PathfindingService, falling back to MoveTo; returns arrival
@@ -109,10 +112,31 @@ async def explore(settings, minutes: float = 3, players=None, *, llm=None, studi
 # mubit_tester/surfaces.py   (no LLM)
 def derive_surfaces(spec, game_dir, observations, limit=5) -> list[dict]   # [{name, gui, actions, source}]
 def coverage(surfaces, presses) -> dict   # {surfaces: [{name, gui, assigned, presses, fired, changed, actions_pressed}], pressed, total, gaps}
+# mubit_tester/swarm.py
+async def run_swarm(settings, players: int = 10, minutes: float = 3, *, personas=None, pool=6, max_steps=40,
+                    llm=None, studio=None, harness=None, studio_name=None, screenshots=True, shot_every=5,
+                    triage=True, stop_play=True, keep_bots=False, slug=None, lanes=True, goal=None,
+                    progress=None) -> dict
+    # `players` persona testers at once (speedrunner, griefer, newbie, ui_clicker, economy, physics, coop,
+    # accessibility, soak, edge). Connected real players take the screen personas first (ui_clicker,
+    # accessibility, economy, ...); the rest are bot testers (bot_spawn). Each tester loops observe -> one
+    # `swarm_tester` call (Mubit, bounded by `pool`) -> act until the deadline. Screenshots: Studio's capture
+    # camera aimed at that tester's character (serialized). Bugs: clustered, merged by one `swarm_triage`
+    # call, ranked by severity (high 3, medium 2, low 1) x frequency (distinct testers).
+    # Report: runs/playtests/<run_id>/report.json (kind "swarm"); dashboard lanes: one per tester in
+    # runs/<slug>/tests/<run_id>-NN-<persona>/{report.json, step-NN.png}.
+class MuxHarness(Harness)   # calls within 40 ms share one `multi` (reads in one lane, acts per action name)
 async def suggest_fix(settings, run_id: str, bug_index: int, *, llm=None) -> dict   # critic+fixer roles → {path, problem, patch_preview}
 ```
 
 New fixed prompts (Mubit tasks): `forge/prompts/explorer.md`. `player` and `judge` are reused.
+Swarm: `mubit-tester/prompts/swarm_tester.md` (persona in the user message) and `swarm_triage.md`.
+
+Bot testers are bodies, not Players: the game's touch/physics/collision code sees them, but Player-keyed
+features (leaderstats, ownership, GUIs, ProximityPrompts, tools) don't, and their prompt says so. `act` for
+a bot runs on the server: `walk_to` (PathfindingService, else MoveTo), `go_touch`/`chase` (walk onto the
+part), `jump`, `look_at`, `say`; `interact`/`go_use`/tools answer `done: false`. A bot that dies or falls
+out of the world respawns at its spawn after 3 s (`player_died` with `bot: true`).
 
 ## UI coverage (every UI feature gets a press)
 
@@ -211,7 +235,8 @@ World: `players`, `observe(player)`, `query` (table), `inspect`, `counters`, `ev
 Control: `act(player, action, args)`, `act_all(action, args)`, `teleport`, `ignite`, `extinguish`,
 `set_attr`, `config`, `reset`, `round`.
 Testing: `scenario_run(json | name)`, `scenario_list`.
-AI (Mubit): `playtest(goal, players?, steps?, roles?)`, `explore(minutes)`, `playtest_correct(run_id,
+AI (Mubit): `playtest(goal, players?, steps?, roles?)`, `explore(minutes)`, `swarm(players?=10, minutes?=3,
+pool?=6, personas?, steps?)` (also `forge test swarm --players 10 --minutes 3`), `playtest_correct(run_id,
 step, note, player?)`, `suggest_fix(run_id, bug)`, `report(run_id)`, `reports()`.
 Players are addressed by name, UserId or helmet number (`"1"`..`"8"`).
 
