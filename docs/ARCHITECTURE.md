@@ -475,13 +475,53 @@ def hot_reload_plan(entries, changed, sources, added=()) -> {"reload": [...], "r
 
 ### checks.py: headless runs (no Studio)
 ```python
-def boot_offline(game_dir, boot=2.0, play=3.0, players=1) -> dict   # ForgeProbe-shaped report + "misses"
-def run_check_offline(game_dir, check, timeout=30.0) -> dict         # run_check's shape + where="offline"
-def run_checks_offline(game_dir, checks, timeout=30.0, workers=8) -> list[dict]
-def triage(game_dir, checks) -> (offline_passes, checks_needing_studio)  # only passes are trusted offline
+def boot_offline(game_dir, boot=2.0, play=3.0, players=1, clients=False) -> dict
+    # ForgeProbe-shaped report + misses, needs_studio [{feature, count, script}], approx, client_errors, engine
+def verdict(res) -> "pass" | "fail" | "unknown" | "needs_studio"
+def run_check_offline(game_dir, check, timeout=90.0, *, clients=True) -> dict
+    # runs checks.wrap(body) (forge helpers included) on a fresh server + 1 simulated client; run_check's shape +
+    # where="offline", verdict, sim, needs_studio/misses hit while it ran (needs_studio => ok False, never a pass)
+def run_checks_offline(game_dir, checks, timeout=90.0, workers=8) -> list[dict]
+def triage(game_dir, checks, mode=None) -> (trusted_results, checks_for_studio)
+    # mode = headless.studio_mode(): auto trusts headless passes (fail / unknown / needs_studio -> Studio);
+    # never trusts every headless verdict (needs_studio -> unknown results, nothing for Studio); always: ([], all)
 def run_specs(spec_dir) -> list[dict]                                # *.spec.luau with the luau CLI
 # a check file may say `-- needs: studio` (physics, rendering, replication): never run offline
+# run_check (Studio or a HeadlessStudio session) counts itself in the usage ledger (headless.record)
 ```
+
+### headless.py: headless by default (no Studio unless it needs a renderer)
+```python
+STUDIO_MODES = ("auto", "always", "never")   # --studio MODE on any command (cli.take_studio_mode) -> $FORGE_STUDIO_MODE
+def studio_mode(flag=None) -> str            # flag | $FORGE_STUDIO_MODE | "auto"
+def wants_studio(*, needs_ui=False, mode=None) -> bool   # always | auto and the job must press real UI
+class NeedsStudio(StudioError)               # screenshot / real input / renderer asked of a headless session
+class HeadlessStudio(game_dir, players=1, clients=True, boot=2.0, settle=1.0, idle="wall"|float, slug, kind)
+    # duck-types studio.Studio: execute_luau(code, "Server"|"Client"|"Client:<n|name>", timeout) / call(
+    # "execute_luau"|"get_studio_state") / state / play (fresh server) / stop / wait_ready / probe_report /
+    # console / sync(root) / hot_reload / run(seconds) ; screenshot -> NeedsStudio ; list_studios -> []
+    # (the `luau -i` REPL over a pty; one H.rpc line per call; the world advances min(wall gap, 10 s) between
+    # calls with idle="wall"). Harness, checks.run_check, scenarios, fun.census, qa_test and run_swarm run on it.
+async def backend(settings, game_dir, *, needs_ui=False, studio_name=None, players=2, slug, kind)  # ctx manager:
+    # Studio when wants_studio(), else a HeadlessStudio (fix cycles: cli._improve; polish: feature.polish_feature)
+async def playtest(game_dir, *, play=20.0, players=2, clients=True, slug="", start_round=False) -> dict
+    # the build loop's playtest: probe report + fun.census (server and client halves) + engine="headless",
+    # wall, simulated, needs_studio, approx
+def record(kind, where, seconds, *, slug, n=1, ok=None, note) / usage_stats(since, slug) -> dict
+    # runs/_engine_usage.jsonl: every check / playtest / tester session / screenshot, headless or studio
+    # (`forge headless --stats`); tests never write it
+```
+The engine (game/tools/headless.luau) models: server + simulated clients in one Instance tree (threads carry
+their side: Players.LocalPlayer, RunService:IsClient, per-side require caches; a client sees nothing in
+ServerStorage/ServerScriptService and nobody sees another client's instances); remotes client <-> server a
+frame later with copied arguments (FireServer/FireClient/FireAllClients/InvokeServer/InvokeClient, per-client
+OnClientInvoke); Humanoid:MoveTo/Move at WalkSpeed (kinematic: no collisions or gravity; MoveToFinished, 8 s
+timeout); Touched/TouchEnded from character and moving-part box overlaps; ProximityPrompt shown in range
+(PromptShown/Hidden per client, OnePerButton) and InputHoldBegin/End with HoldDuration -> Triggered +
+PromptTriggered; AssemblyLinearVelocity integrated; Raycast and Get*Bounds* over part boxes (a lazily kept
+uniform grid); the clock is frames/30 exactly (task.wait(60) is 60 s; a minute of game in ~1 s). It reports
+`needs_studio` for physics movers/constraints, impulses, camera projection, UI layout (Absolute*), shape casts,
+and `approx` for what it rounds off; a check that touches needs_studio is never a headless pass.
 
 ### bridge.py (docs/STUDIO_PLUGIN.md)
 ```python
@@ -521,8 +561,15 @@ forge assets sync [--check]
 ### loop.py / memory.py / cli.py
 ```
 forge doctor                       # checks key, luau-compile, StudioMCP binary, studios connected
+forge <any command> --studio auto|always|never   # Studio policy (forge/headless.py), default auto: playtests,
+                                                 # checks, fix cycles and testers run headless; Studio only for
+                                                 # screenshots, UI presses, checks that fail headless, final verify
 forge new "<idea>" [--iterations N] [--no-studio] [--jobs N] [--no-cache]   # design + build + playtest loop
 forge run <slug> [--iterations N] [--no-studio] [--jobs N] [--no-cache]     # continue iterating an existing game
+    # each iteration playtests headless (Run.headless_playtest: 2 simulated players, 30 s simulated) and, with
+    # FORGE_STUDIO set, one Studio screenshot pass (Run.screenshot_pass) alongside the critic; busy -> skipped
+    # with a note. --studio always: the old Studio playtest. --no-studio = never (still a headless playtest)
+forge headless [<slug>|--root DIR] [--play S] [--players N] [--no-clients] [--playtest] [--stats [--since H]]
 forge correct <slug> <path> "<note>"                # human correction → fixer call → resync
 forge status [<slug>]                                # iterations, scores, call counts per role
 forge seed <slug> [--spec FILE]                      # runs/<slug>/game <- game/ (+ spec base_files)
@@ -535,7 +582,8 @@ forge versions <slug>                                # saved versions (iteration
 forge rollback <slug> <vN> [--studio S] [--no-sync]  # restore a version, resync Studio
 forge fix <slug> [--cycles N --max-fixes M --reports]  # real anomalies: code fix, verify, until clean
 forge checks <slug> [--plan [--max N]] [--run [--headless-first]] [--studio S]  # scenario designer; no flag:
-                                                     # list checks; --headless-first: checks.triage, Studio runs the rest
+                                                     # list checks; --run is headless first by default
+                                                     # (checks.triage); Studio runs the rest (--studio always: all)
 forge orchestrate <slug> --goal G [--studio P1,P2 | --no-studio] [--workers 4] [--max-calls 300] [--minutes 120]
                   [--rounds 3] [--per-round 4] [--min-rank 2] [--no-checks] [--no-fix-cycle]   # team lead loop
 forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json]  # ranked gap list
@@ -588,11 +636,13 @@ round r:  gaps job (gap_finder, lease llm) -> gaps/<n>.json
                                  (--no-studio: -n 0 --no-studio)
              fix without path -> forge feature <slug> "Fix this bug: ..." -n 0 --no-studio  leases llm, game:all
           verify (after: all builds; luau-compile, in-process)
-          playtest (deps: verify)      forge run <slug> -n 1      leases studio, sync, llm, game:all
+          playtest (deps: verify)      forge run <slug> -n 1      leases llm, game:all (headless; studio + sync
+                                       only with --studio always: job_needs drops them for HEADLESS_KINDS)
           checks_offline (after: playtest; in-process): plan_checks if none, then checks.triage (headless);
                                        all pass -> results saved (source "headless") and the Studio job is done
           checks (deps: checks_offline) forge checks --run --headless-first  leases studio, sync, llm
-          fix_cycle (after: checks)    forge fix --cycles 1       leases studio, sync, llm, game:all
+          fix_cycle (after: checks)    forge fix --cycles 1       leases llm, game:all (HeadlessStudio testers;
+                                       studio + sync only with --studio always)
           score(): forge done parts + latest critic (+ fun); stop when ready and critic >= 8
 stop: target met | no gap above the bar | --rounds done | budget (--max-calls: calls.jsonl lines under runs/<slug>/
       since start; --minutes) -> queued jobs cancelled, running ones SIGTERM
@@ -659,9 +709,12 @@ decide   candidates(anomalies, gaps): merged when titles are similar (Jaccard >=
 act      baseline tag (snapshot) + checks/results.json backup; builds -> Orchestrator workers on JobQueue(autopilot/)
          (fix + path -> forge correct; feature / visual(polish, asset) -> forge feature -n 1 --polish N) + a verify
          (compile) job; test decisions become the focus of the next QA run. A resumed round recovers its jobs.
-verify   changed files since the baseline? -> measure "after" (studio_measure: compile, headless boot, checks
-         headless-first + Studio, Run.playtest probe + census + screenshot, qa_test(focus), run_swarm, bridge,
-         critic + fun_critique) -> gate(before, after): rolled_back on compile errors, more boot errors, new
+verify   changed files since the baseline? -> measure "after" (studio_measure: compile, headless boot, checks,
+         playtest probe + census, qa_test(focus), run_swarm, bridge, critic + fun_critique). Headless by default
+         (_headless_part: headless.playtest, triage(mode="never"), qa_test / run_swarm on HeadlessStudio, no lease);
+         _studio_part (lease, Run.playtest + screenshot, Studio checks, testers with the visual judge) only with
+         --studio always, or for the final verify (tag "final": Autopilot.final_verify after the last round,
+         --studio auto with a place -> autopilot/final.json) -> gate(before, after): rolled_back on compile errors, more boot errors, new
          runtime errors (numbers normalised), a passing check failing, a core counter dying, critic/fun -1,
          physics flags +2 -> GameVersions.restore(baseline) + checks backup restored; else kept -> snapshot +
          commit(): iteration record (report.json, critique.json, screenshot.png, state.json iteration with

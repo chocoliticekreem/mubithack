@@ -34,9 +34,11 @@ Headless (no Studio): game/tools/headless.luau fakes enough of the Roblox engine
 server code with the plain `luau` CLI on a simulated clock. `boot_offline(game_dir)` boots every
 server Script, joins a player and returns a ForgeProbe-shaped report (errors, warnings, counters)
 in well under a second; `run_checks_offline(game_dir, checks)` runs checks against that booted fake
-server in parallel. A check that passes offline needs no Studio round trip (`triage`); anything that
-fails or errors offline still goes to Studio, which stays the judge. A check that can only mean
-something in a real engine (physics, rendering, replication) says so with `-- needs: studio`.
+server (plus one simulated client running its LocalScripts) in parallel. A check that passes offline
+needs no Studio round trip (`triage`); with --studio auto anything that fails or errors offline still goes to
+Studio, which stays the judge (--studio never trusts the headless verdict). A check that touched something
+the engine can't model (needs_studio: physics movers, camera, UI layout) is never a headless pass. A check
+that can only mean something in a real engine says so with `-- needs: studio`.
 """
 
 from __future__ import annotations

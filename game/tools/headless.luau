@@ -7,9 +7,15 @@
 --   mode "boot":  run every server Script, let the simulated server run, join one player, report
 --                 errors/warnings like ForgeProbe does.
 --   mode "check": boot, then run one executable check body and report { ok, detail, error }.
+--   mode "exec":  boot, then run Luau like Studio MCP's execute_luau (forge.checks sends checks.wrap(body)).
+--   mode "serve": boot and stay up under `luau -i`; forge/headless.py (HeadlessStudio) sends one
+--                 __FORGE_HEADLESS.rpc(...) line per call.
+-- With opts.clients, every joined player is a simulated client: its LocalScripts run on its side and
+-- remotes cross client <-> server in-process. Characters walk (kinematic), parts touch, prompts trigger.
 -- It is a fake: anything it doesn't model reads as nil and is listed under "misses", so an error
--- next to a miss may be the shim's fault. Only trust it for logic; Studio stays the judge for
--- physics, rendering, replication and UI.
+-- next to a miss may be the shim's fault. What only a real engine can answer (physics movers, impulses,
+-- camera projection, UI layout, shape casts) is listed under "needs_studio" and never passes a check;
+-- what it rounds off (straight-line paths, box raycasts, no gravity) is listed under "approx".
 
 local H = {}
 
@@ -1298,7 +1304,14 @@ local function fireChanged(inst: any, prop: string)
 	local dd = d(inst)
 	local sigs = dd.signals
 	if sigs.Changed then
-		sigs.Changed:Fire(prop)
+		if isA(dd.ClassName, "ValueBase") then
+			-- IntValue.Changed & co fire with the new value, and only for Value (not the property name)
+			if prop == "Value" then
+				sigs.Changed:Fire(dd.props.Value)
+			end
+		else
+			sigs.Changed:Fire(prop)
+		end
 	end
 	local ps = dd.propSignals[prop]
 	if ps then
@@ -1772,7 +1785,7 @@ function Methods.WaitForChild(self, name, timeout)
 		if timeout and now - start >= timeout then
 			return nil
 		end
-		if not warned and now - start >= 5 then
+		if not warned and timeout == nil and now - start >= 5 then -- Roblox warns only without a timeout
 			warned = true
 			addWarning("Infinite yield possible on '" .. fullName(self) .. ":WaitForChild(\"" .. tostring(name) .. "\")'")
 		end
