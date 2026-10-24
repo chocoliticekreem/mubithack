@@ -52,7 +52,7 @@ DECLARED_RX = re.compile(r"""(?:ForgeTelemetry|Telemetry)\s*[.:]\s*count\(\s*["'
 PASSIVE_ACTIONS = ("wait", "observe", "look", "report", "done", "idle", "screenshot")
 # what the LLM reads first when the evidence does not fit its budget
 KIND_ORDER = ("stat", "error", "bug", "stuck", "untouched", "ttfr", "physics", "bridge", "check", "score", "audit",
-              "report", "qa", "test", "swarm", "warning", "census", "screenshot", "fix", "metric", "calls", "genre", "code")
+              "report", "qa", "test", "swarm", "warning", "census", "screenshot", "fix", "metric", "calls", "genre", "code", "tooling")
 
 
 def _clip(text: Any, n: int = 240) -> str:
@@ -84,6 +84,75 @@ def _num(v: Any) -> float | None:
     return x if math.isfinite(x) else None
 
 
+# Tester-harness limits that look like game bugs: the harness failing to press a ProximityPrompt
+# ("held, not triggered") or to path somewhere (NoPath / navmesh). Real players aren't affected, so these
+# go to a harness fix list, not the game's bug list.
+TOOLING_RX = re.compile(r"held,? (?:but )?not triggered|held but never trigger|never triggers? (?:when|on) (?:hold|interact)|"
+                        r"\bNoPath\b|no path (?:found|to)|navmesh|pathfinding (?:fail|return|gave)|path ?finding failed|"
+                        r"walk_to (?:timed out|failed)|could not path", re.I)
+
+
+def is_tooling(text: Any) -> bool:
+    return bool(TOOLING_RX.search(str(text or "")))
+
+
+class GameVersions:
+    """The game folder's git history (commits touching it): which version a timestamp saw, how far behind
+    the current version that is. A repo without git history: everything is current."""
+
+    def __init__(self, root: Path) -> None:
+        import subprocess
+        self.root = Path(root).resolve()
+        self.commits: list[tuple[str, float]] = []  # newest first: (short sha, commit time)
+        try:
+            top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=self.root, capture_output=True,
+                                 text=True, check=True).stdout.strip()
+            out = subprocess.run(["git", "log", "--format=%h %ct", "--", str(self.root)], cwd=top,
+                                 capture_output=True, text=True, check=True).stdout
+            self.commits = [(h, float(t)) for h, t in (ln.split() for ln in out.splitlines() if ln.strip())]
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            self.commits = []
+
+    @property
+    def current(self) -> str | None:
+        return self.commits[0][0] if self.commits else None
+
+    def at(self, ts: float | None) -> tuple[str | None, int]:
+        """(version a moment saw, game commits made since). ts None: the current version."""
+        if ts is None or not self.commits:
+            return self.current, 0
+        for i, (h, t) in enumerate(self.commits):
+            if t <= ts:
+                return h, i
+        return self.commits[-1][0], len(self.commits)
+
+
+def parse_ts(v: Any) -> float | None:
+    """ISO-8601 string or epoch number -> epoch seconds."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    from datetime import datetime, timezone
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def tag_versions(st: "EvidenceStore", gv: GameVersions) -> dict:
+    """Give every item the game version it came from (data.ts -> data.version, data.behind, data.stale).
+    Items without a timestamp (code scan, genre checklist, the fresh session) are current."""
+    stale = 0
+    for it in st.items.values():
+        v, behind = gv.at(it.data.get("ts"))
+        it.data["version"], it.data["behind"] = v, behind
+        it.data["stale"] = behind > 0 and not it.data.get("reproduced")
+        stale += it.data["stale"]
+    return {"current": gv.current, "items": len(st.items), "stale": stale}
+
+
 # ---------------------------------------------------------------- the store
 
 
@@ -107,7 +176,12 @@ class EvidenceStore:
     # -- items
     def add(self, ref: str, kind: str, source: str, text: str, **data: Any) -> str:
         if ref in self.items:  # same signal from two sources: keep the first, note the second
-            self.items[ref].data.setdefault("also", []).append(source)
+            it = self.items[ref]
+            it.data.setdefault("also", []).append(source)
+            if "ts" in data:  # seen again more recently (None = now): it is as fresh as its newest sighting
+                was, now = it.data.get("ts"), data["ts"]
+                if now is None or (was is not None and now > was):
+                    it.data["ts"] = now
             return ref
         self.items[ref] = Item(ref, kind, source, _clip(text, 400), data)
         return ref
@@ -173,7 +247,8 @@ class EvidenceStore:
             out.append(head)
             used += len(head) + 1
             for i in items:
-                ln = f"- [{i.id}] {i.text}"
+                old = f"(old: game {i.data.get('version')}, {i.data.get('behind')} commits ago) " if i.data.get("stale") else ""
+                ln = f"- [{i.id}] {old}{i.text}"
                 if used + len(ln) + 1 > budget:
                     out.append("- (more omitted)")
                     return "\n".join(out)
@@ -205,20 +280,21 @@ def measurement_from_probe(report: dict, *, label: str, version: str | None = No
 def add_measurement(st: EvidenceStore, m: dict, *, source: str) -> None:
     """Errors, warnings, physics flags and counters of one measurement -> items + series points."""
     label = m.get("label") or source
+    ts = parse_ts(m.get("ts")) if m.get("ts") is not None else None  # None: measured on the current build
     for e in m.get("errors") or []:
         msg = str(e.get("message") or "")
         st.add(f"err:{_hash(msg)}", "error", source, f"{e.get('script') or '?'}: {msg}", label=label,
-               script=e.get("script"))
+               script=e.get("script"), ts=ts)
     warns: dict[str, int] = {}
     for w in m.get("warnings") or []:
         warns[str(w)] = warns.get(str(w), 0) + 1
     for w, n in list(warns.items())[:12]:
-        st.add(f"warn:{_hash(w)}", "warning", source, f"{w}" + (f" (x{n})" if n > 1 else ""), label=label)
+        st.add(f"warn:{_hash(w)}", "warning", source, f"{w}" + (f" (x{n})" if n > 1 else ""), label=label, ts=ts)
     for i, f in enumerate((m.get("physics") or {}).get("flagged") or [], 1):
         if isinstance(f, dict):
             st.add(f"physics:{label}#{i}", "physics", source,
                    f"{f.get('kind')} {f.get('path') or f.get('model')}: max speed {f.get('max_speed')}, "
-                   f"max angvel {f.get('max_angvel')}, moved {f.get('moved_studs')} studs", label=label)
+                   f"max angvel {f.get('max_angvel')}, moved {f.get('moved_studs')} studs", label=label, ts=ts)
     st.point("errors", label, len(m.get("errors") or []))
     st.point("warnings", label, len(m.get("warnings") or []))
     st.point("physics_flagged", label, len((m.get("physics") or {}).get("flagged") or []))
@@ -249,7 +325,10 @@ def history(run_dir: Path) -> list[dict]:
         m = measurement_from_probe(rep, label=f"it{p.parent.name}", critic=_num(crit.get("score")),
                                    fun=_num(((crit.get("fun") or {}) if isinstance(crit.get("fun"), dict)
                                              else {}).get("score")))
-        out.append((round(p.stat().st_mtime, -1), 0, int(p.parent.name), 0, m))
+        rec = _read(p.parent / "record.json", {}) or {}
+        ts = parse_ts(rec.get("ended") or rec.get("started")) or p.stat().st_mtime
+        m["ts"] = ts
+        out.append((round(ts, -1), 0, int(p.parent.name), 0, m))
     for p in (run_dir / "improve").glob("[0-9]*.json") if (run_dir / "improve").is_dir() else []:
         cyc = _read(p, {}) or {}
         for d in cyc.get("before") or []:
@@ -263,7 +342,9 @@ def history(run_dir: Path) -> list[dict]:
                  "warnings": [], "physics": {"flagged": []}}
             if isinstance(errs, dict) and errs.get("count") and not m["errors"]:
                 m["errors"] = [{"message": "error"}] * int(errs["count"])
-            out.append((round(p.stat().st_mtime, -1), 1, int(p.stem), int(d.get("round") or 1), m))
+            ts = parse_ts(cyc.get("ts")) or p.stat().st_mtime
+            m["ts"] = ts
+            out.append((round(ts, -1), 1, int(p.stem), int(d.get("round") or 1), m))
     return [t[-1] for t in sorted(out, key=lambda t: t[:4])]
 
 
@@ -355,18 +436,20 @@ def add_tests(st: EvidenceStore, run_dir: Path, *, since: float = 0.0, until: fl
         rid = p.parent.name
         kind = "qa" if rep.get("kind") == "protocol" else "test"
         shots = sorted(x.name for x in p.parent.glob("*.png"))
+        ts = parse_ts(rep.get("started")) or p.stat().st_mtime
         st.add(f"test:{rid}", kind, "tests", f"{rep.get('tester') or rep.get('kind') or 'tester'} goal "
                f"\"{_clip(rep.get('goal'), 100)}\": goal_met={rep.get('goal_met')}, {len(rep.get('steps') or [])} "
-               f"steps, {len(shots)} screenshots. {_clip(rep.get('summary'), 220)}", run=rid, shots=shots[:6])
+               f"steps, {len(shots)} screenshots. {_clip(rep.get('summary'), 220)}", run=rid, shots=shots[:6], ts=ts)
         for i, b in enumerate((rep.get("bugs") or [])[:5], 1):
             if isinstance(b, dict):
-                st.add(f"test:{rid}#bug{i}", "bug", "tests", f"[{b.get('severity')}] {_clip(b.get('title'), 120)}: "
-                       f"{_clip(b.get('evidence') or b.get('actual'), 180)}", run=rid, severity=b.get("severity"))
+                text = f"[{b.get('severity')}] {_clip(b.get('title'), 120)}: {_clip(b.get('evidence') or b.get('actual'), 180)}"
+                st.add(f"test:{rid}#bug{i}", "tooling" if is_tooling(text) else "bug", "tests", text, run=rid,
+                       severity=b.get("severity"), ts=ts)
         for sp in stuck_spans(rep.get("steps") or []):
             stuck_all.append({**sp, "run": rid})
-            st.add(f"stuck:{rid}@{sp['from']}", "stuck", "tests",
+            st.add(f"stuck:{rid}@{sp['from']}", "tooling" if is_tooling(sp["result"]) else "stuck", "tests",
                    f"{sp['tester']} stuck for {sp['steps']} steps (steps {sp['from']}-{sp['to']}) doing "
-                   f"{sp['action']} near {sp['pos']}: last result {sp['result']}", run=rid)
+                   f"{sp['action']} near {sp['pos']}: last result {sp['result']}", run=rid, ts=ts)
     return stuck_all
 
 
@@ -382,20 +465,22 @@ def add_swarm(st: EvidenceStore, playtests_dir: Path, slug: str, *, since: float
             found.append((p.stat().st_mtime, p.parent.name, rep))
     found.sort(reverse=True)
     stuck_all: list[dict] = []
-    for _, rid, rep in found[:limit]:
+    for mt, rid, rep in found[:limit]:
+        ts = parse_ts(rep.get("started")) or mt
         bugs = [b for b in rep.get("bugs") or [] if isinstance(b, dict)]
         st.add(f"swarm:{rid}", "swarm", "swarm", f"{len(rep.get('testers') or [])} testers, {len(bugs)} bug groups: "
                f"{_clip(rep.get('summary'), 220)}", run=rid, shots=[s.get("path") if isinstance(s, dict) else s
-                                                                    for s in (rep.get("shots") or [])][:6])
+                                                                    for s in (rep.get("shots") or [])][:6], ts=ts)
         for i, b in enumerate(bugs[:6], 1):
-            st.add(f"swarm:{rid}#{i}", "bug", "swarm", f"[{b.get('severity')} x{b.get('frequency')} testers"
-                   f"{', bots only' if b.get('only_bots') else ''}] {_clip(b.get('title'), 120)}: "
-                   f"{_clip(b.get('evidence'), 180)}", run=rid, severity=b.get("severity"), real=b.get("real"))
+            text = (f"[{b.get('severity')} x{b.get('frequency')} testers{', bots only' if b.get('only_bots') else ''}] "
+                    f"{_clip(b.get('title'), 120)}: {_clip(b.get('evidence'), 180)}")
+            st.add(f"swarm:{rid}#{i}", "tooling" if is_tooling(text) else "bug", "swarm", text, run=rid,
+                   severity=b.get("severity"), real=b.get("real"), ts=ts)
         for sp in stuck_spans(rep.get("steps") or []):
             stuck_all.append({**sp, "run": rid})
-            st.add(f"stuck:{rid}@{sp['tester']}:{sp['from']}", "stuck", "swarm",
+            st.add(f"stuck:{rid}@{sp['tester']}:{sp['from']}", "tooling" if is_tooling(sp["result"]) else "stuck", "swarm",
                    f"{sp['tester']} stuck for {sp['steps']} steps ({sp['from']}-{sp['to']}) doing {sp['action']} "
-                   f"near {sp['pos']}: {sp['result']}", run=rid)
+                   f"near {sp['pos']}: {sp['result']}", run=rid, ts=ts)
         soak = [s for s in rep.get("soak") or [] if isinstance(s, dict)]
         for s in soak:
             for k, v in (s.get("counters") or {}).items() if isinstance(s.get("counters"), dict) else []:
@@ -407,7 +492,7 @@ def add_swarm(st: EvidenceStore, playtests_dir: Path, slug: str, *, since: float
         t = first_reward(soak)
         if soak:
             st.add(f"ttfr:{rid}", "ttfr", "swarm", "first reward after " + (f"{t:g} s" if t is not None else
-                   f"never (in {soak[-1].get('t')} s of play)"), run=rid, seconds=t)
+                   f"never (in {soak[-1].get('t')} s of play)"), run=rid, seconds=t, ts=ts)
     return stuck_all
 
 
@@ -617,7 +702,7 @@ def prefilter(current: dict, previous: dict | None, st: EvidenceStore, *, declar
                          + ", ".join(c["metric"] for c in rest[:30]), [f"untouched:{c['metric']}" for c in rest[:6]],
                          value=len(rest)))
 
-    for sp in stuck or []:
+    for sp in [x for x in stuck or [] if not is_tooling(x.get("result"))]:
         out.append(_cand("stuck", f"{sp.get('run')}@{sp.get('from')}", "medium",
                          f"{sp.get('tester')} stuck for {sp.get('steps')} steps doing {sp.get('action')} near "
                          f"{sp.get('pos')}", [f"stuck:{sp.get('run')}@{sp.get('from')}",

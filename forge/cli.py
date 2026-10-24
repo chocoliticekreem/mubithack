@@ -689,7 +689,15 @@ def cmd_autopilot(args) -> int:
         return 0
     if args.advise:
         root = Path(args.root) if args.root else s.base_game_dir
-        rep = apm.advise(s, root, name=args.name, goal=args.goal, extra_dirs=[Path(p) for p in args.evidence])
+        place = None
+        if args.fresh:
+            place = (args.studio or os.environ.get("FORGE_STUDIO") or "").split(",")[0].strip()
+            if not place:
+                print("error: --fresh needs --studio Forge-agents-<N> (your own place)", file=sys.stderr)
+                return 2
+        rep = apm.advise(s, root, name=args.name, goal=args.goal, extra_dirs=[Path(p) for p in args.evidence],
+                         fresh_place=place, qa_steps=args.qa_steps, swarm_players=args.swarm_players,
+                         swarm_minutes=args.swarm_minutes)
         print((Path(rep["out_dir"]) / "report.md").read_text(encoding="utf-8"))
         print(f"report: {rep['out_dir']}/report.md")
         return 0
@@ -1127,6 +1135,8 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("--root", help="--advise: the game folder (default game/)")
     au.add_argument("--name", help="--advise: the game's record name (default from forge/seeds)")
     au.add_argument("--evidence", action="append", default=[], help="--advise: extra record folders to read")
+    au.add_argument("--fresh", action="store_true", help="--advise: first a short live session (probe, focused QA on "
+                                                          "the old claims, short swarm) on the current build in --studio")
 
     gp = sub.add_parser("gaps", help="trace-driven gap list (Mubit gap_finder): what is missing or broken, ranked")
     gp.add_argument("slug")
