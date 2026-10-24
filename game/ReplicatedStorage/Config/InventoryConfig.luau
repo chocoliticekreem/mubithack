@@ -46,6 +46,14 @@ return Config.define({
 
 	-- hose nozzle
 	ReelReturnDistance = 12, -- hand the nozzle back at the reel within this many studs
+	HosesPerTruck = 2, -- nozzles one truck reel can have out at once (held or lying), anyone's truck
+	HosesPerHydrant = 1,
+	TruckHoseReach = 7, -- [T] Grab / Stow Hose works this far out from any side of the truck
+	TruckHoseKey = Enum.KeyCode.T, -- its own key, so it never hides the [E] locker and door prompts
+
+	-- thrown axes (and the other long tools) tomahawk end over end
+	ThrowSpinItems = { "Axe", "FireAxe", "GoldenAxe", "Halligan", "Sledgehammer", "Crowbar" },
+	AxeThrowSpin = 24, -- rad/s around the sideways axis (~4 turns a second)
 
 	-- UI (client)
 	HotbarSlotSize = 72, -- keeps the row under HudController's toast stack

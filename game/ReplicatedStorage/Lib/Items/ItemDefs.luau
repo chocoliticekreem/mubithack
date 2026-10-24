@@ -16,7 +16,8 @@
 --   ItemDefs.drop(state) -> (newState, what?, slot?)          carry first, else hand
 --   ItemDefs.swap(state) -> (ok, newState, reason?)            hand <-> back
 --   ItemDefs.fumble(state) -> (newState, dropped?)             ragdoll: the hand item flies off
---   ItemDefs.canUseReel(ownerUserId?, userId) -> boolean
+--   ItemDefs.reelSlot(holding, lying, cap) -> "new" | "reclaim" | "full"
+--   ItemDefs.spinsWhenThrown(id, list) -> boolean
 --   ItemDefs.throwSpeed(charge, min, max) -> number
 --   ItemDefs.drawWater(water, litres) -> (newWater, drawn)
 --   ItemDefs.supplyStep(water, size, rate, dt) -> number
@@ -426,13 +427,22 @@ function ItemDefs.fumble(state: State): (State, string?, string?)
 	return s, hand, carry
 end
 
--- The truck reel only hands its nozzle to the truck's owner. A truck with no owner (v1.5 lobby or
--- instance trucks) is anyone's.
-function ItemDefs.canUseReel(ownerUserId: number?, userId: number): boolean
-	if type(ownerUserId) ~= "number" or ownerUserId == 0 then
-		return true
+-- Any player can pull a nozzle off any truck reel (the water still comes from that truck's tank).
+-- A reel has `cap` nozzles: `holding` are in players' hands, `lying` are dropped on the ground still
+-- tethered to it. "new" = a fresh nozzle, "reclaim" = reel a lying one back in and hand it over,
+-- "full" = every nozzle is in someone's hands.
+function ItemDefs.reelSlot(holding: number, lying: number, cap: number): string
+	if holding + lying < cap then
+		return "new"
+	elseif lying > 0 then
+		return "reclaim"
 	end
-	return ownerUserId == userId
+	return "full"
+end
+
+-- Thrown long tools (axes, bars) tomahawk end over end instead of tumbling at random.
+function ItemDefs.spinsWhenThrown(id: string?, list: { string }?): boolean
+	return type(id) == "string" and list ~= nil and table.find(list, id) ~= nil
 end
 
 function ItemDefs.throwSpeed(charge: number, minSpeed: number, maxSpeed: number): number

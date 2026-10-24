@@ -207,12 +207,13 @@ end
 
 local lastShown: { [string]: string } = {}
 
-local function gauge(id: string): (number?, Color3)
+local function gauge(id: string, slot: string?): (number?, Color3)
 	if id == "Hose" then
 		local w, size = num(Names.Attr.Water), num(Names.Attr.TankSize)
 		return if w and size and size > 0 then w / size else nil, Palette.WaterSpray
 	elseif id == "Extinguisher" then
-		local f, size = num("Foam"), num("FoamSize")
+		-- each extinguisher has its own charge: the one on your back reads FoamBack
+		local f, size = num(if slot == "back" then "FoamBack" else "Foam"), num("FoamSize")
 		return if f and size and size > 0 then f / size else nil, Palette.SmokeWhite
 	elseif id == "OxygenTank" then
 		local a = num("OxygenAir")
@@ -241,7 +242,7 @@ local function paint(key: string, id: string, isProp: boolean)
 		s.name.TextColor3 = Palette.UiCream
 		s.tile.BackgroundColor3 = if def then Color3.fromHex(def.color) else Palette.FloorLineYellow
 		s.tile.BackgroundTransparency = 0
-		local frac, color = gauge(id)
+		local frac, color = gauge(id, key)
 		s.bar.Visible = frac ~= nil
 		if frac then
 			s.fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
@@ -460,11 +461,23 @@ end
 local function relabelReels()
 	local hand = attr("InvHand")
 	local text = if hand == "Hose" then "Stow Hose" elseif hand == "Extinguisher" then "Refill Foam" else "Grab Hose"
-	for _, reel in CollectionService:GetTagged(Names.Tag.TruckRefill) do
-		local p = reel:FindFirstChildOfClass("ProximityPrompt")
-		if p and p:GetAttribute("InvReel") then
+	local function set(p: Instance?)
+		if p and p:IsA("ProximityPrompt") and p:GetAttribute("InvReel") then
 			p.ActionText = text
+			local s = shown[p] -- already on screen: the sticker flips at once (Grab -> Stow Hose)
+			local label = s and s.gui:FindFirstChild("Action", true)
+			if label and label:IsA("TextLabel") then
+				label.Text = text
+			end
 		end
+	end
+	for _, reel in CollectionService:GetTagged(Names.Tag.TruckRefill) do
+		set(reel:FindFirstChildOfClass("ProximityPrompt"))
+	end
+	-- the [T] any-side hose prompt on each truck's chassis (InventoryService hookTruckHose)
+	for _, truck in CollectionService:GetTagged(Names.Tag.Truck) do
+		local base = truck:IsA("Model") and truck.PrimaryPart
+		set(base and base:FindFirstChild("TruckHosePrompt"))
 	end
 end
 
@@ -539,13 +552,13 @@ function InventoryController:Start()
 			relabelReels()
 		end)
 	end
-	for _, name in { Names.Attr.Water, Names.Attr.TankSize, "Foam", "FoamSize", "OxygenAir" } do
+	for _, name in { Names.Attr.Water, Names.Attr.TankSize, "Foam", "FoamBack", "FoamSize", "OxygenAir" } do
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(refreshHud)
 	end
 	rebind()
 	relabelReels()
 	CollectionService:GetInstanceAddedSignal(Names.Tag.TruckRefill):Connect(function()
-		task.delay(1, relabelReels)
+		task.delay(2.5, relabelReels) -- after InventoryService adds the chassis [T] prompt
 	end)
 
 	ProximityPromptService.PromptShown:Connect(showPrompt)

@@ -23,11 +23,13 @@
 --          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string)
 --          kinds: "grab", "drop", "throw", "bonk", "fumble", "supply", "snap", "stow"
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
---   (attr Item), TruckRefill (the reel: nozzle), Hydrant ([E] hose off it, infinite water; [R] supply line to a truck = infinite tank), Truck (attrs OwnerUserId, Water,
+--   (attr Item), TruckRefill (the reel: nozzle; anyone's, Cfg.HosesPerTruck nozzles each, grabbed and
+--   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart), Hydrant ([E] hose off it, infinite water; [R] supply line to a truck = infinite tank), Truck (attrs OwnerUserId, Water,
 --   TankSize), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
--- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher),
+-- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher
+--   in the hand), FoamBack (the one on your back, nil if none),
 --   Water/TankSize (mirrors the hose's truck tank while you hold the nozzle);
 --   truck attrs Water, TankSize, SupplyLine (bool); workspace.LooseItems (Models tagged InventoryItem,
 --   attr Item); prompts with attr InvPrompt (Style Custom: InventoryController draws them).
@@ -35,8 +37,12 @@
 --   Lib/Tools/HoseLine attach/detach, Shared/Ragdoll.
 -- Counters: inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,
 --   inv_hose_stowed, inv_supply_lines, inv_supply_snaps, inv_props_carried, inv_restocks
+-- Thrown: Cfg.ThrowSpinItems (axes, bars) tomahawk end over end at Cfg.AxeThrowSpin rad/s; the rest tumble.
+-- One hand Tool at a time: any other inventory Tool (attr InvItem) under the character or in the
+--   Backpack is destroyed on every apply; a Tool knocked into the Backpack (UnequipTools) comes back to
+--   the hand once you are not downed or carrying (hooked per character, the Backpack is new each spawn).
 -- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),
---   _fumble(player), _reel(player, reel?), _hydrant(player, hydrant), _hydrantHose(player, hydrant)
+--   _fumble(player), _reel(player, reel?, from?: Vector3), _hydrant(player, hydrant), _hydrantHose(player, hydrant)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -85,6 +91,7 @@ type PState = {
 	faceModel: Model?,
 	faceFor: Held?,
 	lastNotify: number,
+	bpConn: RBXScriptConnection?,
 }
 type Loose = { id: string, data: Data, born: number, rope: RopeConstraint? }
 type Flyer = { part: BasePart, thrower: Player, born: number, hit: { [Player]: true }, what: string }
@@ -94,8 +101,7 @@ local services: { [string]: any } = {}
 local states: { [Player]: PState } = {}
 local loose: { [Model]: Loose } = {}
 local looseOrder: { Model } = {}
-local reelHolder: { [BasePart]: Player } = {}
-local reelLoose: { [BasePart]: Model } = {}
+local reelLoose: { [BasePart]: { Model } } = {} -- nozzles lying on the ground, still tethered to the reel
 local flyers: { Flyer } = {}
 local supplies: { [BasePart]: Supply } = {}
 local stockHooked: { [BasePart]: true } = setmetatable({}, { __mode = "k" }) :: any
@@ -333,8 +339,15 @@ removeLoose = function(m: Model)
 	if i then
 		table.remove(looseOrder, i)
 	end
-	if info and info.data.reel and reelLoose[info.data.reel] == m then
-		reelLoose[info.data.reel] = nil
+	local list = info and info.data.reel and reelLoose[info.data.reel]
+	if list then
+		local j = table.find(list, m)
+		if j then
+			table.remove(list, j)
+		end
+		if #list == 0 then
+			reelLoose[info.data.reel :: BasePart] = nil
+		end
 	end
 	m:Destroy()
 end
@@ -402,15 +415,23 @@ local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Pl
 			rope.Parent = handle
 			info.rope = rope
 		end
-		reelLoose[reel] = m
+		local list = reelLoose[reel] or {}
+		reelLoose[reel] = list
+		table.insert(list, m)
 	end
 	pcall(function()
 		handle:SetNetworkOwner(nil)
 	end)
 	handle.AssemblyLinearVelocity = velocity
 	if thrower then
-		local r = Random.new()
-		handle.AssemblyAngularVelocity = Vector3.new(r:NextNumber(-1, 1), r:NextNumber(-1, 1), r:NextNumber(-1, 1)) * Cfg.ThrowSpin
+		local flat = Vector3.new(velocity.X, 0, velocity.Z)
+		if ItemDefs.spinsWhenThrown(held.id, Cfg.ThrowSpinItems) and flat.Magnitude > 1e-3 then
+			-- tomahawk: spin around the sideways axis so the head goes over the top, toward the target
+			handle.AssemblyAngularVelocity = Vector3.yAxis:Cross(flat.Unit) * Cfg.AxeThrowSpin
+		else
+			local r = Random.new()
+			handle.AssemblyAngularVelocity = Vector3.new(r:NextNumber(-1, 1), r:NextNumber(-1, 1), r:NextNumber(-1, 1)) * Cfg.ThrowSpin
+		end
 		addFlyer(handle, thrower, def.name)
 	end
 	prompt.Triggered:Connect(function(player: Player)
@@ -429,10 +450,6 @@ local function syncHeld(player: Player, ps: PState)
 end
 
 local function releaseHose(player: Player, held: Held?)
-	local reel = held and held.id == "Hose" and held.data.reel
-	if reel and reelHolder[reel] == player then
-		reelHolder[reel] = nil
-	end
 	if held and held.id == "Hose" then
 		hoseLine("detach", player)
 		player:SetAttribute(Names.Attr.Spraying, false)
@@ -476,7 +493,6 @@ local function equipHand(player: Player, ps: PState)
 	elseif held.id == "Hose" then
 		local reel = held.data.reel
 		if reel and reel:IsDescendantOf(workspace) then
-			reelHolder[reel] = player
 			mirrorWater(player)
 			if not hoseLine("attach", player, reel) then
 				Popup.show(player, "Hose tangled, try again", "info", player)
@@ -560,12 +576,38 @@ local function writeAttrs(player: Player, ps: PState)
 	player:SetAttribute("InvHand", if ps.hand then ps.hand.id else "")
 	player:SetAttribute("InvBack", if ps.back then ps.back.id else "")
 	player:SetAttribute("InvCarry", if ps.carry then ps.carry.Name else "")
+	-- the back extinguisher keeps its own charge (Foam is always the one in your hand)
+	player:SetAttribute("FoamBack", if ps.back and ps.back.id == "Extinguisher" then ps.back.data.foam or ToolConfig.FoamSize else nil)
 	local o2 = if ps.back and ps.back.id == "OxygenTank" then ps.back else (if ps.hand and ps.hand.id == "OxygenTank" then ps.hand else nil)
 	player:SetAttribute("OxygenAir", if o2 then o2.data.air or 0 else nil)
 end
 
+-- At most ONE inventory Tool: anything else carrying our InvItem attr (a stale copy left in the
+-- Backpack by UnequipTools, a duplicate from a swap race) goes. The real one comes back to the hand.
+local function busyHands(player: Player): boolean
+	return player:GetAttribute(Names.Attr.Downed) == true or ((player:GetAttribute(Names.Attr.Carrying) :: string?) or "") ~= ""
+end
+
+local function sweepTools(player: Player, ps: PState)
+	local char = player.Character
+	for _, holder in { char, player:FindFirstChildOfClass("Backpack") } do
+		if holder then
+			for _, c in holder:GetChildren() do
+				if c:IsA("Tool") and c ~= ps.tool and c:GetAttribute("InvItem") ~= nil then
+					c:Destroy()
+				end
+			end
+		end
+	end
+	local t = ps.tool
+	if t and char and t.Parent ~= char and t.Parent ~= nil and not busyHands(player) then
+		t.Parent = char
+	end
+end
+
 local function apply(player: Player, ps: PState)
 	equipHand(player, ps)
+	sweepTools(player, ps)
 	equipBack(player, ps)
 	equipFace(player, ps)
 	writeAttrs(player, ps)
@@ -1048,14 +1090,74 @@ local function setupTruck(truck: Instance)
 end
 
 -- the reel: nozzle out, nozzle back, foam refill --------------------------------------------------
+-- Who holds a nozzle off this reel right now (the hand slot is the single source of truth).
+local function holdersOf(reel: BasePart, except: Player?): { Player }
+	local list = {}
+	for p, ps in states do
+		local held = ps.hand
+		if p ~= except and p.Parent and held and held.id == "Hose" and held.data.reel == reel then
+			table.insert(list, p)
+		end
+	end
+	return list
+end
+
+local function lyingOf(reel: BasePart): { Model }
+	local list = reelLoose[reel]
+	if not list then
+		return {}
+	end
+	for i = #list, 1, -1 do
+		if not list[i].Parent then
+			table.remove(list, i)
+		end
+	end
+	return list
+end
+
+local function capOf(reel: BasePart): number
+	return if reel:HasTag(Names.Tag.Hydrant) then Cfg.HosesPerHydrant or 1 else Cfg.HosesPerTruck or 2
+end
+
+local function namesOf(list: { Player }): string
+	local names = {}
+	for _, p in list do
+		table.insert(names, p.DisplayName)
+	end
+	return table.concat(names, " and ")
+end
+
+-- Close enough to work the reel: within TruckHoseReach of the truck's box (any side), else of the
+-- reel part itself (a reel with no truck).
+local function nearSource(player: Player, reel: BasePart): boolean
+	local _, root = charOf(player)
+	if not root then
+		return false
+	end
+	local truck = truckOf(reel)
+	if truck then
+		local cf, size = truck:GetBoundingBox()
+		local p = cf:PointToObjectSpace(root.Position)
+		local pad = (Cfg.TruckHoseReach or 7) + 4 -- + the server's lag slack
+		return math.abs(p.X) <= size.X / 2 + pad and math.abs(p.Z) <= size.Z / 2 + pad and math.abs(p.Y) <= size.Y / 2 + pad
+	end
+	return Net.near(player, reel.Position, Cfg.ReelReturnDistance + 4)
+end
+
 local function onReel(player: Player, reel: BasePart)
 	local ps = stateOf(player)
 	syncHeld(player, ps)
-	if not Net.near(player, reel.Position, Cfg.ReelReturnDistance + 4) then
+	local _, _, hum = charOf(player)
+	if (hum and hum.SeatPart) or not nearSource(player, reel) then
 		return
 	end
 	local hand = ps.hand
-	if hand and hand.id == "Hose" and (hand.data.reel == reel or hand.data.reel == nil) then
+	if hand and hand.id == "Hose" then
+		local from = hand.data.reel
+		if from ~= nil and from ~= reel and from:IsDescendantOf(workspace) then
+			say(player, ps, "That hose belongs to another truck!")
+			return
+		end
 		ps.hand = nil
 		apply(player, ps)
 		Telemetry.count("inv_hose_stowed")
@@ -1070,28 +1172,52 @@ local function onReel(player: Player, reel: BasePart)
 		say(player, ps, "Extinguisher refilled!", "good")
 		return
 	end
-	local truck = truckOf(reel)
-	local owner = truck and truck:GetAttribute("OwnerUserId")
-	if not ItemDefs.canUseReel(if type(owner) == "number" then owner else nil, player.UserId) then
-		local who = Players:GetPlayerByUserId(owner :: number)
-		local bay = who and who:GetAttribute(Names.Attr.Helmet)
-		say(player, ps, `That's {if who then who.DisplayName else "someone"}'s truck! Use your own{if bay then ` (bay {bay})` else ""}`)
+	-- anyone's truck: the water still comes out of THIS truck's tank (mirrorWater)
+	local holders = holdersOf(reel, player)
+	local lying = lyingOf(reel)
+	local slot = ItemDefs.reelSlot(#holders, #lying, capOf(reel))
+	if slot == "full" then
+		local one = #holders == 1
+		say(player, ps, `{namesOf(holders)} {if one then "has" else "have"} this truck's hose{if one then "" else "s"}!`)
 		return
 	end
-	local holder = reelHolder[reel]
-	if holder and holder ~= player and holder.Parent then
-		say(player, ps, `{holder.DisplayName} has this hose!`)
-		return
-	end
-	local lying = reelLoose[reel]
+	local reclaim = if slot == "reclaim" then lying[1] else nil
 	local ok = giveHeld(player, { id = "Hose", data = { reel = reel } })
 	if ok then
-		if lying then
-			removeLoose(lying)
+		if reclaim then
+			removeLoose(reclaim)
 		end
 		Telemetry.count("inv_hose_out")
 		fx("grab", reel.Position, "Hose")
 	end
+end
+
+local function hookTruckHose(reel: BasePart): boolean
+	local truck = truckOf(reel)
+	local base = truck and truck.PrimaryPart
+	if not truck or not base or base:FindFirstChild("TruckHosePrompt") then
+		return false
+	end
+	local _, size = truck:GetBoundingBox()
+	local p = Instance.new("ProximityPrompt")
+	p.Name = "TruckHosePrompt"
+	p.ActionText = "Grab Hose"
+	p.ObjectText = "Fire truck"
+	p.KeyboardKeyCode = Cfg.TruckHoseKey or Enum.KeyCode.T
+	p.GamepadKeyCode = Enum.KeyCode.ButtonY
+	p.HoldDuration = 0
+	-- measured from the chassis centre: the far end of the truck plus a few steps out
+	p.MaxActivationDistance = math.max(size.X, size.Z) / 2 + (Cfg.TruckHoseReach or 7)
+	p.RequiresLineOfSight = false
+	p.Style = Enum.ProximityPromptStyle.Custom
+	p:SetAttribute(ATTR_PROMPT, true)
+	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Stow Hose / Refill Foam)
+	p.Parent = base
+	promptHooked[p] = true
+	p.Triggered:Connect(function(player: Player)
+		onReel(player, reel)
+	end)
+	return true
 end
 
 local function hookReel(inst: Instance)
@@ -1114,8 +1240,7 @@ local function hookReel(inst: Instance)
 	end
 	promptHooked[p] = true
 	p.ActionText = "Grab Hose"
-	-- same chunky "[E] Grab Hose" sticker as the lockers (InventoryController), instant, and reachable
-	-- standing on the ground behind the tailgate (the reel sits ~7.5 studs in from the rear)
+	-- same chunky "[E] Grab Hose" sticker as the lockers (InventoryController), instant
 	p.Style = Enum.ProximityPromptStyle.Custom
 	p:SetAttribute(ATTR_PROMPT, true)
 	p.HoldDuration = 0
@@ -1123,6 +1248,13 @@ local function hookReel(inst: Instance)
 	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Stow Hose / Refill Foam)
 	p.Triggered:Connect(function(player: Player)
 		onReel(player, reel)
+	end)
+	-- on a truck the hose works from ANY side: one [T] prompt on the chassis covers the whole truck,
+	-- so the tailgate-only [E] reel prompt goes quiet
+	task.delay(0.6, function() -- the builder finishes the model (PrimaryPart) first
+		if reel.Parent and hookTruckHose(reel) then
+			p.Enabled = false
+		end
 	end)
 end
 
@@ -1159,12 +1291,10 @@ local function pickTruck(player: Player, hydrant: BasePart): Model?
 	end
 	for _, t in CollectionService:GetTagged(Names.Tag.Truck) do
 		if t:IsA("Model") and t:IsDescendantOf(workspace) then
-			local owner = t:GetAttribute("OwnerUserId")
-			if ItemDefs.canUseReel(if type(owner) == "number" then owner else nil, player.UserId) then
-				local d = (t:GetPivot().Position - hydrant.Position).Magnitude
-				if d <= bestD then
-					best, bestD = t, d
-				end
+			-- no truck of your own nearby: any truck will do (trucks are everyone's now)
+			local d = (t:GetPivot().Position - hydrant.Position).Magnitude
+			if d <= bestD then
+				best, bestD = t, d
 			end
 		end
 	end
@@ -1236,16 +1366,18 @@ local function onHydrantHose(player: Player, hydrant: BasePart)
 		say(player, ps, "Hose back on the hydrant")
 		return
 	end
-	local holder = reelHolder[hydrant]
-	if holder and holder ~= player and holder.Parent then
-		say(player, ps, `{holder.DisplayName} has this hydrant!`)
+	local holders = holdersOf(hydrant, player)
+	local lying = lyingOf(hydrant)
+	local slot = ItemDefs.reelSlot(#holders, #lying, capOf(hydrant))
+	if slot == "full" then
+		say(player, ps, `{namesOf(holders)} has this hydrant!`)
 		return
 	end
-	local lying = reelLoose[hydrant]
+	local reclaim = if slot == "reclaim" then lying[1] else nil
 	ensureTank(hydrant)
 	if giveHeld(player, { id = "Hose", data = { reel = hydrant } }) then
-		if lying then
-			removeLoose(lying)
+		if reclaim then
+			removeLoose(reclaim)
 		end
 		Telemetry.count("inv_hose_hydrant")
 		fx("grab", hydrant.Position, "Hose")
@@ -1398,8 +1530,32 @@ local function upkeepLoop()
 end
 
 -- players ------------------------------------------------------------------------------------------
+-- Something unequipped our tool into the Backpack (RescueService carry, SquadService downed): put it
+-- back in the hand once the hands are free. The Backpack is a new instance every spawn, so this is
+-- hooked per character (the old once-per-player hook went dead after the first respawn).
+local function hookBackpack(player: Player, ps: PState)
+	if ps.bpConn then
+		ps.bpConn:Disconnect()
+		ps.bpConn = nil
+	end
+	local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 10)
+	if not backpack or states[player] ~= ps then
+		return
+	end
+	ps.bpConn = backpack.ChildAdded:Connect(function(child: Instance)
+		if child == ps.tool and not busyHands(player) then
+			task.defer(function()
+				if child.Parent == backpack and player.Character and not busyHands(player) then
+					child.Parent = player.Character
+				end
+			end)
+		end
+	end)
+end
+
 local function hookCharacter(player: Player, char: Model)
 	local ps = stateOf(player)
+	task.spawn(hookBackpack, player, ps)
 	-- Death already spilled the old kit; a respawn without dying (LoadCharacter) keeps it on the new body.
 	if ps.carry then
 		releaseProp(player, ps, Vector3.zero, nil)
@@ -1437,23 +1593,17 @@ local function hookPlayer(player: Player)
 		if ps and ps.carry and ((player:GetAttribute(Names.Attr.Carrying) :: string?) or "") ~= "" then
 			releaseProp(player, ps, Vector3.new(0, 4, 0), nil)
 		end
+		if ps then
+			sweepTools(player, ps) -- hands free again: the tool comes back out of the Backpack
+		end
 	end)
-	-- something unequipped our tool into the Backpack: put it back in the hand
-	local backpack = player:WaitForChild("Backpack", 10)
-	if backpack then
-		backpack.ChildAdded:Connect(function(child: Instance)
-			local ps = states[player]
-			if ps and child == ps.tool and player.Character then
-				task.defer(function()
-					if child.Parent == backpack and player.Character then
-						child.Parent = player.Character
-					end
-				end)
-			end
-		end)
-	end
+	player:GetAttributeChangedSignal(Names.Attr.Downed):Connect(function()
+		local ps = states[player]
+		if ps then
+			sweepTools(player, ps)
+		end
+	end)
 end
-
 local function watchTag(tag: string, fn: (Instance) -> ())
 	CollectionService:GetInstanceAddedSignal(tag):Connect(function(inst: Instance)
 		task.defer(fn, inst) -- builders add prompts/attrs right after the tag
@@ -1519,12 +1669,10 @@ function InventoryService:Start()
 			end
 			releaseHose(player, ps.hand)
 		end
-		states[player] = nil
-		for reel, holder in reelHolder do
-			if holder == player then
-				reelHolder[reel] = nil
-			end
+		if ps and ps.bpConn then
+			ps.bpConn:Disconnect()
 		end
+		states[player] = nil
 	end)
 
 	RunService.Heartbeat:Connect(bonkTick)
@@ -1605,16 +1753,13 @@ function InventoryService:StowHose(player: Player): boolean
 		apply(player, ps)
 		stowed = true
 	end
-	for reel, m in reelLoose do
+	for reel, list in reelLoose do
 		local truck = truckOf(reel)
 		if truck and truck:GetAttribute("OwnerUserId") == player.UserId then
-			removeLoose(m)
+			for _, m in table.clone(list) do
+				removeLoose(m)
+			end
 			stowed = true
-		end
-	end
-	for reel, holder in reelHolder do
-		if holder == player then
-			reelHolder[reel] = nil
 		end
 	end
 	if stowed then
@@ -1650,7 +1795,8 @@ function InventoryService:_fumble(player: Player)
 	fumble(player)
 end
 
-function InventoryService:_reel(player: Player, reel: BasePart?): boolean
+-- `from` (optional): stand there first (tests grab the hose from the side or the front of a truck).
+function InventoryService:_reel(player: Player, reel: BasePart?, from: Vector3?): boolean
 	local r = reel
 	if not r then
 		local truck = ownedTruck(player)
@@ -1668,7 +1814,9 @@ function InventoryService:_reel(player: Player, reel: BasePart?): boolean
 		return false
 	end
 	local _, root = charOf(player)
-	if root and not Net.near(player, r.Position, Cfg.ReelReturnDistance) then
+	if root and typeof(from) == "Vector3" then
+		root.CFrame = CFrame.new(from)
+	elseif root and not nearSource(player, r) then
 		root.CFrame = CFrame.new(r.Position + Vector3.new(0, 3, 6))
 	end
 	onReel(player, r)

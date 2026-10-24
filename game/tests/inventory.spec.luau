@@ -1,6 +1,6 @@
 --!strict
 -- Inventory slot/state rules (ReplicatedStorage/Lib/Items/ItemDefs): grab, drop, throw, swap, fumble,
--- reel ownership, throw charge, truck water, supply lines, bonks.
+-- shared reels (2 nozzles a truck), thrown-axe spin, throw charge, truck water, supply lines, bonks.
 local Spec = require("./Spec")
 local D = require("../ReplicatedStorage/Lib/Items/ItemDefs") :: any
 
@@ -147,11 +147,23 @@ Spec.test("grabProp needs free arms", function()
 	Spec.eq((D.grabProp(S(), { carryingNpc = true })), false)
 end)
 
-Spec.test("reel ownership: your truck, or an unowned one", function()
-	Spec.eq(D.canUseReel(42, 42), true)
-	Spec.eq(D.canUseReel(42, 7), false)
-	Spec.eq(D.canUseReel(nil, 7), true)
-	Spec.eq(D.canUseReel(0, 7), true)
+Spec.test("reels are anyone's: two nozzles per truck, a lying one gets reeled back in", function()
+	Spec.eq(D.reelSlot(0, 0, 2), "new")
+	Spec.eq(D.reelSlot(1, 0, 2), "new") -- a second firefighter (owner or not) gets the second hose
+	Spec.eq(D.reelSlot(2, 0, 2), "full")
+	Spec.eq(D.reelSlot(1, 1, 2), "reclaim") -- the dropped one comes back on the reel for you
+	Spec.eq(D.reelSlot(0, 2, 2), "reclaim")
+	Spec.eq(D.reelSlot(0, 0, 1), "new") -- a hydrant: one line
+	Spec.eq(D.reelSlot(1, 0, 1), "full")
+end)
+
+Spec.test("axes and bars spin when thrown, the rest tumble", function()
+	local list = { "Axe", "FireAxe", "GoldenAxe", "Halligan", "Sledgehammer" }
+	Spec.eq(D.spinsWhenThrown("GoldenAxe", list), true)
+	Spec.eq(D.spinsWhenThrown("Halligan", list), true)
+	Spec.eq(D.spinsWhenThrown("Extinguisher", list), false)
+	Spec.eq(D.spinsWhenThrown(nil, list), false)
+	Spec.eq(D.spinsWhenThrown("Axe", nil), false)
 end)
 
 Spec.test("rack items: Item attr wins, else Slot wraps over RackOrder", function()
