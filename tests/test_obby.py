@@ -282,6 +282,9 @@ def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     real = director.kit_index()
     monkeypatch.setattr(director, "kit_index", lambda: (*real, extra))
     assert names("a cube tycoon") == ["Music"]
+    monkeypatch.setattr(director, "kit_index", lambda: real)
+    # music and costumes come only from the words for them, never from the genre alone
+    assert names("An obby with music and lobby costumes") == ["ObbyKit", "MusicPlayer", "Cosmetics", "CosmeticsClient"]
 
 
 OBBY_DOC = {"fantasy": "Run a giant amusement park obby", "core_loop": "jump -> checkpoint -> next zone",

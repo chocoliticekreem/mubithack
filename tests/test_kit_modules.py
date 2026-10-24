@@ -65,7 +65,7 @@ def test_index_entries_point_at_real_modules():
         assert set(e) == {"name", "path_in_game", "genres", "keywords", "describe", "api"}, e["name"]
         assert e["path_in_game"] == f"ReplicatedStorage/Kit/{e['name']}.luau"
         assert (MODULES / f"{e['name']}.luau").is_file()
-        assert e["genres"] and e["keywords"] and e["describe"]
+        assert (e["genres"] or e["keywords"]) and e["describe"]
         api = "\n".join(e["api"])
         assert "Kit" in api and e["name"] in api and "require(" in api, e["name"]
         head = "\n".join((MODULES / f"{e['name']}.luau").read_text(encoding="utf-8").splitlines()[:3])
@@ -80,7 +80,7 @@ def test_cosmetics_catalog_matches_the_api_and_uses_no_asset_ids():
         slots.setdefault(slot, []).append(cid)
     assert set(slots) == {"head", "back", "trail", "body"}
     assert {"MouseEars", "TopHat", "ClownWig", "Crown", "BalloonHat", "AstronautHelmet", "PartyCone"} <= set(slots["head"])
-    api = next(e["api"] for e in _index() if e["name"] == "Cosmetics")
+    api = "\n".join(next(e["api"] for e in _index() if e["name"] == "Cosmetics"))
     for cid, _ in catalog:
         assert re.search(rf"\b{cid}\b", api), cid
     for name in ("Cosmetics.luau", "CosmeticsClient.luau"):

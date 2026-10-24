@@ -28,30 +28,16 @@
   {
    "name": "MusicPlayer",
    "path_in_game": "ReplicatedStorage/Kit/MusicPlayer.luau",
-   "genres": [
-    "obby",
-    "tycoon",
-    "simulator"
-   ],
+   "genres": [],
    "keywords": [
     "music",
     "soundtrack",
     "song",
-    "background",
-    "zone",
-    "zones",
-    "area",
-    "areas",
-    "world",
-    "worlds",
-    "lobby",
-    "haunted",
-    "carnival",
-    "amusement",
-    "park",
-    "pirate",
-    "coaster",
-    "mute"
+    "songs",
+    "background music",
+    "mute",
+    "radio",
+    "playlist"
    ],
    "describe": "Client: looping background music per area with crossfades and a mute button; 16 Studio-verified Roblox-licensed tracks in 8 moods.",
    "api": [
@@ -61,11 +47,7 @@
   {
    "name": "Cosmetics",
    "path_in_game": "ReplicatedStorage/Kit/Cosmetics.luau",
-   "genres": [
-    "obby",
-    "tycoon",
-    "simulator"
-   ],
+   "genres": [],
    "keywords": [
     "costume",
     "costumes",
@@ -75,16 +57,13 @@
     "hats",
     "cape",
     "capes",
-    "trail",
-    "trails",
     "outfit",
+    "outfits",
     "wardrobe",
-    "skin",
     "skins",
-    "dress",
-    "changing",
-    "accessory",
-    "avatar"
+    "changing room",
+    "dress up",
+    "accessories"
    ],
    "describe": "Server: costumes built from parts (hats, capes, trails, body colours), buy/equip/unequip checked on the server, owned + equipped saved, optional changing room of mannequin stands.",
    "api": [
@@ -94,11 +73,7 @@
   {
    "name": "CosmeticsClient",
    "path_in_game": "ReplicatedStorage/Kit/CosmeticsClient.luau",
-   "genres": [
-    "obby",
-    "tycoon",
-    "simulator"
-   ],
+   "genres": [],
    "keywords": [
     "costume",
     "costumes",
@@ -108,16 +83,13 @@
     "hats",
     "cape",
     "capes",
-    "trail",
-    "trails",
     "outfit",
+    "outfits",
     "wardrobe",
-    "skin",
     "skins",
-    "dress",
-    "changing",
-    "accessory",
-    "avatar"
+    "changing room",
+    "dress up",
+    "accessories"
    ],
    "describe": "Client: the styled costume panel and HUD button for Cosmetics; opens from changing-room prompts.",
    "api": [
