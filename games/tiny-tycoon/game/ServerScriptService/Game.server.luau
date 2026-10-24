@@ -2,12 +2,38 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Workspace = game:GetService("Workspace")
 
-local Config = require(ReplicatedStorage:WaitForChild("Config"))
-local ForgeTelemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry"))
-local PlotBuilder = require(ServerScriptService:WaitForChild("PlotBuilder"))
-local Tycoon = require(ServerScriptService:WaitForChild("Tycoon"))
+-- Guard: the world (plaza + plot ring) and all services must be started exactly once.
+-- A duplicate start is benign, so it returns silently (no warning in the output).
+if workspace:GetAttribute("ForgeWorldBuilt") == true then
+	return
+end
+workspace:SetAttribute("ForgeWorldBuilt", true)
+
+local Config: any = require(ReplicatedStorage:WaitForChild("Config"))
+local ForgeTelemetry: any = require(ReplicatedStorage:WaitForChild("ForgeTelemetry"))
+local PlotBuilder: any = require(ServerScriptService:WaitForChild("PlotBuilder"))
+local PlazaBuilder: any = require(ServerScriptService:WaitForChild("PlazaBuilder"))
+local PlotClaimService: any = require(ServerScriptService:WaitForChild("PlotClaimService"))
+local UpgradeService: any = require(ServerScriptService:WaitForChild("UpgradeService"))
+local RebirthService: any = require(ServerScriptService:WaitForChild("RebirthService"))
+local TutorialService: any = require(ServerScriptService:WaitForChild("TutorialService"))
+local DataService: any = require(ServerScriptService:WaitForChild("DataService"))
+local JuiceService: any = require(ServerScriptService:WaitForChild("JuiceService"))
+
+-- CashInService runs the collector (cube -> Cash, cubes_collected); it must be started.
+local CashInService: any = nil
+do
+	local cashInModule = ServerScriptService:WaitForChild("CashInService", 5)
+	if cashInModule and cashInModule:IsA("ModuleScript") then
+		local okReq, result = pcall(require, cashInModule)
+		if okReq then
+			CashInService = result
+		else
+			warn("CashInService require failed: " .. tostring(result))
+		end
+	end
+end
 
 -- Remotes
 local remotes = ReplicatedStorage:FindFirstChild(Config.REMOTES_FOLDER)
@@ -23,85 +49,156 @@ if not (remotes :: Instance):FindFirstChild(Config.REMOTE_NOTIFY) then
 	ev.Parent = remotes
 end
 
--- World
-local base = PlotBuilder.buildBase()
-ForgeTelemetry.count("map_built", 1)
-
--- No SpawnLocation is created: Instance.new("SpawnLocation") adds a default Decal that
--- loads an unapproved asset and logs a warning. Characters are teleported to their plot
--- on every CharacterAdded (including respawns), so a spawn object is not needed.
-local _ = base
-
-type PlayerState = {
-	index: number,
-	plot: any,
-	tycoon: any,
-	counted: boolean,
-	conns: { RBXScriptConnection },
-}
-
-local states: { [Player]: PlayerState } = {}
-local slots: { [number]: Player? } = {}
-
-local function nextFreeSlot(): number?
-	for i = 1, Config.MAX_PLOTS do
-		if slots[i] == nil then
-			return i
+-- Calls the first function found under any of the given names.
+local function callFirst(module: any, names: { string }, ...: any): (boolean, any)
+	if type(module) ~= "table" then
+		return false, nil
+	end
+	for _, name in names do
+		local fn = module[name]
+		if type(fn) == "function" then
+			local ok, result = pcall(fn, ...)
+			if not ok then
+				warn(name .. " failed: " .. tostring(result))
+			end
+			return ok, result
 		end
+	end
+	return false, nil
+end
+
+-- Data: initialise once at startup (before any player is handled)
+callFirst(DataService, { "init" })
+
+-- Juice: lighting style + juice remotes, once at startup (before any player is handled)
+callFirst(JuiceService, { "init" })
+
+-- World: base, plaza, plots (each built exactly once)
+local built = false
+local plazaCenter = Vector3.new(0, 4, 0)
+local plots: { any } = {}
+
+local function buildWorld()
+	if built then
+		return
+	end
+	built = true
+
+	callFirst(PlotBuilder, { "buildBase" })
+
+	-- Baseplate styling (no default grey)
+	local baseplate = workspace:FindFirstChild("Baseplate")
+	if baseplate and baseplate:IsA("BasePart") then
+		if typeof(Config.BASEPLATE_COLOR) == "Color3" then
+			baseplate.Color = Config.BASEPLATE_COLOR
+		end
+		if typeof(Config.BASEPLATE_MATERIAL) == "EnumItem" then
+			baseplate.Material = Config.BASEPLATE_MATERIAL
+		end
+	end
+
+	local okPlaza, plaza = callFirst(PlazaBuilder, { "buildPlaza", "build", "create" })
+	if okPlaza and plaza ~= nil then
+		if typeof(plaza) == "CFrame" then
+			plazaCenter = (plaza :: CFrame).Position
+		elseif typeof(plaza) == "Vector3" then
+			plazaCenter = plaza :: Vector3
+		elseif type(plaza) == "table" then
+			local c = plaza.spawnCFrame or plaza.centerCFrame or plaza.center or plaza.spawn
+			if typeof(c) == "CFrame" then
+				plazaCenter = c.Position
+			elseif typeof(c) == "Vector3" then
+				plazaCenter = c
+			end
+		end
+	end
+
+	local plotCount: number = Config.PLOT_COUNT or Config.MAX_PLOTS or 6
+	for i = 1, plotCount do
+		local ok, plot = pcall(PlotBuilder.buildPlot, i)
+		if ok and plot ~= nil then
+			table.insert(plots, plot)
+		else
+			warn("Plot build failed: " .. tostring(plot))
+		end
+	end
+
+	ForgeTelemetry.count("map_built", 1)
+end
+
+buildWorld()
+
+-- PlotClaimService is the single authority for claiming and auto-claiming.
+callFirst(PlotClaimService, { "init", "start", "setup" }, plots)
+callFirst(UpgradeService, { "init" })
+callFirst(RebirthService, { "init" })
+callFirst(CashInService, { "init", "start", "setup" }, plots)
+
+-- Claim detection
+-- Resolves the plot currently owned by a player (nil if none).
+local function getClaimedPlot(player: Player): any?
+	if type(PlotClaimService) == "table" then
+		local getter = PlotClaimService.getPlot or PlotClaimService.getPlotFor
+		if type(getter) == "function" then
+			local ok, result = pcall(getter, player)
+			if ok and result ~= nil then
+				if type(result) == "number" then
+					return plots[result]
+				end
+				return result
+			end
+		end
+	end
+	local idx = player:GetAttribute("PlotIndex") or player:GetAttribute("ClaimedPlot")
+	if type(idx) == "number" then
+		return plots[idx]
 	end
 	return nil
 end
 
-local function removePlot(plot: any)
-	pcall(function()
-		local parts: { Instance } = {}
-		for _, key in { "conveyor", "collector", "dropperButton", "conveyorButton", "dropperSlot2" } do
-			local p = plot[key]
-			if typeof(p) == "Instance" then
-				table.insert(parts, p)
-			end
-		end
-		if type(plot.droppers) == "table" then
-			for _, d in plot.droppers do
-				if typeof(d) == "Instance" then
-					table.insert(parts, d)
-				end
-			end
-		end
-		local container = parts[1] and parts[1].Parent
-		if
-			container
-			and container ~= Workspace
-			and (container:IsA("Model") or (container:IsA("Folder") and container.Name ~= "Plots" and container.Name ~= "TycoonPlots"))
-		then
-			container:Destroy()
-		else
-			for _, p in parts do
-				p:Destroy()
-			end
-		end
-	end)
+local function hasClaimedPlot(player: Player): boolean
+	if getClaimedPlot(player) ~= nil then
+		return true
+	end
+	return player:GetAttribute("PlotIndex") ~= nil or player:GetAttribute("ClaimedPlot") ~= nil
 end
 
-local function teleport(player: Player, state: PlayerState, character: Model)
+-- Notifies UpgradeService once per claimed plot (covers manual and auto-claim paths).
+local notifiedPlot: { [Player]: any } = {}
+local function checkClaim(player: Player)
+	local plot = getClaimedPlot(player)
+	if plot == nil then
+		notifiedPlot[player] = nil
+		return
+	end
+	if notifiedPlot[player] == plot then
+		return
+	end
+	notifiedPlot[player] = plot
+	callFirst(UpgradeService, { "onPlotClaimed" }, player, plot)
+	callFirst(CashInService, { "onPlotClaimed" }, player, plot)
+end
+
+-- Moves an unclaimed player to the plaza center; claimed players are never teleported.
+local function spawnAtPlaza(player: Player, character: Model)
 	local hrp = character:WaitForChild("HumanoidRootPart", 5)
 	if not hrp or not hrp:IsA("BasePart") then
 		return
 	end
-	if state.plot == nil or states[player] ~= state then
+	if hasClaimedPlot(player) then
 		return
 	end
-	character:PivotTo(state.plot.spawnCFrame + Vector3.new(0, 3, 0))
-	if not state.counted then
-		state.counted = true
-		ForgeTelemetry.count("plot_assigned", 1)
-	end
+	local offset = Vector3.new(math.random(-6, 6), 4, math.random(-6, 6))
+	character:PivotTo(CFrame.new(plazaCenter + offset))
 end
 
+local setupDone: { [Player]: boolean } = {}
+
 local function setupPlayer(player: Player)
-	if states[player] then
+	if setupDone[player] then
 		return
 	end
+	setupDone[player] = true
 
 	local ls = player:FindFirstChild("leaderstats")
 	if not ls then
@@ -117,59 +214,49 @@ local function setupPlayer(player: Player)
 		cash.Parent = ls
 	end
 
-	local index = nextFreeSlot()
-	if not index then
-		player:Kick("Server is full")
+	-- Load saved data and re-apply it BEFORE the tycoon / claim / tutorial wiring starts
+	callFirst(DataService, { "loadPlayer" }, player)
+	if player.Parent ~= Players then
 		return
 	end
-	slots[index] = player
+	callFirst(DataService, { "applyPlayer" }, player)
 
-	local state: PlayerState = { index = index, plot = nil, tycoon = nil, counted = false, conns = {} }
-	states[player] = state
-
-	local okPlot, plot = pcall(PlotBuilder.buildPlot, index)
-	if not okPlot then
-		warn("Plot build failed: " .. tostring(plot))
-		states[player] = nil
-		slots[index] = nil
-		return
-	end
-	state.plot = plot
-	state.tycoon = Tycoon.new(player, plot)
-
-	table.insert(state.conns, player.CharacterAdded:Connect(function(character)
-		teleport(player, state, character)
-	end))
+	player.CharacterAdded:Connect(function(character)
+		spawnAtPlaza(player, character)
+	end)
 	if player.Character then
 		local character = player.Character
-		task.spawn(teleport, player, state, character)
+		task.spawn(spawnAtPlaza, player, character)
 	end
+
+	-- Watch for plot claims
+	player:GetAttributeChangedSignal("PlotIndex"):Connect(function()
+		checkClaim(player)
+	end)
+	player:GetAttributeChangedSignal("ClaimedPlot"):Connect(function()
+		checkClaim(player)
+	end)
+	task.spawn(function()
+		while player.Parent == Players do
+			checkClaim(player)
+			task.wait(0.5)
+		end
+	end)
 end
 
-local function cleanupPlayer(player: Player)
-	local state = states[player]
-	if not state then
-		return
-	end
-	states[player] = nil
-	for _, c in state.conns do
-		c:Disconnect()
-	end
-	if state.tycoon then
-		pcall(function()
-			state.tycoon:destroy()
-		end)
-	end
-	if state.plot then
-		removePlot(state.plot)
-	end
-	if slots[state.index] == player then
-		slots[state.index] = nil
-	end
-end
-
-Players.PlayerAdded:Connect(setupPlayer)
-Players.PlayerRemoving:Connect(cleanupPlayer)
+Players.PlayerAdded:Connect(function(player)
+	task.spawn(setupPlayer, player)
+end)
 for _, player in Players:GetPlayers() do
 	task.spawn(setupPlayer, player)
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	notifiedPlot[player] = nil
+	setupDone[player] = nil
+	callFirst(UpgradeService, { "onPlayerRemoving" }, player)
+	callFirst(CashInService, { "onPlayerRemoving" }, player)
+end)
+
+-- Tutorial: started once after all other services are wired
+callFirst(TutorialService, { "start" })

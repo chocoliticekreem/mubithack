@@ -1,5 +1,5 @@
 --!strict
--- Hud.client.luau: UI only. Shows Cash, a hint line, and toast messages from the server.
+-- Hud.client.luau: UI only. Shows Cash and toast messages from the server.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,11 +7,36 @@ local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config", 10) :: ModuleScript) :: any
 
+local NumberFormat: any = nil
+do
+	local nfModule = ReplicatedStorage:WaitForChild("NumberFormat", 10)
+	if nfModule and nfModule:IsA("ModuleScript") then
+		local ok, result = pcall(require, nfModule)
+		if ok then
+			NumberFormat = result
+		end
+	end
+end
+
+-- All big numbers written to the HUD go through the shared formatter.
+local function short(n: number): string
+	if NumberFormat and type(NumberFormat.short) == "function" then
+		local ok, text = pcall(NumberFormat.short, n)
+		if ok and type(text) == "string" then
+			return text
+		end
+	end
+	return tostring(math.floor(n))
+end
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui", 10)
 if not playerGui then
 	return
 end
+
+local CASH_COLOR = Color3.fromRGB(40, 190, 90)
+local CASH_FLASH_COLOR = Color3.fromRGB(150, 255, 120)
 
 -- Build UI
 local gui = Instance.new("ScreenGui")
@@ -25,7 +50,7 @@ cashFrame.Name = "CashFrame"
 cashFrame.AnchorPoint = Vector2.new(0.5, 0)
 cashFrame.Position = UDim2.fromScale(0.5, 0.02)
 cashFrame.Size = UDim2.fromScale(0.28, 0.09)
-cashFrame.BackgroundColor3 = Color3.fromRGB(40, 190, 90)
+cashFrame.BackgroundColor3 = CASH_COLOR
 cashFrame.BorderSizePixel = 0
 cashFrame.Parent = gui
 
@@ -38,6 +63,10 @@ cashStroke.Color = Color3.fromRGB(255, 255, 255)
 cashStroke.Thickness = 3
 cashStroke.Parent = cashFrame
 
+local cashScale = Instance.new("UIScale")
+cashScale.Scale = 1
+cashScale.Parent = cashFrame
+
 local cashLabel = Instance.new("TextLabel")
 cashLabel.Name = "CashLabel"
 cashLabel.Size = UDim2.fromScale(1, 1)
@@ -48,27 +77,15 @@ cashLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 cashLabel.Text = "Cash: 0"
 cashLabel.Parent = cashFrame
 
+local cashTextStroke = Instance.new("UIStroke")
+cashTextStroke.Color = Color3.fromRGB(28, 22, 38)
+cashTextStroke.Thickness = 2.5
+cashTextStroke.Parent = cashLabel
+
 local cashPad = Instance.new("UIPadding")
 cashPad.PaddingTop = UDim.new(0.12, 0)
 cashPad.PaddingBottom = UDim.new(0.12, 0)
 cashPad.Parent = cashLabel
-
-local hint = Instance.new("TextLabel")
-hint.Name = "Hint"
-hint.AnchorPoint = Vector2.new(0.5, 0)
-hint.Position = UDim2.fromScale(0.5, 0.115)
-hint.Size = UDim2.fromScale(0.4, 0.04)
-hint.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-hint.BackgroundTransparency = 0.45
-hint.Font = Enum.Font.GothamBold
-hint.TextScaled = true
-hint.TextColor3 = Color3.fromRGB(255, 255, 255)
-hint.Text = "Touch the green pads to buy: Dropper 25 / Fast Belt 50"
-hint.Parent = gui
-
-local hintCorner = Instance.new("UICorner")
-hintCorner.CornerRadius = UDim.new(0.3, 0)
-hintCorner.Parent = hint
 
 local toast = Instance.new("TextLabel")
 toast.Name = "Toast"
@@ -90,24 +107,70 @@ toastCorner.Parent = toast
 
 gui.Parent = playerGui
 
--- Cash binding
+-- Juice helpers
 local function formatCash(n: number): string
-	return "Cash: " .. tostring(math.floor(n))
+	return "Cash: " .. short(n)
 end
 
+local popupCounter = 0
+local function floatPopup(amount: number)
+	popupCounter += 1
+	local label = Instance.new("TextLabel")
+	label.Name = "Popup" .. popupCounter
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	local xOffset = (math.random() - 0.5) * 0.1
+	label.Position = UDim2.fromScale(0.5 + xOffset, 0.21)
+	label.Size = UDim2.fromScale(0.1, 0.05)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(120, 255, 120)
+	label.Text = "+" .. short(amount)
+	label.ZIndex = 5
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(28, 22, 38)
+	stroke.Thickness = 2.5
+	stroke.Parent = label
+
+	label.Parent = gui
+
+	local info = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(label, info, {
+		Position = UDim2.fromScale(0.5 + xOffset, 0.15),
+		TextTransparency = 1,
+	}):Play()
+	TweenService:Create(stroke, info, { Transparency = 1 }):Play()
+	task.delay(0.9, function()
+		label:Destroy()
+	end)
+end
+
+local function pulseCash()
+	cashScale.Scale = 1.18
+	TweenService:Create(cashScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	}):Play()
+	cashFrame.BackgroundColor3 = CASH_FLASH_COLOR
+	TweenService:Create(cashFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundColor3 = CASH_COLOR,
+	}):Play()
+end
+
+-- Cash binding
 local lastCash = 0
+local firstRefresh = true
 local function bindCash(cash: ValueBase)
 	local cashAny = cash :: any
 	local function refresh()
 		local v = cashAny.Value
 		if type(v) == "number" then
 			cashLabel.Text = formatCash(v)
-			if v > lastCash then
-				cashFrame.Size = UDim2.fromScale(0.3, 0.1)
-				TweenService:Create(cashFrame, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-					Size = UDim2.fromScale(0.28, 0.09),
-				}):Play()
+			if v > lastCash and not firstRefresh then
+				pulseCash()
+				floatPopup(v - lastCash)
 			end
+			firstRefresh = false
 			lastCash = v
 		end
 	end
