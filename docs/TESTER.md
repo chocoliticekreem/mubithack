@@ -111,6 +111,39 @@ async def suggest_fix(settings, run_id: str, bug_index: int, *, llm=None) -> dic
 
 New fixed prompts (Mubit tasks): `forge/prompts/explorer.md`. `player` and `judge` are reused.
 
+## QA protocol (`forge qa`, `mubit_tester.protocol`)
+
+The disciplined tester: every run follows the same five phases a senior engineer would, with a
+screenshot at every step.
+
+1. **Understand.** Read `../spec.json` (title, pitch, core loop, acceptance list), census the live
+   game (CollectionService tags with counts, Workspace attributes, the player's attributes and
+   leaderstats, counters, first observation) and take `step-00.png`.
+2. **Plan.** `test_planner` (Mubit) writes a numbered plan: hypotheses, then per step an action, a
+   settle time, the expected observable and machine checks (`{path, op, value}` into the snapshot:
+   `counters.*`, `player.leaderstats.*`, `player.attrs.*`, `world.tags.*`, `obs.hud`, `errors.new`, ...;
+   ops `== != > >= < <= exists missing increased decreased changed unchanged contains near`).
+3. **Execute.** Per step: snapshot → act → settle → snapshot + `step-NN.png` + new console lines +
+   new ForgeProbe errors + game events → checks. `step_judge` (Mubit) rules when a check fails, an
+   error appears, a step has no checks, or the step is visual (then it sees the screenshot).
+4. **Investigate.** On a mismatch (at most 3 per run): reproduce (run the step again,
+   `step-NN-repro.png`), narrow down (the judge's read-only probes: `query`, `inspect`, `counters`,
+   `events`, `observe`, `console`, `screenshot`, `config`), then `step_judge` in investigate mode writes
+   the bug: minimal repro, expected/actual, root cause, severity and a fix target file.
+5. **Report.** Pass/fail per acceptance item, bugs (behaviour, server error, visual) sorted by
+   severity with screenshots and fix target, and `visual_judge` (Mubit, key screenshots attached as
+   images) for UI overlap, missing visuals and ugliness. `report.md` + `report.json` in
+   `runs/<slug>/tests/<run_id>/`, mirrored to `runs/playtests/<run_id>/` so `report`, `suggest_fix`
+   and `playtest_correct` work on it.
+
+```bash
+.venv/bin/forge qa [focus] --root games/tiny-tycoon/game --studio Forge-agents-22 --steps 10
+.venv/bin/forge play-correct <run_id> <step> "note"   # step 0 = plan, n = step n's judge, -1 = visual review
+```
+Images go through Mubit's Anthropic-compatible endpoint as image blocks (OpenAI shape for
+`FORGE_PROVIDER=openai`); the calls log `images: N`. Prompts: `mubit-tester/prompts/{test_planner,
+step_judge,visual_judge}.md` (fixed; everything per call is in the user message).
+
 ## MCP tools (`mubit-tester`)
 
 Session: `status`, `studios`, `play_start`, `play_stop`, `multiplayer_start(players)` (best effort

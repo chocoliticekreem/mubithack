@@ -904,6 +904,14 @@ async def explore(settings: Settings, minutes: float = 3, players: int | list | 
     return rep
 
 
+async def qa_test(settings: Settings, focus: str | None = None, **kw) -> dict:
+    """The 5-phase QA protocol (understand, plan, execute, investigate, report) with screenshots and
+    vision; see mubit_tester.protocol.qa_test for the arguments."""
+    from mubit_tester import protocol
+
+    return await protocol.qa_test(settings, focus, **kw)
+
+
 # --------------------------------------------------------------------------- corrections
 
 
@@ -931,6 +939,10 @@ async def correct_step(settings: Settings, run_id: str, step: int, note: str, pl
                        llm=None) -> dict:
     """Re-run one player's agent call at `step` with a human correction (same Mubit task + session)."""
     report = play.load_report(settings, run_id)
+    if report.get("kind") == "protocol":  # QA protocol run: step 0 = plan, n = step judge, -1 = visual
+        from mubit_tester import protocol
+
+        return await protocol.correct(settings, run_id, step, note, llm=llm)
     if not report.get("players"):
         return await play.correct_step(settings, run_id, step, note, llm=llm)
     if not note or not note.strip():

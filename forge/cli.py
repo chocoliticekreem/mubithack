@@ -237,6 +237,19 @@ def cmd_play(args) -> int:
     return 0
 
 
+def cmd_qa(args) -> int:
+    """The QA protocol (mubit_tester.protocol): understand -> plan -> execute -> investigate -> report."""
+    from mubit_tester.protocol import qa_test
+
+    s = load_settings()
+    rep = asyncio.run(qa_test(s, args.focus, game_dir=Path(args.root) if args.root else None,
+                              max_steps=args.steps, studio_name=args.studio or os.environ.get("FORGE_STUDIO"),
+                              stop=not args.keep_playing))
+    print((Path(rep["test_dir"]) / "report.md").read_text(encoding="utf-8"))
+    print(f"\nreport: {rep['test_dir']}/report.md  (correct a call: forge play-correct {rep['run_id']} <step> \"...\")")
+    return 0 if rep.get("goal_met") is not False else 1
+
+
 def cmd_play_correct(args) -> int:
     from mubit_tester.server import run_correct
     print(asyncio.run(run_correct(args.run_id, args.step, args.note)))
@@ -608,6 +621,13 @@ def build_parser() -> argparse.ArgumentParser:
     py.add_argument("--steps", type=int, default=20)
     py.add_argument("--studio", help="pick the Studio whose name contains this")
 
+    qa = sub.add_parser("qa", help="QA protocol: plan, step-by-step checks + screenshots, investigate, report")
+    qa.add_argument("focus", nargs="?", help="what to test first (default: the whole acceptance list)")
+    qa.add_argument("--root", help="game folder whose ../spec.json is the spec (default game/)")
+    qa.add_argument("--steps", type=int, default=12, help="max plan steps")
+    qa.add_argument("--studio", help="pick the Studio whose name contains this")
+    qa.add_argument("--keep-playing", action="store_true", help="don't stop the playtest at the end")
+
     pc = sub.add_parser("play-correct", help="correct the playtester's choice at one step (Mubit signal)")
     pc.add_argument("run_id")
     pc.add_argument("step", type=int)
@@ -735,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
                "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
-               "reports": cmd_reports, "play": cmd_play, "play-correct": cmd_play_correct,
+               "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
     try:
         return handler(args) or 0
