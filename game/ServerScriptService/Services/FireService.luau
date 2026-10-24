@@ -299,12 +299,40 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 	end
 	local hit = 0
 	local out: { Cell } = {}
+	local near = tonumber(FireConfig.HoseNearRadius) or 0
+	local frontDot = tonumber(FireConfig.HoseNearFrontDot) or 0
+	local flatAim = Vector3.new(aim.X, 0, aim.Z)
+	flatAim = if flatAim.Magnitude > 1e-3 then flatAim.Unit else Vector3.zero
 	for _, l in locations do
 		for c in l.burning do
-			local d = c.part.Position - origin
-			if FireSim.inCone(d.X, d.Y, d.Z, aim.X, aim.Y, aim.Z, FireConfig.HoseRange, FireConfig.HoseConeCos) then
+			-- aim at the NEAREST point of the part, not its centre: up close the centre of a dumpster /
+			-- crate is steeply below your head and fell outside the cone, so point-blank spray did nothing
+			local part = c.part
+			local lp = part.CFrame:PointToObjectSpace(origin)
+			local h = part.Size / 2
+			local nearest = part.CFrame:PointToWorldSpace(Vector3.new(
+				math.clamp(lp.X, -h.X, h.X),
+				math.clamp(lp.Y, -h.Y, h.Y),
+				math.clamp(lp.Z, -h.Z, h.Z)
+			))
+			local d = nearest - origin
+			local inside = FireSim.inCone(d.X, d.Y, d.Z, aim.X, aim.Y, aim.Z, FireConfig.HoseRange, FireConfig.HoseConeCos)
+			if not inside and d.Magnitude <= near then
+				local flat = Vector3.new(d.X, 0, d.Z)
+				inside = flat.Magnitude < 1.5 or (flatAim ~= Vector3.zero and flat.Unit:Dot(flatAim) >= frontDot)
+			end
+			if inside then
 				hit += 1
-				if FireSim.cool(c :: any, litres, FireConfig :: any) then
+				local mult = 1
+				local a: Instance? = part.Parent
+				while a and a ~= workspace do
+					if a:GetAttribute("TrainingFire") == true then
+						mult = tonumber(FireConfig.TrainingCoolMultiplier) or 1
+						break
+					end
+					a = a.Parent
+				end
+				if FireSim.cool(c :: any, litres * mult, FireConfig :: any) then
 					table.insert(out, c)
 				else
 					setLevel(c)
