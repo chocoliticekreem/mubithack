@@ -186,8 +186,6 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
     """End to end after a build: AI testers play inside a round, the auditor checks every acceptance item
     (the feature's included), and investigate -> fix -> verify runs, cycle after cycle, until nothing high
     or medium is open. Each cycle also checks the feature's planned counters."""
-    import os
-
     from forge.improve import ImproveStore, round_starting, run_cycle
     from forge.llm import make_llm
 
@@ -232,12 +230,15 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
     if harness is not None:
         await go(harness, playtest)
         return results
-    from forge.studio import Studio
+    from forge import headless as hl
     from mubit_tester.ai import multi_playtest
     from mubit_tester.harness import Harness
 
-    async with Studio(settings) as studio:
-        await studio.select(os.environ.get("FORGE_STUDIO") or None)
+    # headless unless the feature has UI to press (--studio auto) or --studio always (forge/headless.py)
+    async with hl.backend(settings, RunStore(settings, slug).game_dir, needs_ui=needs_ui, slug=slug,
+                          kind="polish") as studio:
+        if getattr(studio, "headless", False):
+            log("[feature] polish runs headless (simulated players; no UI to press)")
         await go(Harness(studio), playtest or round_starting(multi_playtest, seconds=180))
     return results
 

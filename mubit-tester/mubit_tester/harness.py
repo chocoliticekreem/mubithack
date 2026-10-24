@@ -281,6 +281,8 @@ class Harness:
         """{str(userId): studio_id} for the players a Studio window drives in THIS test. Only the
         harness's own window and the client windows it was given are asked; the ForgeTest session
         token must match, so another Studio's playtest is never clicked."""
+        if getattr(self.studio, "headless", False):  # forge.headless: every simulated client can press
+            return {str(p.get("userId")): "headless" for p in await self.players() if isinstance(p, dict)}
         session = None
         try:
             session = ((await self.ping()) or {}).get("session")
@@ -307,6 +309,8 @@ class Harness:
         firing the game's remotes would skip the UI under test."""
         if not path and not text:
             return {"done": False, "detail": "press needs path or text (from the observation's `ui`)"}
+        if getattr(self.studio, "headless", False):  # forge.headless: fire the button's events on its client
+            return await self.studio.press(user_id, path=path, text=text, wait=PRESS_WAIT if wait is None else wait)
         windows = await self.ui_windows()
         uid = await self._user_id(user_id)
         sid = windows.get(str(uid))

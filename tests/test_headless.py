@@ -104,8 +104,9 @@ return { ok = ok and after == before - 20, detail = before .. " -> " .. after }
 def test_check_runs_offline(tmp_path):
     root = _shop(tmp_path)
     res = checks.run_check_offline(root, checks.parse(CHECK_OK, "buy"))
+    res.pop("sim", None)
     assert res == {"id": "buy", "title": "buying costs 20", "where": "offline", "ok": True,
-                   "detail": "50 -> 30", "boot_errors": 0}
+                   "detail": "50 -> 30", "boot_errors": 0, "verdict": "pass"}
 
 
 def test_failing_erroring_and_slow_checks(tmp_path):

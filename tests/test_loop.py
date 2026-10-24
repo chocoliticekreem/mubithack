@@ -130,7 +130,13 @@ async def test_new_game_no_studio(settings):
     assert kinds == ["compile", "critic"]
     assert rec["compile_errors"] == []
     assert store.load_iteration_json(1, "critique.json")["score"] == 6
-    assert store.load_iteration_json(1, "report.json")["runtime"].startswith("not run")
+    # --no-studio still playtests: headless (forge/headless.py), with the probe fields and the census
+    report = store.load_iteration_json(1, "report.json")
+    if shutil.which("luau"):
+        assert report["engine"] == "headless" and "errors" in report and "census" in report
+        assert rec["engine"] == "headless" and rec["studio"] is False
+    else:
+        assert report["runtime"].startswith("not run")
 
     assert read_lessons(settings).strip() == LESSONS.strip()
 

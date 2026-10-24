@@ -34,9 +34,11 @@ Headless (no Studio): game/tools/headless.luau fakes enough of the Roblox engine
 server code with the plain `luau` CLI on a simulated clock. `boot_offline(game_dir)` boots every
 server Script, joins a player and returns a ForgeProbe-shaped report (errors, warnings, counters)
 in well under a second; `run_checks_offline(game_dir, checks)` runs checks against that booted fake
-server in parallel. A check that passes offline needs no Studio round trip (`triage`); anything that
-fails or errors offline still goes to Studio, which stays the judge. A check that can only mean
-something in a real engine (physics, rendering, replication) says so with `-- needs: studio`.
+server (plus one simulated client running its LocalScripts) in parallel. A check that passes offline
+needs no Studio round trip (`triage`); with --studio auto anything that fails or errors offline still goes to
+Studio, which stays the judge (--studio never trusts the headless verdict). A check that touched something
+the engine can't model (needs_studio: physics movers, camera, UI layout) is never a headless pass. A check
+that can only mean something in a real engine says so with `-- needs: studio`.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -362,6 +365,7 @@ async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT, *
     A setup failure (setup_failure) gets one rerun in a restarted playtest when `fresh` and the studio can
     play/stop (the rerun has restarted: true and the first run in `first`); a check that still cannot set up
     has setup: true."""
+    t0 = time.time()
     res = await _run_once(studio, check, timeout)
     if fresh and setup_failure(res) and _can_restart(studio):
         log(f"[checks] {check.id} could not set up ({str(res.get('error') or res.get('detail'))[:120]}); "
@@ -371,6 +375,12 @@ async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT, *
             res = {**await _run_once(studio, check, timeout), "restarted": True, "first": first}
     if setup_failure(res):
         res["setup"] = True
+    try:  # count where checks run (forge headless --stats); a headless session counts as headless
+        from forge import headless as hl
+        hl.record("check", "headless" if getattr(studio, "headless", False) else "studio", time.time() - t0,
+                  ok=bool(res.get("ok")), note=check.id)
+    except Exception:  # noqa: BLE001
+        pass
     return res
 
 
@@ -426,10 +436,12 @@ def bundle(game_dir: Path, opts: dict) -> str:
         src = (game_dir / e["path"]).read_text(encoding="utf-8", errors="replace")
         lines.append(f"H.add({json.dumps(e['path'])}, {json.dumps(e['class'])}, {fsync.long_string(src)})")
     o = dict(opts)
-    check_body = o.pop("check", None)
+    long_fields = {k: o.pop(k) for k in ("check", "code") if o.get(k) is not None}
     fields = [f"{k} = {json.dumps(v)}" for k, v in sorted(o.items()) if isinstance(v, (int, float, str))]
-    if check_body is not None:
-        fields.append(f"check = {fsync.long_string(check_body)}")
+    for k, v in long_fields.items():
+        fields.append(f"{k} = {fsync.long_string(v)}")
+    if opts.get("mode") == "serve":  # a session (forge.headless.HeadlessStudio): the REPL calls the engine
+        lines.append("__FORGE_HEADLESS = H")
     lines.append("H.main({ " + ", ".join(fields) + " })")
     return "\n".join(lines) + "\n"
 
@@ -458,27 +470,59 @@ def run_headless(game_dir: Path, opts: dict | None = None, timeout: float = HEAD
     return {"error": f"headless run failed (exit {r.returncode}): {(r.stderr or r.stdout)[-800:]}"}
 
 
-def boot_offline(game_dir: Path, boot: float = 2.0, play: float = 3.0, players: int = 1) -> dict:
-    """Boot the game's server headless, join `players`, run `play` simulated seconds.
-    Returns a ForgeProbe-shaped report plus "misses" (engine members the fake doesn't model)."""
-    out = run_headless(game_dir, {"mode": "boot", "boot": boot, "play": play, "players": players})
+def boot_offline(game_dir: Path, boot: float = 2.0, play: float = 3.0, players: int = 1,
+                 clients: bool = False) -> dict:
+    """Boot the game's server headless, join `players` (simulated clients running their LocalScripts when
+    `clients`), run `play` simulated seconds. Returns a ForgeProbe-shaped report plus "misses" (engine
+    members the fake doesn't model), "needs_studio" (what it used that only Studio can answer) and
+    "approx" (what it modelled roughly)."""
+    out = run_headless(game_dir, {"mode": "boot", "boot": boot, "play": play, "players": players,
+                                  "clients": clients})
     if "error" in out:
         return {"error": out["error"], "errors": [], "warnings": []}
     return out.get("report") or {"error": "no report", "errors": [], "warnings": []}
 
 
-def run_check_offline(game_dir: Path, check: Check, timeout: float = CHECK_TIMEOUT) -> dict:
-    """Run one check against a freshly booted headless server -> run_check's shape + where/boot_errors."""
-    out = run_headless(game_dir, {"mode": "check", "check": check.body, "timeout": timeout})
+def verdict(res: dict) -> str:
+    """One check run -> "pass" | "fail" | "unknown" (could not set up) | "needs_studio" (it used something
+    the headless engine can't model: never a headless pass, Studio decides)."""
+    if res.get("needs_studio"):
+        return "needs_studio"
+    if setup_failure(res):
+        return "unknown"
+    return "pass" if res.get("ok") else "fail"
+
+
+def run_check_offline(game_dir: Path, check: Check, timeout: float = CHECK_TIMEOUT, *,
+                      clients: bool = True) -> dict:
+    """Run one check against a freshly booted headless server (one simulated client) -> run_check's shape
+    + where="offline", verdict, boot_errors, needs_studio/misses (what the engine could not model while
+    the check ran; a check that hit needs_studio is not ok, whatever it returned)."""
+    t0 = time.time()
+    out = run_headless(game_dir, {"mode": "exec", "code": wrap(check.body), "dm": "Server", "timeout": timeout,
+                                  "clients": clients})
     if "error" in out:
         res: dict = {"ok": False, "error": out["error"]}
     else:
-        res = dict(out.get("check") or {"ok": False, "error": "no check result"})
+        ex = out.get("exec") or {}
+        res = result_from(ex.get("text") or "") if ex.get("ok") else {"ok": False, "error": str(ex.get("error") or "no check result")}
         rep = out.get("report") or {}
         res["boot_errors"] = len(rep.get("errors") or [])
-        if not res.get("ok") and rep.get("misses"):
-            res["misses"] = rep["misses"][:10]
-    return {"id": check.id, "title": check.title, "where": "offline", **res}
+        needs = [n.get("feature") for n in ex.get("needs_studio") or [] if n.get("feature")]
+        if needs:
+            res["needs_studio"] = needs[:10]
+            res["ok"] = False
+        if ex.get("misses"):
+            res["misses"] = ex["misses"][:10]
+        res["sim"] = ex.get("sim")
+    res = {"id": check.id, "title": check.title, "where": "offline", **res}
+    res["verdict"] = verdict(res)
+    try:
+        from forge import headless as hl
+        hl.record("check", "headless", time.time() - t0, ok=res["verdict"] == "pass", note=check.id)
+    except Exception:  # noqa: BLE001 - counting never breaks a check
+        pass
+    return res
 
 
 def run_checks_offline(game_dir: Path, checks: list[Check], timeout: float = CHECK_TIMEOUT,
@@ -490,14 +534,32 @@ def run_checks_offline(game_dir: Path, checks: list[Check], timeout: float = CHE
         return list(pool.map(lambda c: run_check_offline(game_dir, c, timeout), checks))
 
 
-def triage(game_dir: Path, checks: list[Check]) -> tuple[list[dict], list[Check]]:
-    """Run what can run without Studio. -> (offline passes, checks that still need Studio).
-    Only a pass is trusted offline; a failure may be the fake engine's gap, so Studio re-runs it."""
-    if not headless_available():
+def triage(game_dir: Path, checks: list[Check], mode: str | None = None) -> tuple[list[dict], list[Check]]:
+    """Run what can run without Studio. -> (results trusted headless, checks that still need Studio).
+
+    Studio policy (forge.headless.studio_mode): "auto" trusts a headless pass; a failure, an unknown setup
+    or a needs_studio result goes to Studio (a failure may be the fake engine's gap). "never" trusts every
+    headless verdict except needs_studio (those come back as unknown results, never as passes, and nothing
+    is left for Studio). "always" runs nothing headless."""
+    from forge import headless as hl
+
+    mode = hl.studio_mode(mode)
+    if mode == "always" or not headless_available():
         return [], list(checks)
     candidates = [c for c in checks if c.needs != "studio"]
     results = run_checks_offline(game_dir, candidates)
-    passed = [r for r in results if r.get("ok")]
+    if mode == "never":
+        kept = []
+        for r in results:
+            if r["verdict"] == "needs_studio":
+                r = {**r, "ok": False, "setup": True,
+                     "error": "needs studio (" + ", ".join(r.get("needs_studio") or []) + "); --studio never: not run"}
+            kept.append(r)
+        studio_only = [c for c in checks if c.needs == "studio"]
+        kept += [{"id": c.id, "title": c.title, "ok": False, "setup": True, "where": "offline", "verdict": "unknown",
+                  "error": "needs studio (-- needs: studio); --studio never: not run"} for c in studio_only]
+        return kept, []
+    passed = [r for r in results if r["verdict"] == "pass"]
     passed_ids = {r["id"] for r in passed}
     return passed, [c for c in checks if c.id not in passed_ids]
 

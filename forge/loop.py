@@ -271,6 +271,10 @@ RUNTIME_FILES = ("ServerScriptService/ForgeProbe.server.luau", "ReplicatedStorag
                  "ServerScriptService/ForgeTest.server.luau", "StarterPlayerScripts/ForgeTestAgent.client.luau")
 # Seconds after play starts before a spec with playtest.start_round starts its round (services boot first).
 START_ROUND_DELAY = 10.0
+# the headless playtest (forge/headless.py): simulated seconds are cheap, so it watches longer than Studio
+HEADLESS_PLAY_SECONDS = 30.0
+HEADLESS_PLAYERS = 2
+SCREENSHOT_SETTLE = 4.0  # seconds a Studio screenshot pass lets the game build its world before the shot
 # An iteration whose critic score is this far below the best version so far is rolled back to it.
 ROLLBACK_DROP = 1.0
 RUNTIME_DIRS = ("tools",)
@@ -316,6 +320,8 @@ class Run:
         # compile fixes made while building (pipelined); the next iteration's record takes them over
         self.build_rec: dict = {"fixes": [], "steps": []}
         self.compile_first: dict[str, str | None] = {}  # path -> first luau-compile error (None = compiled)
+        # where the playtest runs (forge/headless.py): "headless" (auto / never) or "studio" (always)
+        self.engine = "headless"
 
     def stage(self, name: str):
         """Time a stage into runs/<slug>/timings.json (written live as it starts and ends)."""
@@ -717,13 +723,73 @@ class Run:
         self.ui.line("smoke", label, not res.get("error"), self.ui.dim(rest[:90]))
         return res
 
+    async def headless_playtest(self, rec: dict) -> tuple[dict, str]:
+        """The playtest without Studio: the game's server and HEADLESS_PLAYERS simulated clients on a
+        simulated clock, then the probe report and the scene census (forge.headless.playtest)."""
+        from forge import headless as hl
+
+        pt = self.spec.get("playtest") or {}
+        play = max(play_seconds(), HEADLESS_PLAY_SECONDS)
+        t0 = time.monotonic()
+        report = await hl.playtest(self.game_dir, play=play, players=HEADLESS_PLAYERS,
+                                   start_round=bool(pt.get("start_round")), slug=self.slug,
+                                   during=lambda hs: self.smoke(hs, rec))
+        secs = time.monotonic() - t0
+        ok = "error" not in report
+        rec["steps"].append({"step": "playtest", "ok": ok, "engine": "headless", "secs": round(secs, 2),
+                             **({} if ok else {"error": str(report["error"])[:300]})})
+        errs = len(report.get("errors") or [])
+        needs = [n.get("feature") for n in report.get("needs_studio") or []]
+        detail = f"{errs} errors, players {report.get('players', '?')}, {report.get('simulated', play):.0f}s simulated"
+        if report.get("counters"):
+            detail += "  " + self.ui.dim(json.dumps(report["counters"])[:40])
+        self.ui.line("headless", f"playtest ({secs:.1f}s)", ok and errs == 0, detail)
+        if needs:
+            self.ui.line("headless", "needs Studio to judge", None, self.ui.dim(", ".join(needs)[:70]))
+        console = "\n".join([f"[warn] {w}" for w in report.get("warnings") or []]
+                             + [f"[error] {e.get('script', '')}: {e.get('message', '')}"
+                                for e in report.get("errors") or [] if isinstance(e, dict)])
+        return report, console
+
+    async def screenshot_pass(self, studio: Any, rec: dict, it_dir: Path) -> None:
+        """The one Studio step an auto-mode iteration keeps: sync, play, a screenshot, stop. Skipped with a
+        note when the window is busy (already playing) or Studio fails; it never blocks the iteration."""
+        from forge import headless as hl
+
+        t0 = time.monotonic()
+        try:
+            st = await studio.state()
+            if st.get("playing"):
+                rec["steps"].append({"step": "screenshot", "ok": True, "skipped": "Studio busy (already playing)"})
+                self.ui.line("studio", "screenshot skipped", None, self.ui.dim("the Studio window is busy"))
+                return
+            await studio.sync(self.game_dir, self.settings.sync_port)
+            await studio.play()
+            try:
+                await asyncio.sleep(SCREENSHOT_SETTLE)
+                val = await studio.screenshot(it_dir / "screenshot.png")
+            finally:
+                with contextlib.suppress(Exception):
+                    await studio.stop()
+            rec["steps"].append({"step": "screenshot", "ok": True, "engine": "studio"})
+            self.ui.line("studio", "screenshot", True, self.ui.dim(_rel(val, self.settings.repo_root)))
+        except Exception as e:  # noqa: BLE001 - a missing screenshot never fails an iteration
+            rec["steps"].append({"step": "screenshot", "ok": True, "skipped": f"{type(e).__name__}: {str(e)[:200]}"})
+            self.ui.line("studio", "screenshot skipped", None, self.ui.dim(f"{type(e).__name__}: {e}"[:70]))
+        finally:
+            hl.record("screenshot", "studio", time.monotonic() - t0, slug=self.slug)
+
     # ---------------------------------------------------------- one iteration
     async def iteration(self, n: int, studio: Any | None) -> tuple[dict, bool]:
         from forge import roles
 
         self.ui.header(f"iteration {n}  {self.slug}")
         self.calls = []
-        rec: dict = {"n": n, "started": now_iso(), "studio": studio is not None, "steps": [],
+        from forge import headless as hl
+
+        headless = self.engine == "headless" and hl.available()
+        rec: dict = {"n": n, "started": now_iso(), "studio": studio is not None and not headless,
+                     "engine": "headless" if headless else ("studio" if studio is not None else "none"), "steps": [],
                      "compile_errors": [], "runtime_errors": [], "fixes": [], "score": None,
                      "issues": [], "summary": "", "done": False}
         it_dir = self.store.iteration_dir(n)
@@ -739,19 +805,35 @@ class Run:
         rec["version"] = versions.snapshot(f"iteration {n}: code under test")
         self.ui.line("version", rec["version"], True, self.ui.dim("forge versions / forge rollback"))
 
-        # 2. playtest in Studio
+        # 2. playtest: headless by default (forge/headless.py); Studio only for one screenshot pass, which
+        # runs alongside the critic. --studio always keeps the old Studio playtest.
         report: dict = {}
         console = ""
-        if studio is not None:
+        shot: asyncio.Task | None = None
+        if headless:
+            try:
+                with self.stage(f"iteration {n}: playtest (headless)"):
+                    report, console = await self.headless_playtest(rec)
+            except Exception as e:
+                rec["steps"].append({"step": "playtest", "ok": False, "engine": "headless", "error": str(e)})
+                self.ui.line("headless", "playtest", False, self.ui.red(str(e)[:80]))
+            if studio is not None:
+                shot = asyncio.create_task(self.screenshot_pass(studio, rec, it_dir))
+            else:
+                rec["steps"].append({"step": "screenshot", "ok": True,
+                                     "skipped": "no free Studio (headless only)"})
+        elif studio is not None:
+            t_play = time.monotonic()
             try:
                 with self.stage(f"iteration {n}: playtest"):
                     report, console = await self.playtest(studio, rec, it_dir)
             except Exception as e:
                 rec["steps"].append({"step": "playtest", "ok": False, "error": str(e)})
                 self.ui.line("studio", "playtest", False, self.ui.red(str(e)[:80]))
+            hl.record("playtest", "studio", time.monotonic() - t_play, slug=self.slug)
         else:
-            report = {"runtime": "not run (--no-studio): compile check only"}
-            self.ui.line("studio", "skipped (--no-studio)", None)
+            report = {"runtime": "not run (no luau CLI for the headless engine, no Studio): compile check only"}
+            self.ui.line("playtest", "skipped (no luau CLI, no Studio)", None)
         report["compile_errors"] = rec["compile_errors"]
         rec["runtime_errors"] = [
             (e.get("message") if isinstance(e, dict) else str(e)) for e in (report.get("errors") or [])
@@ -824,13 +906,17 @@ class Run:
             self._reflect(n, rec, self.iteration_summary(rec), self._reflecting))
 
         # 6. save
+        if shot is not None:
+            with contextlib.suppress(Exception):
+                await shot
         self.store.save_iteration_json(n, "record.json", rec)
         state = self.store.load_state()
         state["iterations"] = [it for it in state["iterations"] if it.get("n") != n]
         state["iterations"].append({
             "n": n, "score": rec["score"], "issues": rec["issues"], "summary": rec["summary"],
             "errors": [f"{e['path']}: {e['error']}" for e in rec["compile_errors"]] + rec["runtime_errors"],
-            "studio": rec["studio"], "fixes": len(rec["fixes"]), "version": rec.get("version"),
+            "studio": rec["studio"], "engine": rec.get("engine"), "fixes": len(rec["fixes"]),
+            "version": rec.get("version"),
             "rolled_back_to": rec.get("rolled_back_to"),
             "failed_steps": [s["step"] for s in rec["steps"] if not s.get("ok")],
             "request_ids": [c.get("request_id") for c in self.calls if c.get("request_id")],
@@ -939,7 +1025,7 @@ class Run:
         return {"version": top["version"], "score": float(top["score"])}
 
     def iteration_summary(self, rec: dict) -> str:
-        lines = [spec_summary(self.spec), f"Iteration {rec['n']} (studio playtest: {rec['studio']})",
+        lines = [spec_summary(self.spec), f"Iteration {rec['n']} (playtest: {rec.get('engine') or rec['studio']})",
                  f"Score: {rec['score']}  {rec['summary']}"]
         if rec["compile_errors"]:
             lines.append("Compile errors left after fixer:")
@@ -964,10 +1050,20 @@ class Run:
 
     # ---------------------------------------------------------- iterations
     async def iterate(self, iterations: int, use_studio: bool) -> list[dict]:
+        """Studio policy (forge.headless.studio_mode, --studio auto|always|never): auto and never playtest
+        headless; auto also connects to a Studio window (when one is free) for one screenshot per iteration;
+        always playtests in Studio as before. use_studio=False (--no-studio) means never."""
+        from forge import headless as hl
+
+        mode = hl.studio_mode() if use_studio else "never"
+        self.engine = "studio" if mode == "always" else "headless"
         records = []
         async with contextlib.AsyncExitStack() as stack:
             studio = None
-            if use_studio:
+            # auto: a Studio window only for the screenshot pass, and only one named for this job
+            # (FORGE_STUDIO, e.g. a leased slot); never a guess at whatever window is open
+            if mode == "always" or (mode == "auto" and os.environ.get("FORGE_SCREENSHOT", "1") != "0"
+                                    and os.environ.get("FORGE_STUDIO")):
                 studio = await self.open_studio(stack)
             state = self.store.load_state()
             start = self.store.next_iteration(state)

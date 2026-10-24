@@ -12,6 +12,7 @@ import contextlib
 import functools
 import asyncio
 import json
+import time
 import os
 import shutil
 import sys
@@ -203,13 +204,25 @@ def cmd_bench_io(args) -> int:
 
 def cmd_headless(args) -> int:
     from forge import checks
+    from forge import headless as hl
+    if args.stats:
+        st = hl.usage_stats(since=time.time() - args.since * 3600 if args.since else 0.0, slug=args.slug)
+        print(json.dumps(st, indent=1))
+        return 0
     root = _game_root(args)
-    rep = checks.boot_offline(root, play=args.play)
+    if args.playtest:
+        rep = asyncio.run(hl.playtest(root, play=args.play, players=args.players, clients=not args.no_clients,
+                                      slug=args.slug or ""))
+    else:
+        rep = checks.boot_offline(root, play=args.play, players=args.players, clients=not args.no_clients)
     print(json.dumps(rep, indent=1))
     run_dir = root.parent
     results = checks.run_checks_offline(root, checks.load_checks(run_dir))
     if results:
         print(checks.summary(results))
+        need = [r["id"] for r in results if r.get("verdict") == "needs_studio"]
+        if need:
+            print(f"needs Studio: {', '.join(need)}")
     return 1 if rep.get("error") or rep.get("errors") or any(not r.get("ok") for r in results) else 0
 
 
@@ -419,7 +432,6 @@ def cmd_mcp(args) -> int:
 async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
     from forge.improve import ImproveStore, default_faults, load_faults, pending_report_anomalies, run_cycle
     from forge.llm import make_llm
-    from forge.studio import Studio
     from mubit_tester.ai import multi_playtest
     from mubit_tester.harness import Harness
 
@@ -431,8 +443,10 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
     store = ImproveStore(s, args.slug)
     llm = make_llm(s, log_path=store.dir / "calls.jsonl")
     args.goal = args.goal or default_goal(store.run.load_spec() if store.run.spec_path.exists() else {})
-    async with Studio(s) as studio:
-        await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
+    from forge import headless as hl
+    # fix cycles run on the headless engine (simulated players) unless --studio always (forge/headless.py)
+    async with hl.backend(s, store.run.game_dir, studio_name=args.studio, players=max(1, args.players or 1),
+                          slug=args.slug, kind="fix_cycle") as studio:
         harness = Harness(studio)
         for n in range(args.cycles):
             extra = pending_report_anomalies(store) if getattr(args, "reports", False) else []
@@ -607,14 +621,19 @@ async def _checks(args) -> None:
     if args.plan:
         plan_checks(s, args.slug, llm=llm, max_checks=args.max)
     if args.run:
+        from forge import headless as hl
+
         only, prior = None, None
-        if getattr(args, "headless_first", False):
+        mode = hl.studio_mode()
+        # headless first by default (--studio auto|never); --studio always runs every check in Studio
+        if mode != "always" or getattr(args, "headless_first", False):
             from forge import checks as chk
             store = RunStore(s, args.slug)
-            passed, rest = chk.triage(store.game_dir, chk.load_checks(store.dir))
-            prior = [{**r, "verdict": "pass", "source": "headless"} for r in passed]
+            kept, rest = chk.triage(store.game_dir, chk.load_checks(store.dir), mode=mode if mode != "always" else "auto")
+            prior = [{**r, "verdict": r.get("verdict") or "pass", "source": "headless"} for r in kept]
             only = {c.id for c in rest}
-            print(f"[check] headless: {len(passed)} pass, {len(rest)} need Studio")
+            print(f"[check] headless: {sum(1 for r in kept if r.get('ok'))} pass, {len(rest)} need Studio"
+                  + (f" ({len(kept) - sum(1 for r in kept if r.get('ok'))} not run: --studio never)" if mode == "never" else ""))
             if not rest:
                 from forge.scenarios import save_results
                 save_results(store.dir, prior)
@@ -955,6 +974,13 @@ def build_parser() -> argparse.ArgumentParser:
     hl.add_argument("slug", nargs="?")
     hl.add_argument("--root", help="game folder (default game/)")
     hl.add_argument("--play", type=float, default=3.0, help="simulated seconds after a player joins")
+    hl.add_argument("--players", type=int, default=1, help="simulated players (each a client running its LocalScripts)")
+    hl.add_argument("--no-clients", action="store_true", help="server only: no LocalScripts")
+    hl.add_argument("--playtest", action="store_true",
+                    help="the build loop's headless playtest (probe report + scene census) instead of a boot")
+    hl.add_argument("--stats", action="store_true",
+                    help="how much ran headless vs in Studio (runs/_engine_usage.jsonl), optionally for one slug")
+    hl.add_argument("--since", type=float, default=0.0, help="with --stats: only the last N hours")
 
     pl = sub.add_parser("place", help="build a .rbxlx from a game folder (baseplate + spawn + scripts)")
     pl.add_argument("--root", help="game folder (default game/)")
@@ -1179,10 +1205,31 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def take_studio_mode(argv: list[str]) -> list[str]:
+    """`--studio auto|always|never` (or --studio=MODE), on any command, sets the Studio policy
+    (FORGE_STUDIO_MODE, inherited by every subprocess; see forge/headless.py). It is taken out of argv
+    here; `--studio <place name>` is left for the commands that pick a Studio window."""
+    from forge.headless import STUDIO_MODES
+
+    out, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--studio=") and a.split("=", 1)[1].lower() in STUDIO_MODES:
+            os.environ["FORGE_STUDIO_MODE"] = a.split("=", 1)[1].lower()
+        elif a == "--studio" and i + 1 < len(argv) and argv[i + 1].lower() in STUDIO_MODES:
+            os.environ["FORGE_STUDIO_MODE"] = argv[i + 1].lower()
+            i += 1
+        else:
+            out.append(a)
+        i += 1
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     # Progress lines reach a piped log (tee, runs/*.log, the dashboard) as they happen.
     with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(line_buffering=True)
+    argv = take_studio_mode(list(sys.argv[1:] if argv is None else argv))
     args = build_parser().parse_args(argv)
     _apply_speed_args(args)
     from forge.bench import cmd_bench

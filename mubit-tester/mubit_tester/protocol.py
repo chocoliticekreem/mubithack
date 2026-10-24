@@ -581,6 +581,10 @@ class _Tester:
     async def screenshot(self, name: str) -> str | None:
         if self.studio is None or not hasattr(self.studio, "screenshot"):
             return None
+        if getattr(self.studio, "headless", False):  # forge.headless: no renderer; the visual judge skips
+            self.report.setdefault("screenshots_skipped", 0)
+            self.report["screenshots_skipped"] += 1
+            return None
         try:
             path = await asyncio.wait_for(self.studio.screenshot(self.dir / name), play.STUDIO_TIMEOUT)
         except Exception as e:  # noqa: BLE001

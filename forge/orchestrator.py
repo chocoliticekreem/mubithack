@@ -67,6 +67,7 @@ KINDS: dict[str, tuple[list[str], str]] = {
     "fix_cycle": (["studio", "sync", "llm", "game:all"], "auditor"),
 }
 STUDIO_KINDS = ("playtest", "fix_cycle", "checks")
+HEADLESS_KINDS = ("playtest", "fix_cycle")  # with --studio auto these run headless and lease no Studio
 
 
 def job_needs(kind: str, args: dict, game_dir: Path, *, use_studio: bool) -> list[str]:
@@ -75,7 +76,11 @@ def job_needs(kind: str, args: dict, game_dir: Path, *, use_studio: bool) -> lis
     needs = list(KINDS[kind][0])
     if kind == "fix":  # a named file: share the game, lock the file; no file: a compile-only feature build
         needs = needs + [f"lock:{game_dir}/{args['path']}"] if args.get("path") else ["llm", "game:all"]
-    if not use_studio:
+    from forge import headless as hl
+    mode = hl.studio_mode()
+    # headless by default (forge/headless.py): a playtest and a fix cycle run on the headless engine with
+    # simulated players, so they take no Studio lease; --studio never takes none at all
+    if not use_studio or mode == "never" or (mode == "auto" and kind in HEADLESS_KINDS):
         needs = [n for n in needs if n not in ("studio", "sync")]
     return needs
 
