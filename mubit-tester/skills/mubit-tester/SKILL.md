@@ -5,6 +5,8 @@ description: Use when checking that a Roblox game change actually works in play,
 
 # Testing a Roblox game with mubit-tester
 
+Read the [shared game production guide](../../../docs/GAME_PRODUCTION_GUIDE.md) in the mubithack checkout. Derive checks from the game's families, capabilities and target stage. Follow its evidence/failure-attribution rules; run AI planning, players, judges and corrections through Mubit-backed tasks. A skipped, unsupported or unobserved requirement remains unverified.
+
 mubit-tester drives a **real Studio playtest**: every player, not just the local one. It can act as
 any player, read the world through game tags, attributes and an event log, run scripted scenarios,
 and run AI playtesters whose LLM calls go through Mubit. Tools are `mcp__plugin_mubit-tester_mubit-tester__*`.

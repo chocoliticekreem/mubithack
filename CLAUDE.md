@@ -38,6 +38,7 @@ python3 game/tools/sync.py check --root game   # Luau syntax check
 ```
 
 ## How to work here
+- **Game production policy:** read `docs/GAME_PRODUCTION_GUIDE.md` before planning, building, testing or improving a game. Apply its relevant genre/capability checks, priority bands and evidence rules. Every game-production AI task must use Mubit; supply changing guidance in user context, never by editing frozen prompts.
 - **Any Luau or Studio work:** use the `roblox-studio-dev` skill (`.claude/skills/`). Edit files,
   not Studio. Playtest over MCP yourself, and always stop the playtest when you're done.
 - **Stay in your lane** (`docs/TEAM.md`): one file per system. Change shared contracts

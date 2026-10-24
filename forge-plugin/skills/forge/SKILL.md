@@ -5,6 +5,8 @@ description: Use when driving the forge MCP tools (build_game, improve_game, don
 
 # Making and improving Roblox games with Forge
 
+Read the [shared game production guide](../../../docs/GAME_PRODUCTION_GUIDE.md) in the resolved mubithack checkout before planning work. It defines Mubit-only AI routing, game-family/capability requirements, priority bands and evidence standards for both native and chat workflows. Pass relevant rules in task user context; keep frozen role prompts unchanged.
+
 Forge turns an idea into a Roblox game, playtests it in Roblox Studio, and keeps improving it.
 Every LLM call goes through Mubit, and each role (designer, coder, fixer, critic, reflector, auditor,
 verifier, triage) is one Mubit task, so every correction becomes training data. Tools are

@@ -6,6 +6,8 @@ description: Use when the user wants a new Roblox game made from an idea ("make 
 # Building a game with Forge from an idea
 
 ## Overview
+Read the [shared game production guide](../../../docs/GAME_PRODUCTION_GUIDE.md) from the mubithack checkout. Establish the game profile, target stage, applicable capability checks and highest-priority playable slice. All design/code/test-judgment AI must use the Mubit-backed tools; do not replace those tasks with host-assistant generation.
+
 `build_game` designs, codes and playtests in Roblox Studio as a background job (5-15 min), with
 every LLM call through Mubit. "Built" is not "done": a game is finished when `done(slug)` says
 READY. Building into the wrong Studio window overwrites someone's place, so the window choice
