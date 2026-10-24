@@ -159,7 +159,9 @@ local function collectKeepouts(ctx: Ctx, opts: { [string]: any })
 		end
 		local lcf = inv * p.CFrame
 		local lp = lcf.Position
-		local s = storeyOf(lp.Y - p.Size.Y / 2 + 0.1)
+		-- true half-height in the building frame (a cylinder lying on its side, the helipad disc...)
+		local hy = math.abs(lcf.RightVector.Y) * p.Size.X / 2 + math.abs(lcf.UpVector.Y) * p.Size.Y / 2 + math.abs(lcf.LookVector.Y) * p.Size.Z / 2
+		local s = storeyOf(lp.Y - hy + 0.1)
 		local base = p.Name
 		if p:HasTag(Names.Tag.Door) then
 			local along = lcf.RightVector
@@ -202,7 +204,7 @@ local function collectKeepouts(ctx: Ctx, opts: { [string]: any })
 			if s then
 				ctx.placers[s]:keep(Plan.rect(lp.X, lp.Z, 6, 6))
 			end
-		elseif p.CanCollide and p.Transparency < 0.9 and s and not (opts.swaps and Furnish.Swappable[base]) and base ~= "Floor" and base ~= "Foundation" and base ~= "Ceiling"
+		elseif p.CanCollide and p.Transparency < 0.9 and s and not (opts.swaps and Furnish.Swappable[base]) and base ~= "Floor" and base ~= "Foundation" and base ~= "Slab" and base ~= "Ceiling"
 			and string.sub(base, 1, 4) ~= "Wall" and base ~= "Lintel" and base ~= "Sill" and string.sub(base, 1, 4) ~= "Roof"
 			and base ~= "Parapet" and not p:HasTag(Names.Tag.Window)
 		then
@@ -361,7 +363,7 @@ function Furnish.site(site: Model): (number, number)
 end
 
 -- Layout modules register themselves here (Interiors/School, ...).
-for _, name in { "School", "Home" } do
+for _, name in { "School", "Home", "Club", "Office" } do
 	local mod = script.Parent:FindFirstChild(name)
 	if mod and mod:IsA("ModuleScript") then
 		local ok, layout = pcall(require, mod)

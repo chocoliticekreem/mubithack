@@ -1457,6 +1457,7 @@ function Build.nightclub(ctx: any, site: Model, F: CFrame, maxW: number, maxD: n
 	SK.rescue(site, "R7", "Civilian", F * CF(-3, fy, d - 7) * FLIP, "stand", "DJ")
 	SK.rescue(site, "R8", "Dog", F * CF(w / 2 - 7, fy, d * 0.3), "sitting")
 	SK.rescue(site, "R9", "Civilian", F * CF(-w / 2 + 6.5, fy, d * 0.6), "lying", "Partygoer")
+	interior(site, "nightclub", F, w, d, H, 1, fy) -- Interiors/Club: bar, DJ booth, VIP, restrooms, coat check
 end
 
 -- Sky Tower: a 6-storey office block you can climb all the way to the roof, crowned by a tall cheap
@@ -1645,6 +1646,7 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	SK.rescue(site, "R7", "Cat", F * CF(w * 0.3, ys[6], 1.5) * FLIP, "sitting", "Windowsill")
 	-- a lobby desk downstairs
 	box(site, "LobbyDesk", F * CF(w * 0.2, fy, d * 0.5), V(8, 3.4, 3), C.Trim)
+	interior(site, "skyscraper", F, w, d, H, storeys, fy) -- Interiors/Office: lobby + an office fit-out per floor
 end
 
 -- v3: Highway 67 rest stop (CityConfig.HighwaySites, call highway_pileup). A paved lay-by: the WEST half
