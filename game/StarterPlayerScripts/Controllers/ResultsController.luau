@@ -250,6 +250,7 @@ local function show(payload: Types.ResultsPayload)
 
 	local bg = Instance.new("Frame")
 	bg.Name = "Backdrop"
+	bg:SetAttribute("Menu", true) -- MenuMouseController frees the first-person mouse for BACK TO STATION
 	bg.Size = UDim2.fromScale(1, 1)
 	bg.BackgroundColor3 = Color3.new(1, 1, 1)
 	bg.BackgroundTransparency = 1

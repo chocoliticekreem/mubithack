@@ -57,6 +57,10 @@ local Gold = Color3.fromRGB(232, 194, 74) -- #E8C24A HelmetShield
 local HoseYellow = Color3.fromRGB(232, 184, 58) -- #E8B83A
 local Brass = Color3.fromRGB(200, 154, 60) -- #C89A3C
 local GlassTint = Color3.fromRGB(120, 175, 200)
+-- See-through cab glass is SmoothPlastic, not Glass: Roblox's Glass material doesn't draw any
+-- transparent part (or non-AlwaysOnTop gui) behind it, so the GPS route arrows, the waypoint beacon
+-- beam and pad signs vanished when you looked out through the windshield from the driver's seat.
+local CabGlass: MapKit.PartOpts = { material = Enum.Material.SmoothPlastic, transparency = 0.35, collide = false }
 local HeadlightGlow = Color3.fromRGB(255, 244, 196)
 local Charcoal = Color3.fromRGB(52, 52, 58)
 local SeatLeather = Color3.fromRGB(92, 34, 30)
@@ -180,7 +184,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	S(P("CabRoof", Vector3.new(0, 8.45, -8.8), Vector3.new(10.2, 0.5, 7.8), TruckRed))
 	S(P("CabHeader", Vector3.new(0, 8.07, -12.45), Vector3.new(10, 0.3, 0.4), TruckRed))
 	-- Windshield with a chrome frame and a centre pillar.
-	P("Windshield", Vector3.new(0, 7.1, -12.45), Vector3.new(8.8, 1.9, 0.15), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
+	P("Windshield", Vector3.new(0, 7.1, -12.45), Vector3.new(8.8, 1.9, 0.15), GlassTint, CabGlass)
 	P("WindshieldPillar", Vector3.new(0, 7.1, -12.5), Vector3.new(0.35, 1.9, 0.2), TruckRedDark, deco)
 	P("Visor", Vector3.new(0, 8.25, -12.65), Vector3.new(9.4, 0.35, 0.6), TruckRedDark, deco)
 	for _, side in { -1, 1 } do
@@ -189,7 +193,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		-- lower side wall in front of the door (over the front wheel) + quarter glass above it
 		-- stops at the fender line (3.95) so it doesn't run through the front wheel
 		S(P(`CabSideFront_{s}`, Vector3.new(x, 4.975, -10.6), Vector3.new(0.3, 2.05, 4.8), TruckRed))
-		P(`SideWindow_{s}`, Vector3.new(side * 4.95, 7.08, -10.25), Vector3.new(0.12, 2.0, 3.9), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
+		P(`SideWindow_{s}`, Vector3.new(side * 4.95, 7.08, -10.25), Vector3.new(0.12, 2.0, 3.9), GlassTint, CabGlass)
 		S(P(`APillar_{s}`, Vector3.new(x, 7.1, -12.35), Vector3.new(0.35, 2.2, 0.35), TruckRed))
 		S(P(`BPillar_{s}`, Vector3.new(x, 7.1, -8.27), Vector3.new(0.3, 2.2, 0.2), TruckRed))
 		S(P(`DoorSill_{s}`, Vector3.new(x, 2.62, -6.65), Vector3.new(0.3, 0.25, 3.1), TruckRedDark))
@@ -243,7 +247,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		D(`DoorFrameTop_{s}`, Vector3.new(x, 8.05, -6.65), Vector3.new(0.25, 0.2, 3.0), TruckRed)
 		D(`DoorFrameBack_{s}`, Vector3.new(x, 6.98, -5.25), Vector3.new(0.25, 1.95, 0.2), TruckRed)
 		D(`DoorFrameFront_{s}`, Vector3.new(x, 6.98, -8.05), Vector3.new(0.25, 1.95, 0.2), TruckRed)
-		D(`DoorWindow_{s}`, Vector3.new(x, 6.98, -6.65), Vector3.new(0.1, 1.95, 2.6), GlassTint, { material = Enum.Material.Glass, transparency = 0.35, collide = false })
+		D(`DoorWindow_{s}`, Vector3.new(x, 6.98, -6.65), Vector3.new(0.1, 1.95, 2.6), GlassTint, CabGlass)
 		D(`DoorSeam_{s}`, Vector3.new(side * 5.01, 4.375, -6.65), Vector3.new(0.04, 3.05, 2.8), TruckRedDark, deco)
 		D(`DoorStripe_{s}`, Vector3.new(side * 5.045, 5.8, -6.65), Vector3.new(0.05, 0.4, 3.0), White, deco)
 		D(`DoorHandle_{s}`, Vector3.new(side * 5.08, 5.55, -5.7), Vector3.new(0.16, 0.28, 0.85), Chrome, { material = Enum.Material.Metal, collide = false })
