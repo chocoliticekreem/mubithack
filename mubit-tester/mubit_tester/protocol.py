@@ -106,6 +106,46 @@ end
 return HttpService:JSONEncode(out)
 '''
 
+# Server datamodel: named parts/models in Workspace (paths, positions, attributes), nearest the first
+# player first, so the planner uses real paths instead of guessing them.
+LANDMARKS_LUAU = r'''
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local chars = {}
+for _, p in Players:GetPlayers() do if p.Character then chars[p.Character] = true end end
+local first = Players:GetPlayers()[1]
+local root = first and first.Character and first.Character:FindFirstChild("HumanoidRootPart")
+local origin = root and root.Position or Vector3.zero
+local out = {}
+local function walk(inst, depth)
+	for _, c in inst:GetChildren() do
+		if chars[c] or c:IsA("Terrain") or c:IsA("Camera") then continue end
+		local isPart, isModel = c:IsA("BasePart"), c:IsA("Model")
+		if (isPart or isModel or c:IsA("Folder")) and #out < 400 then
+			if (isPart or isModel) and c.Name ~= "Part" and c.Name ~= "Model" then
+				local pos = isPart and c.Position or c:GetPivot().Position
+				local e = { path = c:GetFullName(), class = c.ClassName,
+					pos = { math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5), math.floor(pos.Z + 0.5) },
+					dist = math.floor((pos - origin).Magnitude + 0.5) }
+				if isPart then e.size = { math.floor(c.Size.X + 0.5), math.floor(c.Size.Y + 0.5), math.floor(c.Size.Z + 0.5) } end
+				local attrs = c:GetAttributes()
+				if next(attrs) then
+					e.attrs = {}
+					for k, v in attrs do e.attrs[k] = (typeof(v) == "number" or typeof(v) == "boolean" or typeof(v) == "string") and v or tostring(v) end
+				end
+				table.insert(out, e)
+			end
+			if depth < 4 and not isPart then walk(c, depth + 1) end
+		end
+	end
+end
+walk(workspace, 1)
+table.sort(out, function(a, b) return a.dist < b.dist end)
+local top = {}
+for i = 1, math.min(45, #out) do top[i] = out[i] end
+return HttpService:JSONEncode(top)
+'''
+
 # Server datamodel: set an attribute, or a ValueBase's Value when key == "Value".
 SET_LUAU = r'''
 local HttpService = game:GetService("HttpService")
@@ -496,6 +536,17 @@ class _Tester:
         except Exception as e:  # noqa: BLE001
             return {"error": f"{type(e).__name__}: {_clip(str(e), 200)}"}
 
+    async def landmarks(self) -> list:
+        if self.studio is None or not hasattr(self.studio, "execute_luau"):
+            return []
+        try:
+            text = await asyncio.wait_for(self.studio.execute_luau(LANDMARKS_LUAU, "Server"), play.STUDIO_TIMEOUT)
+            obj = play._parse_json(text)
+            return obj if isinstance(obj, list) else []
+        except Exception as e:  # noqa: BLE001
+            self.report["errors"].append(f"landmarks: {type(e).__name__}: {_clip(str(e), 200)}")
+            return []
+
     async def snapshot(self) -> dict:
         state, obs, counters = await asyncio.gather(self.state(), ai._observe(self.harness, self.uid),
                                                     ai._counters(self.harness))
@@ -665,9 +716,11 @@ class _Tester:
         self.errors_seen = await self.probe_errors()
         await self.console_delta()
         snap = await self.snapshot()
+        landmarks = await self.landmarks()
         shot = await self.screenshot("step-00.png")
         census = {"tags": (snap.get("world") or {}).get("tags"), "workspace_attrs": (snap.get("world") or {}).get("attrs"),
-                  "player": snap.get("player"), "counters": snap.get("counters"), "observation": snap.get("obs"),
+                  "player": snap.get("player"), "counters": snap.get("counters"), "landmarks": landmarks,
+                  "observation": snap.get("obs"),
                   "errors_at_start": [_err_key(e) for e in self.errors_seen][:6]}
         out = {"spec": self.spec, "census": census, "files": self.files, "screenshot": shot,
                "baseline": snap, "ms": int((time.monotonic() - t0) * 1000)}
@@ -851,7 +904,7 @@ def build_findings(settings: Settings, report: dict, game_dir: Path) -> None:
         cover = [s for s in steps if i in (s.get("acceptance") or [])]
         verdicts = [(s.get("final") or {}).get("verdict") for s in cover]
         status = "untested" if not cover else "fail" if "fail" in verdicts else \
-            "pass" if "pass" in verdicts else "inconclusive"
+            "pass" if all(v == "pass" for v in verdicts) else "inconclusive"
         items.append({"n": i, "text": text, "status": status, "steps": [s["n"] for s in cover],
                       "evidence": "; ".join(f"step {s['n']}: {_clip((s.get('final') or {}).get('actual') or '', 160)}"
                                             for s in cover)[:600]})
@@ -904,7 +957,9 @@ def build_findings(settings: Settings, report: dict, game_dir: Path) -> None:
     vis = report.get("visual") or {}
     for v in vis.get("issues") or []:
         sev = _norm_sev(v.get("severity"))
-        text = f"{v.get('title')} {v.get('detail', '')} {v.get('suggestion', '')} hud gui screen label"
+        text = f"{v.get('title')} {v.get('detail', '')} {v.get('suggestion', '')}"
+        if v.get("kind") in ("ui_overlap", "unreadable"):
+            text += " hud gui screen label text"
         shot = next((p for p in vis.get("screenshots") or [] if Path(p).name == str(v.get("screenshot") or "")), None)
         add({"title": f"Visual: {v['title']}", "severity": sev, "category": "visual", "kind": v.get("kind"),
              "step": None, "acceptance": [], "repro": [f"look at {v.get('screenshot') or 'the screenshot'}"],

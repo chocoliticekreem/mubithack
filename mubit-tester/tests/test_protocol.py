@@ -64,6 +64,8 @@ class FakeStudio:
             return json.dumps({"world": {"tags": {"BuyPad": 2, "Cube": 3}, "attrs": {}},
                                "players": [{"userId": 1, "name": "Tester", "attrs": {},
                                             "leaderstats": {"Cash": self.cash}, "pos": [0, 3, 0], "health": 100}]})
+        if "GetPivot" in code:
+            return json.dumps([{"path": "Workspace.Plot1.DropperPad", "class": "Part", "pos": [10, 1, 0], "dist": 10}])
         if "SetAttribute" in code:
             return json.dumps({"ok": True})
         return "{}"
@@ -195,6 +197,7 @@ def test_full_protocol_run(tmp_path):
     # 2. plan: the planner saw the acceptance list and the census
     plan_call = next(c for c in llm.calls if c.role == "test_planner")
     assert "1. The map is built" in plan_call.user and '"BuyPad":2' in plan_call.user
+    assert '"path":"Workspace.Plot1.DropperPad"' in plan_call.user  # landmarks: real paths, no guessing
     assert [s["n"] for s in rep["plan"]["steps"]] == [1, 2, 3, 4]
     assert rep["plan"]["steps"][3]["action"] == {"action": "observe", "args": {}}  # "observe" string normalized
 
@@ -399,3 +402,19 @@ def test_vision_hook_on_llm_is_preferred(tmp_path):
     _, _, seen = protocol.complete_json_images(llm, "visual_judge", "u", [img], session_id="s",
                                                required=["summary", "issues"])
     assert seen == 1 and llm.seen == ["a.png"] and "Attached screenshots" not in llm.calls[0].user
+
+
+def test_acceptance_passes_only_when_every_covering_step_passes(tmp_path):
+    gd = _game(tmp_path)
+    rep = {"understand": {"spec": {"acceptance": ["a", "b"]}, "files": protocol.game_files(gd)},
+           "steps": [{"n": 1, "acceptance": [1, 2], "final": {"verdict": "pass", "actual": ""}},
+                     {"n": 2, "acceptance": [2], "final": {"verdict": "inconclusive", "actual": ""}}],
+           "visual": {"issues": [
+               {"title": "Pads blend into the floor", "kind": "ugly", "severity": "medium", "detail": "dropper pad"},
+               {"title": "Label clipped", "kind": "unreadable", "severity": "low", "detail": "cash"}]}}
+    protocol.build_findings(_settings(tmp_path), rep, gd)
+    assert [a["status"] for a in rep["acceptance"]] == ["pass", "inconclusive"]
+    assert rep["goal_met"] is None
+    targets = {b["title"]: b["fix_target"] for b in rep["bugs"]}
+    assert targets["Visual: Pads blend into the floor"] == "ServerScriptService/Tycoon.luau"
+    assert targets["Visual: Label clipped"] == "StarterPlayerScripts/Hud.client.luau"
