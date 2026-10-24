@@ -282,4 +282,54 @@ Spec.test("dispatch and instance runs coexist", function()
 	Spec.eq(joined(Flow.tick(v1, 6, BUSY)), "teleport,count3,count2,count1,active", "v1.5 path unchanged")
 end)
 
+-- squad-size scaling (GameConfig.FireScalePerPlayer = 0.35, MinArrivalFires = 3, RescuesPerExtraPlayers = 2)
+Spec.test("scaledFires: solo keeps the catalog count, bigger squads get more fire zones", function()
+	Spec.eq(Flow.scaledFires(4, 1, 0.35, 3), 4, "solo house fire")
+	Spec.eq(Flow.scaledFires(2, 1, 0.35, 3), 3, "minimum fire zones on arrival")
+	Spec.eq(Flow.scaledFires(4, 2, 0.35, 3), 5, "duo: 4 * 1.35 = 5.4")
+	Spec.eq(Flow.scaledFires(4, 4, 0.35, 3), 8, "4 players: 4 * 2.05 = 8.2")
+	Spec.eq(Flow.scaledFires(4, 8, 0.35, 3), 14, "8 players: 4 * 3.45 = 13.8")
+	Spec.eq(Flow.scaledFires(4, 0, 0.35, 3), 4, "0 players counts as solo")
+	Spec.eq(Flow.scaledFires(4, 6, 0, 3), 4, "scaling off")
+	local prev = 0
+	for n = 1, 8 do
+		local f = Flow.scaledFires(3, n, 0.35, 3)
+		Spec.truthy(f >= prev, `monotonic at {n}`)
+		prev = f
+	end
+end)
+
+Spec.test("scaledRescues: +1 per 2 extra players on the first kind, never mutates the catalog", function()
+	local base = { { kind = "Civilian", count = 2 }, { kind = "Cat", count = 1 } }
+	local solo = Flow.scaledRescues(base, 1, 2)
+	Spec.eq(solo[1].count, 2, "solo unchanged")
+	Spec.eq(Flow.scaledRescues(base, 2, 2)[1].count, 2, "one extra player: no extra rescue yet")
+	Spec.eq(Flow.scaledRescues(base, 3, 2)[1].count, 3, "two extra players: +1")
+	Spec.eq(Flow.scaledRescues(base, 8, 2)[1].count, 5, "seven extra players: +3")
+	Spec.eq(Flow.scaledRescues(base, 8, 2)[2].count, 1, "other kinds untouched")
+	Spec.eq(base[1].count, 2, "catalog entry not mutated")
+	Spec.eq(Flow.scaledRescues({}, 5, 2)[1].kind, "Civilian", "empty list gets civilians")
+	Spec.eq(#Flow.scaledRescues(base, 8, 0), 2, "scaling off")
+	Spec.eq(Flow.scaledRescues(base, 8, 0)[1].count, 2, "scaling off: same count")
+end)
+
+Spec.test("spreadPick: far from burning fires and each other, never on a rescue spawn", function()
+	local function p(x: number, y: number, z: number)
+		return { x = x, y = y, z = z }
+	end
+	-- a two-floor building: ground floor x 0..40, upper floor (y 12) same footprint
+	local cands = { p(2, 0, 0), p(4, 0, 0), p(38, 0, 0), p(2, 12, 0), p(38, 12, 0), p(20, 0, 0) }
+	local burning = { p(0, 0, 0) }
+	local rescue = { p(38, 12, 0) }
+	local picks = Flow.spreadPick(cands, burning, rescue, 8, 3)
+	Spec.eq(#picks, 3, "three picks")
+	Spec.eq(picks[1], 3, "first pick: the far ground-floor corner")
+	Spec.truthy(not table.find(picks, 5), "never next to the rescue spawn")
+	Spec.truthy(table.find(picks, 4) ~= nil, "uses the other floor")
+	Spec.truthy(not table.find(picks, 2) or not table.find(picks, 1), "doesn't stack two picks by the burning fire")
+	Spec.eq(#Flow.spreadPick(cands, burning, rescue, 8, 99), 5, "every allowed candidate at most once")
+	Spec.eq(#Flow.spreadPick({}, burning, rescue, 8, 3), 0, "no candidates")
+	Spec.eq(Flow.spreadPick(cands, {}, {}, 8, 1)[1], 1, "nothing burning: ties keep the caller's order")
+end)
+
 return Spec.finish()

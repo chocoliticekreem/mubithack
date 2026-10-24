@@ -106,6 +106,13 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   `GameConfig.RekindleSeconds` after arrival lights its FireStart markers once
   (counter `missions_rekindled`), and a site without RescueSpawn markers gets invisible ones by its
   FireStarts. `players.min` is 1 everywhere (a solo player can roll out; duo calls are just harder).
+- **Squad scaling** (GameConfig): fires on scene = `max(fires.count, MinArrivalFires) * (1 +
+  FireScalePerPlayer * (players - 1))`, rounded (`MissionFlow.scaledFires`; solo = the catalog count,
+  4 players ~x2, 8 ~x3.5). The site's FireStart markers burn first; extra fire zones go on Flammable
+  parts spread round the site (`MissionFlow.spreadPick`: far from fires already burning, so other rooms
+  and floors, never within `FireAvoidRescueStuds` of a RescueSpawn). Rescues: +1 per
+  `RescuesPerExtraPlayers` extra players (`MissionFlow.scaledRescues`, where the site has markers). The
+  results payload carries `firesLit` and `squadSize`.
 - City-only calls: `nightclub_fire` (BlockFiller `nightclub`: Club Inferno, neon sign, dance floor, DJ
   booth + fog-machine gas bottle, 9 rescue markers) and `skyscraper_fire` (BlockFiller `skyscraper`:
   Sky Tower, 6 playable storeys with a stairwell and breakable glass, a tall cheap tower + spire above;

@@ -20,6 +20,10 @@
 --   MissionFlow.pickSite(sites, missionId, tieStuds?, roll?) -> siteId?   -- nearest free site first
 --   MissionFlow.travelAllowance(studs, { speed, min, max }) -> seconds
 --   MissionFlow.sinceDispatch(run, now) -> seconds since the call came in
+-- squad-size scaling:
+--   MissionFlow.scaledFires(base, players, perPlayer, minimum?) -> fires on scene
+--   MissionFlow.scaledRescues(rescues, players, perExtra) -> rescue list (+1 per perExtra extra players)
+--   MissionFlow.spreadPick(cands, taken, avoid, avoidRadius, n) -> candidate indices, spread apart
 --
 -- States follow Types.RoundState: Alarm -> Active -> Results; "Done" after results (instance destroyed).
 -- v2 dispatch runs: Dispatched -> Active (on arrival) -> Results -> Done; the timer starts at dispatch.
@@ -371,6 +375,87 @@ function MissionFlow.pickSite(sites: { SiteInfo }, missionId: string, tieStuds: 
 		return free[math.clamp(math.floor(roll(tied)), 1, tied)].id
 	end
 	return free[1].id
+end
+
+-- squad-size scaling (GameConfig.FireScalePerPlayer / MinArrivalFires / RescuesPerExtraPlayers) -----
+
+-- Fires a call should have burning once the squad is on scene: max(base, minimum) * (1 + perPlayer *
+-- (players - 1)), rounded. Solo = the base; 4 players at 0.35 = x2.05.
+function MissionFlow.scaledFires(base: number, players: number, perPlayer: number, minimum: number?): number
+	local b = math.max(base, minimum or 0)
+	local n = math.max(1, math.floor(players))
+	return math.max(0, math.floor(b * (1 + math.max(perPlayer, 0) * (n - 1)) + 0.5))
+end
+
+-- The mission's rescue list for a squad of `players`: +1 extra rescuable per `perExtra` extra players
+-- (added to the first entry's kind, "Civilian" usually). Solo (or perExtra <= 0) = the list unchanged.
+function MissionFlow.scaledRescues(rescues: { { kind: string, count: number } }, players: number, perExtra: number): { { kind: string, count: number } }
+	local out = {}
+	for _, r in rescues do
+		table.insert(out, table.clone(r))
+	end
+	local extra = if perExtra > 0 then math.floor(math.max(math.floor(players) - 1, 0) / perExtra) else 0
+	if extra > 0 then
+		if #out > 0 then
+			out[1].count += extra
+		else
+			table.insert(out, { kind = "Civilian", count = extra })
+		end
+	end
+	return out
+end
+
+export type P3 = { x: number, y: number, z: number }
+
+local function d2(a: P3, b: P3): number
+	local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
+	return dx * dx + dy * dy + dz * dz
+end
+
+-- Pick up to `n` candidates spread round a site: each pick is the candidate farthest from every fire
+-- already burning (`taken`) and every earlier pick (3D, so other rooms and floors win), skipping any
+-- within `avoidRadius` of an `avoid` point (rescue spawns: never light someone's feet). Ties keep the
+-- caller's order (shuffle the candidates for variety). Returns candidate indices in pick order.
+function MissionFlow.spreadPick(cands: { P3 }, taken: { P3 }, avoid: { P3 }, avoidRadius: number, n: number): { number }
+	local r2 = avoidRadius * avoidRadius
+	local best: { number } = {}
+	local ok: { boolean } = {}
+	for i, c in cands do
+		local fine = true
+		for _, a in avoid do
+			if d2(c, a) < r2 then
+				fine = false
+				break
+			end
+		end
+		ok[i] = fine
+		local m = math.huge
+		for _, t in taken do
+			m = math.min(m, d2(c, t))
+		end
+		best[i] = m
+	end
+	local out: { number } = {}
+	while #out < n do
+		local pick, far = 0, -1
+		for i in cands do
+			if ok[i] and best[i] > far then
+				pick, far = i, best[i]
+			end
+		end
+		if pick == 0 then
+			break
+		end
+		table.insert(out, pick)
+		ok[pick] = false
+		local p = cands[pick]
+		for i, c in cands do
+			if ok[i] then
+				best[i] = math.min(best[i], d2(c, p))
+			end
+		end
+	end
+	return out
 end
 
 -- Extra timer seconds for the drive: studs / speed, clamped to [min, max].

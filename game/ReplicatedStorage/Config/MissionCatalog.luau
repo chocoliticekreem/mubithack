@@ -27,7 +27,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 5, text = "Carry everyone to truck 67" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 4, starts = "FireStart" },
 		rescues = {
 			{ kind = "Civilian", count = 2 },
 			{ kind = "Cat", count = 1 },
@@ -112,7 +112,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Save the hay" },
 			{ kind = "rescue", count = 2, text = "Get the farmer and his dog clear" },
 		},
-		fires = { count = 2, starts = "Scripted" }, -- the cigarette relights hay until confiscated
+		fires = { count = 3, starts = "Scripted" }, -- the cigarette relights hay until confiscated
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Farmer" },
 			{ kind = "Dog", count = 1 },
@@ -167,7 +167,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 2, text = "Get the night guard and his dog out" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 4, starts = "FireStart" },
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Guard" },
 			{ kind = "Dog", count = 1 },

@@ -504,6 +504,25 @@ local function nearest(list: { BasePart }, pos: Vector3, within: number): BasePa
 	return best
 end
 
+-- Fires the call should have burning on scene for this squad (docs/game/08 "squad scaling"):
+-- max(fires.count, GameConfig.MinArrivalFires) * (1 + FireScalePerPlayer * (players - 1)), rounded.
+local function fireTarget(run: Live): number
+	local fires = run.def.fires or {}
+	return MissionFlow.scaledFires(
+		fires.count or GameConfig.StartFires or 3,
+		math.max(1, #run.players),
+		GameConfig.FireScalePerPlayer or 0,
+		GameConfig.MinArrivalFires
+	)
+end
+
+local function p3(v: Vector3): MissionFlow.P3
+	return { x = v.X, y = v.Y, z = v.Z }
+end
+
+-- Light up to `want` fires: the site's FireStart markers first (shuffled), then extra Flammable parts
+-- spread round the site (MissionFlow.spreadPick: far from every fire already burning, so other rooms /
+-- floors, and never within GameConfig.FireAvoidRescueStuds of a RescueSpawn).
 -- `force` overrides the mission's fires.starts. "Scripted" missions (cigarette, campfire) light the
 -- site's FireStart markers like any other call; their hazard adds more fires on top, so a hazard that
 -- never fires (no farmer near the hay, a city site without its prop) can't leave a call with nothing to do.
@@ -513,9 +532,12 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 		return 0
 	end
 	local fires = run.def.fires or {}
-	local want = fires.count or GameConfig.StartFires
+	local want = fireTarget(run)
 	if limit then
 		want = math.min(want, limit)
+	end
+	if want <= 0 then
+		return 0
 	end
 	local mode = force or fires.starts or "FireStart"
 	if mode == "Scripted" then
@@ -545,10 +567,47 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 			end
 		end
 	end
-	local tries = 0
-	while lit < want and #pool > 0 and tries < 30 do
-		tries += 1
-		if Fire:Ignite(pool[rng:NextInteger(1, #pool)], nil) then
+	if lit >= want or #pool == 0 then
+		return lit
+	end
+	-- extra fire zones: spread out, away from the people waiting to be rescued
+	local cands: { BasePart } = {}
+	for _, part in pool do
+		if not part:HasTag(Names.Tag.Burning) then
+			table.insert(cands, part)
+		end
+	end
+	for i = #cands, 2, -1 do
+		local j = rng:NextInteger(1, i)
+		cands[i], cands[j] = cands[j], cands[i]
+	end
+	local maxCands = 600 -- big district sites hold ~1.7k Flammable parts: a random sample is plenty
+	while #cands > maxCands do
+		table.remove(cands)
+	end
+	local taken: { MissionFlow.P3 } = {}
+	for _, part in pool do
+		if part:HasTag(Names.Tag.Burning) then
+			table.insert(taken, p3(part.Position))
+		end
+	end
+	local avoid: { MissionFlow.P3 } = {}
+	for _, m in tagged(Names.Tag.RescueSpawn, run.model) do
+		if m:IsA("BasePart") then
+			table.insert(avoid, p3(m.Position))
+		end
+	end
+	local pts: { MissionFlow.P3 } = {}
+	for i, part in cands do
+		pts[i] = p3(part.Position)
+	end
+	local need = want - lit
+	-- ask for a few spares: an Ignite can fail (cap, an odd part)
+	for _, i in MissionFlow.spreadPick(pts, taken, avoid, GameConfig.FireAvoidRescueStuds or 8, need + 4) do
+		if lit >= want then
+			break
+		end
+		if Fire:Ignite(cands[i], nil) then
 			lit += 1
 		end
 	end
@@ -560,7 +619,7 @@ end
 -- site reset removes them.
 local function fallbackRescueMarkers(run: Live): { Instance }
 	local want = 0
-	for _, r in run.def.rescues or {} do
+	for _, r in MissionFlow.scaledRescues(run.def.rescues or {}, math.max(1, #run.players), GameConfig.RescuesPerExtraPlayers or 0) do
 		want += r.count or 0
 	end
 	local anchors: { Vector3 } = {}
@@ -597,7 +656,8 @@ local function spawnRescues(run: Live)
 	if not Rescue then
 		return
 	end
-	local wanted = run.def.rescues or {}
+	-- bigger squads: +1 rescuable per GameConfig.RescuesPerExtraPlayers extra players (where markers allow)
+	local wanted = MissionFlow.scaledRescues(run.def.rescues or {}, math.max(1, #run.players), GameConfig.RescuesPerExtraPlayers or 0)
 	if type(Rescue.SpawnAt) == "function" then
 		local markers = tagged(Names.Tag.RescueSpawn, run.model)
 		if #markers == 0 then
@@ -703,6 +763,8 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		buildingIntegrity = integrity, -- StructureService; nil = no building burned
 		arrivalSeconds = if run.flow.arrivedAt > 0 then math.floor(run.flow.arrivedAt - run.flow.startedAt) else nil,
 		fastArrival = run.flow.fast,
+		firesLit = run.firesLit, -- squad-scaled fire zones (ResultsController ignores unknown fields)
+		squadSize = #run.players,
 	} :: any
 end
 
@@ -777,7 +839,7 @@ local function onArrived(run: Live)
 	safe("flare-up", function()
 		local Fire = services.FireService
 		local already = if Fire and type(Fire.CountBurning) == "function" then (Fire:CountBurning(run.id) or 0) else 0
-		local want = (run.def.fires and run.def.fires.count) or GameConfig.StartFires or 3
+		local want = fireTarget(run)
 		if already < want then
 			run.firesLit += lightFires(run, want - already)
 		end
