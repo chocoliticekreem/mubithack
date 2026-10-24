@@ -172,15 +172,19 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
     from forge.llm import make_llm
 
     spec = RunStore(settings, slug).load_spec()
-    telemetry = [t for f in spec.get("features", [])[-1:] for t in (f.get("plan") or {}).get("telemetry", [])]
+    latest = (spec.get("features") or [{}])[-1]
+    telemetry = list((latest.get("plan") or {}).get("telemetry", []))
+    focus = feature_focus(latest) if latest else None
     llm = llm or make_llm(settings, log_path=ImproveStore(settings, slug).dir / "calls.jsonl")
     results: list[dict] = []
 
     async def go(h, pt):
         for _ in range(max(0, cycles)):
-            cycle = await run_cycle(settings, slug, llm=llm, harness=h, playtest=pt, faults=[],
-                                    goal="Play a full round and use every feature of the game", rounds=1,
-                                    steps=12, fix=True, max_fixes=4, edit_human=True, log=log)
+            goal = (f"Play a full round and use the new feature: {latest.get('request', '')}" if latest
+                    else "Play a full round and use every feature of the game")
+            cycle = await run_cycle(settings, slug, llm=llm, harness=h, playtest=pt, faults=[], goal=goal,
+                                    rounds=1, steps=12, fix=True, max_fixes=3, edit_human=True, log=log,
+                                    focus=focus)
             peaks: dict = {}
             for d in cycle.get("before", []):
                 for k, v in (d.get("counters") or {}).items():
@@ -190,8 +194,10 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
                 f"{cycle['code_kept']}/{len(cycle.get('code_fixes') or [])}, feature counters "
                 f"{dict((t, peaks.get(t)) for t in telemetry)}")
             results.append(cycle)
-            if cycle["open"] == 0:
-                log("[feature] quality bar met: nothing high or medium open")
+            if cycle["backlog"]:
+                log(f"[feature] {len(cycle['backlog'])} anomalies outside this feature left for `forge fix`")
+            if cycle["open"] == 0 and (cycle["feature_verified"] or not telemetry):
+                log(f"[feature] done in {len(results)} polish round(s): feature verified, nothing open for it")
                 break
 
     if harness is not None:
@@ -205,3 +211,27 @@ async def polish_feature(settings: Settings, slug: str, *, cycles: int, playtest
         await studio.select(os.environ.get("FORGE_STUDIO") or None)
         await go(Harness(studio), playtest or round_starting(multi_playtest, seconds=180))
     return results
+
+
+def feature_focus(feature: dict) -> Callable[[dict], bool]:
+    """Anomalies that belong to a feature: they name one of its files, counters or key request words.
+    Generic: built from the feature's own plan, nothing per game."""
+    import re
+
+    plan = feature.get("plan") or {}
+    tokens = set()
+    for m in plan.get("new_modules") or []:
+        stem = str(m.get("path", "")).rsplit("/", 1)[-1].split(".")[0]
+        if stem:
+            tokens.add(stem.lower())
+            tokens.update(w.lower() for w in re.findall(r"[A-Z][a-z]{3,}", stem))  # BattlePassService -> battle, pass
+    for e in plan.get("edits") or []:
+        tokens.add(str(e.get("path", "")).rsplit("/", 1)[-1].split(".")[0].lower())
+    tokens.update(str(t).lower() for t in plan.get("telemetry") or [])
+    tokens.update(w.lower() for w in re.findall(r"[A-Za-z]{5,}", str(feature.get("request", ""))))
+    tokens -= {"service", "controller", "config", "client", "server", "players", "player", "game", "games"}
+
+    def belongs(anomaly: dict) -> bool:
+        text = " ".join(str(anomaly.get(k, "")) for k in ("title", "system", "observed", "expected")).lower()
+        return any(t in text for t in tokens)
+    return belongs
