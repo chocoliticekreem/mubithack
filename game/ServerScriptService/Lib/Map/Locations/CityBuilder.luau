@@ -192,7 +192,7 @@ local function buildGround(ctx: Ctx, parent: Instance)
 			end
 		end
 	end
-	-- Mill Creek: muddy bed + water surface (refill anywhere along the bank)
+	-- Mill Creek: muddy bed + water surface
 	for i, r in ctx.plan.river do
 		local nx = math.ceil((r.x1 - r.x0) / 2000)
 		local nz = math.ceil((r.z1 - r.z0) / 2000)

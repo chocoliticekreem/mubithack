@@ -1,16 +1,16 @@
 --!strict
--- ToolConfig [owner: G1]. Hose, tank, extinguisher, axe, doors, friendly fire, puddles and feel.
+-- ToolConfig [owner: G1]. Hose (endless water), extinguisher, axe, doors, friendly fire, puddles and feel.
 -- Read at use time (ToolConfig.X) so DevHook:Invoke("ToolConfig", ".Set", key, value) live-tunes.
 -- Sound ids default to "" (silent) because asset ids can't be vetted here; set them to rbxassetid://N.
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
 return Config.define({
-	-- hose and tank (G1.4, G1.5)
-	TankSize = 100, -- litres in the backpack tank (about 8 s of spraying)
+	-- hose (G1.4, G1.5): trucks have endless water, so the hose never drains
+	TankSize = 100, -- the hose's Water / TankSize attrs (always full; ToolMath.pressure reads them)
 	LitresPerSpray = 1.2, -- per Tool/Spray event; the client sends SprayHz events/s -> 12 L/s
 	SprayHz = 10, -- client send rate while the trigger is held
 	SprayingClearSeconds = 0.25, -- Player attr Spraying goes false this long after the last spray
-	LowWaterFraction = 0.2, -- under this the hose sputters (client) and the HUD warns
+	LowWaterFraction = 0.2, -- under this the extinguisher sputters (client); the hose never gets low
 	StreamSpeed = 70, -- studs/s of the visual + puddle arc (matches the particles)
 	StreamGravity = 55, -- studs/s^2 pulling the arc down
 	StreamMaxTime = 0.7, -- seconds of arc sampled for the impact point (~45 studs)

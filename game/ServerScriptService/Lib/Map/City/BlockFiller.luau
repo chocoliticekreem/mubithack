@@ -88,8 +88,8 @@ BlockFiller.hydrant = hydrant
 
 ---------------------------------------------------------------------------------------------------
 -- street furniture: knockable (PhysicsFxService turns models named *TrashCan / *Bench / *Cone into
--- props; the "Knockable" tag says so explicitly), hydrants refill hoses (MapKit.hydrant: tag Hydrant +
--- Refill prompt). cf: base on the sidewalk, -Z = toward the road.
+-- props; the "Knockable" tag says so explicitly), hydrants are decoration (MapKit.hydrant: tag Hydrant,
+-- no prompt). cf: base on the sidewalk, -Z = toward the road.
 ---------------------------------------------------------------------------------------------------
 local KNOCKABLE = "Knockable"
 
@@ -795,7 +795,7 @@ function Build.zoo(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
 	for _, l in { { -1.6, -3 }, { 1.6, -3 }, { -1.6, 3 }, { 1.6, 3 } } do
 		SK.part(site, "GiraffeLeg", gb * CF(l[1], 2.3, l[2]), V(0.9, 4.6, 0.9), Color3.fromHex("#C9A227"))
 	end
-	-- penguin pool (refill)
+	-- penguin pool
 	local pool = SK.cyl(site, "PenguinPool", gate * CF(-maxW * 0.25, GY + 0.1, maxD * 0.85), 0.3, 26, C.Water, {
 		material = Enum.Material.Glass,
 		transparency = 0.2,
@@ -803,13 +803,6 @@ function Build.zoo(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
 		tags = { Names.Tag.Hydrant },
 	})
 	pool:SetAttribute("HydrantId", `Pool_{bid}`)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Penguin pool"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 16
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = pool
 	for k = 1, 3 do
 		local pc = gate * CF(-maxW * 0.25 + k * 4 - 8, GY, maxD * 0.85 - 15)
 		SK.ball(site, "Penguin", pc * CF(0, 1.6, 0), 3, Color3.fromHex("#2B2B30"))
@@ -1035,7 +1028,7 @@ function Scenery.park(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD:
 	local c = F * CF(0, GY, maxD / 2)
 	SK.part(parent, "PathNS", c * CF(0, 0.04, 0), V(8, 0.1, maxD - 4), Color3.fromHex("#D9C9A8"))
 	SK.part(parent, "PathEW", c * CF(0, 0.04, 0), V(maxW - 4, 0.1, 8), Color3.fromHex("#D9C9A8"))
-	-- duck pond (refill point)
+	-- duck pond
 	local pc = c * CF(-maxW * 0.22, 0, maxD * 0.22)
 	SK.cyl(parent, "PondRim", pc * CF(0, 0.2, 0), 0.4, 46, Color3.fromHex("#A89A86"))
 	local pond = SK.cyl(parent, "Pond", pc * CF(0, 0.3, 0), 0.4, 44, C.Water, {
@@ -1045,13 +1038,6 @@ function Scenery.park(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD:
 		tags = { Names.Tag.Hydrant },
 	})
 	pond:SetAttribute("HydrantId", `Pond_{parent.Name}`)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Duck pond"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 26
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = pond
 	for k = 1, 4 do
 		local dc = pc * CF(rng:NextNumber(-12, 12), 0.9, rng:NextNumber(-12, 12)) * ANG(0, rng:NextNumber(0, 6.28), 0)
 		SK.ball(parent, "Duck", dc, 1.6, Color3.fromHex("#F2D13C"))

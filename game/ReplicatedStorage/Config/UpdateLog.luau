@@ -26,6 +26,7 @@ UpdateLog.Entries = {
 		title = "Big Update!",
 		items = {
 			"🔥 Easier tutorial: just spray the fire!",
+			"💧 Fire trucks never run out of water!",
 			"🚒 Everyone gets a fire truck! Anyone can drive any truck, and the last driver owns it",
 			"📻 New DISPATCH radio: calls come in while you drive. ACCEPT from anywhere, plus little bin fires",
 			"🚨 Your first call starts right in the truck",

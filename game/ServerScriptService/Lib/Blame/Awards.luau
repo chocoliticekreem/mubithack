@@ -18,7 +18,7 @@
 --
 -- Stats: the frozen Types.PlayerStats fields plus optional ledger extras (missing extras read as 0), so the
 -- ledger can grow without a Types change: hosedBy, drops, cats, dogs, overheats, zapped, zappedOthers,
--- explosions, refills, revives, carrySeconds.
+-- explosions, revives, carrySeconds.
 
 export type PlayerStats = {
 	userId: number,
@@ -219,16 +219,6 @@ local CATALOG: { Entry } = {
 		end,
 	},
 	{
-		id = "pit_stop",
-		title = "Pit Stop Pro",
-		blame = false,
-		min = 4,
-		stat = "refills",
-		blurb = function(v)
-			return `Refilled {v} times. Knows every hydrant by name.`
-		end,
-	},
-	{
 		id = "hydrant_hugger",
 		title = "Hydrant Hugger",
 		blame = false,
@@ -250,7 +240,7 @@ local CATALOG: { Entry } = {
 	},
 }
 
-local CREDIT_FIELDS = { "firesOut", "rescued", "doors", "water", "refills", "revives", "pandas", "cats", "dogs" }
+local CREDIT_FIELDS = { "firesOut", "rescued", "doors", "water", "revives", "pandas", "cats", "dogs" }
 
 local SCAPEGOAT_LINES = {
 	"Blame score {v}. The evidence is overwhelming.",

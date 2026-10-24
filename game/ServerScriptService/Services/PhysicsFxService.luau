@@ -31,7 +31,7 @@
 --   PhysicsFxService:GetStats(): { registered, awake, pending }
 -- Remotes: Physics/Pop (S->C all: word: string, position: Vector3, kind: string)
 --          Physics/Land (C->S: fallSpeed: number)   Physics/Slip (C->S: no args)
--- Reads: tags Knockable, Truck, Rescuable, WetFloor; Player attr Water; Shared/Ragdoll
+-- Reads: tags Knockable, Truck, Rescuable, WetFloor; Shared/Ragdoll
 -- Consumes (nil-guarded): VehicleService.RanOver
 -- Counters: props_registered, props_woken, props_slept, props_evicted, props_flung, props_ploughed,
 --   props_hosed, props_bonked, props_blasted, physics_impulses, hard_landings, slips, physics_pops
@@ -622,10 +622,6 @@ local function onSpray(player: Player, rawAim: any)
 	local aim = Net.unit(rawAim)
 	local char = player.Character
 	if not aim or not char or not char:FindFirstChild("Hose") then
-		return
-	end
-	local water = player:GetAttribute(Names.Attr.Water)
-	if type(water) == "number" and water <= 0 then
 		return
 	end
 	local now = os.clock()

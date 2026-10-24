@@ -24,7 +24,7 @@
 --   HeatService.Overheated(player)          -> overheats                                      (+ callout)
 --   HazardService.Zapped(victim, culprit)   -> victim.zapped; culprit.zappedOthers           (+ callout)
 --   HazardService.Flung(victim, "explosion")-> victim.explosions (was nearest)                (+ callout)
---   Player attrs: Water jumps up by >= 25 % of TankSize -> refills; Carrying ~= "" -> carrySeconds
+--   Player attrs: Carrying ~= "" -> carrySeconds
 -- Counters: blame_callouts, awards_built
 -- Test hooks (DevHook only): _bump(player, field, n), _callout(event, actor, victim?), _selftest()
 local Players = game:GetService("Players")
@@ -53,7 +53,6 @@ local EXTRAS = {
 	"zapped",
 	"zappedOthers",
 	"explosions",
-	"refills",
 	"revives",
 	"carrySeconds",
 }
@@ -166,19 +165,6 @@ local function nearestPlayer(pos: Vector3, radius: number): Player?
 		end
 	end
 	return best
-end
-
--- Watch Water jumps (refills) without needing a ToolService signal.
-local function watchPlayer(player: Player)
-	local last = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	player:GetAttributeChangedSignal(Names.Attr.Water):Connect(function()
-		local now = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-		local size = (player:GetAttribute(Names.Attr.TankSize) :: number?) or 100
-		if now - last >= size * 0.25 and inRound(player) then
-			bump(player, "refills")
-		end
-		last = now
-	end)
 end
 
 local function connect(svc: any, signalName: string, fn: (...any) -> ())
@@ -304,11 +290,6 @@ function BlameService:Start()
 			BlameService:ResetPlayers(squad)
 		end)
 	end)
-
-	for _, p in Players:GetPlayers() do
-		watchPlayer(p)
-	end
-	Players.PlayerAdded:Connect(watchPlayer)
 
 	task.spawn(function()
 		while true do
