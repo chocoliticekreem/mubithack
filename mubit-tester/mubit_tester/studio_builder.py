@@ -353,7 +353,8 @@ def standard(settings, slug, draft):
     # Forge's own test harness is not the game: its errors never block a game from being ready
     errors = len([e for e in last.get('errors') or [] if not HARNESS.search(str(e))])
     score = last.get('score')
-    out = {'ready': False, 'score': score, 'errors': errors, 'fixes': int(last.get('fixes') or 0)}
+    out = {'ready': False, 'score': score, 'errors': errors, 'fixes': int(last.get('fixes') or 0),
+           'round_line': last.get('round_line')}
     if not draft.get('ready'):
         out['reason'] = (draft.get('errors') or ['the draft is incomplete'])[0]
     elif not last:
@@ -475,8 +476,12 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=
         draft = await describe_draft(settings, slug)
         status = standard(settings, slug, draft)
         score = f"{status['score']:g}/10" if status['score'] is not None else 'not scored'
-        say(f"{prefix}: score {score}, {_n(status['errors'], 'error')}, fixed {_n(status['fixes'], 'problem')}",
-            True if status['ready'] else None)
+        # forge.rounds.round_line: score and acceptance change, files fixed, what the fixer was taught
+        if status['round_line']:
+            text = f"{prefix}: {status['round_line']}; {_n(status['errors'], 'error')}"[:300]
+        else:
+            text = f"{prefix}: score {score}, {_n(status['errors'], 'error')}, fixed {_n(status['fixes'], 'problem')}"
+        say(text, True if status['ready'] else None)
         prog.item_done()
         prog.step(f'{prefix}: updating Studio')
         feed.poll()

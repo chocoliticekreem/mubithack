@@ -1759,6 +1759,7 @@ local function rideGate(player: Player, gate: Instance)
 	onCourse(player)
 	save(player, true)
 	count("ride_gate_used")
+	count("zone_cleared") -- a ride gate stands on a zone's last checkpoint: taking it clears that zone
 	play("Whoosh", gate:FindFirstChild("RidePad"))
 	teleport(player, spawnFrame(last))
 	player:SetAttribute("LastRide", gate:GetAttribute("NextZone"))

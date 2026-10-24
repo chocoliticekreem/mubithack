@@ -224,7 +224,7 @@ async def test_creation_requires_key_and_nonempty_idea(service):
         submit(service, 'make_game', idea='   ')
 
 
-def fake_rounds(monkeypatch, scores, started=None, release=None):
+def fake_rounds(monkeypatch, scores, started=None, release=None, lines=None):
     """run_game stand-in: each round appends a scored, headless iteration like forge's own records."""
     from forge.memory import RunStore
     from mubit_tester import studio_builder
@@ -240,7 +240,8 @@ def fake_rounds(monkeypatch, scores, started=None, release=None):
         store = RunStore(settings, slug)
         state = store.load_state()
         state['iterations'].append({'n': len(state['iterations']) + 1, 'score': scores[len(calls) - 1], 'errors': [],
-                                    'engine': 'headless', 'failed_steps': [], 'fixes': 2})
+                                    'engine': 'headless', 'failed_steps': [], 'fixes': 2,
+                                    **({'round_line': lines[len(calls) - 1]} if lines else {})})
         store.save_state(state)
         return slug
     monkeypatch.setattr(studio_builder, 'run_game', run_game)
@@ -307,6 +308,18 @@ async def test_make_game_not_up_to_standard_still_finishes_in_studio(service, mo
     assert job['events'][-1]['ok'] is False
     view = service.snapshot('test-marker')['history'][0]['presentation']
     assert view['status'] == 'In Studio, not up to standard yet'
+
+
+async def test_round_event_says_what_the_round_changed_and_taught(service, monkeypatch):
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    fake_build(monkeypatch)
+    line = ('score 5 -> 6, acceptance 10/13 -> 11/13 (+ride_gate_used); fixed: StudioSelfTest; '
+            'taught the fixer: StudioSelfTest left zone_cleared at 0 after 6 tries, told to try another way')
+    fake_rounds(monkeypatch, [6], lines=[line])
+    job = submit(service, 'make_game', idea='an obby')
+    await service.task
+    messages = [e['message'] for e in job['events']]
+    assert f'Round 1: {line}; 0 errors' in messages
 
 
 async def test_cancel_mid_round_stops_the_job(service, monkeypatch):
