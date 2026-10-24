@@ -71,7 +71,7 @@ return Config.define({
 	-- space as the mission board: the plaza west of it, facing the queue pads / +Z).
 	Board = {
 		LocationId = "Station",
-		Center = Vector3.new(-53, 0.5, 38), -- floor point under the board's centre
+		Center = Vector3.new(-28, 0.5, 38.5), -- floor point under the board's centre: east end of the plaza, clear of the front door (x -56..-50)
 		Width = 8,
 		Height = 7,
 		Lift = 1.6, -- gap between the floor and the board's bottom edge (the donate buttons sit here)
