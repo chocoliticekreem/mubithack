@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 
+from forge import ui_kit
 from forge.llm import LLM, LLMError
 
 MAX_USER_CHARS = 24_000
@@ -80,6 +81,22 @@ def _clip_block(text: str) -> str:
 
 def _fit(msg: str) -> str:
     return _truncate(msg, MAX_USER_CHARS, keep="head", label="message")
+
+
+# UI kit share per role (coder: ui_kit.MAX_CHARS). Fixes carry the whole file; the patcher's
+# code excerpt matters more than style.
+FIX_UI_KIT_CHARS = 6000
+PATCH_UI_KIT_CHARS = 3500
+
+
+def _with_ui_kit(msg: str, tail: str, path: str, problem: str, cap: int) -> str:
+    """Append the UI kit block when the problem is UI work. Only the problem decides (not the file
+    name), and compile errors never get it: the fix there is syntax, not style."""
+    if (problem or "").lstrip().startswith("luau-compile"):
+        return msg
+    room = min(cap, MAX_USER_CHARS - len(msg) - len(tail) - 2)
+    kit = ui_kit.block(path, problem or "", room, path_words=False)
+    return msg + (kit + "\n" if kit else "")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -189,6 +206,7 @@ def design(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:
         "## Game idea\n"
         f"{_truncate(idea.strip(), 3000, label='idea')}\n\n"
         f"{_lessons_block(lessons, 6000)}\n"
+        f"{ui_kit.designer_block()}\n"
         "Return only the Spec JSON object."
     )
     spec, _ = llm.complete_json("designer", user, session_id=session_id, required=SPEC_KEYS)
@@ -229,7 +247,7 @@ def code_module(
     llm: LLM, spec: dict, module: dict, deps: dict[str, str], lessons: str, *, session_id: str
 ) -> str:
     path = module.get("path", "")
-    user = _fit(
+    head = (
         "## Game spec\n"
         f"{_compact_spec(spec)}\n\n"
         "## Module to write\n"
@@ -238,8 +256,11 @@ def code_module(
         f"depends: {', '.join(module.get('depends') or []) or '(none)'}\n\n"
         f"{_deps_block(deps, 10_000)}\n"
         f"{_lessons_block(lessons, 5000)}\n"
-        f"Write the complete file {path} in one ```luau block."
     )
+    tail = f"Write the complete file {path} in one ```luau block."
+    room = min(ui_kit.MAX_CHARS, MAX_USER_CHARS - len(head) - len(tail) - 2)
+    kit = ui_kit.block(path, module.get("purpose", "") or "", room)
+    user = _fit(head + (kit + "\n" if kit else "") + tail)
     return _complete_luau(llm, "coder", user, session_id=session_id)
 
 
@@ -254,7 +275,7 @@ def fix_file(
     # problem/context/lessons shrink to make room for it instead.
     src = _truncate(source, 18_000, keep="both", label="source")
     spare = max(0, MAX_USER_CHARS - 1000 - len(src))
-    user = _fit(
+    user = (
         "## File\n"
         f"path: {path}\n"
         f"```luau\n{_clip_block(src)}\n```\n\n"
@@ -263,8 +284,9 @@ def fix_file(
         "## Context\n"
         f"{_truncate((context or '').strip() or '(none)', max(800, min(3500, spare * 3 // 10)), keep='both', label='context')}\n\n"
         f"{_lessons_block(lessons, max(800, min(4000, spare * 4 // 10)))}\n"
-        f"Return the full corrected {path} in one ```luau block."
     )
+    tail = f"Return the full corrected {path} in one ```luau block."
+    user = _fit(_with_ui_kit(user, tail, path, problem, FIX_UI_KIT_CHARS) + tail)
     return _complete_luau(llm, "fixer", user, session_id=session_id)
 
 
@@ -287,6 +309,7 @@ def patch_file(
         f"{_truncate((context or '').strip() or '(none)', 2000, keep='both', label='context')}\n\n"
         f"{_lessons_block(lessons, 2500)}\n"
     )
+    head = _with_ui_kit(head, "", path, problem, PATCH_UI_KIT_CHARS)
     room = max(2000, MAX_USER_CHARS - len(head) - 200)
     user = (head + "## Relevant code\n"
             f"```\n{relevant_excerpt(source, problem, budget=room)}\n```\n\n"
