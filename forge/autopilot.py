@@ -66,7 +66,8 @@ COST = {"fix": 4, "feature": 28, "visual": 22, "test": 0}
 CORRECTION_MARK = "## Correction from the developer"
 OUTCOME_MARK = "## Outcomes of your previous findings"
 MAX_USER_CHARS = 28_000
-CRITIC_DROP = 1.0       # a score this much lower than the previous version is a regression
+CRITIC_DROP = 1.0       # an LLM score this much lower is a regression unless measured evidence improved
+CRITIC_HARD_DROP = 2.0  # this much lower is a regression whatever else improved
 PHYSICS_RISE = 2
 
 
@@ -377,14 +378,22 @@ def gate(before: dict, after: dict) -> dict:
     bp, ap = (before.get("checks") or {}).get("pass"), (after.get("checks") or {}).get("pass")
     if bp is not None and ap is not None and ap > bp:
         imp.append(f"checks passing {bp} -> {ap}")
+    hard_imp = list(imp)  # measured improvements (errors, checks, counters, physics), before the LLM scores
+    soft: list[str] = []
     for key in ("critic", "fun"):
         a, b = before.get(key), after.get(key)
         if a is None or b is None:
             continue
-        if b <= a - CRITIC_DROP:
+        if b <= a - CRITIC_HARD_DROP:
             reg.append(f"{key} score {a:g} -> {b:g}")
+        elif b <= a - CRITIC_DROP:
+            soft.append(f"{key} score {a:g} -> {b:g}")
         elif b > a:
             imp.append(f"{key} score {a:g} -> {b:g}")
+    if soft and not hard_imp:  # an LLM score dip alone is a regression; with measured gains it is noise
+        reg += soft
+    elif soft:
+        imp.append(f"(outweighs a soft dip: {'; '.join(soft)})")
     bh, ah = before.get("swarm_high"), after.get("swarm_high")
     if bh is not None and ah is not None and ah < bh:
         imp.append(f"high-severity swarm bugs {bh} -> {ah}")
@@ -592,7 +601,8 @@ class Autopilot:
         m.setdefault("ts", now_iso())
         m.setdefault("t0", t0)
         m.setdefault("label", f"ap{r}{tag[:1]}")
-        m.setdefault("version", current_tag(self.store.game_dir))
+        if not m.get("version"):
+            m["version"] = current_tag(self.store.game_dir)
         _write(self.rdir(r) / f"measure-{tag}.json", m)
         return m
 

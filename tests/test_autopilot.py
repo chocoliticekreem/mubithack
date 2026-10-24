@@ -303,9 +303,13 @@ def test_gate_rolls_back_on_any_hard_regression():
                      ({"errors": [{"message": "e 9"}, {"message": "new boom"}]}, "new runtime errors"),
                      ({"counters": {"coins_collected": 0, "map_built": 1}}, "stopped moving"),
                      ({"checks": {"pass": 1, "passing": ["a"], "failing": ["b"]}}, "checks that passed"),
-                     ({"critic": 4.5}, "critic score"), ({"physics": {"flagged": [1, 2]}}, "physics")]:
+                     ({"critic": 4.5}, "critic score"), ({"critic": 3.5, "errors": []}, "critic score"),
+                     ({"physics": {"flagged": [1, 2]}}, "physics")]:
         g = apm.gate(base, {**base, **bad})
         assert g["verdict"] == "rolled_back" and any(why in x for x in g["regressions"]), bad
+    # a one-point critic dip with a measured gain (an error gone, a check passing) is LLM noise: kept
+    g = apm.gate(base, {**base, "errors": [], "critic": 5})
+    assert g["verdict"] == "kept" and any("soft dip" in x for x in g["improvements"])
     # a headless measurement is not compared with a Studio one on runtime errors
     assert apm.gate(base, {**base, "studio": False, "errors": [{"message": "new"}]})["verdict"] == "kept"
 
