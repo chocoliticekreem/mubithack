@@ -1,7 +1,7 @@
 -- check: A player who falls off the course is put back on their checkpoint within a few seconds
 -- covers: genre obby: falling below the stage returns you to your checkpoint (no long falls, no walking back)
 -- needs: studio
--- consumer: ReplicatedStorage/Kit/ObbyKit.luau:"if y < info.minTop - FALL_DEPTH and not d.returning then"
+-- consumer: ReplicatedStorage/Kit/ObbyKit.luau:"if (deep or grounded) and not d.returning then"
 local Players = game:GetService("Players")
 local CS = game:GetService("CollectionService")
 local p = forge.waitFor(function()
