@@ -1058,7 +1058,7 @@ local function outside(model: Model, rng: Random)
 		prop("tree", s, at(t[1], 0.3, t[2], rng:NextInteger(0, 359)), { variant = rng:NextInteger(1, 3), flammable = false })
 	end
 	-- school bus parked at the kerb (south lane), heading east
-	schoolBus(s, at(-58, 0.12, 60, -90))
+	schoolBus(s, at(-58, 0.12, 92, -90)) -- clear of the entrance road (it used to park across it)
 	-- street lamps, hydrants, school zone sign
 	for _, lx in { -150, -100, -50, 10, 60, 110, 160 } do
 		prop("streetLamp", s, at(lx, 0.6, 46.4, 180))

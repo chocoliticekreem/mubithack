@@ -738,6 +738,16 @@ local function city(model: Model, rng: Random)
 	for _, z in { 159.6, 176.4 } do
 		part(c, "RiverBank", CFrame.new(0, 0.25, z), V(300, 0.5, 1.2), C.Kerb)
 	end
+	-- far-bank skyline silhouettes are a backdrop for the standalone map only: inside the city they
+	-- land on the district loop road and the dam's entrance road (the real city is out there instead)
+	local inCity = false
+	pcall(function()
+		local cfg = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"):WaitForChild("CityConfig") :: ModuleScript) :: any
+		inCity = cfg.Enabled ~= false
+	end)
+	if inCity then
+		return
+	end
 	local sky = folder(c, "Skyline")
 	local x = -146
 	while x < 140 do
