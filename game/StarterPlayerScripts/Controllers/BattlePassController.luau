@@ -1,6 +1,7 @@
 --!strict
 -- BattlePassController [owner: BattlePass]. Client side of BattlePassService, sticker style (UiKit):
---   * "[P] PASS" chip on the left edge (lobby only, everyone: free track for all; locked premium tiles
+--   * Opened from the "Pass" section of the top-bar box (ClientLib/TopBox) or [P]; the old left-edge
+--     PASS chip is kept hidden. (Lobby only, everyone: free track for all; locked premium tiles
 --     say UNLOCK and open the Premium Battle Pass purchase. Previously owners only; everyone else buys
 --     the pass in the STORE) with a red badge counting rewards waiting for a Claim.
 --   * The panel (attr Menu = true, so MenuMouseController frees the mouse): season name + countdown, a big
@@ -9,7 +10,7 @@
 --                reward cards (preview icon, name, CLAIM / OWNED / LOCKED), scrolled to your tier.
 --       LOCKER   every cosmetic by slot; owned ones equip / unequip on click (saved in your profile),
 --                your XP boost and a DANCE button for the equipped emote.
---   * HUD pip under the level panel (missions: top left): tier circle + mini XP bar + claim badge; pass
+--   * HUD pip = the top-bar box's Pass section: tier circle + mini XP bar + claim badge; pass
 --     XP popups float up from it ("+25 PASS XP  Rescue").
 --   * Tier-up celebration (popup, confetti, LevelUp stinger) and emote FX for everyone ([K] to dance).
 -- Renders only what the server sends (BattlePass/State, Gain, Claimed, Fx); intents go through
@@ -25,6 +26,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BattlePassConfig") :: ModuleScript) :: any
 local PassRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassRules") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local BattlePassController = {}
 BattlePassController.Priority = 110
@@ -263,7 +265,9 @@ local function celebrateTier(tier: number, ids: { string })
 	if audio and type(audio.Stinger) == "function" then
 		pcall(audio.Stinger, audio, "LevelUp")
 	end
-	local card = UiKit.panel(layer, "TierUp", UDim2.fromOffset(460, 190), UDim2.fromScale(0.5, 0.36), Vector2.new(0.5, 0.5))
+	-- screen centre: up at 0.36 it ran into the top-centre stack (timer, CALL! card, toasts)
+	local card = UiKit.panel(layer, "TierUp", UDim2.fromOffset(460, 190), UDim2.fromScale(0.5, 0.52), Vector2.new(0.5, 0.5))
+	HudLayout.reserve(card) -- edge arrows / world markers keep off it while it shows
 	card.BackgroundColor3 = Palette.UiPanelDark
 	card.ZIndex = 30
 	local ribbon = frame(card, "Ribbon", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 0), GOLD, 12)
@@ -291,7 +295,7 @@ local function celebrateTier(tier: number, ids: { string })
 		UDim2.new(1, -24, 0, 56), UDim2.fromOffset(12, 124), UiKit.Body, 19, Palette.UiCream, false)
 	sub.ZIndex = 32
 	UiKit.pop(card, 0.35)
-	confetti(layer, UDim2.fromScale(0.5, 0.36), 44, 0.32)
+	confetti(layer, UDim2.fromScale(0.5, 0.52), 44, 0.32)
 	task.delay(3.2, function()
 		UiKit.tween(card, 0.3, { Position = UDim2.fromScale(0.5, -0.3) }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 		task.delay(0.35, function()
@@ -761,6 +765,7 @@ local function build()
 	cts.Parent = chip
 	chip.Activated:Connect(toggle)
 	ui.chip = chip
+	HudLayout.reserve(chip)
 	local function badge(parent: Instance, size: number, pos: UDim2): Frame
 		local b = frame(parent, "Badge", UDim2.fromOffset(size, size), pos, Palette.UiRed, size)
 		b.ZIndex = 8
@@ -772,25 +777,29 @@ local function build()
 	end
 	ui.chipBadge = badge(chip, 24, UDim2.new(1, -14, 0, -10))
 
-	-- HUD pip
-	local pip = UiKit.panel(g, "PassPip", UDim2.fromOffset(196, 36), UDim2.fromOffset(16, 116))
+	-- HUD pip: the "Pass" section of the top-bar box (ClientLib/TopBox), next to level + XP. Click it
+	-- (lobby) to open the pass. Pixel-sized like the rest of the box.
+	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
+	local pip = TopBox.section("Pass", 2, 150) :: Frame
+	pip.Name = "PassPip"
 	pip.Visible = false
-	local circle = frame(pip, "Tier", UDim2.fromOffset(42, 42), UDim2.fromOffset(-8, -3), GOLD, 21)
+	local circle = frame(pip, "Tier", UDim2.fromOffset(32, 32), UDim2.new(0, 0, 0.5, -16), GOLD, 16)
 	circle.ZIndex = 3
-	UiKit.stroke(circle, 3, Palette.UiInk)
-	local pt = text(circle, "N", "0", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 22, Palette.UiInk, false)
+	UiKit.stroke(circle, 2, Palette.UiInk)
+	local pt = text(circle, "N", "0", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 18, Palette.UiInk, false)
 	pt.ZIndex = 4
 	ui.pipTier = pt
-	local cap = text(pip, "Cap", "PASS", UDim2.fromOffset(60, 16), UDim2.fromOffset(40, 1), UiKit.Header, 14, Palette.UiFlameMid, false)
+	-- keyboard players see the hotkey ([P] PASS); touch players just tap the box
+	local passKey = if game:GetService("UserInputService").KeyboardEnabled then `[{Cfg.UiToggleKey.Name}] ` else ""
+	local cap = text(pip, "Cap", passKey .. "PASS", UDim2.fromOffset(62, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
 	cap.TextXAlignment = Enum.TextXAlignment.Left
-	local pxt = text(pip, "Xp", "", UDim2.fromOffset(90, 16), UDim2.fromOffset(96, 1), UiKit.Body, 13, Palette.UiInk, false)
+	local pxt = text(pip, "Xp", "", UDim2.new(1, -100, 0, 15), UDim2.new(0, 100, 0.5, -15), UiKit.Body, 12, Palette.UiInk, false)
 	pxt.TextXAlignment = Enum.TextXAlignment.Right
 	ui.pipText = pxt
-	local bar = frame(pip, "Bar", UDim2.fromOffset(146, 10), UDim2.fromOffset(40, 19), Palette.UiPanelDark, 5)
-	UiKit.stroke(bar, 2, Palette.UiInk)
+	local bar = frame(pip, "Bar", UDim2.new(1, -38, 0, 9), UDim2.new(0, 38, 0.5, 3), Palette.UiPanelDark, 5)
 	local bf = frame(bar, "Fill", UDim2.fromScale(0, 1), UDim2.fromOffset(0, 0), Palette.UiShock, 5)
 	ui.pipFill = bf
-	ui.pipBadge = badge(pip, 20, UDim2.new(1, -10, 0, -10))
+	ui.pipBadge = badge(pip, 16, UDim2.new(0, 22, 0, -4))
 	local pipHit = Instance.new("TextButton")
 	pipHit.Name = "Open"
 	pipHit.BackgroundTransparency = 1
@@ -811,6 +820,12 @@ local function build()
 	p:SetAttribute("Menu", true)
 	p.ZIndex = 5
 	ui.panel = p
+	-- a modal: dims the HUD (and our own chip / pip) under it, above every HUD gui; click outside closes
+	HudLayout.modal(p, {
+		onDismiss = function()
+			setOpen(false)
+		end,
+	})
 
 	local head = frame(p, "Header", UDim2.new(1, 0, 0, 72), UDim2.fromOffset(0, 0), Palette.UiRed, 12)
 	frame(head, "Flat", UDim2.new(1, 0, 0, 14), UDim2.new(0, 0, 1, -14), Palette.UiRed, nil)
@@ -895,52 +910,20 @@ local function build()
 	-- fx layer (popups, tier-up, confetti) above everything
 	local fx = frame(g, "Fx", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Color3.new(), nil)
 	fx.BackgroundTransparency = 1
-	fx.ZIndex = 20
+	fx.ZIndex = 30 -- over the panel (20 while HudLayout.modal owns it)
 	ui.fx = fx
 end
 
 ---------------------------------------------------------------------------------- layout / visibility
 
--- what the pip hangs under: the lobby level panel (ProfileHud), else the mission objectives card (Hud)
-local function anchorPanel(): GuiObject?
-	local pg = player:FindFirstChild("PlayerGui")
-	for _, path in { { "ProfileHud", "LevelPanel" }, { "Hud", "Objectives" } } do
-		local gui = pg and pg:FindFirstChild(path[1])
-		local f = gui and gui:FindFirstChild(path[2])
-		if f and f:IsA("GuiObject") and f.Visible and (not gui:IsA("ScreenGui") or (gui :: ScreenGui).Enabled) then
-			return f
-		end
-	end
-	return nil
-end
-
--- the pip sits under the lobby level panel / the mission objectives card and follows it when it moves
--- (narrow screens); with neither on screen it takes the top-left corner itself
-local function placePip()
-	local pip = ui.pip :: Frame?
-	local g = ui.gui :: ScreenGui?
-	if not pip or not g then
-		return
-	end
-	local scale = g:FindFirstChildOfClass("UIScale")
-	local k = if scale then scale.Scale else 1
-	local lp = anchorPanel()
-	if lp then
-		-- beside the level panel, up in the top-bar row (under it would cover the objective card)
-		local rel = lp.AbsolutePosition - (pip.Parent :: GuiObject).AbsolutePosition
-		local x = (rel.X + lp.AbsoluteSize.X) / k + 10
-		local y = (rel.Y + (lp.AbsoluteSize.Y - pip.AbsoluteSize.Y) / 2) / k
-		pip.Position = UDim2.fromOffset(x, y)
-	else
-		pip.Position = UDim2.fromOffset(24, 14)
-	end
-end
+-- the pip is a section of the top-bar box (ClientLib/TopBox lays it out); nothing to place
+local function placePip() end
 
 local function syncVisibility()
-
+	-- the left-edge PASS chip is retired: the pass lives in the top-bar box (click it, or [P])
 	local chip = ui.chip :: TextButton?
 	if chip then
-		chip.Visible = inLobby()
+		chip.Visible = false
 	end
 	if not inLobby() then
 		setOpen(false)
@@ -1043,7 +1026,11 @@ function BattlePassController:Start()
 			queuePopup(amount, if type(reason) == "string" then reason else "")
 		end
 		if type(tiersGained) == "number" and tiersGained > 0 and type(tier) == "number" then
-			celebrateTier(tier, if type(ids) == "table" then ids else {})
+			-- centre cards take turns and wait for the results screen to close (ClientLib/HudLayout)
+			HudLayout.celebrate(function()
+				celebrateTier(tier, if type(ids) == "table" then ids else {})
+				return 3.7
+			end)
 		end
 	end)
 	Net.event("BattlePass", "Claimed").OnClientEvent:Connect(function(list: any)

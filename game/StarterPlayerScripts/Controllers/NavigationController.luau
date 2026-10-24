@@ -28,6 +28,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local NavigationConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("NavigationConfig") :: ModuleScript) :: any
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript)
 local Pathfind = require(ClientLib:WaitForChild("Pathfind") :: ModuleScript)
 local Minimap = require(ClientLib:WaitForChild("Minimap") :: ModuleScript)
 
@@ -546,7 +547,10 @@ local function updateEdge(pos: Vector3?, distance: number)
 	local rx, ry = cx - margin, cy - margin
 	local k = 1 / math.sqrt((dx / rx) ^ 2 + (dy / ry) ^ 2)
 	e.root.Visible = true
-	e.root.Position = UDim2.fromOffset(cx + dx * k, cy + dy * k)
+	-- off the HUD panels on that edge (guide card, gauges, chips): slide in toward the centre
+	-- 48: the circle plus the distance label hanging under it
+	local ex, ey = HudLayout.clear(cx + dx * k, cy + dy * k, 48, "NavEdge", HudLayout.Prio.Nav)
+	e.root.Position = UDim2.fromOffset(ex, ey)
 	local pivot = e.root:FindFirstChild("Pivot") :: Frame?
 	if pivot then
 		pivot.Rotation = math.deg(math.atan2(dy, dx))

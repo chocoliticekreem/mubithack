@@ -417,7 +417,7 @@ local function buildBoard(station: Model)
 	prompt.ActionText = "Donate"
 	prompt.ObjectText = "Donation Board"
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 12
+	prompt.MaxActivationDistance = 7
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = face0
 	prompt.Triggered:Connect(function(player: Player)

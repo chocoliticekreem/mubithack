@@ -1,5 +1,6 @@
 --!strict
--- ProfileController [owner: Data]. Lobby level badge + XP bar (top left, hidden during a mission) and
+-- ProfileController [owner: Data]. Level badge + XP bar (the first section of the top-bar box,
+-- ClientLib/TopBox) and
 -- "+XP" popups / LEVEL UP banner from Data/XpGained. Reads the Player attrs DataService writes
 -- (DataConfig.Attr). Renders only; never decides anything. docs/game/06-data.md.
 local GuiService = game:GetService("GuiService")
@@ -52,22 +53,15 @@ local function label(parent: Instance, name: string, font: Enum.Font, color: Col
 	return l
 end
 
-local function inLobby(): boolean
-	local inst = player:GetAttribute(Names.Attr.InstanceId)
-	if type(inst) == "string" and inst ~= "" then
-		return false
-	end
-	local state = Workspace:GetAttribute(Names.Attr.RoundState)
-	return state ~= "Active" and state ~= "Alarm"
-end
-
 local function update()
 	if not panel then
 		return
 	end
 	local A = DataConfig.Attr
 	local ready = player:GetAttribute(A.ProfileReady) == true
-	;(panel :: Frame).Visible = ready and inLobby()
+	-- the top-bar box shows level + XP in the lobby and on a call alike (it lives in the top-bar row,
+	-- clear of the mission HUD); the store button next to it is the lobby-only part
+	;(panel :: Frame).Visible = ready
 	local level = (player:GetAttribute(A.Level) :: number?) or 1
 	local into = (player:GetAttribute(A.Xp) :: number?) or 0
 	local need = (player:GetAttribute(A.XpNext) :: number?) or 0
@@ -86,82 +80,62 @@ local function build()
 	g.ScreenInsets = Enum.ScreenInsets.None
 	g.DisplayOrder = 5
 
+	-- the popups layer scales with the viewport; the level readout lives in the shared top-bar box
 	local scale = Instance.new("UIScale")
 	scale.Parent = g
-	local levelPanel: Frame? = nil
 	local function rescale()
 		local cam = Workspace.CurrentCamera
 		if cam then
-			local s = math.max(0.6, math.min(cam.ViewportSize.X / 1280, cam.ViewportSize.Y / 720))
-			scale.Scale = s
-			-- narrow windows (the 0.6 floor kicks in): the centred objective card (520 px, top) would run
-			-- into this panel, so drop it below the card instead
-			if levelPanel then
-				-- right after Roblox's menu/chat buttons, vertically centred in the top bar
-				local bar = GuiService.TopbarInset
-				local x = (bar.Min.X + 8) / s
-				local h = 64 * s
-				local y = math.max(2, (bar.Height - h) / 2 + 4) / s
-				levelPanel.Position = UDim2.fromOffset(x, y)
-			end
+			scale.Scale = math.max(0.6, math.min(cam.ViewportSize.X / 1280, cam.ViewportSize.Y / 720))
 		end
 	end
 	if Workspace.CurrentCamera then
 		(Workspace.CurrentCamera :: Camera):GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	end
-	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(rescale)
-
-	local p = Instance.new("Frame")
-	p.Name = "LevelPanel"
-	p.Position = UDim2.fromOffset(172, 4) -- rescale() puts it right after the Roblox menu buttons
-	p.Size = UDim2.fromOffset(280, 64)
-	p.BackgroundColor3 = Palette.UiCream
-	p.Visible = false
-	p.Parent = g
-	corner(p, 12)
-	stroke(p, 3)
-	levelPanel = p
 	rescale()
+
+	-- level + XP: the first section of ClientLib/TopBox (one compact box in the top-bar row)
+	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
+	local p = TopBox.section("Level", 1, 150) :: Frame
+	p.Visible = false
 
 	local badge = Instance.new("Frame")
 	badge.Name = "Badge"
-	badge.Size = UDim2.fromOffset(72, 72)
-	badge.Position = UDim2.fromOffset(-12, -4)
+	badge.AnchorPoint = Vector2.new(0, 0.5)
+	badge.Size = UDim2.fromOffset(32, 32)
+	badge.Position = UDim2.fromScale(0, 0.5)
 	badge.BackgroundColor3 = Palette.HelmetRed
 	badge.Parent = p
-	corner(badge, 36)
-	stroke(badge, 3)
+	corner(badge, 16)
+	stroke(badge, 2)
 	local lv = label(badge, "Level", Enum.Font.LuckiestGuy, Palette.UiCream)
-	lv.Size = UDim2.fromScale(0.7, 0.55)
-	lv.Position = UDim2.fromScale(0.15, 0.25)
-	local cap = label(badge, "Caption", Enum.Font.LuckiestGuy, Palette.HelmetShield)
-	cap.Text = "LVL"
-	cap.Size = UDim2.fromScale(0.6, 0.22)
-	cap.Position = UDim2.fromScale(0.2, 0.06)
-
-	local bar = Instance.new("Frame")
-	bar.Name = "Bar"
-	bar.Position = UDim2.fromOffset(72, 34)
-	bar.Size = UDim2.fromOffset(196, 18)
-	bar.BackgroundColor3 = Palette.UiPanelDark
-	bar.Parent = p
-	corner(bar, 9)
-	stroke(bar, 2)
-	local f = Instance.new("Frame")
-	f.Name = "Fill"
-	f.Size = UDim2.fromScale(0, 1)
-	f.BackgroundColor3 = Palette.HelmetShield
-	f.Parent = bar
-	corner(f, 9)
+	lv.Size = UDim2.fromScale(0.8, 0.62)
+	lv.Position = UDim2.fromScale(0.1, 0.22)
 
 	local xl = label(p, "Xp", Enum.Font.FredokaOne, Palette.UiInk)
-	xl.Position = UDim2.fromOffset(72, 6)
-	xl.Size = UDim2.fromOffset(196, 24)
+	xl.Position = UDim2.new(0, 38, 0.5, -15)
+	xl.Size = UDim2.new(1, -38, 0, 15)
+	xl.TextScaled = false
+	xl.TextSize = 13
 	xl.TextXAlignment = Enum.TextXAlignment.Left
 	local xs = xl:FindFirstChildOfClass("UIStroke")
 	if xs then
 		xs:Destroy() -- ink text on cream needs no outline
 	end
+
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.Position = UDim2.new(0, 38, 0.5, 3)
+	bar.Size = UDim2.new(1, -38, 0, 9)
+	bar.BackgroundColor3 = Palette.UiPanelDark
+	bar.Parent = p
+	corner(bar, 5)
+	local f = Instance.new("Frame")
+	f.Name = "Fill"
+	f.Size = UDim2.fromScale(0, 1)
+	f.BackgroundColor3 = Palette.HelmetShield
+	f.Parent = bar
+	corner(f, 5)
 
 	local layer = Instance.new("Frame")
 	layer.Name = "Popups"
@@ -305,9 +279,14 @@ function ProfileController:Start()
 		popup(`+{math.floor(amount)} XP`, if type(reason) == "string" then reason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
 		if type(levelsGained) == "number" and levelsGained > 0 then
 			task.delay(0.5, function()
-				-- low centre: GearController's "LEVEL n: NEW GEAR!" card owns the middle of the screen
-				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
-				celebrate()
+				-- centre celebrations take turns (ClientLib/HudLayout): this, then NEW GEAR, then TIER UP,
+				-- and only once the results screen has closed
+				local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+				HudLayout.celebrate(function()
+					popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
+					celebrate()
+					return (tonumber(DataConfig.Ui.LevelUpSeconds) or 2) + 0.2
+				end)
 			end)
 		end
 	end)

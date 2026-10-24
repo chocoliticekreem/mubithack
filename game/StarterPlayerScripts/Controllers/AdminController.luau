@@ -283,6 +283,15 @@ local function build()
 	panel.Visible = false
 	panel.ZIndex = 5
 	panel:SetAttribute("Menu", true)
+	-- a modal (ClientLib/HudLayout): a light dim over the HUD under it, so the console never prints
+	-- over the timer / CALL! card / toasts as if it were part of them; click outside closes it
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.modal(panel, {
+		dim = 0.6,
+		onDismiss = function()
+			setOpen(false)
+		end,
+	})
 
 	local head = Instance.new("Frame")
 	head.Name = "Header"
