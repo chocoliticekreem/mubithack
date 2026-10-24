@@ -105,6 +105,13 @@ def test_failures_are_named(tmp_path):
     assert "not ready yet" in render(r)
 
 
+def test_dropped_checks_do_not_count(tmp_path):
+    _game(tmp_path, results={"results": [{"id": "a", "ok": True, "verdict": "pass"},
+                                         {"id": "broken-test", "ok": False, "verdict": "dropped"}]})
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert parts["checks"]["ok"] and parts["checks"]["detail"] == "1/1 pass"
+
+
 def test_features_from_spec_count_when_no_log(tmp_path):
     _game(tmp_path, spec={"features": [{"request": "battle pass"}]}, scores=[{"cycle": 1, "open": 0}])
     parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}

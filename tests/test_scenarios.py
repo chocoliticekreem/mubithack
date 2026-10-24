@@ -133,7 +133,8 @@ def test_run_reviews_failures_in_one_call_and_splits_bugs(settings):
     store = _three_checks(settings)
     review = json.dumps({"reviews": [
         {"id": "real-bug", "verdict": "game_bug", "reason": "cash went 5 -> -5", "kind": "economy",
-         "system": "shop", "severity": "high", "expected": "no purchase below cost"},
+         "system": "shop", "severity": "high", "expected": "no purchase below cost",
+         "consumer": "ServerScriptService/Shop.luau:2"},
         {"id": "bad-check", "verdict": "check_bug", "reason": "used FireServer", "body": OK_BODY},
     ]})
     llm = FakeLLM({"check_reviewer": [review]})
@@ -169,6 +170,77 @@ def test_check_bug_without_rewrite_or_still_failing_is_dropped(settings):
     assert sorted(p.name for p in (store.dir / "checks" / "dropped").glob("*.luau")) == ["bad-check.luau",
                                                                                          "real-bug.luau"]
     assert sc.as_anomalies(results) == []
+
+
+def test_game_bug_without_a_consumer_is_a_check_bug(settings):
+    """Run 1: a check expected remotes in ReplicatedStorage.Remotes because a config named that folder; no
+    game code looked there, but the reviewer called it a game bug and the fixer added duplicate remotes."""
+    store = RunStore(settings, "shop")
+    (store.game_dir / "ReplicatedStorage").mkdir()
+    (store.game_dir / "ReplicatedStorage" / "ShopConfig.luau").write_text('return { RemotesFolder = "Remotes" }\n')
+    (store.game_dir / "StarterPlayerScripts" / "Hud.client.luau").write_text(
+        "-- Hud\nfor _, d in game.ReplicatedStorage:GetDescendants() do\n  if d.Name == \"BuyHat\" then end\nend\n")
+    body = ('local f = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")\n'
+            'return { ok = f ~= nil and f:FindFirstChild("BuyHat") ~= nil, detail = "missing Remotes" }')
+    for t in ("Remotes exist", "Remotes exist two", "Hat pad exists"):
+        save_check(store.dir, Check(id=sc.check_id(t), title=t, covers="acceptance: x", body=body))
+    review = json.dumps({"reviews": [
+        {"id": "remotes-exist", "verdict": "game_bug", "reason": "config says Remotes"},
+        {"id": "remotes-exist-two", "verdict": "game_bug", "reason": "x", "consumer": "ReplicatedStorage/Nope.luau:1"},
+        {"id": "hat-pad-exists", "verdict": "game_bug", "reason": "the shop reads the pad",
+         "consumer": "ServerScriptService/Shop.luau:2"},
+    ]})
+    llm = FakeLLM({"check_reviewer": [review]})
+    studio = FakeStudio(['{"ok":false,"detail":"missing Remotes"}'] * 3)
+    results = asyncio.run(sc.run_plan(studio, "shop", settings=settings, llm=llm, log=lambda m: None))
+    v = {r["id"]: r["verdict"] for r in results}
+    assert v == {"remotes-exist": "dropped", "remotes-exist-two": "dropped", "hat-pad-exists": "game_bug"}
+    by = {r["id"]: r for r in results}
+    assert by["remotes-exist"]["reason"].startswith("no consumer")
+    [a] = sc.as_anomalies(results)
+    assert a["check"] == "hat-pad-exists" and a["consumer"] == "ServerScriptService/Shop.luau:2"
+    msg = llm.calls[0].user
+    assert "## Premise rule" in msg and '"consumer"' in msg
+    # the reviewer sees every line (client too) that mentions the asserted names, line-numbered
+    assert "ReplicatedStorage/ShopConfig.luau:1:" in msg and "StarterPlayerScripts/Hud.client.luau:3:" in msg
+
+
+def test_plan_and_review_messages_tell_about_the_round_helpers(settings):
+    store = RunStore(settings, "shop")
+    lobby = {**SPEC, "playtest": {"start_round": True}}
+    plain = sc.plan_message(SPEC, "", "", [], 3)
+    assert "forge.startRound" in plain and "MUST call forge.startRound()" not in plain
+    assert "MUST call forge.startRound()" in sc.plan_message(lobby, "", "", [], 3)
+    rev = sc.review_message(lobby, "", [(Check("a", "A", "c", OK_BODY), {"detail": "inconclusive"})], store.game_dir)
+    assert "MUST call forge.startRound()" in rev
+
+
+def test_wrapper_defines_the_forge_helpers():
+    from forge.checks import wrap
+
+    w = wrap("forge.startRound(20)\nreturn { ok = true, detail = '' }")
+    assert w.index("function forge.startRound") < w.index("forge.startRound(20)")
+    assert 'f:Invoke(cmd' in w and '"round", { state = "Active" }' in w and "setup: " in w
+
+
+@pytest.mark.skipif(not sc.luau_compiler(), reason="luau-compile not installed")
+def test_a_check_using_the_helpers_compiles():
+    body = ("forge.startRound(20)\nlocal n = forge.waitFor(function() return workspace:GetAttribute('X') end, 2)\n"
+            "forge.endRound()\nreturn { ok = n ~= nil, detail = tostring(n) }")
+    assert sc.compile_error(body) is None
+
+
+def test_suite_results_keep_the_plan_review_fields(settings):
+    store = RunStore(settings, "shop")
+    sc.save_results(store.dir, [{"id": "a", "ok": False, "verdict": "game_bug", "covers": "acceptance: a",
+                                 "kind": "economy", "severity": "high"}, {"id": "gone", "verdict": "dropped"}])
+    sc.save_suite_results(store.dir, [{"id": "a", "title": "A", "ok": True, "detail": "fine", "pending": False},
+                                      {"id": "b", "title": "B", "ok": False, "detail": "no", "pending": True}],
+                          "fix cycle 2")
+    a, b = sc.load_results(store.dir)
+    assert (a["ok"], a["verdict"], a["covers"], a["kind"], a["source"]) == (True, "pass", "acceptance: a",
+                                                                           "economy", "fix cycle 2")
+    assert (b["ok"], b["verdict"], b["pending"]) == (False, "game_bug", True)
 
 
 def test_unreviewed_failure_stays_a_game_bug(settings):
