@@ -24,7 +24,7 @@
 --   MissionService, LobbyService, FireService, VehicleService, EventService, AtmosphereService, SquadService
 -- Counters: admin_commands, admin_denied, admin_rate_limited, admin_failed
 -- Test hooks (DevHook only): _run(player, text) -> "ok|line1\nline2", _rank(player), _logs(n?),
---   _banned(userId), _selftest()
+--   _ban(userId, name, reason?), _banned(userId), _selftest()
 
 local CollectionService = game:GetService("CollectionService")
 local DataStoreService = game:GetService("DataStoreService")
@@ -1311,6 +1311,10 @@ function AdminService:_logs(n: number?): string
 		table.insert(out, Rules.logLine(logs[i]))
 	end
 	return table.concat(out, "\n")
+end
+
+function AdminService:_ban(userId: number, name: string, reason: string?): boolean
+	return setBan(userId, { name = name, reason = reason or "test", by = "DevHook", at = os.time() })
 end
 
 function AdminService:_banned(userId: number): boolean

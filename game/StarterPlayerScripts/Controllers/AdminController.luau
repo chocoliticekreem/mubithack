@@ -14,7 +14,6 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigFolder:WaitForChild("AdminConfig") :: ModuleScript) :: any
@@ -388,7 +387,7 @@ local function build()
 	sp.Parent = suggest
 
 	-- :m banner (everyone)
-	local banner = UiKit.panel(g, "AdminMessage", UDim2.fromOffset(560, 0), UDim2.fromScale(0.5, 0.36), Vector2.new(0.5, 0.5))
+	local banner = UiKit.panel(g, "AdminMessage", UDim2.fromOffset(560, 0), UDim2.fromScale(0.5, 0.56), Vector2.new(0.5, 0.5)) -- under the console
 	banner.AutomaticSize = Enum.AutomaticSize.Y
 	banner.Visible = false
 	banner.ZIndex = 4
@@ -663,9 +662,23 @@ function AdminController:Init(_all) end
 
 function AdminController:Start()
 	build()
-	runRemote = Net.event("Admin", "Run")
-	local result = Net.event("Admin", "Result")
-	local announce = Net.event("Admin", "Announce")
+	-- UI and body flags first: they only read attributes, so they work even while remotes are still coming
+	player:GetAttributeChangedSignal(A.Rank):Connect(syncStaff)
+	syncStaff()
+	player:GetAttributeChangedSignal(A.Fly):Connect(syncBody)
+	player:GetAttributeChangedSignal(A.Noclip):Connect(syncBody)
+	player.CharacterAdded:Connect(function()
+		stopFly()
+		collide = {}
+		task.wait(0.5)
+		syncBody()
+	end)
+	syncBody()
+
+	local Admin = ReplicatedStorage:WaitForChild("Net"):WaitForChild("Admin") -- the server may still be building the map
+	runRemote = Admin:WaitForChild("Run") :: RemoteEvent
+	local result = Admin:WaitForChild("Result") :: RemoteEvent
+	local announce = Admin:WaitForChild("Announce") :: RemoteEvent
 
 	result.OnClientEvent:Connect(function(ok: any, lines: any, open: any)
 		if open == "cmds" then
@@ -693,22 +706,19 @@ function AdminController:Start()
 		end
 	end)
 
-	player:GetAttributeChangedSignal(A.Rank):Connect(syncStaff)
-	syncStaff()
-
-	player:GetAttributeChangedSignal(A.Fly):Connect(syncBody)
-	player:GetAttributeChangedSignal(A.Noclip):Connect(syncBody)
-	player.CharacterAdded:Connect(function()
-		stopFly()
-		collide = {}
-		task.wait(0.5)
-		syncBody()
-	end)
-	syncBody()
-
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
 		local u = ui
 		if not u then
+			return
+		end
+		if input.KeyCode == Enum.KeyCode.Tab and u.panel.Visible and u.box:IsFocused() then
+			local top = suggestions[1]
+			if top then
+				task.defer(function()
+					u.box.Text = top
+					u.box.CursorPosition = #top + 1
+				end)
+			end
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.Escape and u.panel.Visible then

@@ -29,7 +29,7 @@
 -- Counters: monetization_prompts, monetization_passes_bought, monetization_donations,
 --           monetization_robux_donated, monetization_receipt_retries
 -- Test hooks (DevHook only): _fakeReceipt(player, robux, purchaseId?) -> "Granted:applied" etc.,
---   _owns(player) -> "UnlimitedFoam=true,...", _board() -> top donor rows as text, _selftest()
+--   _owns(player) -> "UnlimitedFoam=true,...", _dropReal(player) (forget real ownership), _board() -> top donor rows as text, _selftest()
 
 local DataStoreService = game:GetService("DataStoreService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -848,6 +848,13 @@ function MonetizationService:_owns(player: Player): string
 		table.insert(out, `{key}={owns(player, key)}{if isGifted(player, key) then "(gifted)" else ""}`)
 	end
 	return table.concat(out, ",")
+end
+
+-- Studio test: forget the real Roblox ownership this session (so a gift shows as GIFTED).
+function MonetizationService:_dropReal(player: Player): string
+	owned[player] = {}
+	applyAttrs(player)
+	return self:_owns(player)
 end
 
 function MonetizationService:_board(): string
