@@ -27,6 +27,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
@@ -575,6 +576,12 @@ local function enterDrive(truck: Model)
 	ContextActionService:SetTitle("TruckHorn", "HONK")
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
+	-- touch: one cluster round the jump button (ClientLib/ThumbLayout) instead of Roblox's default
+	-- spots, which piled DRIFT / HONK / SIREN / OUT on top of each other on some phones
+	ThumbLayout.place("TruckHandbrake", "primary")
+	ThumbLayout.place("TruckExit", "above")
+	ThumbLayout.place("TruckHorn", "upleft")
+	ThumbLayout.place("TruckSiren", "left")
 	-- first-person players (zoomed all the way in) start in the cab view, everyone else in the chase cam
 	camMode = if VehicleConfig.DefaultCam == "cab" or onFootFirstPerson then "cab" else "chase"
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
@@ -609,6 +616,7 @@ local function exitDrive()
 	end
 	UserInputService.MouseIconEnabled = true
 	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
+		ThumbLayout.forget(a)
 		ContextActionService:UnbindAction(a)
 	end
 	setCabSee(nil)
@@ -968,6 +976,7 @@ local function updateSeated()
 				Enum.KeyCode.ButtonB
 			)
 			ContextActionService:SetTitle("TruckExit", "OFF")
+			ThumbLayout.place("TruckExit", "above")
 		end
 	end
 	local hint = hintLabel

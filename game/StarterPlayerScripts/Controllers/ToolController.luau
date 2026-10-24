@@ -644,8 +644,19 @@ end
 local TOUCH_ACTION = "ToolUse"
 local touchTool: Tool? = nil
 
+local function isSeated(): boolean
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.Sit
+end
+
 local function bindTouch(tool: Tool, label: string)
 	touchTool = tool
+	if isSeated() then
+		-- in a truck the thumb cluster belongs to DRIFT / OUT / HONK / SIREN; re-bound on standing up
+		ContextActionService:UnbindAction(TOUCH_ACTION)
+		ThumbLayout.forget(TOUCH_ACTION)
+		return
+	end
 	ContextActionService:BindAction(TOUCH_ACTION, function(_, state: Enum.UserInputState)
 		local t = touchTool
 		if not t or t.Parent ~= LocalPlayer.Character then
@@ -724,6 +735,17 @@ end
 
 local function hookCharacter(char: Model)
 	holding, holdingTool = nil, nil
+	task.spawn(function()
+		local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
+		if hum then
+			hum:GetPropertyChangedSignal("Sit"):Connect(function()
+				local t = touchTool
+				if t and t.Parent == char then
+					bindTouch(t, if t.Name == "Axe" then "CHOP" else "SPRAY")
+				end
+			end)
+		end
+	end)
 	mover = nil
 	slideV = Vector3.zero
 	char.ChildAdded:Connect(hookTool)
