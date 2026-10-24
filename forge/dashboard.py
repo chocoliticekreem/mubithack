@@ -9,6 +9,8 @@ It reads what Forge already writes under runs/ and never changes anything:
 - mission control (team_view): one lane per agent and tester, tester screenshots with assertions,
   the Mubit ledger's correction moments, scores per version and wall clock per stage.
   GET /api/shot serves the step screenshots (PNG under runs/<slug>/tests or iterations only).
+- the page leads with what is running now (state["active"]), each game's latest result (game["result"]) and
+  one row per agent (game["agents"]); GET /api/agent?slug=&role= is what that agent did (agent_detail).
 
 The page polls /api/state every few seconds. Its one write is POST /api/rollback {slug, version}, from
 127.0.0.1 only: the same GameVersions.restore as `forge rollback`, saved as a new version. Stdlib only.
@@ -66,6 +68,8 @@ def _calls(path: Path) -> list[dict]:
 def _alive(pid: int) -> bool:
     import os
 
+    if pid <= 0:  # os.kill(0, 0) signals our own process group and always succeeds
+        return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -89,7 +93,7 @@ def running(settings: Settings, now: float | None = None) -> list[dict]:
         else:
             status = "running" if _alive(int(meta.get("pid", 0) or 0)) else "stopped"
         out.append({"name": meta.get("id", meta_path.stem), "kind": "job", "status": status,
-                    "command": "forge " + " ".join(meta.get("args", [])),
+                    "command": "forge " + " ".join(meta.get("args", [])), "started": _local_epoch(meta.get("started")),
                     "updated": log.stat().st_mtime if log.exists() else meta_path.stat().st_mtime,
                     "tail": [ln for ln in lines if not ln.startswith(EXIT_MARK)][-LOG_TAIL:]})
     for report in (settings.runs_dir / "playtests").glob("*/report.json"):
@@ -104,15 +108,27 @@ def running(settings: Settings, now: float | None = None) -> list[dict]:
         lines += [f"BUG [{b.get('severity')}] {b.get('title')}" for b in rep.get("bugs") or []]
         done = bool(rep.get("ended"))
         out.append({"name": f"playtest {report.parent.name}", "kind": "playtest",
-                    "status": "finished" if done else "running",
+                    "status": "finished" if done else "running", "started": _epoch(rep.get("started")),
                     "command": f"AI testers ({len(rep.get('players') or [])} players), goal: {rep.get('goal', '')}"
                                + (f" · goal met: {rep.get('goal_met')}" if done else f" · step {len(steps)}"),
                     "updated": mtime, "tail": lines})
     for log in settings.runs_dir.glob("*.log"):
-        mtime = log.stat().st_mtime
+        st = log.stat()
+        mtime = st.st_mtime
         out.append({"name": log.name, "kind": "log", "status": "active" if now - mtime < 120 else "idle",
-                    "command": log.name, "updated": mtime, "tail": _tail(log)})
+                    "command": log.name, "updated": mtime, "started": getattr(st, "st_birthtime", None),
+                    "tail": _tail(log)})
     return sorted(out, key=lambda r: -r["updated"])
+
+
+def _local_epoch(v: Any) -> float | None:
+    """Job metas stamp `started` in local time with no zone."""
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(str(v)).timestamp() if v else None
+    except ValueError:
+        return None
 
 
 def _versions(game_dir: Path) -> list[dict]:
@@ -132,7 +148,10 @@ ROLE_WORDS = {"designer": "designer", "coder": "coder", "build": "coder", "fixer
               "critic": "critic", "score": "critic", "studio": "tester", "check": "tester", "playtest": "tester",
               "tester": "tester", "investigator": "investigator", "auditor": "auditor", "triage": "auditor",
               "cycle": "auditor", "verifier": "verifier", "planner": "planner", "feature": "planner",
-              "reflector": "coach", "version": "keeper", "versions": "keeper"}
+              "reflector": "coach", "version": "keeper", "versions": "keeper", "checks": "tester"}
+# autopilot logs prefix lines with "HH:MM:SS [autopilot] " before the role tag
+_LOG_ROLE = re.compile(r"\s*(?:\d\d:\d\d:\d\d\s+)?(?:\[autopilot\]\s*)?\[([a-z_]+)\]")
+FRESH_CALL = 120  # a role whose newest Mubit call is this recent (s) counts as working now
 
 
 def _words(text: str, n: int = 5) -> str:
@@ -236,7 +255,7 @@ def live_for(settings: Settings, slug: str, runs: list[dict]) -> dict | None:
             continue
         role, line = None, ""
         for ln in reversed(r.get("tail", [])):
-            m = re.match(r"\s*\[([a-z]+)", ln)
+            m = _LOG_ROLE.match(ln)
             if m and m.group(1) in ROLE_WORDS:
                 role, line = ROLE_WORDS[m.group(1)], ln.strip()
                 break
@@ -307,7 +326,7 @@ def autopilot_view(run_dir: Path) -> dict | None:
         return None
     rows = []
     for r in st.get("rounds") or []:
-        rows.append({"round": r.get("round"), "verdict": r.get("verdict"), "version": r.get("version"),
+        rows.append({"round": r.get("round"), "ts": r.get("ts"), "verdict": r.get("verdict"), "version": r.get("version"),
                      "evidence": r.get("evidence") or {}, "evidence_items": r.get("evidence_items"),
                      "prefilter": r.get("prefilter"), "anomalies": (r.get("anomalies") or [])[:6],
                      "anomalies_n": len(r.get("anomalies") or []),
@@ -317,7 +336,10 @@ def autopilot_view(run_dir: Path) -> dict | None:
                      "kept": r.get("kept", 0), "rolled_back": r.get("rolled_back", 0),
                      "regressions": r.get("regressions") or [], "what_improved": r.get("what_improved"),
                      "why": r.get("why"), "scores": r.get("scores") or {}})
-    return {"state": st.get("state"), "round": st.get("round"), "phase": st.get("phase"),
+    # a crashed autopilot leaves state "running" behind, so only a live pid counts
+    alive = st.get("state") == "running" and _alive(int(_num(st.get("pid")) or 0))
+    return {"state": st.get("state"), "alive": alive, "updated": _epoch(st.get("updated")),
+            "round": st.get("round"), "phase": st.get("phase"),
             "budget": st.get("budget") or {}, "stop_reason": st.get("stop_reason"), "target": st.get("target"),
             "idea": st.get("idea"), "rounds": rows, "trend": st.get("score_trend") or [],
             "kept": sum(r["kept"] for r in rows), "rolled_back": sum(r["rolled_back"] for r in rows),
@@ -428,10 +450,21 @@ def thought_of(reply: Any) -> str:
                 return _clip(obj[k])
         if isinstance(obj.get("score"), (int, float)):
             return f"score {obj['score']}/10"
-    m = re.search(r"^\s*--+\s*(.+)$", body, re.M)
+    tool = re.match(r'<invoke name="([\w.-]+)">', body)  # an investigator step: say which tool, and why
+    if tool:
+        why = re.search(r'<parameter name="(?:why|reason|question)">(.*?)</parameter>', body, re.S)
+        arg = re.search(r'<parameter name="[\w-]+">(.*?)</parameter>', body, re.S)
+        return _clip(f"{tool.group(1)}: " + (why or arg).group(1) if (why or arg) else tool.group(1))
+    if body.startswith("{"):  # nested, or cut short in the trace so it doesn't parse: take a named string
+        for k in _THOUGHT_KEYS + (r"\w+",):
+            m = re.search(rf'"{k}"\s*:\s*"((?:[^"\\]|\\.){{8,}}?)(?:"|$)', body)
+            if m:
+                return _clip(m.group(1).replace('\\"', '"'))
+    m = re.search(r"^\s*--+\s*([^!\s].*)$", body, re.M)
     if m:
         return _clip(m.group(1))
-    return _clip(body.splitlines()[0]) if body else ""
+    prose = [ln for ln in body.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    return _clip((prose or body.splitlines())[0]) if body else ""
 
 
 def step_of(user: Any) -> str:
@@ -439,12 +472,15 @@ def step_of(user: Any) -> str:
     u = str(user or "")
     path = re.search(r"^path:\s*(\S+)", u, re.M)
     prob = re.search(r"^## (?:Problem|Anomaly|Game idea|Feature)[^\n]*\n(.+)", u, re.M)
-    if path and prob:
-        return _clip(f"{Path(path.group(1)).name}: {prob.group(1)}", 120)
+    head = prob.group(1) if prob else ""
+    title = re.search(r'"title"\s*:\s*"([^"]+)"', head) if head.startswith("{") else None
+    head = title.group(1) if title else head
+    if path and head:
+        return _clip(f"{Path(path.group(1)).name}: {head}", 120)
     if path:
         return f"writing {Path(path.group(1)).name}"
-    if prob:
-        return _clip(prob.group(1), 120)
+    if head:
+        return _clip(head, 120)
     return ""
 
 
@@ -848,6 +884,363 @@ def team_view(settings: Settings, slug: str, game: dict, now: float | None = Non
             "speed": speed_view(calls, timings, lanes), "has_timings": (store.dir / "timings.json").exists()}
 
 
+# ---------------------------------------------------------------- agents: one row per Mubit role, and what it did
+
+CALL_SOURCES = (("", "build"), ("improve", "improve"), ("autopilot", "autopilot"), ("orchestrator", "orchestrate"))
+SHOT_ROLES = {"critic": "critic", "fun_critic": "critic", "visual_judge": "critic",
+              "player": "tester", "judge": "tester", "swarm_tester": "tester", "step_judge": "tester",
+              "test_planner": "tester", "tester": "tester", "playtester": "tester"}
+FIX_ROLES = ("fixer", "patcher", "investigator", "reproducer", "verifier")
+AGENT_CALLS = 200   # newest calls listed in an agent's drawer
+AGENT_SHOTS = 24
+_GIST: dict[str, dict] = {}
+
+
+def game_calls(run_dir: Path) -> list[dict]:
+    """Every Mubit call of one game (build, improve, autopilot, orchestrate), oldest first."""
+    out = []
+    for sub, source in CALL_SOURCES:
+        d = run_dir / sub if sub else run_dir
+        out += [{**c, "source": source, "trace_dir": d / "traces"} for c in _calls(d / "calls.jsonl") if c.get("role")]
+    return sorted(out, key=lambda c: _epoch(c.get("ts")) or 0)
+
+
+def _trace_index(dirs: set[Path]) -> dict[str, Path]:
+    """request id -> trace file (traces are named <stamp>-<role>-<request id>.json)."""
+    out: dict[str, Path] = {}
+    for d in dirs:
+        if d.is_dir():
+            for p in d.glob("*.json"):
+                out[p.stem.rsplit("-", 1)[-1]] = p
+    return out
+
+
+def _gist(path: Path | None) -> dict:
+    """A call's step, thought and the file it worked on, from its trace. Traces never change, so cached."""
+    if path is None:
+        return {"step": "", "thought": "", "path": None}
+    key = str(path)
+    if key not in _GIST:
+        t = _read_json(path, None)
+        if not isinstance(t, dict):  # half-written: try again next time
+            return {"step": "", "thought": "", "path": None}
+        m = re.search(r"^path:\s*(\S+)", str(t.get("user") or ""), re.M)
+        _GIST[key] = {"step": step_of(t.get("user")), "thought": thought_of(t.get("reply")),
+                      "path": m.group(1) if m else None}
+    return _GIST[key]
+
+
+def agents_view(calls: list[dict], live_role: str | None = None, now: float | None = None) -> list[dict]:
+    """One row per agent (Mubit role) of a game: calls, failures, where it ran, its latest step and thought.
+    The one at work right now first (the role of a call made in the last FRESH_CALL seconds, else the
+    role the live log names), then the most recently active."""
+    by_role: dict[str, list[dict]] = {}
+    for c in calls:
+        by_role.setdefault(c["role"], []).append(c)
+    idx = _trace_index({c["trace_dir"] for c in calls})
+    out = []
+    for role, cs in by_role.items():
+        last = cs[-1]
+        g = _gist(idx.get(str(last.get("request_id"))))
+        out.append({"role": role, "calls": len(cs), "failed": sum(1 for c in cs if c.get("error")),
+                    "sources": list(dict.fromkeys(c["source"] for c in cs)), "last_ts": _epoch(last.get("ts")),
+                    "latency_ms": int(_num(last.get("latency_ms")) or 0),
+                    "step": g["step"] or ROLE_STEP.get(role, ""), "thought": g["thought"], "running": False})
+    out.sort(key=lambda a: -(a["last_ts"] or 0))
+    now = time.time() if now is None else now
+    mine = next((a for a in out[:1] if a["last_ts"] is not None and now - a["last_ts"] <= FRESH_CALL), None) \
+        or next((a for a in out if live_role and ROLE_WORDS.get(a["role"], a["role"]) == live_role), None)
+    if mine:
+        mine["running"] = True
+        out.remove(mine)
+        out.insert(0, mine)
+    return out
+
+
+def _agent_outcomes(run_dir: Path, role: str, files: set[str]) -> list[dict]:
+    """Kept / rolled back, where Forge recorded it: improve-cycle fixes and autopilot decisions."""
+    out = []
+    if role in FIX_ROLES:
+        for row in _read_json(run_dir / "improve" / "scores.json", []) or []:
+            for f in (_read_json(run_dir / "improve" / f"{row.get('cycle')}.json", {}) or {}).get("code_fixes") or []:
+                if role in ("fixer", "patcher") and files and f.get("path") not in files:
+                    continue
+                out.append({"what": _clip(f.get("anomaly") or "", 140), "outcome": f.get("status"),
+                            "version": f.get("version"), "file": f.get("path"), "where": f"fix cycle {row.get('cycle')}"})
+    st = _read_json(run_dir / "autopilot" / "status.json", {})
+    for r in (st.get("rounds") or []) if isinstance(st, dict) else []:
+        for d in r.get("decisions") or []:
+            if role in (d.get("sources") or []) and d.get("picked"):
+                out.append({"what": _clip(d.get("title") or "", 140), "outcome": d.get("outcome"),
+                            "version": r.get("version"), "file": None, "where": f"autopilot round {r.get('round')}"})
+    return out
+
+
+def _own_tester_runs(testers: list[dict], calls: list[dict]) -> list[dict]:
+    """The tester runs this role's calls belong to. Calls carry the run in their session id
+    (qa-<run> -> tests/<run>, swarm-<run> -> tests/<run>-NN-<persona>)."""
+    sess = {str(c.get("session_id") or "").split("-", 1)[-1] for c in calls} - {""}
+    return [t for t in testers if t["run"] in sess or any(t["run"].startswith(s + "-") for s in sess)]
+
+
+def _agent_shots(run_dir: Path, slug: str, role: str, calls: list[dict]) -> list[dict]:
+    kind = SHOT_ROLES.get(role)
+    if kind == "critic":
+        return [{"shot": s["shot"], "label": f"build round {s['n']}", "ok": None}
+                for s in iteration_shots(run_dir, slug)[::-1][:AGENT_SHOTS]]
+    if kind == "tester":
+        shots = [{"shot": s["shot"], "label": f"{t['label']} · step {s['n']}: {s['action']}", "ok": s["ok"]}
+                 for t in _own_tester_runs(testers_view(run_dir, slug, time.time()), calls)[::-1]
+                 for s in t["steps"][::-1] if s["shot"]]
+        return shots[:AGENT_SHOTS]
+    return []
+
+
+def agent_detail(settings: Settings, slug: str, role: str) -> dict | None:
+    """GET /api/agent?slug=&role=: what one agent did on one game. Its calls newest first (time, where it
+    ran, step, thought, request id, ok), the files it worked on, its screenshots and recorded outcomes."""
+    if slug not in RunStore.list_games(settings):
+        return None
+    run_dir = RunStore(settings, slug).dir
+    cs = [c for c in game_calls(run_dir) if c["role"] == role]
+    if not cs:
+        return None
+    idx = _trace_index({c["trace_dir"] for c in cs})
+    rows, files = [], Counter()
+    for i, c in enumerate(cs):
+        g = _gist(idx.get(str(c.get("request_id"))))
+        if g["path"]:
+            files[g["path"]] += 1
+        if i >= len(cs) - AGENT_CALLS:
+            rows.append({"n": i + 1, "ts": c.get("ts"), "source": c["source"], "step": g["step"],
+                         "thought": g["thought"], "file": g["path"], "request_id": c.get("request_id"),
+                         "ok": not c.get("error"), "error": _clip(c.get("error") or "", 200),
+                         "latency_ms": int(_num(c.get("latency_ms")) or 0)})
+    return {"slug": slug, "role": role, "calls": len(cs), "failed": sum(1 for c in cs if c.get("error")),
+            "sources": list(dict.fromkeys(c["source"] for c in cs)), "rows": rows[::-1],
+            "files": [{"path": p, "calls": n} for p, n in files.most_common()],
+            "shots": _agent_shots(run_dir, slug, role, cs), "outcomes": _agent_outcomes(run_dir, role, set(files))}
+
+
+def result_view(run_dir: Path, game: dict, team: dict) -> dict:
+    """A game's latest result in one glance: the newest screenshot and a one-line verdict."""
+    shots = []
+    if team["critic_shots"]:
+        n = team["critic_shots"][-1]["n"]
+        p = run_dir / "iterations" / str(n) / "screenshot.png"
+        shots.append((p.stat().st_mtime if p.exists() else 0, team["critic_shots"][-1]["shot"], f"critic, build round {n}"))
+    for t in team["testers"]:
+        last = next((s for s in t["steps"][::-1] if s["shot"]), None)
+        if last:
+            shots.append((t["updated"], last["shot"], f"{t['label']}, step {last['n']}"))
+    shot = max(shots, key=lambda s: s[0]) if shots else None
+    ap = game.get("autopilot") or {}
+    rnd = (ap.get("rounds") or [None])[-1]
+    it = (game.get("iterations") or [None])[-1]
+    cyc = (game.get("cycles") or [None])[-1]
+    verdict, why, at = "Nothing played yet", "", None
+    if rnd:
+        verdict = f"Autopilot round {rnd['round']}: {str(rnd.get('verdict') or 'measuring').replace('_', ' ')}"
+        why, at = rnd.get("what_improved") or rnd.get("why"), _epoch(rnd.get("ts"))
+    elif it:
+        verdict = f"Build round {it.get('n')}: score {it.get('score') if it.get('score') is not None else '–'}/10"
+        why, at = it.get("summary"), _epoch(it.get("ended"))
+    # a round or iteration with no time of its own stays the latest result, as before cycles were read
+    if cyc and (not (rnd or it) or (at is not None and (_epoch(cyc.get("ts")) or 0) > at)):
+        kept = [f.get("anomaly") for f in cyc.get("code_fixes") or [] if f.get("status") == "kept"]
+        verdict = (f"Fix cycle {cyc.get('cycle')}: {cyc.get('code_kept') or 0}/{cyc.get('code_tried') or 0} "
+                   f"fixes kept, {cyc.get('open') or 0} open")
+        why = ("kept: " + "; ".join(str(k) for k in kept if k)) if any(kept) else \
+            next((a.get("title") for a in cyc.get("anomalies") or [] if isinstance(a, dict) and a.get("title")), "")
+    return {"shot": shot[1] if shot else None, "shot_label": shot[2] if shot else "",
+            "verdict": verdict, "why": _clip(why or "", 200), "score": game["goal"]["score"]}
+
+
+def _working(game: dict) -> str | None:
+    return next((a["role"] for a in game.get("agents") or [] if a["running"]), None)
+
+
+def now_view(runs: list[dict], games: list[dict], now: float) -> list[dict]:
+    """What is running right now, across every game: forge jobs, logs being written, playtests, autopilots."""
+    live = {g["live"]["name"]: g for g in games if g.get("live")}
+    out = []
+    for r in runs:
+        if r["status"] not in ("running", "active"):
+            continue
+        g = live.get(r["name"])
+        step = (g["live"]["line"] if g else "") or next((ln.strip() for ln in reversed(r["tail"]) if ln.strip()), "")
+        out.append({"name": r["name"], "kind": r["kind"], "slug": g["slug"] if g else None,
+                    "title": g["title"] if g else "", "role": (_working(g) or g["live"]["role"]) if g else None,
+                    "step": _clip(step, 160), "status": r["status"], "updated": r["updated"],
+                    "elapsed": round(now - r["started"]) if r.get("started") else None})
+    for g in games:
+        a = g.get("autopilot") or {}
+        if a.get("alive"):
+            busy = next((x for x in g.get("agents") or [] if x["running"]), None)
+            step = f"round {a.get('round')} · {a.get('phase') or 'starting'}" + (f" · {busy['step']}" if busy and busy["step"] else "")
+            out.append({"name": "autopilot", "kind": "autopilot", "slug": g["slug"], "title": g["title"],
+                        "role": busy["role"] if busy else "autopilot", "step": _clip(step, 160),
+                        "status": "running", "updated": a.get("updated"), "elapsed": None})
+    return out
+
+
+# ---------------------------------------------------------------- activity feed (ForgeBridge "Runs" panel)
+
+ACTIVE_FOR = 300  # seconds: a run whose files moved this recently counts as running
+_FEED_FILES = ("calls.jsonl", "timings.json", "state.json", "levels/log.jsonl", "autopilot/status.json",
+               "improve/calls.jsonl")
+
+
+def _event(ts: float | None, role: str, text: str, status: str, detail: str = "",
+           request_id: str | None = None) -> dict:
+    return {"ts": ts, "role": role, "text": _clip(text, 120), "status": status, "detail": detail,
+            "request_id": request_id}
+
+
+def _call_text(role: str, label: str) -> str:
+    if role == "coder" and label.endswith((".luau", ".lua")):
+        return f"coder wrote {label}"
+    return f"{role}: {label}" if label else role
+
+
+def _timing_events(t: dict) -> list[dict]:
+    out = []
+    for c in t["calls"]:
+        role, label = str(c.get("role") or "agent"), str(c.get("label") or c.get("step") or "")
+        end = _epoch(c.get("end"))
+        status = "running" if end is None else ("ok" if c.get("ok") else "fail")
+        lat = _num(c.get("latency_ms"))
+        detail = "\n".join(x for x in (
+            f"{role} · {label}", f"took {lat / 1000:.1f}s" if lat else "",
+            f"{c['n_calls']} Mubit calls" if (c.get("n_calls") or 0) > 1 else "",
+            f"error: {c['error']}" if c.get("error") else "",
+            f"request {c['request_id']}" if c.get("request_id") else "") if x)
+        out.append(_event(end or _epoch(c.get("start")), role, _call_text(role, label), status, detail,
+                          c.get("request_id")))
+    return out
+
+
+def _call_events(run_dir: Path, calls: list[dict], after: float, n: int) -> list[dict]:
+    """Mubit calls logged after `after` (a run without timings.json, or an improve pass after it)."""
+    dirs = [run_dir / "traces", run_dir / "improve" / "traces"]
+    out = []
+    for c in calls:
+        ts = _epoch(c.get("ts"))
+        if ts is None or ts <= after or not c.get("role"):
+            continue
+        out.append((ts, c))
+    out = sorted(out, key=lambda x: x[0])[-n:]
+    events = []
+    for ts, c in out:
+        role = str(c["role"])
+        tr = _trace_for(dirs, c.get("request_id"))
+        traced = step_of(tr.get("user"))
+        step = traced or ROLE_STEP.get(role, "")
+        lat = _num(c.get("latency_ms"))
+        thought = thought_of(tr.get("reply"))
+        detail = "\n".join(x for x in (f"{role} · {step}", f"took {lat / 1000:.1f}s" if lat else "",
+                                       f"thought: {thought}" if thought else "",
+                                       f"error: {c['error']}" if c.get("error") else "",
+                                       f"request {c['request_id']}" if c.get("request_id") else "") if x)
+        if role == "coder" and traced.startswith("writing "):
+            text = "coder wrote " + traced[len("writing "):]
+        else:
+            text = f"{role}: {step}" if step else role
+        events.append(_event(ts, role, text, "fail" if c.get("error") else "ok", detail, c.get("request_id")))
+    return events
+
+
+def _level_events(path: Path) -> list[dict]:
+    out = []
+    for row in _calls(path):
+        tries = [a for a in row.get("attempts") or [] if isinstance(a, dict)]
+        errs = int((tries[-1] if tries else {}).get("errors") or 0)
+        first = (tries[-1] if tries else {}).get("first_errors") or []
+        text = f"level_designer zone {row.get('zone')}: {errs} errors" + (f" after {len(tries)} tries"
+                                                                       if len(tries) > 1 else "")
+        detail = "\n".join([f"zone {row.get('zone')} ({row.get('theme_id') or '?'}), stages {row.get('first')}"
+                            f"+{row.get('count')}", *[str(e)[:200] for e in first[:5]]])
+        out.append(_event(_epoch(row.get("ts")), "level_designer", text, "fail" if errs else "ok", detail,
+                          (tries[-1] if tries else {}).get("request_id")))
+    return out
+
+
+def _iteration_events(state: dict) -> list[dict]:
+    out = []
+    for it in state.get("iterations") or []:
+        errs = it.get("errors") or []
+        kind = "playtest" if it.get("studio") is not False else "check"
+        score = f", score {it['score']}" if it.get("score") is not None else ""
+        detail = "\n".join([_clip(it.get("summary") or "", 400),
+                            *[_clip(e.get("message") if isinstance(e, dict) else e, 200) for e in errs[:5]]])
+        out.append(_event(_epoch(it.get("ended")), "critic", f"{kind} round {it.get('n')}: {len(errs)} errors{score}",
+                          "fail" if errs else "ok", detail))
+    return out
+
+
+def _autopilot_events(run_dir: Path) -> list[dict]:
+    st = _read_json(run_dir / "autopilot" / "status.json", None)
+    if not isinstance(st, dict):
+        return []
+    out = []
+    for r in st.get("rounds") or []:
+        verdict = str(r.get("verdict") or "?")
+        counts = f" (kept {r.get('kept', 0)}, rolled back {r.get('rolled_back', 0)})" \
+            if r.get("kept") or r.get("rolled_back") else ""
+        detail = "\n".join(x for x in (f"version {r.get('version')}" if r.get("version") else "",
+                                       _clip(r.get("what_improved") or "", 300), _clip(r.get("why") or "", 400)) if x)
+        out.append(_event(_epoch(r.get("ts")), "autopilot", f"autopilot round {r.get('round')}: {verdict}{counts}",
+                          {"kept": "ok", "rolled_back": "fail"}.get(verdict, "info"), detail))
+    return out
+
+
+def run_activity(settings: Settings, slug: str, now: float, n: int = 6, jobs: list[dict] | None = None) -> dict:
+    """One run's newest `n` actions as one-line events, newest first. `jobs` is running(settings)."""
+    store = RunStore(settings, slug)
+    events = _timing_events(read_timings(store.dir / "timings.json"))
+    after = max((e["ts"] for e in events if e["ts"] is not None and e["status"] != "running"), default=0.0)
+    calls = _calls(store.calls_log) + _calls(store.dir / "improve" / "calls.jsonl")
+    events += _call_events(store.dir, calls, after, n)
+    events += _level_events(store.dir / "levels" / "log.jsonl")
+    events += _iteration_events(_read_json(store.state_path, {}) or {})
+    events += _autopilot_events(store.dir)
+    events = sorted((e for e in events if e["ts"] is not None), key=lambda e: -e["ts"])[:n]
+    for e in events:
+        e["age_s"] = max(0, int(now - e["ts"]))
+    spec = _read_json(store.spec_path, {}) or {}
+    ap = _read_json(store.dir / "autopilot" / "status.json", {}) or {}
+    updated = _feed_mtime(store.dir)
+    # a live job/log building this slug is the truth; status files say "running" after a crash too,
+    # so without one only fresh files or a live autopilot pid count
+    jobs = running(settings, now) if jobs is None else jobs
+    running_ = live_for(settings, slug, jobs) is not None or now - updated < ACTIVE_FOR or (
+        ap.get("state") == "running" and int(ap.get("pid") or 0) > 0 and _alive(int(ap["pid"])))
+    if not running_:
+        for e in events:
+            if e["status"] == "running":
+                e["status"] = "stopped"
+    return {"slug": slug, "title": spec.get("title") or slug, "status": "running" if running_ else "idle",
+            "updated": updated, "age_s": max(0, int(now - updated)), "events": events}
+
+
+def _feed_mtime(run_dir: Path) -> float:
+    best = 0.0
+    for name in _FEED_FILES:
+        try:
+            best = max(best, (run_dir / name).stat().st_mtime)
+        except OSError:
+            continue
+    return best
+
+
+def activity_view(settings: Settings, runs: int = 3, events: int = 6, now: float | None = None) -> dict:
+    """The newest `runs` Forge runs (by when their files last moved) with their latest actions."""
+    now = now or time.time()
+    slugs = sorted(RunStore.list_games(settings), key=lambda s: -_feed_mtime(settings.runs_dir / s))
+    jobs = running(settings, now)
+    return {"now": now, "runs": [run_activity(settings, s, now, events, jobs) for s in slugs[:max(0, runs)]]}
+
+
 def collect(settings: Settings | None = None) -> dict:
     s = settings or load_settings()
     now = time.time()
@@ -855,8 +1248,12 @@ def collect(settings: Settings | None = None) -> dict:
     games = [game_view(s, slug, runs) for slug in RunStore.list_games(s)]
     for g in games:
         g["team"] = team_view(s, g["slug"], g, now)
-    games.sort(key=lambda g: (g["live"] is None, -g["updated"]))
-    return {"now": now, "running": runs, "games": games, "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}
+        run_dir = RunStore(s, g["slug"]).dir
+        g["agents"] = agents_view(game_calls(run_dir), (g.get("live") or {}).get("role"), now)
+        g["result"] = result_view(run_dir, g, g["team"])
+    games.sort(key=lambda g: (g["live"] is None and not (g.get("autopilot") or {}).get("alive"), -g["updated"]))
+    return {"now": now, "running": runs, "active": now_view(runs, games, now), "games": games,
+            "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}
 
 
 def shot_path(settings: Settings, slug: str, rel: str) -> Path | None:
@@ -917,6 +1314,15 @@ def make_handler(settings: Settings):
             route, _, query = self.path.partition("?")
             if route == "/api/state":
                 self._send(200, json.dumps(collect(settings), default=str).encode(), "application/json")
+            elif route == "/api/agent":
+                from urllib.parse import parse_qs
+
+                q = parse_qs(query)
+                d = agent_detail(settings, (q.get("slug") or [""])[0], (q.get("role") or [""])[0])
+                if d is None:
+                    self._send(404, b'{"error": "no such agent"}', "application/json")
+                else:
+                    self._send(200, json.dumps(d, default=str).encode(), "application/json")
             elif route == "/api/shot":
                 from urllib.parse import parse_qs
 

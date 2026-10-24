@@ -159,6 +159,7 @@
   .sheet { overflow-x: hidden; }
   .fact .lbl { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
   .fact code, .nerd code, .nerd pre { font: 12px/1.4 ui-monospace, Menlo, monospace; }
+  .did { margin: 6px 0 0; padding-left: 18px; font-weight: 700; display: grid; gap: 4px; }
   .files { margin: 6px 0 0; padding-left: 18px; font-weight: 600; font-size: 12px; word-break: break-all; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .confirm { margin-top: 12px; padding: 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff1f3; color: var(--ink); }
@@ -320,9 +321,59 @@
   }
   @media (max-width: 560px) { .lane, .axis { grid-template-columns: minmax(0, 1fr); } .axis > :first-child { display: none; } .tile .v { font-size: 24px; white-space: normal; } .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+  /* ---------- the condensed view: running now, latest result, agents, agent drawer */
+  #nowBox, #gameBox, #agentsBox { margin-bottom: 18px; }
+  .nowrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%;
+    padding: 8px 10px; border-radius: 14px; background: var(--panel2); border: 2px solid var(--ink); text-align: left;
+    color: var(--text, var(--ink)); margin-top: 6px; }
+  .nowrow .nm { font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nowrow .ln { font-size: 13px; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nowrow .el { font: 900 13px var(--body); white-space: nowrap; }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+  .result { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .result .pic { border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #1a1033; aspect-ratio: 16 / 9;
+    display: grid; place-items: center; color: #b3a9dc; font: 800 12px var(--body); padding: 0; }
+  .result .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .verdict { font-weight: 900; } .verdict small { display: block; color: var(--muted); font-weight: 700; font-size: 13px; }
+  .gamecard { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .agent { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
+    padding: 8px 10px; border-radius: 14px; background: var(--panel2); border: 2px solid var(--ink); color: var(--text, var(--ink));
+    box-shadow: 0 3px 0 var(--ink); transition: transform .08s; min-width: 0; }
+  .agent:hover, .agent:focus-visible { transform: translateY(-2px); outline: none; box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--cyan); }
+  .agent.running { background: linear-gradient(135deg, #fff6c9, #ffe27a); color: var(--ink); }
+  .agent.sel { box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--pink); }
+  .agent svg { width: 34px; height: 40px; }
+  .agent.running svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .agent .nm { font-weight: 900; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent .st { font: 800 11px var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent.running .st { color: #6b5a12; }
+  .agent .step { font-size: 12.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent .thought { font-size: 12px; color: var(--muted); font-style: italic; font-weight: 700; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .agent.running .thought { color: #4b3f74; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(580px, 100%); z-index: 25; background: var(--panel);
+    color: var(--text, var(--ink)); border-left: 3px solid var(--ink); box-shadow: -8px 0 30px #0b062066; overflow-y: auto;
+    padding: 16px; transform: translateX(105%); transition: transform .2s ease-out; }
+  .drawer.open { transform: none; }
+  .drawer .top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .drawer .top svg { width: 46px; height: 54px; flex: none; }
+  .drawer h3 { font-size: 26px; line-height: 1.05; text-transform: capitalize; }
+  .drawer h4 { font: 900 12px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+  .drawer .strip { grid-auto-columns: 150px; }
+  .crow { padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; min-width: 0; }
+  .crow .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font: 800 11.5px var(--body); color: var(--muted); }
+  .crow .step { font-weight: 900; overflow-wrap: anywhere; }
+  .crow .thought { color: var(--muted); font-weight: 700; font-style: italic; overflow-wrap: anywhere; }
+  .crow code, .orow code { font: 11px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .orow { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; padding: 4px 0; font-size: 13px; font-weight: 800; }
+  @media (max-width: 900px) { .gamecard { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
+
   /* ---------- nerd view (the old dashboard, kept) */
-  .nerd { display: none; margin-top: 22px; }
-  body.nerdy .nerd { display: grid; gap: 18px; }
+  #more { display: none; margin-top: 22px; padding-top: 18px; border-top: 3px dashed #ffffff44; }
+  body.more #more { display: block; }
+  .nerd { display: grid; gap: 18px; margin-top: 22px; }
   .nerd h2 { color: #fff; font-size: 22px; margin-bottom: 8px; }
   .nerd .card { box-shadow: 0 4px 0 var(--ink); font-weight: 600; }
   .ngrid { display: grid; gap: 12px; align-items: start; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
@@ -369,19 +420,24 @@
 <div class="wrap">
   <header>
     <div class="logo">FORGE</div>
-    <div class="tag">The AI team builds your Roblox game, plays it, fixes it, and gets smarter every round.</div>
+    <div class="tag">What Forge's agents are doing, and what each one did.</div>
     <select class="pick" id="pick" aria-label="Pick a game"></select>
-    <button class="btn ghost small" id="nerdBtn" aria-pressed="false">Nerd view</button>
+    <button class="btn ghost small" id="moreBtn" aria-pressed="false" aria-controls="more">More</button>
   </header>
 
-  <div id="main"><div class="card empty">Loading the workshop…</div></div>
-  <div id="team"></div>
-  <div id="mapBox"></div>
+  <div id="nowBox"><div class="card empty">Loading…</div></div>
+  <div id="gameBox"></div>
+  <div id="agentsBox"></div>
 
-  <section class="nerd" id="nerd">
-    <div><h2>Running</h2><div id="running" class="ngrid"></div></div>
-    <div><h2>Mubit tasks</h2><div id="mubit"></div></div>
-    <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
+  <section id="more" aria-label="More detail">
+    <div id="main"></div>
+    <div id="team"></div>
+    <div id="mapBox"></div>
+    <section class="nerd" id="nerd">
+      <div><h2>Running</h2><div id="running" class="ngrid"></div></div>
+      <div><h2>Mubit tasks</h2><div id="mubit"></div></div>
+      <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
+    </section>
   </section>
   <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Lilita One and Nunito (Google Fonts, OFL).</div>
 </div>
@@ -395,6 +451,7 @@
 <div class="note" id="note" role="status"></div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Tester screenshot"><div class="card lb" id="lb"></div></div>
 <div class="tip" id="tip" role="tooltip"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="What this agent did"><div id="drawerBody"></div></aside>
 
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -597,10 +654,102 @@ function renderMain() {
   put("mapBox", renderMap(g));
 }
 
+// ------------------------------------------------------------------ the condensed view
+const moreOn = () => document.body.classList.contains("more");
+const roleName = r => String(r || "").replace(/_/g, " ");
+let AGENT = null, AGENT_DATA = null;   // the open drawer: {slug, role}, and its last /api/agent reply
+
+function renderNow() {
+  const A = DATA.active || [];
+  const rows = A.map(a => `<button class="nowrow" ${a.slug ? `data-slug="${esc(a.slug)}"` : ""}>
+      <span class="chip live"><i class="dot"></i>${esc(a.kind)}</span>
+      <span style="min-width:0"><span class="nm">${esc(a.title || a.name)}${a.role ? ` · <span style="text-transform:capitalize">${esc(roleName(a.role))}</span>` : ""}</span>
+        <span class="ln" style="display:block">${esc(a.step || a.name)}</span></span>
+      <span class="el">${a.elapsed != null ? secs(a.elapsed) : ""}<span class="small muted" style="display:block">moved ${esc(ago(a.updated))}</span></span></button>`).join("");
+  const slugs = [...new Set(A.map(a => a.slug).filter(Boolean))];
+  const results = slugs.map(s => DATA.games.find(g => g.slug === s)).filter(Boolean).map(g => resultBlock(g, true)).join("");
+  put("nowBox", `<div class="card"><div class="sec-head"><h2>Running now</h2><span class="sub">${A.length ? `${A.length} at work` : ""}</span></div>
+    ${rows || `<div class="empty small">Nothing is running. Start one with <code>forge autopilot &lt;slug&gt;</code> or <code>forge new "idea"</code>.</div>`}
+    ${results ? `<div class="results">${results}</div>` : ""}</div>`);
+}
+
+function resultBlock(g, titled) {
+  const r = g.result || {};
+  return `<div class="result">${titled ? `<div class="nm" style="font-weight:900">${esc(g.title)}</div>` : ""}
+    ${r.shot ? `<a class="pic" href="${esc(r.shot)}" target="_blank" rel="noopener" title="${esc(r.shot_label)}"><img src="${esc(r.shot)}" alt="${esc(g.title)}: ${esc(r.shot_label)}" loading="lazy"></a>` : `<div class="pic">no screenshot yet</div>`}
+    <div class="verdict">${esc(r.verdict || "")}${r.why ? `<small>${esc(r.why)}</small>` : ""}${r.shot_label ? `<small>screenshot: ${esc(r.shot_label)}</small>` : ""}</div></div>`;
+}
+
+function renderGame(g) {
+  if (!g) { put("gameBox", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); return; }
+  const live = g.live || (g.autopilot?.alive ? {role: "autopilot"} : null);
+  const status = live ? `<span class="chip live"><i class="dot"></i>live</span>` : `<span class="chip">idle · ${esc(ago(g.updated))}</span>`;
+  put("gameBox", `<div class="card gamecard"><div><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
+      <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
+      <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
+        <span class="chip">${g.versions.length} versions</span><span class="chip">${(g.agents || []).length} agents</span></div></div>
+    ${resultBlock(g, false)}</div>`);
+}
+
+function renderAgents(g) {
+  if (!g) { put("agentsBox", ""); return; }
+  const list = g.agents || [];
+  const cards = list.map(a => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" aria-label="${esc(roleName(a.role))}: see what it did">
+      ${botSvg(member(a.role))}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
+      <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
+  put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
+    ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}</div>`);
+}
+
+function renderDrawer() {
+  const D = AGENT_DATA, open = !!AGENT;
+  $("drawer").classList.toggle("open", open);
+  if (!open) return;
+  if (!D) { put("drawerBody", `<div class="top"><h3>${esc(roleName(AGENT.role))}</h3><button class="x" data-close aria-label="Close">✕</button></div><div class="muted">Loading…</div>`); return; }
+  for (const k of Object.keys(SHOTS)) if (k.startsWith("agent#")) delete SHOTS[k];
+  const shots = D.shots.map((s, i) => shotTile({run: "agent", label: roleName(D.role), goal: ""},
+    {n: i + 1, action: s.label, shot: s.shot, ok: s.ok, assertions: [], reason: "", result: ""})).join("");
+  // high level only (Anson): what it did in a few plain lines, the outcome, its screenshots; no files, ids or raw text
+  const outcomes = D.outcomes.slice(0, 4).map(o => `<div class="orow">${pill((o.outcome || "unknown").replace("_", " "))}<span>${esc(o.what)}</span></div>`).join("");
+  const did = [...new Set(D.rows.map(c => (c.step || "").replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 3)
+    .map(t => `<li>${esc(t.length > 90 ? t.slice(0, 87) + "…" : t)}</li>`).join("");
+  put("drawerBody", `<div class="top">${botSvg(member(D.role))}<div style="min-width:0"><h3>${esc(roleName(D.role))}</h3>
+      <div class="small muted">${esc(game()?.title || D.slug)} · ${D.calls} calls${D.failed ? ` · <span class="bad">${D.failed} failed</span>` : ""}</div></div>
+      <button class="x" data-close aria-label="Close">✕</button></div>
+    ${did ? `<h4>What it did</h4><ul class="did">${did}</ul>` : ""}
+    ${outcomes ? `<h4>Outcome</h4>${outcomes}` : ""}
+    ${shots ? `<h4>Screenshots</h4><div class="strip">${shots}</div>` : ""}`);
+}
+
+async function loadAgent() {
+  if (!AGENT) return;
+  const want = AGENT;
+  try {
+    const r = await fetch(`/api/agent?slug=${encodeURIComponent(want.slug)}&role=${encodeURIComponent(want.role)}`, {cache: "no-store"});
+    if (AGENT !== want) return;
+    AGENT_DATA = r.ok ? await r.json() : null;
+    if (!r.ok) { AGENT = null; note("That agent has no calls on this game."); }
+  } catch (e) { return; }
+  renderDrawer(); renderAgents(game());
+}
+
+function openAgent(role) { AGENT = {slug: game().slug, role}; AGENT_DATA = null; renderDrawer(); renderAgents(game()); loadAgent(); }
+function closeAgent() { AGENT = null; AGENT_DATA = null; renderDrawer(); renderAgents(game()); }
+
+function renderCondensed() {
+  const g = game();
+  renderNow(); renderGame(g); renderAgents(g);
+  if (AGENT && g && AGENT.slug !== g.slug) closeAgent();
+}
+
 // ------------------------------------------------------------------ mission control (live team)
 const MEMBER = {};
 for (const t of TEAM) for (const r of t.roles) MEMBER[r] = t;
 Object.assign(MEMBER, {tester: TEAM.find(t => t.key === "tester"), reflector: TEAM.find(t => t.key === "coach")});
+for (const [role, key] of Object.entries({fun_critic: "critic", visual_judge: "critic", player: "tester", swarm_tester: "tester",
+  step_judge: "tester", test_planner: "tester", level_designer: "designer", director: "planner", architect: "planner",
+  anomaly_detector: "auditor", gap_finder: "auditor", swarm_triage: "auditor", check_reviewer: "verifier", reproducer: "investigator"}))
+  MEMBER[role] = TEAM.find(t => t.key === key);
 const member = role => MEMBER[role] || {name: role, hat: "#b7b1cc", body: "#e2dcf5", tool: "clip", roles: [role]};
 const secs = s => { if (s == null) return "–"; if (s < 10) return `${(+s).toFixed(1)}s`; const t = Math.round(s);
   return t < 60 ? `${t}s` : t < 3600 ? `${Math.floor(t / 60)}m ${String(t % 60).padStart(2, "0")}s` : `${(t / 3600).toFixed(1)}h`; };
@@ -793,7 +942,7 @@ function renderTeamInto(g) {
   put("tAuto", renderAutopilot(g));
   put("mcSub", `Every Forge agent and tester, side by side${g.live ? " · live" : ""}`);
   put("tLanes", renderLanes(g));
-  for (const k of Object.keys(SHOTS)) delete SHOTS[k];
+  for (const k of Object.keys(SHOTS)) if (!k.startsWith("agent#")) delete SHOTS[k];
   put("tFeed", renderFeed(g));
   put("tLedger", renderLedger());
   put("tTimeline", renderTimeline(g));
@@ -906,7 +1055,7 @@ function noticeNew() {
   for (const g of DATA.games) {
     const n = g.versions.length;
     if (seen[g.slug] == null) { seen[g.slug] = n; continue; }
-    if (n > seen[g.slug] && g.slug === game()?.slug) queue.push(...g.missions.slice(seen[g.slug]).filter(isMission));
+    if (n > seen[g.slug] && g.slug === game()?.slug && moreOn()) queue.push(...g.missions.slice(seen[g.slug]).filter(isMission));
     seen[g.slug] = n;
   }
   play();
@@ -952,16 +1101,23 @@ function renderNerdGame(g) {
     ${det("game:" + g.slug, `<span class="small">details</span>`, iters + cycles + versions + feats + reports + calls)}</div>`;
 }
 function renderNerd() {
-  if (!document.body.classList.contains("nerdy")) return;
+  if (!moreOn()) return;
   put("running", renderRunning(DATA.running));
   put("mubit", renderMubit(DATA.mubit));
   put("games", DATA.games.length ? DATA.games.map(renderNerdGame).join("") : '<div class="empty">No games yet.</div>');
 }
 
 // ------------------------------------------------------------------ wiring
-$("pick").addEventListener("change", e => { if (!e.target.value) return; SEL = e.target.value; store.set("forge.sel", SEL); queue.length = 0; renderMain(); });
-$("nerdBtn").addEventListener("click", e => { const on = document.body.classList.toggle("nerdy"); e.target.setAttribute("aria-pressed", on); e.target.textContent = on ? "Simple view" : "Nerd view"; store.set("forge.nerd", on ? "1" : ""); if (DATA) renderNerd(); });
-if (store.get("forge.nerd")) $("nerdBtn").click();
+function pickGame(slug) { SEL = slug; store.set("forge.sel", SEL); queue.length = 0; renderPicker(); renderCondensed(); if (moreOn()) renderMain(); }
+$("pick").addEventListener("change", e => { if (e.target.value) pickGame(e.target.value); });
+$("moreBtn").addEventListener("click", e => { const on = document.body.classList.toggle("more"); e.target.setAttribute("aria-pressed", on); e.target.textContent = on ? "Less" : "More"; store.set("forge.more", on ? "1" : ""); if (DATA && on) { renderMain(); renderNerd(); } });
+if (store.get("forge.more")) $("moreBtn").click();
+$("nowBox").addEventListener("click", e => { const r = e.target.closest("[data-slug]"); if (r) pickGame(r.dataset.slug); });
+$("agentsBox").addEventListener("click", e => { const a = e.target.closest("[data-role]"); if (a) AGENT?.role === a.dataset.role ? closeAgent() : openAgent(a.dataset.role); });
+$("drawer").addEventListener("click", e => {
+  if (e.target.closest("[data-close]")) return closeAgent();
+  const sh = e.target.closest("[data-shot]"); if (sh) { LB = sh.dataset.shot; renderLightbox(); }
+});
 $("team").addEventListener("click", e => {
   const sh = e.target.closest("[data-shot]"); if (sh) { LB = sh.dataset.shot; renderLightbox(); }
 });
@@ -990,6 +1146,7 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (e.key === "Escape" && DETAIL) closeDetail();
+  else if (e.key === "Escape" && AGENT) closeAgent();
 });
 
 async function refresh() {
@@ -997,7 +1154,7 @@ async function refresh() {
     const r = await fetch("/api/state", {cache: "no-store"});
     DATA = await r.json();
     if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
-    renderPicker(); renderMain(); renderNerd(); noticeNew();
+    renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
     $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;

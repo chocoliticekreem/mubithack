@@ -117,6 +117,7 @@ The installer checks the companion protocol before replacing the local plugin. I
 luau-compile studio-plugin/MuMake.plugin.luau > /dev/null
 luau studio-plugin/tests/experience.spec.luau
 luau studio-plugin/tests/layout.spec.luau
+luau studio-plugin/tests/activity.spec.luau   # ForgeBridge Runs panel: line text, ages, colours
 ```
 
 Ownership tests cover exact-window binding, refusal to take over human playtests, cleanup on failure and cancellation, cancellation before the job starts, busy state, scenario allowlisting, absent AI credentials, skipped outcomes, restart recovery, HTTP authentication and body limits. Live checks must also confirm panel connection, harness installation, a real scenario report and return to Edit in the selected local Studio window.
@@ -157,6 +158,21 @@ ForgeBridge adds a second, two-way channel:
   * **Run tests** runs `forge test scenario_run smoke` (choose another with `--scenario`) against
     this window. "Last test" then shows PASS or FAIL and the failing step, and the full report is
     saved to `runs/studio-bridge/last_test.md`.
+
+  Below the fields, **Runs** shows the three Forge runs whose files moved most recently, each with
+  its five newest actions on one line: a mark and colour for the status (green ok, red failed, blue
+  running, grey stopped) and the action, for example `· coder wrote ServerScriptService/Shop.luau`,
+  `· level_designer zone 3: 0 errors after 2 tries`, `! playtest round 2: 1 errors, score 5.0` or
+  `· autopilot round 2: kept (kept 1, rolled back 0)`. The age (`2m`), and on a run's header its
+  status (`running · 30s`), sit in a right-aligned column, so a long action or slug is cut short at
+  narrow dock widths but the age and status are not. A run is "running" while a Forge job or log
+  that names it is alive (the same check the web dashboard uses), so a long Mubit call or playtest
+  that writes nothing for minutes still counts; without one, it is running while its files moved in
+  the last 5 minutes or its autopilot process is alive. An unfinished call of an idle run shows as
+  stopped. The panel refreshes
+  every 4 s while the widget is open. Click an action to print its details to Output (role, step, time
+  taken, error, thought, Mubit request id). It reads `GET /activity` and writes nothing. The text,
+  age and colour rules are the pure `studio-plugin/Activity.luau`, which `build_plugin` embeds.
 
 ### Use it
 
@@ -219,6 +235,7 @@ Forge side:
 | `GET /status` | | `{connected, playing, sessions:[{dm, place, idle_s}], forge, events, queued}` |
 | `POST /status` | `{job?, role?, last_test?, message?, slug?}` | the new Forge status (pushed to the widget at once) |
 | `GET /events` | `?since=N&types=a,b&limit=200&wait=0` | `{events:[{seq, time, type, dm, ...}], next, latest}` |
+| `GET /activity` | `?runs=3&events=5` (runs ≤10, events 1–20) | `{now, runs:[{slug, title, status, age_s, events:[{ts, age_s, role, text, status, detail, request_id}]}]}`, built by `forge/dashboard.py` `activity_view` from `runs/<slug>/` (timings.json calls, calls.jsonl and traces after them, levels/log.jsonl, state.json iterations, autopilot/status.json rounds). 409 if the bridge was started without a feed. |
 | `POST /run` | `{op, args, dm, timeout}` | `{ok, result \| error, ms, studio_ms}`. 409 if no plugin is connected in that datamodel. |
 
 Event types: `log {kind: output|info|warning|error, message}`, `error {message, trace, script}`,

@@ -147,6 +147,24 @@ def test_live_run_shows_the_working_role_and_blocks_rollback(settings):
     assert e.value.code == 409
 
 
+def test_running_now_lists_live_runs_and_only_live_autopilots(settings):
+    import os
+
+    (settings.runs_dir / "g1-run.log").write_text("━━ forge run  g1 ━━\n  [fixer]  a.luau ✓\n")
+    ap = RunStore(settings, "g1").dir / "autopilot"
+    ap.mkdir()
+    (ap / "status.json").write_text(json.dumps({"state": "running", "pid": os.getpid(), "round": 2, "phase": "detect"}))
+    d = db.collect(settings)
+    run = next(a for a in d["active"] if a["name"] == "g1-run.log")
+    assert run["slug"] == "g1" and run["role"] == "fixer" and run["step"] == "[fixer] a.luau ✓"
+    assert run["elapsed"] is None or run["elapsed"] >= 0
+    auto = next(a for a in d["active"] if a["kind"] == "autopilot")
+    assert auto["slug"] == "g1" and auto["role"] == "fixer" and auto["step"] == "round 2 · detect · fixing a bug"
+    assert next(a for a in d["games"][0]["agents"] if a["role"] == "fixer")["running"] is True
+    (ap / "status.json").write_text(json.dumps({"state": "running", "pid": 999999, "round": 2}))  # crashed
+    assert not [a for a in db.collect(settings)["active"] if a["kind"] == "autopilot"]
+
+
 def _post(port, body):
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/rollback", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")

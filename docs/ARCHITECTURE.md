@@ -96,7 +96,21 @@ forge/                 Python package (uv), entry point `forge`
                        {report.json, step-NN.png[, step-NN.json]} (steps: action, reason, latency_ms,
                        ts, assertions[{text, ok, detail}]). GET /api/shot?slug=&path= serves only .png
                        under runs/<slug>/{tests,iterations}/. POST /api/rollback {slug, version} ->
-                       rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building
+                       rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building.
+                       The page leads with state["active"] (now_view: running jobs/logs/playtests + autopilots
+                       with a live pid), game["result"] (result_view: newest screenshot + one-line verdict) and
+                       game["agents"] (agents_view(game_calls(run_dir), live_role): one row per Mubit role over
+                       calls.jsonl of build/improve/autopilot/orchestrator); the rest sits behind "More".
+                       GET /api/agent?slug=&role= -> agent_detail(settings, slug, role): {rows newest first
+                       [{n, ts, source, step, thought, file, request_id, ok, error, latency_ms}], files, shots,
+                       outcomes [{what, outcome, version, file, where}]}, 404 for an unknown game or role
+                       activity_view(settings, runs=3, events=6, now) -> {now, runs[{slug, title, status:
+                       running|idle, age_s, events[{ts, age_s, role, text, status: ok|fail|running|stopped|
+                       info, detail, request_id}]}]}: one-line actions per run, newest first, from
+                       timings.json calls, calls.jsonl (+ traces) after them, levels/log.jsonl, state.json
+                       iterations and autopilot/status.json rounds (the ForgeBridge Runs panel). status is
+                       running while live_for(running()) finds a live job/log for the slug, else while the
+                       run's files moved in the last 300 s or its autopilot pid is alive
   feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish, jobs) -> result:
                        planner plan -> coder (new modules, as a DAG) and patcher/fixer (hook edits, destructive
                        guard; one file's edits in order) all at once ->
@@ -688,10 +702,14 @@ and `approx` for what it rounds off; a check that touches needs_studio is never 
 class Bridge(token, places, ...)        # thread-safe state: sessions per datamodel, command queue, event ring
     hello/poll/result/add_events/bye    # plugin side          run(op, args, dm, timeout) -> {ok, result|error, ms}
     get_events(since, types, limit, wait) -> {events, next, latest}; status() -> dict; set_forge(**fields)
+class Bridge(..., activity=fn(runs, events) -> dict)  # GET /activity serves it; None -> 409
 class BridgeClient(port, token)         # status() events() run() luau(code, dm) set_status(job=, role=, last_test=)
+                                        # activity(runs=3, events=5) -> the dashboard.activity_view shape
+def activity_source(repo_root) -> fn(runs, events)   # dashboard.activity_view over repo_root/runs (serve_forever)
 def connected_client(place, dm, port) -> BridgeClient | None
 def register(mcp) -> ["studio_status", "studio_events", "studio_run"]   # via the mubit_tester.studio_bridge extension
-def build_plugin(repo_root, token, port, places) -> str; install_plugin(repo_root, places, plugins_dir, port) -> Path
+def build_plugin(repo_root, token, port, places) -> str  # embeds studio-plugin/Activity.luau as `Activity`
+def install_plugin(repo_root, places, plugins_dir, port) -> Path
 ```
 ```
 forge plugin install --place NAME [--plugins-dir D]   forge plugin serve --place NAME   forge plugin status|events [--follow]
