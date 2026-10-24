@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forge Workshop</title>
+<title>MuHack Workshop</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -373,6 +373,21 @@
   @media (max-width: 900px) { .gamecard { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
 
+  /* ---------- "go test" pop-up: once per build, at Ready or 20 minutes in */
+  .testpop { position: fixed; inset: 0; display: grid; place-items: center; background: #4b3b2f55; z-index: 50;
+    padding: 16px; }
+  .testpop[hidden] { display: none; }
+  .testpop .box { background: var(--panel); color: var(--ink); border-radius: 22px; padding: 26px 28px 22px;
+    max-width: 440px; width: 100%; box-shadow: var(--shadow); text-align: center; animation: pop .35s ease-out; }
+  .testpop .big { font-family: var(--head); font-size: 30px; line-height: 1.1; margin: 4px 0 10px; }
+  .testpop .why { color: var(--muted); font-weight: 700; margin-bottom: 8px; }
+  .testpop .how { margin-bottom: 18px; }
+  .testpop button { font: 800 16px var(--body); background: var(--leaf); color: #fff; border: 0; border-radius: 999px;
+    padding: 10px 26px; cursor: pointer; }
+  .testpop.wait button { background: var(--peach); }
+  @keyframes pop { from { transform: scale(.85); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .testpop .box { animation: none; } }
+
   /* ---------- live build progress (runs/<slug>/progress.json) on "Running now" */
   .prog { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 14px 16px; border-radius: 18px; cursor: pointer;
     background: #fdf0c4; border: 0; color: var(--text, var(--ink)); }
@@ -527,8 +542,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">FORGE</div>
-    <div class="tag">What Forge's agents are doing, and what each one did.</div>
+    <div class="logo">MUHACK</div>
+    <div class="tag">What MuHack's agents are doing, and what each one did.</div>
     <select class="pick" id="pick" aria-label="Pick a game"></select>
     <button class="btn ghost small" id="moreBtn" aria-pressed="false" aria-controls="more">More</button>
   </header>
@@ -547,7 +562,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for MuHack. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -964,7 +979,7 @@ function renderLanes(g) {
     <div class="tile ${best ? "hot" : ""}"><div class="k">Speed-up</div><div class="v">${best ? `×${best.x}` : "–"}<small>${best ? ` ${secs(best.before_secs)} → ${secs(best.after_secs)}` : ""}</small></div></div>
     <div class="tile"><div class="k">Corrections fed</div><div class="v">${led.corrections ?? 0}<small> · ${led.verified ?? 0} kept</small></div></div>
   </div>`;
-  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as Forge makes its first Mubit call.</div>`;
+  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as MuHack makes its first Mubit call.</div>`;
   const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
   return `${tiles}<div class="lanes">${L.lanes.map((ln, li) => laneRow(ln, li, span, liveSpan)).join("")}</div>
     <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
@@ -1057,9 +1072,9 @@ function renderSpeed(g) {
   const ups = (sp.speedups || []).map(s => `<div class="tile hot"><div class="k">${esc(s.stage)}</div><div class="v">${s.x ? `×${s.x}` : "–"}<small> ${secs(s.before_secs)} → ${secs(s.after_secs)}</small></div></div>`).join("");
   const bars = sp.stages.map(s => `<div class="brow"><div class="bl"><span><span class="nm">${esc(s.stage)}</span>${s.parallel > 1 ? ` <span class="muted">×${s.parallel} at once</span>` : ""}</span>
       <span>${secs(s.secs)}${s.running ? " …" : ""}${s.x ? ` <span class="xf">×${s.x} faster</span>` : ""}</span></div>
-    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="Forge: ${secs(s.secs)}"></i></div></div>`).join("");
+    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="MuHack: ${secs(s.secs)}"></i></div></div>`).join("");
   return `${ups ? `<div class="tiles">${ups}</div>` : ""}
-    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>Forge, agents side by side</span></div>
+    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>MuHack, agents side by side</span></div>
     <div class="bars">${bars}</div>
     <div class="small muted" style="margin-top:10px">${sp.calls} Mubit calls · median ${ms(sp.p50_ms) || "–"} · p90 ${ms(sp.p90_ms) || "–"}${g.team.has_timings ? "" : " · from calls.jsonl"}</div>`;
 }
@@ -1114,7 +1129,7 @@ function renderTeamInto(g) {
   if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub", "tAuto"]) delete last[k]; put("team", TEAM_SKELETON); }
   $("tAutoCard").style.display = g.autopilot ? "" : "none";
   put("tAuto", renderAutopilot(g));
-  put("mcSub", `Every Forge agent and tester, side by side${g.live ? " · live" : ""}`);
+  put("mcSub", `Every MuHack agent and tester, side by side${g.live ? " · live" : ""}`);
   put("tLanes", renderLanes(g));
   for (const k of Object.keys(SHOTS)) if (!k.startsWith("agent#")) delete SHOTS[k];
   put("tFeed", renderFeed(g));
@@ -1368,19 +1383,56 @@ async function refresh() {
     const r = await fetch("/api/state", {cache: "no-store", signal: AbortSignal.timeout(20000)});
     DATA = await r.json();
     if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
-    renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
+    renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent(); testPopup();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for Forge · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for MuHack · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
+// "Go test" (Anson): one pop-up per build when it says Ready, or 20 minutes in while rounds still run (the game in
+// Studio is playable from its first install). Remembered per build in this browser, so a reload never repeats it.
+const TEST_AFTER_S = 20 * 60, POPPED = new Set();
+function testPopup() {
+  for (const a of DATA?.active || []) {
+    const p = a.progress;
+    if (!p || !a.slug || !p.started) continue;
+    const ready = p.phase === "done" && p.events?.[0]?.ok !== false;  // events are newest first
+    const long = p.running && Date.now() / 1000 - p.started >= TEST_AFTER_S;
+    if (!ready && !long) continue;
+    const key = `forge-test-pop:${a.slug}:${p.started}:${ready ? "ready" : "20m"}`;
+    let seen = POPPED.has(key);
+    try { seen = seen || localStorage.getItem(key) === "1"; localStorage.setItem(key, "1"); } catch (e) { /* private window */ }
+    POPPED.add(key);
+    if (seen) continue;
+    const box = $("testPop");
+    box.className = ready ? "testpop" : "testpop wait";
+    box.innerHTML = `<div class="box"><div class="big" id="testPopTitle">${ready ? "Your game is ready. Go test it!" : "20 minutes in: go test it!"}</div>
+      <div class="why">${esc(a.title || a.slug)} · ${esc(ready ? p.step : `still improving: ${p.step}`)}</div>
+      <div class="how">${ready ? "It is running in Studio now: click the game view, then WASD to move and Space to jump."
+        : "The game in Studio is playable now: press Play and try it. The rounds keep updating it."}</div>
+      <button type="button" id="testPopOk">Got it</button></div>`;
+    box.hidden = false;
+    $("testPopOk").focus();
+    $("testPopOk").onclick = () => { box.hidden = true; };
+    try {  // a short two-note chime, so it is noticed while you are looking at Studio
+      const ctx = new AudioContext();
+      [660, 880].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = f;
+        g.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.18); g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.3);
+        o.connect(g).connect(ctx.destination); o.start(ctx.currentTime + i * 0.18); o.stop(ctx.currentTime + i * 0.18 + 0.32); });
+    } catch (e) { /* no audio: the pop-up still shows */ }
+    return;
+  }
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("testPop").hidden) $("testPop").hidden = true; });
+
 // The next poll starts only after this one has finished: overlapping polls used to stack up while a slow
 // state build ran, and every one of them rebuilt the whole state. A build in flight polls fast so the bar
 // and feed feel live.
 const pollMs = () => (DATA?.active || []).some(a => a.progress?.running) ? 1500 : 3000;
 (async function poll() { await refresh(); setTimeout(poll, pollMs()); })();
 </script>
+<div id="testPop" class="testpop" hidden role="dialog" aria-modal="true" aria-labelledby="testPopTitle"></div>
 </body>
 </html>
