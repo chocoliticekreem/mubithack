@@ -147,9 +147,13 @@ local function dressSeason(model: Instance)
 	local v = MapService:GetVariant()
 	if MV and v and v.season ~= "Summer" then
 		local t0 = os.clock()
+		local last = t0
 		local ok, n = pcall(MV.apply, model, v.season, function()
-			if RunService:IsRunning() then
-				task.wait() -- ~32k parts in the city: never trip the script timeout on a busy server
+			-- ~32k parts in the city: never trip the script timeout on a busy server, but only yield
+			-- once a slice has run 0.1 s (a frame's wait costs more than the recolour itself)
+			if RunService:IsRunning() and os.clock() - last > 0.1 then
+				task.wait()
+				last = os.clock()
 			end
 		end)
 		local ms = math.floor((os.clock() - t0) * 1000)
