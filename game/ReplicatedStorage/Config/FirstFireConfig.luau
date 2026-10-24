@@ -36,7 +36,7 @@ return Config.define({
 	FireCard = {
 		head = "PUT OUT THE FIRE!",
 		sub = "Hold {click} to spray your extinguisher at it",
-		subTouch = "Hold a finger on the screen to spray it!", -- phones (InputHints)
+		subTouch = "Hold the SPRAY button to put it out!", -- phones (InputHints; ToolController draws SPRAY)
 		subPad = "Hold R2 to spray your extinguisher at it",
 	},
 	DoneCard = { head = "FIRE OUT! +{xp} XP", sub = "You're a natural. A real call is coming in..." },
