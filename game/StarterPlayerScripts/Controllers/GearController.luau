@@ -406,8 +406,8 @@ local function itemView(parent: GuiObject, id: string?, size: UDim2, pos: UDim2)
 		local cam = Instance.new("Camera")
 		cam.FieldOfView = 30
 		local big = math.max(ext.X, ext.Y, ext.Z)
-		local dist = big / (2 * math.tan(math.rad(15))) * 1.05 + ext.Magnitude * 0.25
-		local dir = Vector3.new(0.55, 0.4, 1).Unit
+		local dist = big / (2 * math.tan(math.rad(15))) * 1.02
+		local dir = Vector3.new(1, 0.35, 0.5).Unit -- from the side: axe heads and bars show their profile
 		cam.CFrame = CFrame.lookAt(cf.Position + dir * dist, cf.Position)
 		cam.Parent = vp
 		vp.CurrentCamera = cam
@@ -556,7 +556,7 @@ local function openLocker()
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = grid
 
-	type Card = { btn: TextButton, ribbon: TextLabel, lock: Frame, lockText: TextLabel, back: TextButton? }
+	type Card = { btn: TextButton, name: TextLabel, ribbon: TextLabel, lock: Frame, lockText: TextLabel, back: TextButton? }
 	local cards: { [string]: Card } = {}
 
 	local function tapCard(id: string, slot: string)
@@ -589,26 +589,38 @@ local function openLocker()
 
 	for i, id in Progression.lockerItems() do
 		local def = ItemDefs.get(id)
+		-- the cell holds two SIBLING buttons (the card, and its BACK chip on top), never one inside the
+		-- other: a click on a nested button also reached the card under it
+		local cell = Instance.new("Frame")
+		cell.Name = id
+		cell.LayoutOrder = i
+		cell.BackgroundTransparency = 1
+		cell.ZIndex = 22
+		cell.Parent = grid
 		local b = Instance.new("TextButton")
-		b.Name = id
-		b.LayoutOrder = i
+		b.Name = "Pick"
 		b.Text = ""
 		b.AutoButtonColor = true
 		b.BackgroundColor3 = Palette.UiCream
+		b.Size = UDim2.fromScale(1, 1)
 		b.ZIndex = 22
-		b.Parent = grid
+		b.Parent = cell
 		UiKit.corner(b, 18)
 		local stroke = UiKit.stroke(b, 4)
 		stroke.Name = "Edge"
 		itemView(b, id, UDim2.new(1, -12, 0, 104), UDim2.fromOffset(6, 6))
-		UiKit.label(b, "Name", def and def.name or id, UDim2.new(1, -8, 0, 44), UDim2.new(0, 4, 1, -48), {
+		local nameL = UiKit.label(b, "Name", def and def.name or id, UDim2.new(1, -10, 0, 40), UDim2.new(0, 5, 1, -44), {
 			font = UiKit.Header,
 			textSize = 24,
-			scaled = false,
-		}).ZIndex = 24
-		local ribbon = UiKit.label(b, "Ribbon", "", UDim2.fromOffset(100, 28), UDim2.fromOffset(6, 6), {
+			scaled = true,
+		})
+		nameL.ZIndex = 24
+		local cap = Instance.new("UITextSizeConstraint")
+		cap.MaxTextSize = 24
+		cap.Parent = nameL
+		local ribbon = UiKit.label(b, "Ribbon", "", UDim2.fromOffset(84, 28), UDim2.fromOffset(6, 6), {
 			font = UiKit.Header,
-			textSize = 18,
+			textSize = 16,
 			color = Palette.UiCream,
 			stroke = true,
 		})
@@ -621,20 +633,24 @@ local function openLocker()
 		local lock = Instance.new("Frame")
 		lock.Name = "Lock"
 		lock.BackgroundColor3 = Color3.fromHex("#1A1210")
-		lock.BackgroundTransparency = 0.35
+		lock.BackgroundTransparency = 0.3
 		lock.Size = UDim2.fromScale(1, 1)
 		lock.ZIndex = 28
 		lock.Visible = false
 		lock.Parent = b
 		UiKit.corner(lock, 18)
 		UiKit.label(lock, "Padlock", "🔒", UDim2.new(1, 0, 0, 70), UDim2.fromOffset(0, 10), { textSize = 56 }).ZIndex = 29
-		local lockText = UiKit.label(lock, "Why", "", UDim2.new(1, -10, 0, 60), UDim2.new(0, 5, 1, -66), {
+		local lockText = UiKit.label(lock, "Why", "", UDim2.new(1, -10, 0, 60), UDim2.new(0, 5, 1, -64), {
 			font = UiKit.Header,
-			textSize = 22,
+			textSize = 21,
 			color = Palette.UiWarn,
 			stroke = true,
+			scaled = true,
 		})
 		lockText.ZIndex = 29
+		local lcap = Instance.new("UITextSizeConstraint")
+		lcap.MaxTextSize = 21
+		lcap.Parent = lockText
 		local backB: TextButton? = nil
 		if def and def.backable and not def.tethered and def.wear == nil then
 			local bb = Instance.new("TextButton")
@@ -647,8 +663,8 @@ local function openLocker()
 			bb.AnchorPoint = Vector2.new(1, 0)
 			bb.Position = UDim2.new(1, -6, 0, 6)
 			bb.Size = UDim2.fromOffset(62, 34)
-			bb.ZIndex = 27
-			bb.Parent = b
+			bb.ZIndex = 30
+			bb.Parent = cell
 			UiKit.corner(bb, 10)
 			UiKit.stroke(bb, 3)
 			UiKit.onTap(bb, function()
@@ -656,7 +672,7 @@ local function openLocker()
 			end)
 			backB = bb
 		end
-		cards[id] = { btn = b, ribbon = ribbon, lock = lock, lockText = lockText, back = backB }
+		cards[id] = { btn = b, name = nameL, ribbon = ribbon, lock = lock, lockText = lockText, back = backB }
 		UiKit.onTap(b, function()
 			tapCard(id, "hand")
 		end)
@@ -705,7 +721,9 @@ local function openLocker()
 			end
 			c.btn.BackgroundColor3 = if on then Color3.fromHex("#E3F6DA") else Palette.UiCream
 			c.lock.Visible = st ~= "open"
-			c.lockText.Text = if st == "truck" then "On your truck!" else Progression.lockReason(id)
+			c.name.Visible = st == "open"
+			local nm = (ItemDefs.get(id) or {}).name or id
+			c.lockText.Text = `{nm}\n{if st == "truck" then "On your truck!" else Progression.lockReason(id)}`
 			local padlock = c.lock:FindFirstChild("Padlock") :: TextLabel?
 			if padlock then
 				padlock.Text = if st == "truck" then "🚒" else "🔒"

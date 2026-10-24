@@ -43,7 +43,7 @@
 --   gear_loadout_restored
 -- Test hooks (DevHook only): _selftest(), _use(player, id?), _kick(player, door?, force?),
 --   _setLevel(player, level), _state(player), _climb(player, window), _hatch(player, hatch?),
---   _locker(player, action, id?, slot?) (skips the walk + cooldown), _restore(player)
+--   _locker(player, action, id?, slot?) (skips the walk + cooldown), _restore(player), _rejoin(player)
 
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
@@ -1130,7 +1130,15 @@ local function lockerAction(player: Player, action: any, id: any, slot: any, ski
 	if not ok then
 		return false, REFUSED[why or ""] or ""
 	end
-	local done, reason = call("InventoryService", "Equip", player, new)
+	local Inv = services.InventoryService
+	local okCall, done, reason = false, nil, nil
+	if Inv and type(Inv.Equip) == "function" then
+		okCall, done, reason = pcall(Inv.Equip, Inv, player, new)
+		if not okCall then
+			warn(`[GearService] InventoryService:Equip failed: {done}`)
+			done, reason = false, nil
+		end
+	end
 	if done ~= true then
 		return false, REFUSED[reason or ""] or "Can't do that right now"
 	end
@@ -1365,6 +1373,14 @@ end
 
 function GearService:_restore(player: Player): boolean
 	return restore(player)
+end
+
+-- a rejoin, as far as one Studio session allows: forget everything, empty the slots, reload from the profile
+function GearService:_rejoin(player: Player)
+	saved[player] = nil
+	profileReady[player] = nil
+	call("InventoryService", "Clear", player)
+	onProfile(player)
 end
 
 function GearService:_setLevel(player: Player, level: number)

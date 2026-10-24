@@ -26,7 +26,7 @@ awards[awardId] = times earned
 blamePoints                                                      -- see "Blame points"
 cosmetics = { owned[id] = true, equipped = { helmet, hose } }    -- ids from DataConfig.Cosmetics
 settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups, ... }  -- whitelisted
-gear = { unlocked[id] = true, loadout = { id } }                  -- v3: locker (GearService)
+gear = { unlocked[id] = true, loadout = { id }, equipped = { hand, back, face } }  -- v3: GearService; equipped (ids, "" = empty) = the station LOCKER loadout, restored on spawn / rejoin (filled by reconcile, no version bump); loadout = legacy rack picks, unused
 guides = { seen[missionId] = true }                              -- v4: first-time mission guide done (MissionGuideService)
 donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux donated (MonetizationService; last 50 receipts)
 pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy }  -- v6: battle pass (BattlePassService)
