@@ -1,6 +1,7 @@
 import React from "react";
-import { Still } from "remotion";
+import { Composition, Still } from "remotion";
 import { AdBackdraft, AdBoom, AdChief, AdCloseup, AdRooftop, AdSaveCat, AdSaveThem, AdSquad, AdWhoStarted } from "./Ads";
+import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
 
 const I = { width: 512, height: 512 };
@@ -24,5 +25,7 @@ export const Root: React.FC = () => (
     <Still id="ad-07-backdraft" component={AdBackdraft} {...A} />
     <Still id="ad-08-rooftop-rescue" component={AdRooftop} {...A} />
     <Still id="ad-09-fire-chief" component={AdChief} {...A} />
+    <Composition id="vid-15s-16x9" component={Vid15} durationInFrames={VID15_FRAMES} fps={30} {...A} />
+    <Composition id="vid-06s-16x9" component={Vid6} durationInFrames={VID6_FRAMES} fps={30} {...A} />
   </>
 );
