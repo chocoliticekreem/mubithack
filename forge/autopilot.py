@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import os
 import re
@@ -46,6 +47,7 @@ from typing import Any, Callable
 
 from forge import evidence as evm
 from forge import gaps as gapmod
+from forge import journey as fjourney
 from forge import llm as llm_mod
 from forge.config import Settings
 from forge.memory import RunStore, slugify, unique_slug
@@ -72,7 +74,8 @@ PHYSICS_RISE = 2
 SMOKE_SEED = 7          # every autopilot measurement's scripted smoke play uses this seed (like for like)
 BLAME_TAGS = ("job-", "combo-")  # per-job blame trials and their baseline: checks + scripted smoke play, no LLM
 RECHECKS = 2            # re-runs of a check that passed before and fails now; one pass = it flips on the same code
-PREFILTER = "prefilter"  # the source of the pre-filter's stand-ins when the detector call fails (not its findings)
+PREFILTER = "prefilter"
+GATE_SOURCE = "gate"  # dead interactions and failed journey steps: proven by a deterministic run, not the detector's  # the source of the pre-filter's stand-ins when the detector call fails (not its findings)
 
 
 def now_iso() -> str:
@@ -203,6 +206,21 @@ def parse_anomalies(obj: dict, refs: dict | set, *, files: list[str] | None = No
     out.sort(key=lambda a: (-a["rank"], -a["impact"]))
     noise = [str(n) for n in obj.get("noise") or [] if isinstance(n, (str, int))][:20]
     return {"summary": _clip(obj.get("summary"), 600), "anomalies": out[:10], "noise": noise}
+
+
+def hard_anomaly(a: dict) -> dict:
+    """A dead interaction (static audit) or a failed journey step (forge/journey.py) in the detector's shape: the
+    evidence is deterministic, so full confidence, and a fix job on the file it names."""
+    impact = 9.0 if a["severity"] == "high" else 6.0
+    # the ref names kind + file + object (never a line), so the id stays put across edits and a rejection sticks;
+    # the hash keeps two objects of one file apart after the slug is cut short
+    tag = hashlib.sha1(a["ref"].encode()).hexdigest()[:6]
+    return {"id": f"an-{slugify(a['ref'], max_words=8, max_len=48)}-{tag}", "title": _clip(a["title"], 120),
+            "kind": "other", "severity": a["severity"], "impact": impact, "confidence": 1.0, "rank": impact,
+            "evidence": [a["ref"]], "unverified": [], "system": a["system"], "why": _clip(a.get("proof"), 300),
+            "request_id": None, "source": GATE_SOURCE,
+            "job": {"kind": "fix", "request": _clip(f"{a['observed']} Expected: {a['expected']}", 1200),
+                    **({"path": a["path"]} if a.get("path") else {})}}
 
 
 def from_prefilter(cands: list[dict]) -> list[dict]:
@@ -352,8 +370,9 @@ FIX_LABELS = ("kept", "rolled_back", "conflict")
 
 def needs_repro(d: dict) -> bool:
     """A finding about broken behaviour (a fix job) is reproduced before it gets a job; a missing feature, a polish
-    pass or a focused test is not (it is labelled by whether its job is kept)."""
-    return d.get("kind") == "fix"
+    pass or a focused test is not (it is labelled by whether its job is kept). A dead interaction or a failed journey
+    step is already proven by a deterministic run (GATE_SOURCE): no reproduction, and no detector label."""
+    return d.get("kind") == "fix" and d.get("source") != GATE_SOURCE
 
 
 def repro_anomaly(d: dict, refs: dict[str, str]) -> dict:
@@ -436,6 +455,9 @@ def soft_dead_counters(g: dict) -> bool:
     unseeded smoke play's runs land differently each time, so jump_pad_used can be 0 by chance), worth one
     confirming measurement for the journal. It never changes the verdict."""
     return any(str(s).startswith(DEAD_COUNTERS) for s in g.get("soft") or [])
+
+
+JOURNEY_LOST = "journey steps that passed now fail"
 
 
 def merge_counters(a: dict, b: dict) -> dict:
@@ -555,6 +577,16 @@ def gate(before: dict, after: dict, *, must_pass: list[str] | None = None, flaky
     bp, ap = (before.get("checks") or {}).get("pass"), (after.get("checks") or {}).get("pass")
     if bp is not None and ap is not None and ap > bp:
         imp.append(f"checks passing {bp} -> {ap}")
+    bd, ad = before.get("dead"), after.get("dead")  # dead interactions (forge/interactions.py): a static audit
+    if bd is not None and ad is not None and ad != bd:
+        (reg if ad > bd else imp).append(f"dead interactions {bd} -> {ad}")
+    bj, aj = before.get("journey") or {}, after.get("journey") or {}  # forge/journey.py steps: a scripted run
+    lost_steps = sorted(set(bj.get("passing") or []) & set(aj.get("failing") or []))
+    if lost_steps:
+        reg.append(f"{JOURNEY_LOST}: {', '.join(lost_steps)}")
+    won_steps = sorted(set(bj.get("failing") or []) & set(aj.get("passing") or []))
+    if won_steps:
+        imp.append(f"journey steps now pass: {', '.join(won_steps)}")
     for key in ("critic", "fun"):
         a, b = before.get(key), after.get(key)
         if a is None or b is None:
@@ -607,14 +639,15 @@ class BudgetSpent(Exception):
 class Autopilot:
     """The self-driving loop for one game. `measurer(ap, round, tag, focus) -> Measurement`, `reproducer(ap, round,
     anomaly) -> repro.reproduce() result | None`, `rechecker(ap, check id) -> checks.verdict of one more run on the
-    current files | None` and `runner` (orchestrator job runner) are injectable so the whole loop runs under
-    FakeLLM in tests."""
+    current files | None`, `journeyer(ap, round) -> journey brief | None` (the confirming journey) and `runner`
+    (orchestrator job runner) are injectable so the whole loop runs under FakeLLM in tests."""
 
     def __init__(self, settings: Settings, target: str, opts: AutoOptions, *, llm: Any = None,
                  runner: Any = None, measurer: Measurer | None = None, broker: Any = None, slots: Any = None,
                  keeper: Any = None, maker: Callable[[str], str] | None = None,
                  clock: Callable[[], float] = time.time, log: Callable[[str], None] | None = None,
-                 reproducer: Reproducer | None = None, rechecker: Rechecker | None = None):
+                 reproducer: Reproducer | None = None, rechecker: Rechecker | None = None,
+                 journeyer: Callable[[Any, int], dict | None] | None = None):
         self.s = settings
         self.target = target
         self.opts = opts
@@ -623,6 +656,7 @@ class Autopilot:
         self.measurer = measurer or studio_measure
         self.reproducer = reproducer or headless_reproduce
         self.rechecker = rechecker or headless_recheck
+        self.journeyer = journeyer or rerun_journey
         self.broker = broker
         self.slots = slots
         self.keeper = keeper
@@ -796,6 +830,9 @@ class Autopilot:
         checks = evm.add_checks(st, self.store.dir)
         m.setdefault("checks", checks)
         evm.add_calls(st, self.store.dir)
+        if fjourney.enabled():  # deterministic: dead interactions and failed steps of the latest journey
+            for a in fjourney.anomalies_for(self.store.game_dir, self.store.dir):
+                st.add(a["ref"], a["system"], a["system"], a["title"])
         evm.add_bridge(st, m.get("bridge_events") or [], place=(self.opts.studios or [None])[0])
         for key in ("critic", "fun"):
             if m.get(key) is not None:
@@ -878,6 +915,10 @@ class Autopilot:
                       "noise": []}
         for a in parsed["anomalies"]:
             a["request_id"] = an_rid
+        if fjourney.enabled():  # dead interactions and failed journey steps need no detector to be believed
+            hard = [hard_anomaly(a) for a in fjourney.anomalies_for(self.store.game_dir, self.store.dir)]
+            have = {a["id"] for a in parsed["anomalies"]} | rejected_ids
+            parsed["anomalies"] = [h for h in hard if h["id"] not in have] + parsed["anomalies"]
         if an_rid and bad_outs:  # this call carried findings the reproducer could not prove: a training correction
             _append(self.dir / "corrections.jsonl", {"ts": now_iso(), "role": ROLE, "kind": "outcome",
                                                      "round": r, "request_id": an_rid, "label": "not_reproduced",
@@ -1226,7 +1267,22 @@ class Autopilot:
     def judge(self, before: dict, after: dict, *, must_pass: list[str] | None = None) -> dict:
         """gate() of the files on disk now, after settle_checks, so a check that flips on the same code is soft."""
         self.settle_checks(before, after)
+        after = self.settle_journey(before, after)
         return gate(before, after, must_pass=must_pass, flaky=self.state.get("flaky"))
+
+    def settle_journey(self, before: dict, after: dict) -> dict:
+        """A journey step that passed in `before` and fails in a headless `after` runs once more (journeyer): a
+        journey looks for an effect in a few one-second windows, so one miss can be timing. A step stays lost only
+        when the second run fails it too (fjourney.confirm). Returns `after` with the confirmed journey."""
+        bj, aj = before.get("journey") or {}, after.get("journey") or {}
+        lost = set(bj.get("passing") or []) & set(aj.get("failing") or [])
+        if not lost or after.get("engine") != "headless":
+            return after
+        again = self.journeyer(self, int(self.state.get("round") or 0))
+        if again is None:
+            return after
+        self.log(f"journey steps {', '.join(sorted(lost))} failed once; ran the journey again to confirm")
+        return {**after, "journey": fjourney.confirm(aj, again)}
 
     def settle_checks(self, before: dict, after: dict) -> None:
         """A check that passed in `before` and fails in `after` is run again on the same files (rechecker, up to
@@ -1830,6 +1886,10 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
                      "passing": [x["id"] for x in results if x.get("ok")],
                      "failing": [x["id"] for x in results if not x.get("ok") and not x.get("setup")],
                      "unknown": [x["id"] for x in results if not x.get("ok") and x.get("setup")]} if results else {})
+    if fjourney.enabled():
+        from forge import interactions
+        dead = interactions.audit(store.game_dir)
+        m["dead"] = None if dead.get("ok") is None else len(interactions.as_anomalies(dead))
     m["declared"] = evm.declared_counters(gapmod.game_sources(store.game_dir), _read(store.spec_path, {}) or {})
     m["bridge_events"] = [e for e in evm.bridge_events() if float(e.get("time") or 0) >= t0 - 1]
     if ap.opts.critic and not compile_errors and not cheap and (ap.calls_left() is None or ap.calls_left() > 4):
@@ -1922,6 +1982,17 @@ async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: P
     m["engine"] = "headless"
     m["needs_studio"] = [n.get("feature") for n in report.get("needs_studio") or []]
     console = "\n".join([f"[warn] {w}" for w in report.get("warnings") or []])
+    if fjourney.enabled():  # a new player's first minute, every lobby prompt used (no LLM)
+        try:
+            hs = hl.HeadlessStudio(store.game_dir, players=1, slug=ap.slug, kind="journey")
+            try:
+                rec = await fjourney.run_journey(hs, log=ap.log)
+            finally:
+                await hs.stop()
+            fjourney.save(store.dir, rec, store.game_dir)
+            m["journey"] = fjourney.brief(rec)
+        except Exception as e:  # noqa: BLE001 - the rest of the measurement still counts
+            ap.log(f"journey (headless) failed: {type(e).__name__}: {_clip(e, 160)}")
     llm = ap.get_llm()
     gsettings = dataclasses.replace(s, base_game_dir=store.game_dir)
     if ap.opts.qa_steps and not cheap and (ap.calls_left() is None or ap.calls_left() > 12):
@@ -2007,6 +2078,14 @@ async def _studio_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Pat
             elif results:
                 from forge.scenarios import save_results
                 save_results(ap.store.dir, results)
+            if fjourney.enabled():  # a new player's first minute, every lobby prompt used (no LLM)
+                try:
+                    rec = await fjourney.run_journey(st, log=ap.log)
+                    fjourney.save(ap.store.dir, rec, ap.store.game_dir)
+                    m["journey"] = fjourney.brief(rec)
+                except Exception as e:  # noqa: BLE001 - the rest of the measurement still counts
+                    ap.log(f"journey failed: {type(e).__name__}: {_clip(e, 160)}")
+                await _safe_stop(st)
             gsettings = dataclasses.replace(s2, base_game_dir=ap.store.game_dir)
             if ap.opts.qa_steps and (ap.calls_left() is None or ap.calls_left() > 12):
                 try:
@@ -2038,6 +2117,26 @@ async def _studio_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Pat
         ap.broker.release(holder)
         from forge import headless as hl
         hl.record("measure", "studio", time.monotonic() - deadline + 1800, slug=ap.slug, note=tag)
+
+
+def rerun_journey(ap: "Autopilot", r: int) -> dict | None:
+    """One more headless journey of the current code (the confirming look at lost journey steps) -> its brief."""
+    from forge import headless as hl
+
+    async def go() -> dict:
+        hs = hl.HeadlessStudio(ap.store.game_dir, players=1, slug=ap.slug, kind="journey")
+        try:
+            return await fjourney.run_journey(hs, log=ap.log)
+        finally:
+            await hs.stop()
+
+    try:
+        rec = asyncio.run(go())
+    except Exception as e:  # noqa: BLE001 - no confirmation: the first verdict stands
+        ap.log(f"round {r}: confirming journey failed: {type(e).__name__}: {_clip(e, 160)}")
+        return None
+    fjourney.save(ap.store.dir, rec, ap.store.game_dir)
+    return fjourney.brief(rec)
 
 
 async def _safe_stop(st: Any) -> None:

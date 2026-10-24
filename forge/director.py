@@ -40,6 +40,7 @@ GENRE_CHECKS_DIR = Path(__file__).parent / "genre_checks"
 GAME_ASSETS = "ReplicatedStorage/GameAssets.luau"
 DOC_KEYS = ["fantasy", "core_loop", "systems", "juice", "first_60_seconds", "visual_style", "module_budget"]
 MIN_MODULES, MAX_MODULES = 4, 12
+TEMPLATE_EXTRA_MODULES = 2  # coder-written modules a template game may add
 PLAN_MAX_TOKENS = 16_000  # doc and spec are long, and the model reasons first (6000 was cut off)
 
 # genre -> words in the idea that pick it
@@ -120,18 +121,28 @@ def kit_paths() -> set[str]:
 
 def match_kit_modules(text: str) -> list[dict]:
     """Kit modules for a game described by `text`: its genre (gaps.detect_genre) is one of the module's
-    genres ("*" = every game), or one of the module's keywords appears in it."""
+    genres ("*" = every game), or one of the module's keywords appears in it. A module with `genres_only`
+    matches only games of those genres, and a matched module brings every module it `requires`."""
     from forge.gaps import detect_genre
 
     low = " " + " ".join(re.findall(r"[a-z0-9]+", (text or "").lower())) + " "
     genre = detect_genre({"title": text})
-    out = []
+    picked = set()
     for e in kit_index():
         genres = e.get("genres") or []
         words = [" " + " ".join(re.findall(r"[a-z0-9]+", k.lower())) + " " for k in e.get("keywords") or []]
+        if e.get("genres_only") and genre not in e["genres_only"]:
+            continue
         if "*" in genres or genre in genres or any(w in low for w in words if w.strip()):
-            out.append(e)
-    return out
+            picked.add(e["name"])
+    by_name = {e["name"]: e for e in kit_index()}
+    todo = list(picked)
+    while todo:
+        for need in by_name.get(todo.pop(), {}).get("requires") or []:
+            if need not in picked and need in by_name:
+                picked.add(need)
+                todo.append(need)
+    return [e for e in kit_index() if e["name"] in picked]
 
 
 def kit_module(entry: dict) -> dict:
@@ -158,9 +169,39 @@ def kit_api_block(spec: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+_COUNT_RX = re.compile(r'\b(?:count|telemetry)\("([a-z0-9_]+)"')
+
+
+def kit_counters(entries: list[dict]) -> list[str]:
+    """Telemetry counters these kit modules fire (count("x") / telemetry("x") in their source), sorted."""
+    names = set()
+    for e in entries:
+        path = KIT_MODULES_DIR / f"{e['name']}.luau"
+        if path.exists():
+            names |= set(_COUNT_RX.findall(path.read_text(encoding="utf-8")))
+    return sorted(names)
+
+
+def template_block(kits: list[dict]) -> str:
+    """'## Prebuilt template' for director and designer user messages when the game is built on a template kit
+    (an index entry with "template"): what is already built, and the counters a design may name."""
+    tpl = next((e for e in kits if e.get("template")), None)
+    if not tpl:
+        return ""
+    return (f"## Prebuilt template: {tpl['name']} (this game is built on it)\n"
+            f"- Already built and tested: {tpl['describe']}\n"
+            f"- Forge renders {', '.join(tpl['template']['files'])} from the spec. Design the content (the zones, "
+            "their rides and the signature moments of each), not the systems the template already has.\n"
+            f"- Plan at most {TEMPLATE_EXTRA_MODULES} extra modules, only for features the template does not do; "
+            "each one hooks the kits' APIs.\n"
+            f"- first_60_seconds counters must be ones the kits fire: {', '.join(kit_counters(kits))}.\n")
+
+
 def protected_paths(spec: dict, game_dir: Path) -> set[str]:
-    """Game files only Forge's own tools write: kit modules and the level data modules (`forge levels`)."""
+    """Game files only Forge's own tools write: kit modules, files a template renders, and the level data
+    modules (`forge levels`)."""
     out = {e["path_in_game"] for e in kit_modules_in(spec)}
+    out |= {f for e in kit_modules_in(spec) for f in (e.get("template") or {}).get("files") or []}
     levels = Path(game_dir) / LEVELS_DIR
     if levels.is_dir():
         out |= {p.relative_to(game_dir).as_posix() for p in levels.glob("*.luau")}
@@ -274,6 +315,7 @@ def direct(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:
         f"{roles._truncate(curated, 6000, label='genre lessons')}\n\n"
         f"{roles._lessons_block(lessons, 4000)}\n"
         f"{sound_table_block()}\n"
+        f"{template_block(match_kit_modules(idea))}"
         f"{ui_kit.designer_block()}\n"
         "Return only the design doc JSON object."
     )
@@ -295,14 +337,18 @@ def doc_block(doc: dict, limit: int = 11_000) -> str:
 
 def _scope_block(doc: dict, kits: list[dict] | None = None) -> str:
     n = doc["module_budget"]
+    tpl = next((e for e in kits or [] if e.get("template")), None)
+    count = (f"- List the template's rendered files ({', '.join(tpl['template']['files'])}) and at most {n} extra "
+             "modules; each extra module keeps one clear job and stays under ~300 lines.\n" if tpl else
+             f"- Use {max(MIN_MODULES, n - 2)} to {n} modules so every system above has a home; each module keeps one "
+             "clear job and stays under ~300 lines.\n")
     kit_lines = "".join(
         f"- `{e['path_in_game']}` is PREBUILT ({e['name']}: {e['describe']}). Do NOT list it in modules and do NOT "
         "plan modules that re-implement what it does; add it to `depends` of every module that uses it.\n"
         for e in kits or [])
     return (
         "## Scope (the director's decision; it overrides the 3-7 module guideline)\n"
-        f"- Use {max(MIN_MODULES, n - 2)} to {n} modules so every system above has a home; each module keeps one clear job "
-        "and stays under ~300 lines.\n"
+        f"{count}"
         f"- `{GAME_ASSETS}` is PREBUILT and always present: do NOT list it in modules, but add it to `depends` "
         "of any module that plays sounds or effects. API: GameAssets.Palette {name: Color3}, "
         "GameAssets.Sounds {name: soundId}, GameAssets.play(name, parent?) -> Sound?, "
@@ -338,9 +384,16 @@ def _attach(spec: dict, doc: dict) -> dict:
     return spec
 
 
-def _problems(spec: dict, budget: int) -> list[str]:
+def _kit_beats(beats: list[dict], counters: list[str]) -> list[dict]:
+    """A template game's first-60-seconds beats keep only counters its kits fire: an invented counter is dead
+    by construction and would send the fix loop after working kit code. The beat itself stays."""
+    known = set(counters)
+    return [b if not b.get("counter") or b["counter"] in known else {**b, "counter": "", "min": 0} for b in beats]
+
+
+def _problems(spec: dict, budget: int, rendered: tuple[str, ...] = ()) -> list[str]:
     probs = [p for p in roles.validate_spec(spec) if not p.startswith("too many modules")]
-    prebuilt = {GAME_ASSETS} | kit_paths()
+    prebuilt = {GAME_ASSETS} | kit_paths() | set(rendered)
     n = len([m for m in spec.get("modules") or [] if isinstance(m, dict) and m.get("path") not in prebuilt])
     if n > budget + 1:
         probs.append(f"too many modules ({n}); the director's budget is {budget}")
@@ -350,29 +403,36 @@ def _problems(spec: dict, budget: int) -> list[str]:
 def design_from_doc(llm: LLM, idea: str, doc: dict, lessons: str, *, session_id: str) -> dict:
     curated = genre_lessons(idea)
     kits = match_kit_modules(" ".join([idea, str(doc.get("fantasy") or ""), str(doc.get("core_loop") or "")]))
+    tpl = next((e for e in kits if e.get("template")), None)
+    if tpl:  # the template is the game's wiring: only extras are coder-written
+        doc = {**doc, "module_budget": TEMPLATE_EXTRA_MODULES}
+        doc["first_60_seconds"] = _kit_beats(doc.get("first_60_seconds") or [], kit_counters(kits))
     user = roles._fit(
         "## Game idea\n"
         f"{roles._truncate(idea.strip(), 2000, label='idea')}\n\n"
         "## Director's design doc (build this game, not a smaller one)\n"
         f"{doc_block(doc)}\n\n"
-        f"{_scope_block(doc, kits)}\n"
+        f"{template_block(kits)}{_scope_block(doc, kits)}\n"
         f"{roles._lessons_block(_merge_lessons(curated, lessons), 4000)}\n"
         f"{ui_kit.designer_block()}\n"
         "Return only the Spec JSON object."
     )
     spec, _ = llm.complete_json("designer", user, session_id=session_id, required=roles.SPEC_KEYS, max_tokens=PLAN_MAX_TOKENS)
-    problems = _problems(spec, doc["module_budget"])
+    rendered = tuple((tpl or {}).get("template", {}).get("files") or [])
+    problems = _problems(spec, doc["module_budget"], rendered)
     if problems:
         retry = (f"{user}\n\n## Your previous spec has problems\n" + "\n".join(f"- {p}" for p in problems)
                  + "\n\nPrevious spec:\n" + roles._truncate(json.dumps(spec, ensure_ascii=False), 6000, label="spec")
                  + "\n\nReturn only the corrected Spec JSON object.")
         spec, _ = llm.complete_json("designer", retry, session_id=session_id, required=roles.SPEC_KEYS,
                                     max_tokens=PLAN_MAX_TOKENS)
-        problems = _problems(spec, doc["module_budget"])
+        problems = _problems(spec, doc["module_budget"], rendered)
         if problems:
             raise LLMError("designer spec invalid: " + "; ".join(problems))
     # the prebuilt modules are known dependencies during normalization, then go first in the module list
     prebuilt = [_prebuilt_module()] + [kit_module(e) for e in kits]
+    prebuilt += [{"path": f, "prebuilt": True, "depends": [], "purpose": f"RENDERED by Forge from the spec "
+                  f"(the {tpl['name']} template): do not write or edit it"} for f in rendered]
     taken = {m["path"] for m in prebuilt}
     spec["modules"] = prebuilt + [m for m in spec["modules"] if isinstance(m, dict) and m.get("path") not in taken]
     spec = roles._normalize_spec(spec)
@@ -467,6 +527,8 @@ def install_kit(spec: dict, game_dir: Path) -> list[str]:
         out.write_text((KIT_MODULES_DIR / f"{e['name']}.luau").read_text(encoding="utf-8"), encoding="utf-8")
         written.append(e["path_in_game"])
     if kits:
+        from forge import template
+        written += template.render(spec, game_dir)
         install_genre_checks(spec, game_dir)
     return written
 

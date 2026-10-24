@@ -394,8 +394,7 @@ local function show(payload: Types.ResultsPayload)
 		color = Palette.UiWater,
 	})
 	local function passXp(): number
-		local owner = me:GetAttribute("Pass_PremiumPass") == true or me:GetAttribute("BattlePassPremiumDebug") == true
-		return if owner then tonumber(me:GetAttribute("PassRunXp")) or 0 else 0
+		return tonumber(me:GetAttribute("PassRunXp")) or 0 -- everyone earns pass XP (free track)
 	end
 	task.spawn(function()
 		local lastXp, lastPass = -1, -1

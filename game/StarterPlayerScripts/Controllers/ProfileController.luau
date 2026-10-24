@@ -2,6 +2,7 @@
 -- ProfileController [owner: Data]. Lobby level badge + XP bar (top left, hidden during a mission) and
 -- "+XP" popups / LEVEL UP banner from Data/XpGained. Reads the Player attrs DataService writes
 -- (DataConfig.Attr). Renders only; never decides anything. docs/game/06-data.md.
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -80,9 +81,9 @@ local function build()
 	local g = Instance.new("ScreenGui")
 	g.Name = "ProfileHud"
 	g.ResetOnSpawn = false
-	-- respect the Roblox top bar / core UI (y = 0 is just under it)
-	g.IgnoreGuiInset = false
-	g.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
+	-- the level panel sits UP in the Roblox top-bar row, right against the menu buttons (GuiService.TopbarInset)
+	g.IgnoreGuiInset = true
+	g.ScreenInsets = Enum.ScreenInsets.None
 	g.DisplayOrder = 5
 
 	local scale = Instance.new("UIScale")
@@ -96,18 +97,23 @@ local function build()
 			-- narrow windows (the 0.6 floor kicks in): the centred objective card (520 px, top) would run
 			-- into this panel, so drop it below the card instead
 			if levelPanel then
-				local narrow = cam.ViewportSize.X < (1128 * s + 16)
-				levelPanel.Position = if narrow then UDim2.fromOffset(16, 100) else UDim2.fromOffset(16, 42)
+				-- right after Roblox's menu/chat buttons, vertically centred in the top bar
+				local bar = GuiService.TopbarInset
+				local x = (bar.Min.X + 8) / s
+				local h = 64 * s
+				local y = math.max(2, (bar.Height - h) / 2 + 4) / s
+				levelPanel.Position = UDim2.fromOffset(x, y)
 			end
 		end
 	end
 	if Workspace.CurrentCamera then
 		(Workspace.CurrentCamera :: Camera):GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
 	end
+	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(rescale)
 
 	local p = Instance.new("Frame")
 	p.Name = "LevelPanel"
-	p.Position = UDim2.fromOffset(16, 42) -- under the Roblox top bar (safe-inset gui) + clear of the HUD band
+	p.Position = UDim2.fromOffset(172, 4) -- rescale() puts it right after the Roblox menu buttons
 	p.Size = UDim2.fromOffset(280, 64)
 	p.BackgroundColor3 = Palette.UiCream
 	p.Visible = false

@@ -15,7 +15,7 @@ return Config.define({
 
 	-- minimap (top right, under the HUD squad strip)
 	MinimapSize = 190, -- px at 1280x720
-	MinimapTop = 204, -- px from the top (HudController's squad strip sits above it)
+	MinimapTop = 8, -- px from the very top of the screen (up in the Roblox top-bar row; the squad strip sits under it)
 	MinimapRight = 14,
 	MinimapScale = 0.42, -- px per stud standing still
 	MinimapScaleFast = 0.22, -- px per stud at TruckSpeedForZoom (zooms out while driving)

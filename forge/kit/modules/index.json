@@ -13,16 +13,34 @@
     "obstacle course",
     "parkour"
    ],
-   "describe": "server-authoritative obby engine: checkpoints with a saved Stage leaderstat and respawn there, kill parts, falls back to the checkpoint, 10 obstacle kinds on one Heartbeat loop, and LevelBuilder that builds every stage from ReplicatedStorage/Levels level data (written by `forge levels`) with live reachability checks",
+   "describe": "server-authoritative obby engine: checkpoints with a saved Stage leaderstat and respawn there, kill parts, falls back to the checkpoint, 10 obstacle kinds on one Heartbeat loop, and LevelBuilder that builds every stage from ReplicatedStorage/Levels level data (written by `forge levels`) with live reachability checks; zones start at world anchors (WorldKit) with ride gates between them and ride entrances on the ground, new players start in the park's lobby, stages turn, pads stand on support columns, and a themes module (ObbyThemes) dresses every piece",
    "api": [
     "local ObbyKit = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"ObbyKit\"))",
-    "ObbyKit.start(opts?) -> {stages, built, errors}: call ONCE from one server Script, early. It builds every level module in ReplicatedStorage/Levels (ZoneNN.luau, written by `forge levels`: never write or edit them) end to end from the START pad at opts.origin (CFrame of its top center, default CFrame.new(0, 60, 0); the course runs along its LookVector), and runs: leaderstats Stage (+ Coins when the course has coins), saving (DataStore live, memory in Studio), respawn on the player's checkpoint, kill parts, falls teleport back to the checkpoint, every obstacle. opts: origin, respawnTime (1.5), allowSkip (false), dataStore, coinRespawn (20).",
+    "ObbyKit.start(opts?) -> {stages, built, errors, zones, gates, entrances, supports}: call ONCE from one server Script, early. It builds every level module in ReplicatedStorage/Levels (ZoneNN.luau, written by `forge levels`: never write or edit them) from the START pad at opts.origin (CFrame of its top center, default CFrame.new(0, 60, 0); the course runs along its LookVector; each stage turns by its `turn` on its start pad), and runs: leaderstats Stage (+ Coins when the course has coins), saving (DataStore live, memory in Studio), respawn on the player's checkpoint, kill parts, falls teleport back to the checkpoint, every obstacle. opts: origin, anchors, gates, spawn, themes, respawnTime (1.5), allowSkip (false), dataStore, coinRespawn (20).",
+    "In a world built by WorldKit (build it FIRST): local park = WorldKit.buildPark({...}); ObbyKit.start({anchors = park.anchors, gates = park.gates, spawn = park.spawn, themes = require(Kit.ObbyThemes)}). anchors = {[zone number] = CFrame} (a theme id or zone name works as the key too): zone 1 starts at its anchor, every later zone on its own start pad at its anchor (tag ObbyZoneStart, attrs Zone, AfterStage), and the zone before it ends in a ride gate on its last checkpoint (tag RideGate, attrs Zone, Stage, NextZone, NextZoneName; its RidePad is a touch pad tagged RideGatePad with a 'Ride to <zone>' ProximityPrompt; both save the stage and teleport to the next zone's start). A player whose stage ends a zone respawns on the next zone's start pad. themes.dress(kind, model, params, theme, rng) runs on every built piece and themes.stageDecor(stageModel, theme, rng, stage) on every stage, pcall-guarded; any part they add loses collision, touch and query, so jumps stay exactly as validated. gates = {[zone] = CFrame} on the park's ground: every later zone gets a ride entrance there (tag RideEntrance, attrs Zone, Stage = the stage it needs, LastStage, FromZoneName; its EntrancePad is tagged RideEntrancePad with a 'Ride to <zone>' prompt): a player who finished the zone before rides up to that zone (to their own checkpoint while inside it), anyone else sees 'Finish <zone> first' (player attribute RideNotice). spawn = the park spawn: a new player starts there and respawns there until they first stand on the course (player attribute OnCourse), then on the start pad. Every pad that floats over open ground stands on a non-colliding support column (workspace.Obby.Supports), and neighbouring pieces take the zone's three colours in turn.",
     "ObbyKit.onStage(function(player, stage) end) and ObbyKit.onFinish(function(player) end): hooks for toasts, rewards, badges, finish celebration.",
     "ObbyKit.getStage(player), ObbyKit.setStage(player, n) (skip stage, rebirth to 0), ObbyKit.respawn(player), ObbyKit.stageCount(), ObbyKit.checkpoint(n) -> Part (0 = start pad), ObbyKit.zoneOf(stage) -> zone, zoneName.",
-    "Extra obstacles anywhere: ObbyKit.Obstacles.<kind>(parent, cframe, params) -> Model, kind platform|moving|spinner|turntable|disappearing|jumppad|trampoline|conveyor|pendulum|lava|checkpoint, cframe = the piece's top center. Tag any part \"KillPart\" (CollectionService) to make it kill.",
-    "Client/HUD reads, no remotes needed: player.leaderstats.Stage (and Coins), player attributes Stage, Zone, ZoneName, SavedStage, Finished; workspace.Obby attribute Stages = total stages. Course tags: Checkpoint (attr Stage), ObbyStart, ObbyStage (Model per stage, attrs Stage, Zone, ZoneName), KillPart, Obstacle (attr Kind), Coin, JumpPad, Trampoline, Conveyor.",
-    "Built in: juice through GameAssets (Win + burst on checkpoint, Boom on finish, Hurt on kill, Whoosh on jump pads, Coin), ForgeTelemetry counters checkpoint_reached, player_died, player_fell, coin_collected, jump_pad_used, trampoline_bounce, obby_finished, stages_built.",
-    "Never write your own checkpoints, kill bricks, respawn, Stage leaderstat, moving platforms or stage building: the kit owns them. The game's own modules add the lobby around the start pad, the HUD (stage X / total, zone name, progress bar), music per zone (player attribute Zone), shop, cosmetics, skip stage and finish rewards."
+    "Extra obstacles anywhere: ObbyKit.Obstacles.<kind>(parent, cframe, params) -> Model, kind platform (shape block|round|cylinder|wedge-ramp)|moving|spinner|turntable|disappearing|jumppad|trampoline|conveyor|pendulum|lava|checkpoint, cframe = the piece's top center. Tag any part \"KillPart\" (CollectionService) to make it kill.",
+    "Client/HUD reads, no remotes needed: player.leaderstats.Stage (and Coins), player attributes Stage, Zone, ZoneName, SavedStage, Finished, LastRide, OnCourse, RideNotice; workspace.Obby attributes Stages = total stages, Zones, RideGates, RideEntrances, Supports. Course tags: Checkpoint (attr Stage), ObbyStart, ObbyZoneStart, RideGate, RideEntrance, ObbyStage (Model per stage, attrs Stage, Zone, ZoneName, Theme, Turn), KillPart, Obstacle (attr Kind), Coin, JumpPad, Trampoline, Conveyor.",
+    "Built in: juice through GameAssets (Win + burst on checkpoint, Boom on finish, Hurt on kill, Whoosh on jump pads and ride gates, Coin), ForgeTelemetry counters checkpoint_reached, player_died, player_fell, coin_collected, jump_pad_used, trampoline_bounce, ride_gate_used, ride_entrance_used, ride_entrance_locked, obby_finished, stages_built.",
+    "Never write your own checkpoints, kill bricks, respawn, Stage leaderstat, moving platforms or stage building: the kit owns them. The game's own modules add the lobby around the start pad (a WorldKit park already has one), the HUD (stage X / total, zone name, progress bar), music per zone (player attribute Zone), shop, cosmetics, skip stage and finish rewards."
+   ]
+  },
+  {
+   "name": "ObbyThemes",
+   "path_in_game": "ReplicatedStorage/Kit/ObbyThemes.luau",
+   "genres": [
+    "obby"
+   ],
+   "keywords": [],
+   "describe": "Server: dresses every ObbyKit piece as part of an amusement-park ride (10 themes: entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale): themed walkable tops, glowing kill parts with hazard bands, rides under and beside each piece, legs down to the ground, and lamps, string lights and a stage-name sign along every stage. Decorations never collide and keep clear of the space players stand and jump in, so the validated course is unchanged. Needs ObbyKit v2 (opts.themes).",
+   "api": [
+    "local ObbyThemes = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"ObbyThemes\")) -- server only. Hand it to ObbyKit v2: ObbyKit.start({anchors = park.anchors, themes = ObbyThemes}); the kit dresses every piece and stage itself with its zone's park theme (theme_id in the level data). A zone with no park theme stays plain. Call it yourself only for pieces you build with ObbyKit.Obstacles.",
+    "ObbyThemes.dress(kind, model, params, theme, rng) -> Model \"Dressing\" under the piece (Fixed: anchored parts; Rides: parts welded to the part that moves, attribute Host = Mover, Turntable, Bar or Ball): kind = the ObbyKit kind (platform incl. v2 shapes cylinder and wedge-ramp, checkpoint, moving, spinner, turntable, disappearing, jumppad, trampoline, conveyor, pendulum, lava), model = what ObbyKit.Obstacles.<kind> returned, params = its level data (or nil), theme = entrance | carousel | bumper | teacups | ferris | flume | haunted | pirate | coaster | finale (free text is resolved), rng = a Random or a seed. A nil or blank theme only undoes an earlier dress and returns nil. Never throws.",
+    "The theme owns the look of walkable tops (colour, material; a vanishing tile still flashes the kit's warning), kill parts (Neon, in a red-orange no walkable, jump pad or trampoline uses), the kit's checkpoint flag (a pennant), turntable stripes, conveyor chevrons and the pendulum frame. Each property it changes is saved in a ThemeOrig_<property> attribute and put back, with its ThemeFx emitters removed, before the next dress.",
+    "ObbyThemes.stageDecor(stageModel, theme, rng, stage) -> Model \"StageDecor\": lamps on brackets beside the still pieces, string lights between them, balloons and a sign with the stage's name at its start (at most ObbyThemes.MAX_STAGE_PARTS = 60 parts). It first sweeps the decorations of this stage and of the stages built around it out of every walkable's body space.",
+    "Rules every decoration keeps: CanCollide/CanTouch/CanQuery false and Massless; the body space over each walkable top (its footprint plus 0.5 studs, from 0.12 to 7 studs up, over a mover's whole path) stays empty; nothing that reads as floor sits within 0.7 studs under a top and reaches more than 0.5 past its edge; legs reach the ground below (a raycast and Terrain's voxels; none over 90 studs or across the course: a short bracket instead). Never tag, move or collide with them.",
+    "ObbyThemes.THEMES lists the theme ids; ObbyThemes.resolve(text) -> id maps free text (\"Ghost Train Gulch\" -> haunted, \"Midway Arcade Mile\" -> bumper, unknown words -> entrance, nil or blank -> nil)."
    ]
   },
   {
@@ -95,6 +113,65 @@
    "api": [
     "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."
    ]
+  },
+  {
+   "name": "WorldKit",
+   "path_in_game": "ReplicatedStorage/Kit/WorldKit.luau",
+   "genres": [],
+   "keywords": [
+    "park",
+    "amusement",
+    "funfair",
+    "carnival",
+    "theme park",
+    "fairground"
+   ],
+   "describe": "Server + client: builds the whole amusement park the obby runs through (Terrain ground, warm sky, fenced perimeter with trees and hills, a forecourt with the spawn outside the entrance gate, a lobby plaza with a fountain and a park map, one big animated ride per zone, stalls, balloons, string lights, gardens) around the courses themselves: it measures every zone's course from the level data and dresses it from start to end, so no course runs over an empty plain.",
+   "api": [
+    "local WorldKit = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"WorldKit\")) -- server Script: call buildPark ONCE, before ObbyKit.start. LocalScript: call WorldKit.client() ONCE, so every ride moves smoothly on that client (until a client does, the server moves the rides near players, 30 times a second).",
+    "WorldKit.buildPark({zones = {{name, theme, palette = {hex, ...}, length?}, ...} (one per level zone, in zone order), origin = CFrame (the hub on the ground, LookVector into the park; default CFrame.new()), size = 1600, seed, title = \"text on the entrance arch\"}) -> {anchors = {[i] = CFrame}, gates = {[i] = CFrame}, spawn = CFrame, lobby = CFrame, courses = {[i] = {Vector3, ...}}, parts}: builds everything in workspace.Park (replacing the template Baseplate), puts the SpawnLocation ParkSpawn on the forecourt outside the entrance gate, facing it, and sets Lighting (call GameAssets.styleLighting() before it, or not at all). Themes: entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale; any other word picks the closest ride.",
+    "Courses: zone i's course is measured from ReplicatedStorage.Levels zone i with the game's ObbyKit (every stage, its turns included; never write level data yourself); a zone without level data runs `length` studs straight ahead (default 460). courses[i] = that course's centre line (its start pad, then every checkpoint) in world space. The park follows every course to its end: nothing taller than 6 studs within 40 studs of it (from 24 behind its start to 40 past its end), lamps strung with lights, stalls and rides 44-110 studs out on both sides, gardens and café tables under it, and the fence, tree line and hills go round any course that runs beyond the circle.",
+    "anchors[i] = top centre of zone i's first pad, on a themed tower (zone 1: at the top of the START stairs by the lobby), 32-70 studs above the ground (up to 12 zones at size 1600); LookVector = the course direction, the clockwise tangent with the park on the course's right (a course that folds back turns left, away from the rides). Pass them on: ObbyKit.start({anchors = park.anchors, ...}). gates[i] = on the paving in front of ride i, facing it; gates[1] is at the foot of the START stairs. spawn = the top of ParkSpawn, 44 studs outside the entrance gate and facing it: a player at stage 0 belongs there (they walk in through the gate to the START stairs), not straight on the START pad.",
+    "WorldKit.landmark(theme, cframe, palette?) -> Model (cframe = ground centre, LookVector = its front; its rides turn, swing and drop from motion data on their parts, run by WorldKit.client()); WorldKit.dressing(kind, cframe, palette?, text?, seed?) -> Model, kind: stall (text: POPCORN, ICE CREAM, HOT DOGS, CANDY FLOSS, LEMONADE, PRIZES, HOOK A DUCK, BURGERS, RING TOSS), balloon_cluster, balloon_arch, string_lights, bench, tree, cypress, lamp, sign (text), fence, popcorn_cart, flower_bed, flower_garden, picnic, mini_golf, queue_fence, kiddie_ride (the last five stay under 6 studs, so they can stand under a course); its stall type, sizes and colours come from seed (default: from where it stands). Both parent to workspace; no asset ids."
+   ]
+  },
+  {
+   "name": "ParkObby",
+   "path_in_game": "ReplicatedStorage/Kit/ParkObby.luau",
+   "genres": [],
+   "keywords": [
+    "amusement park",
+    "theme park",
+    "funfair",
+    "carnival",
+    "fairground",
+    "fun fair",
+    "park obby"
+   ],
+   "describe": "the complete, tested wiring of a themed park obby: WorldKit builds the park (lobby, START stairs, one ride per zone), ObbyKit lays the course into it with ObbyThemes dressing every piece, a working changing room in the lobby, music per zone, and the HUD. The game supplies only content.",
+   "api": [
+    "This game is built on the ParkObby template. Forge renders its Config (ReplicatedStorage/Config.luau: Title, Zones in course order, Costumes, Rewards) and its two bootstraps from the spec, so never write a course, checkpoints, a start gate, a changing room, a lobby coin trail, a coin counter, a reset button, a music player, a HUD, Config or a bootstrap.",
+    "Config.Zones[i] = { name, theme = 'entrance'|'carousel'|'bumper'|'teacups'|'ferris'|'flume'|'haunted'|'pirate'|'coaster'|'finale', palette = { '#RRGGBB', ... }, mood }: read it with require(ReplicatedStorage.Config).",
+    "Extra feature modules hook the kits: ObbyKit.onStage(fn(player, stage)), ObbyKit.onFinish(fn(player)), ObbyKit.getStage(player), ObbyKit.coins(player), ObbyKit.spend(player, n) -> bool, ObbyKit.addCoins(player, n), ObbyKit.placeCoin(parent, position, value?), Cosmetics.grant(player, id)."
+   ],
+   "genres_only": [
+    "obby"
+   ],
+   "requires": [
+    "ObbyKit",
+    "WorldKit",
+    "ObbyThemes",
+    "Cosmetics",
+    "CosmeticsClient",
+    "MusicPlayer"
+   ],
+   "template": {
+    "files": [
+     "ReplicatedStorage/Config.luau",
+     "ServerScriptService/Game.server.luau",
+     "StarterPlayerScripts/Game.client.luau"
+    ]
+   }
   }
  ]
 }

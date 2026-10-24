@@ -1,7 +1,7 @@
 -- check: Touching the next checkpoint saves the Stage, and after dying the player respawns on that checkpoint
 -- covers: genre obby: touching a checkpoint saves Stage and respawn returns there (irreversible: advances the stage)
 -- needs: studio
--- consumer: ReplicatedStorage/Kit/ObbyKit.luau:"local cf = spawnFrame((data[player] and data[player].stage) or 0)"
+-- consumer: ReplicatedStorage/Kit/ObbyKit.luau:"return spawnFrame(stage)"
 local Players = game:GetService("Players")
 local CS = game:GetService("CollectionService")
 local p = forge.waitFor(function()

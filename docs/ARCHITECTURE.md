@@ -111,6 +111,10 @@ forge/                 Python package (uv), entry point `forge`
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
                        fun critic >= 8, visuals (<= 15% default-grey parts), hud (a ScreenGui), sounds (>= 1),
                        first60 (every director beat's counter reached its min); census from the playtest, else source;
+                       interactions (the static audit finds no dead interaction; its line says what only a generic
+                       handler covers and which remote checks were switched off) and journey (the fresh journeys of the
+                       current code, Studio's verdict per step where it has one, headless for the rest, passed every
+                       step) are hard parts too (see "Interaction gates");
                        readiness(..., compare=True) (what `forge done` prints) adds r["compare"] = compare.done_summary:
                        the compare categories vs game/, informational (an "[i] compare" line, never a part, never blocks)
   compare.py           `forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]`: is the code as good as our
@@ -140,33 +144,118 @@ forge/                 Python package (uv), entry point `forge`
                        prebuilt ReplicatedStorage/GameAssets.luau (forge/kit: palette, sounds.json, play/burst/shake/
                        styleLighting/part); coder_notes(spec, lessons) puts style + juice ahead of coder/fixer lessons
                        kit modules: forge/kit/modules/<Name>.luau + index.json [{name, path_in_game, genres ("*" = all),
-                       keywords, describe, api}]; match_kit_modules(text) (gaps.detect_genre or a keyword) -> the designer's
+                       keywords, describe, api, genres_only?, requires?, template?}]; match_kit_modules(text) (gaps.detect_genre
+                       or a keyword; genres_only limits a keyword match to those genres; a match brings its `requires`);
+                       template mode (a matched kit with "template"): template_block(kits) in the director and designer
+                       user messages, module budget TEMPLATE_EXTRA_MODULES (2) extra modules, the template's files as
+                       RENDERED prebuilt modules, first-60s counters only from kit_counters(kits) (count("x") /
+                       telemetry("x") in the kit sources; an invented one is cleared from its beat) -> the designer's
                        scope block says PREBUILT, spec module {path, prebuilt, kit: <name>}, install_kit copies the file and
                        forge/genre_checks/<genre>/*.luau into runs/<slug>/checks/ (resolve_consumers: `-- consumer:
                        <file>:"<text>"` -> <file>:<line>; __EXPECTED_STAGES__ from spec levels), kit_api_block(spec) in every
                        coder user message (roles.code_module), protected_paths (kit + level data) never go to the fixer
                        (Run.base_files), ensure_kit(spec, game_dir, names) for games built before the kit
-  obby.py              obby levels as data: KINDS (11 kinds, defaults/limits), layout(stage) -> surfaces in the course frame,
+  obby.py              obby levels as data: KINDS (11 kinds, defaults/limits; platform shape block|round|cylinder|wedge-ramp),
+                       layout(stage) -> surfaces in the stage frame (stage `turn` -90..90 on its start pad: a turn that is not
+                       a multiple of 90 judges the pad as its inscribed disc for jumps and its rotated box for movers; a
+                       cylinder is a log across the course whose standable strip is half its diameter, LOG_DROP of the radius
+                       under the crown; a wedge-ramp lands at its low near edge and takes off from its top),
                        validate_stage / validate_zone -> exact "stage N ...: gap 12.0 at rise 0.0 > max 10.0" problems (jump
                        envelope of the default character: walk 16, jump height 7.2, gravity 196.2, reach(rise) = 16 * airtime
                        + 1.3, rise <= 6, calibrated live; jumppad/trampoline launches; movers sampled over 24 s; tile
-                       timing; lava at floor level; crush; pendulum clearance), fallback_stage, kinds_doc, limits_doc,
-                       render_zone_luau -> ReplicatedStorage/Levels/ZoneNN.luau. ObbyKit's LevelBuilder runs the same rules
-                       (tests/test_obby.py: same messages for the same data)
-  kit/modules/ObbyKit.luau  ObbyKit.start(opts) builds every Levels zone from the start pad and runs checkpoints (Stage
-                       leaderstat, DataStore / Studio memory, SavedStage), respawn, kill parts, falls, coins, jump pads,
-                       trampolines, conveyors; one Heartbeat loop drives movers near players; Obstacles.<kind>(parent, cf,
-                       params); LevelBuilder.build/validate/validateZone/audit; tags Checkpoint, ObbyStart, ObbyStage,
-                       KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline, Conveyor
+                       timing; lava at floor level; crush counts body thickness; pendulum clearance), fallback_stage (four
+                       varied layouts), kinds_doc, limits_doc, render_zone_luau -> ReplicatedStorage/Levels/ZoneNN.luau
+                       (theme_id, turn); a turned stage's piece level with its start pad may not start inside the turned
+                       pad's corners (param). ObbyKit's LevelBuilder runs the same rules (tests/test_obby.py: same messages
+                       for the same data). Design-time zone rules (Python only): zone_rules(zone, first, count, theme) /
+                       rule_problems / rule_stats: a stage at most 50% plain block platforms, an obstacle per stage, no two
+                       stages with the same kind sequence, >= 4 kinds a zone (finale: 6), the theme's SIGNATURES (THEMES:
+                       entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale) and turns each in
+                       share_need(count) stages (30%: 6 of 20), the zone climbs CLIMB_PER_STAGE per stage and each run of the
+                       route at most RUN_CLIMB_MAX 12 (run_climbs / run_climb_problems: the corners lift the levels),
+                       footprint_problems:
+                       every piece, mover's path and jump inside the zone's plot (PLOT_HALF_WIDTH 38 each side of the start
+                       line, PLOT_BACK 10 behind the start pad to PLOT_LENGTH 450 ahead: the corridor WorldKit keeps clear in
+                       its 1600-stud park), and course_layout (stage frames in the zone frame) never crosses itself
+                       (crossing_problems: pieces and jump gaps of different stages within CLEARANCE). Forge owns the turns:
+                       route_plan(count) -> [{role run|corner, turn, run, dir out|back}] is a switchback (runs out and back
+                       in two lanes, at most MAX_RUN_STAGES out; between runs a corner stage turns CORNER_TURN -90, left,
+                       CORNER_LENGTH long, lifting CORNER_LIFT, and the next run's first stage turns -90 again; the first run
+                       out is a stage longer than any run back), apply_route writes its turns into a zone; stage_length,
+                       extent; THEME_PALETTES (each theme's landmark colours, mains delta E >= 25 apart); fallback_stage(...,
+                       corner=True) is one of three short lifts
+  kit/modules/ObbyKit.luau  ObbyKit.start(opts) builds every Levels zone and runs checkpoints (Stage leaderstat, DataStore /
+                       Studio memory, SavedStage), respawn, kill parts, falls (per stage frame: FALL_DEPTH under the stage, or
+                       standing on anything off the course under it past its start pad, e.g. the park's ground), coins, jump pads, trampolines,
+                       conveyors; one Heartbeat loop drives movers near players; Obstacles.<kind>(parent, cf, params; piece k takes
+                       the zone's palette rotated by k);
+                       LevelBuilder.build/validate/validateZone/audit (turned stages and shapes rebuilt from parts). v2:
+                       opts.anchors ({[zone | theme id | name] = CFrame}, WorldKit.buildPark): zone 1 starts at its anchor,
+                       later zones on their own start pads (ObbyZoneStart), the zone before ends in a ride gate (RideGate:
+                       RidePad touch pad tagged RideGatePad + 'Ride to <zone>' prompt, both connected: save the stage,
+                       teleport to the next zone's start; a player at a zone's last stage respawns there); each stage's frame
+                       turns by its `turn`; opts.themes (ObbyThemes): dress(kind, model, params, theme, rng) per piece and
+                       stageDecor(stage, theme, rng, n) per stage, pcall-guarded, every part they add made non-colliding,
+                       non-touching, non-query, massless and untagged; opts.gates (WorldKit's, same keys as anchors): a ride
+                       entrance on the ground to every later zone with its own start pad (RideEntrance, attrs Zone, Stage =
+                       the stage it needs, LastStage, FromZoneName; EntrancePad tagged RideEntrancePad + prompt: a player who
+                       finished the zone before rides to that zone, to their own checkpoint while inside it; others get a
+                       3 s "Finish <zone> first" BillboardGui in their PlayerGui and the RideNotice attribute); opts.spawn
+                       (the park spawn; with it or with anchors the course is in a world): a player who has not stood on the
+                       course yet (start pad, checkpoint, ride gate, a fall off it: player attribute OnCourse) starts and
+                       respawns there instead of on the start pad; every pad floating over open ground (raycast from inside
+                       it: a pad over the course or on a WorldKit tower gets none) stands on a non-colliding Support column
+                       and Footing (workspace.Obby.Supports); start pads are dressed like their zone's checkpoints;
+                       ObbyKit.coins(player), spend(player, n) -> bool, addCoins(player, n): the course's coin ledger (a
+                       shop spends through it, so the next pickup never refunds a purchase); placeCoin(parent, position,
+                       value?) -> Part: the course's coin anywhere in the world; tags Checkpoint, ObbyStart,
+                       ObbyZoneStart, RideGate, RideGatePad,
+                       RideEntrance, RideEntrancePad, ObbyStage, KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline,
+                       Conveyor
+  kit/modules/WorldKit.luau  WorldKit.buildPark(opts) builds the amusement park an obby runs through, around the courses
+                       it measures from the level data, and returns anchors (where each zone's course starts), gates,
+                       lots (opts.lots = {changingRoom = true}: a clear plaza spot) and courses; WorldKit.client() runs
+                       the rides on each client; see "Kit modules" below
+  kit/modules/ParkObby.luau  the park obby template: ParkObby.startServer(Config) builds the park (WorldKit), the course in
+                       it (ObbyKit v2 with anchors, gates, spawn = the lobby, ObbyThemes), the changing room on
+                       lots.changingRoom with Cosmetics spending ObbyKit's ledger, a coin trail from the spawn through the
+                       gate to the changing room, the ParkReset remote (back to the checkpoint), and the finish reward;
+                       startClient(Config)
+                       starts WorldKit.client, MusicPlayer (area = Config.Zones[player Zone].name, lobby before stage 1),
+                       CosmeticsClient and the HUD (zone, stage n / total, coins, RESET). Every kit is required: a missing one stops the boot with its name, as
+                       does a Config.Zones count that differs from the level zones
+  template.py          template games (a kit entry with "template": {files}): rendered_files(spec) / render(spec, game_dir)
+                       write ParkObby's ReplicatedStorage/Config.luau (zones from spec.levels.plan in order, each zone's
+                       theme_id as is, costumes, finish reward) and the two bootstraps; install_kit and `forge levels` call
+                       render; the files are protected from the fixer. `forge new` on a template obby runs the level
+                       designer first (template.PARK_ZONES x PARK_STAGES_PER_ZONE unless the spec sets levels), then renders
   levels.py            `forge levels <slug> [--zones a-b] [--stages-per-zone 20] [--total-zones N]`: per zone one
-                       level_designer call (game, zone, difficulty per stage, mechanics schedule, kinds, limits in the user
-                       message) -> validate -> up to CORRECTIONS (2) corrections in the same task with the exact errors ->
-                       fallback stages for the rest -> runs/<slug>/levels/zone-NN.json + log.jsonl and the Levels module;
-                       resumable (valid zones skipped); spec["levels"] = {zones, stages_per_zone, plan[...]}
-  prompts/level_designer.md  Mubit task: one zone -> {zone, name, theme, palette, material, stages[{stage, name, pieces}]}
+                       level_designer call (game, zone, park theme (zone_theme: plan theme_id, planned name words, else the
+                       park order for an amusement-park game) + THEME_NOTES + signature kinds introduced early, difficulty per
+                       stage, mechanics schedule, the zone rules in words, route_doc (obby.route_plan stage by stage, run and
+                       corner lengths, lane width, CORNER_EXAMPLE), kinds, limits and one valid EXAMPLES run stage per theme in
+                       the user message) -> forge_owned (the route's turns, and THEME_PALETTES[theme] for a park theme) ->
+                       validate_zone + zone_rules -> up to CORRECTIONS (2) corrections in the same task with the exact errors
+                       (plus a one-line-per-stage zone overview when zone rules fail: route role, turn, heading, length, where
+                       its checkpoint ends) -> fallback stages for unreachable ones (a corner's is a short lift) ->
+                       runs/<slug>/levels/zone-NN.json (theme_id) + log.jsonl and the
+                       Levels module; resumable (zones passing both validators skipped); spec["levels"] = {zones,
+                       stages_per_zone, plan[{..., theme_id, rules_left, stats}]}; ok also needs no zone rule left broken
+  prompts/level_designer.md  Mubit task: one zone -> {zone, name, theme, palette, material, stages[{stage, name, turn, pieces}]}
   genre_checks/obby/*.luau   prebuilt obby checks: stage count vs spec, one checkpoint per stage, checkpoint saves + respawn,
                        kill parts kill, falls return to the checkpoint, reachability (data + built parts), coins collectible,
-                       jump envelope (a live R15 runner), movers carry; each check's waits stay under the 30 s execute_luau limit
+                       jump envelope (a live R15 runner), movers carry, ride gates (wired, riding one lands on the next
+                       zone's start, and that zone's ground entrance is shut one stage short and rides up at the zone's last
+                       stage); each check's waits stay under the 30 s execute_luau limit
+  interactions.py      `forge interactions <slug>|--root DIR`: static audit (luau-ast) of interactions that cannot work,
+                       file:line per finding: prompts / click detectors / buttons with no handler, remotes fired that
+                       nothing listens to (and the reverse), bindables; an object it cannot follow is unknown, never
+                       reported (see "Interaction gates")
+  journey.py           `forge journey <slug> [--studio S] [--clicks] [--no-sync] [--shots DIR]`: live end-to-end journey of
+                       one new player through the ForgeTest harness, no LLM: join, lobby (census, no template baseplate,
+                       a WorldKit park in view), every lobby prompt must have an observable effect and what it opens is
+                       closed again, costume (worn and visible), stage 1, respawn, layout + buttons (every on-screen
+                       button on top and doing something, RESET back to the checkpoint), ride gate -> runs/<slug>/journey/
   fun.py               quality brain 2 (`forge fun <slug>`): census(studio) (server + client scene census during play,
                        stored as report["census"]), static_census(files), fun_critique(llm, spec, files, report, *,
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
@@ -417,6 +506,52 @@ user message lists (tests/test_kit_modules.py).
   DataStore or in memory (unpublished Studio place); `buildChangingRoom({cframe, ids})` puts mannequin
   stands with "Try on" prompts (tag `CostumeStand`, attributes `Costume`/`Price`/`Slot`).
 - `CosmeticsClient` (client): the house-style costume panel + HUD button; opens from the stand prompts.
+- `ObbyThemes` (server, genre obby; needs ObbyKit v2's `opts.themes`): `dress(kind, model, params, theme, rng) -> Model
+  "Dressing"` dresses one `ObbyKit.Obstacles.<kind>` piece (v2 platform shapes `cylinder` and `wedge-ramp` included, by
+  their `Shape` attribute) as part of a ride; `stageDecor(stageModel, theme, rng, stage) -> Model "StageDecor"` adds
+  lamps on brackets, string lights, balloons and a sign with the stage's name (<= `MAX_STAGE_PARTS` 60). Themes
+  (`THEMES`): entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale; `resolve(text)`
+  maps free text to one (nil or blank -> nil: `dress` and `stageDecor` then add nothing). Rules: decoration parts are
+  CanCollide/CanTouch/CanQuery false and Massless; `Dressing.Rides` (attribute `Host` = Mover, Turntable, Bar or Ball)
+  holds the parts welded to the moving part (carousel horses bob on a Weld in the host's frame), everything else is
+  anchored. The body space over every walkable top (footprint + 0.5, 0.12 to 7 studs up, over a mover's whole path)
+  stays empty: props stand on brackets past the margin and are built as groups that are dropped whole when they would
+  reach in; `stageDecor` sweeps this stage's decorations and those of stages already built around it (found by a
+  spatial query) out of every body space. Nothing that reads as floor sits within 0.7 under a top and reaches more than
+  0.5 past its edge. Legs are sized by a raycast down (MAX_LEG 90 studs; none across the course: a bracket instead).
+  The theme owns walkable tops (Color, Material; vanishing tiles re-coloured on every solid, the kit's warning flash
+  kept), kill parts (Neon, `KILL` red-orange per theme), the checkpoint Flag (Transparency 1, a pennant instead), Hub,
+  turntable Stripes, conveyor Chevrons and the pendulum Posts/Beam/Rod; each changed property is saved as
+  `ThemeOrig_<property>` and restored, and its `ThemeFx` emitters removed, before the next dress. Collision parts are
+  never moved or resized, so `LevelBuilder.audit` is unchanged. tests/test_obby_themes.py checks all of it with its own
+  geometry, on every theme x kind, turned stages, the Funfair Frenzy levels (tests/fixtures/funfair_levels.json) built
+  in v2's order, v2 shapes and ground for legs. Live proof: `scripts/obby_themes_demo.py --studio <id> [--gallery]
+  [--play]` (play mode: drift of riding decorations, horse bob, tile fading -> `play-proof.json`).
+- `WorldKit` (server + client, picked by park words only: park, amusement, funfair, carnival, theme park,
+  fairground): `buildPark({zones = {{name, theme, palette, length?}}, origin, size = 1600, seed, title}) -> {anchors,
+  gates, spawn, lobby, courses, parts}` builds the whole amusement park in `workspace.Park`: Terrain ground reaching
+  at least 1,500 studs past the farthest course, sky, fence + tree line + hills, the entrance gate with a forecourt
+  outside it (the SpawnLocation `ParkSpawn` 44 studs out, facing the gate), a lobby plaza with a fountain and a park
+  map, one animated landmark per zone, stalls, balloons, string lights, gardens. Zone 1 starts at the top of the
+  START stairs beside the lobby; zone i>1 on a tower on the circle r = 0.64 * size / 2, every `anchors[i]` facing the
+  clockwise tangent (park on the course's right). Each zone's course is measured before anything is placed: zone i of
+  `ReplicatedStorage.Levels` laid out with the game's ObbyKit (`LevelBuilder.layout` per stage, each stage turned by
+  its `turn` when ObbyKit.VERSION >= 2), else `length` studs straight (default 460, the zone plot of forge/obby.py);
+  `courses[i]` = its centre line (start pad, then every checkpoint) in world space. The park is built around those
+  lines: nothing taller than 6 studs within 40 studs of a course from 24 behind its start to 40 past its end; every
+  course is dressed from start to end (lamps strung with lights 46 studs out on both sides, stalls 64 out, a ride,
+  booth corner or balloon arch further out, trees, and low gardens, cafe tables, mini golf, queue mazes and kiddie
+  rides under it, sparser when the courses are long); a course that runs beyond the circle gets a paved midway under
+  it, a corridor 118 studs to each side that the fence and tree line go round, and hills along both sides beyond it;
+  a hill and a mountain stand past every course's end. About 25k parts for ten 460-stud courses, 41k (built in about
+  2.4 s in Studio) for the ten 1.4-2.3k-stud straight courses of the overnight funfair game (tests/test_worldkit.py
+  checks the clearance, the dressing within 80 studs of every 40-stud stretch, measuring with turns, and the ground's
+  reach headless). `landmark(theme, cframe, palette)` and
+  `dressing(kind, cframe, palette, text?, seed?)` build one piece (dressing seeded by its position unless a seed is
+  given). Rides move from data: each moving root carries WK* attributes (`WKMotion` kind, `WKRest`, `WKPivot`, ...)
+  and the tag `WorldKitMover`; `WorldKit.client()` (a LocalScript) runs every mover within 900 studs of the camera once
+  per rendered frame on the shared server clock and fires the `WorldKitMotion` remote, after which the server stops
+  moving them; until then the server moves the movers that have a player within 400 studs, 30 times a second.
 
 Spec (designer output):
 ```json
@@ -628,7 +763,101 @@ forge reflect --all                                  # every game summed -> runs
 forge consolidate <slug> [--plan-only] [--max-merges 6] [--studio S]  # architect pass, gated, rolled back on failure
 forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]  # code vs the reference game: 0-10 per
                                                      # category, evidence, gaps with reference files to copy
+forge interactions [<slug>|--root DIR] [--json]      # static audit: dead prompts/buttons/detectors/remotes, exit 1 if any
+forge journey <slug> [--studio S] [--clicks] [--no-sync] [--shots DIR] [--json]  # live player journey (headless
+                                                     # unless --studio), saved to runs/<slug>/journey/, exit 1 on a fail
 ```
+
+### Interaction gates (forge/interactions.py, forge/journey.py)
+The overnight Funfair Frenzy obby made a "Try on costumes" prompt nothing handled, a RESET button whose remote
+nothing listened to, a GIFT button under the Skip Stage button, and a lobby on the grey template baseplate. Two hard
+parts of `forge done` catch that class of bug.
+```python
+# interactions.py (needs luau-ast, shipped with luau; without it the part is unknown, never a pass)
+def audit(game_dir) -> {ok, findings[{id, kind, severity, file, line, object, detail, fix, kit}], stats, errors}
+    # kinds: prompt_no_handler, click_no_handler (high), button_no_handler (medium), remote_no_listener,
+    # remote_no_answer (high), remote_never_fired (medium), bindable_no_answer (high), bindable_no_listener /
+    # bindable_never_fired (low). ok = no high/medium finding. Matching: the same value (locals, aliases, helper
+    # returns per call site, parameters of local functions with their call sites), the Name (FindFirstChild /
+    # WaitForChild / index lookups, Config module constants; a lookup T.k on a table filled as T[k] = r names k or
+    # any string a table record maps k to, e.g. Config.Remotes = {Reset = "ResetToCheckpoint"}), a PromptTriggered
+    # handler that tests for something the prompt carries. Remotes match by name, not by folder: a listener on a
+    # same-named remote in another folder reads as connected (the journey's buttons step catches it live). A generic handler (a class lookup, a loop over GetChildren / GetDescendants / GetTagged, a
+    # ChildAdded / DescendantAdded callback, a connection on a value it cannot follow, a catch-all PromptTriggered)
+    # reaches only its container (parent links followed up), its tag, or without one its own file; an unknown
+    # container reaches anything. Tool.Activated is not a button handler (IsA("Tool") / ClassName == "Tool" on the
+    # target, or a Backpack / StarterPack / character source). A zero-size button is not a control (stats.inert).
+    # An object whose flow it cannot see (stored in a table, returned to unseen callers, passed to an unknown
+    # function) is `unknown`. A remote site with an unknown alternative may be any remote: it suppresses findings
+    # (stats.suppressed[{at file:line, site, off, for}]) instead of making one.
+    # stats = {files, objects, handled (matched), generic, generic_at {file:line: n}, unknown, inert, senders,
+    # receivers, suppressed, tool_connections}. id = kind:file:object (+ #n for identical objects): no line.
+    # Skipped: gaps.RUNTIME_FILES, tools/, tests/, kit modules the game never names (kit findings: kit=True)
+def as_anomalies(res) -> [{kind dead_interaction, system interactions, severity, title, observed, expected, proof,
+                           finding{kind, file, object, count, in_file}, ref ref_of(x), path (not for kit)}]
+def ref_of(finding) -> "dead:<file>:<kind>:<object slug>[#n]"   # stable across edits that shift lines
+def still_dead(game_dir, finding) -> "" | why     # after a fix: is a finding of its kind, file and object left (or
+                                                  # as many of its kind in the file as before: a rename)?
+def coverage(stats) / summary(res) / render(res)  # what was matched, generic-only, not followed, suppressed
+# journey.py
+async def run_journey(studio, *, clicks=False, shots=None, log) -> {ok, engine, clicks, player,
+    steps[{step, ok (None = n/a or unknown), detail, evidence, secs, skipped?, shot?}], prompts[...], buttons[...],
+    secs}
+    # steps: join; lobby (census >= 40 parts, 5 colours, 5 tall parts within 200 studs; the biggest ground part is
+    # not the Baseplate nor default-grey plastic and default-grey ground shows on <= 25% of the square around the
+    # spawn (headless adds the place's template Baseplate back unless the game's code names it); with the WorldKit
+    # kit a Workspace.Park and a Landmark-tagged ride within 600 studs); prompts (each prompt within 150 studs of
+    # the spawn, after BOOT_SECONDS since the join and a settled client GUI: walk, settle, a QUIET ambient window,
+    # one press, up to EFFECT_LOOKS looks EFFECT_WAIT apart. Each look diffs a server snapshot (attributes,
+    # leaderstats, character children, Costume_* models and how they sit on the body, parts near the prompt,
+    # position) and a client snapshot (visible GUI objects, same-named siblings indexed) minus ambient change;
+    # observable = a panel opened, an attribute / leaderstat / costume / character / part changed, or a move >= 8
+    # studs. Then close(): the opened panel's X / Close / Back button (a press: headless or clicks=True), waiting for
+    # a toast to go by itself, the prompt again (a toggle), walking away; it must leave the screen before the next
+    # before-picture. Nothing closes it: the prompt fails ("cannot be closed"). Studio without clicks: left open, and
+    # a later prompt that only reopens it is unknown. A move is undone with a harness teleport); costume (a costume
+    # prompt puts a costume on itself, or opens a panel whose WEAR is pressed (Studio without clicks: the kit's
+    # CosmeticsRemotes.Request); the costume shows: visible parts within 3 studs of the body (the head for a head
+    # costume), an effect, or body colours; the costume shot is taken with the panel closed, or hidden for the shot);
+    # stage1 (walk to ObbyStart, obby_try 0 -> 1); respawn (KillPart); layout (every on-screen GuiButton outside
+    # the Core / Forge GUIs is the top-most input-sinking object at its centre: Studio PlayerGui:GetGuiObjectsAtPosition,
+    # headless rectangles from Size / Position / AnchorPoint / UIPadding / UISizeConstraint ordered by DisplayOrder and
+    # Sibling / Global ZIndex, unknown when a layout object, scroll, scale or rotation places it); buttons (each
+    # uncovered button pressed once: a panel, a text change, a GUI object gone, an attribute / leaderstat / counter,
+    # a move (not a sound: funfair's HUD clicks on every press); a button whose label counts down (GIFT 1:10) and
+    # does nothing is on cooldown, reported but not judged; a RESET / respawn button after stage1: the player is teleported off checkpoint N and must be back on
+    # it within RESPAWN_WAIT; Studio without clicks: unknown); ride (ObbyKit v2: the first RideGate's checkpoint via
+    # the kit fixture teleport_stage, its RidePrompt, then the player within 12 studs of the next zone's
+    # ObbyZoneStart with Stage >= the gate's). After every teleport fixture the leftover walk of obby_try is stopped.
+def save(run_dir, rec, game_dir=None) -> path  # <n>.json, latest.json, latest-<engine>.json; game_hash = sha1 of the
+                                               # .luau files, None without game_dir (forge journey --no-sync: stale)
+def latest(run_dir, engine=None) / fresh(rec, game_dir)
+def for_done(run_dir, game_dir) -> rec          # fresh latest of each engine merged step by step (merge(): Studio's
+                                               # verdict where it has one, else headless), else latest.json
+def summary(rec, game_dir) -> (ok, detail)      # stale when game_hash differs or is None
+def as_anomalies(rec, findings)                 # a failed step whose every failing prompt / button a static finding
+                                               # explains carries `static` and that file as `path`
+def still_failing(rec, anomaly, base) -> "" | why  # the fix loop's judge (see Wiring)
+def anomalies_for(game_dir, run_dir) / refresh(harness, game_dir, run_dir, force=False) / brief(rec) ->
+    {ok, failing, passing} / confirm(first, second) / enabled()  # FORGE_JOURNEY=0 (tests' default): loop off
+```
+Wiring: `forge done` parts `interactions` + `journey`. Fix loop (improve.run_cycle, fix=True): refresh() before
+anything else when the latest journey is missing or stale (always on a fresh server: headless a new session of the
+game, Studio a restarted playtest; the cycle's own player has been playtesting); anomalies_for() goes first in the cycle's anomalies (a
+journey failure a static finding explains is left out), ahead of the auditor's for the max_fixes budget; after kept
+fixes the journey runs again. Anomalies with `proof` skip the reproducer and the investigator's unproven gate
+(fix_code); one with `finding` is re-audited after each attempt (still_dead: rejected before any playtest). Then
+(fix_code(journey_judge=True), what run_cycle passes when the journey is on) every attempt at a dead interaction or
+a failed journey step is judged by the live journey on a fresh server (journey.still_failing(rec, anomaly, base)):
+its own evidence must pass (the step; for a prompts / buttons step every item it used before, so a button the fix
+uncovered is the next anomaly, not a veto; for a static finding the prompts / buttons it names: a clean audit
+while the game still does nothing is a rejection) and no step that passed before may fail; then it is kept unless
+the verifier says regression. Autopilot: measurements carry `dead` (count) and `journey` (brief;
+run headless in _headless_part, in Studio in _studio_part); the evidence store gets `dead:*` / `journey:*` items;
+detect() puts hard_anomaly() of each first (confidence 1, a fix job on the named file; id = slug + sha1 of the ref);
+gate() rolls back more dead interactions or a journey step that passed and now fails, but a rollback whose only
+reasons are lost journey steps (or dead counters) is confirmed first: a second journey (Autopilot(journeyer=...),
+default rerun_journey, headless) or a full re-measure, and a step counts as lost only when it failed both times.
 
 ### Consolidate (forge/consolidate.py, `forge consolidate`)
 Features built one at a time each add their own files; this pass gives a game the reference's shape. Never touched:

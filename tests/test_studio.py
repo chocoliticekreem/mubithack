@@ -358,6 +358,7 @@ async def test_wait_ready_parses_and_never_raises(monkeypatch):
 
 
 async def test_transport_loss_reconnects_once(monkeypatch):
+    monkeypatch.setenv("FORGE_BRIDGE", "0")  # a live `forge plugin serve` on this machine must not take over
     import anyio
     calls = {"n": 0}
 

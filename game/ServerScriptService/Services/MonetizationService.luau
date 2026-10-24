@@ -8,6 +8,9 @@
 --   PremiumPass -> the store shows OWNED; BattlePassService reads Pass_PremiumPass for the premium track).
 --   PromptGamePassPurchaseFinished applies a purchase at once (no rejoin).
 --   Studio only: Player attr PassDebug_<Key> = true (set on the server) fakes ownership.
+--   Gifted passes (ProfileSchema v7 gifts, owner :giftpass via AdminService): an in-game entitlement that
+--   counts exactly like owning the pass (same Pass_<Key> attr, applied at once) plus PassGifted_<Key> = true
+--   when the player doesn't own the real Roblox pass, so the store shows GIFTED. It is NOT a Roblox pass.
 -- Donations: MarketplaceService.ProcessReceipt (this is the ONLY script that sets it). Idempotent per
 --   PurchaseId (Lib/Monetization/MonetizationRules): a global ledger DataStore (memory in Studio, like
 --   DataService) + the PurchaseIds kept in the donor's profile (ProfileSchema v5 donations). Returns
@@ -18,13 +21,15 @@
 --
 -- Remotes: Monetization/Buy (C->S: kind "pass" | "donate", key: string | robux: number; 1/s burst 3)
 --          Monetization/Open (S->C owner: section "donate" | nil) -- the board prompt opens the store
--- Writes: Player attrs Pass_<Key>, RobuxDonated; Model "DonationBoard" in the Station location
+-- Public API: :GiftPass(player, key, byUserId) / :RevokePass(player, key) -> (ok, message),
+--   :ResetDonorBoard() -> (ok, message), :Owns(player, key) -> boolean
+-- Writes: Player attrs Pass_<Key>, PassGifted_<Key>, RobuxDonated; Model "DonationBoard" in the Station location
 -- Consumes (nil-guarded): DataService (:WaitForProfile/:GetProfile/:Update/:Save/:IsPersistent,
 --   .ProfileLoaded), MapService (.LocationBuilt, :GetLocation)
 -- Counters: monetization_prompts, monetization_passes_bought, monetization_donations,
 --           monetization_robux_donated, monetization_receipt_retries
 -- Test hooks (DevHook only): _fakeReceipt(player, robux, purchaseId?) -> "Granted:applied" etc.,
---   _owns(player) -> "UnlimitedFoam=true,...", _board() -> top donor rows as text, _selftest()
+--   _owns(player) -> "UnlimitedFoam=true,...", _dropReal(player) (forget real ownership), _board() -> top donor rows as text, _selftest()
 
 local DataStoreService = game:GetService("DataStoreService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -57,6 +62,7 @@ type Row = { userId: number, name: string, robux: number }
 
 local services: { [string]: any } = {}
 local owned: { [Player]: { [string]: boolean } } = {}
+local gifted: { [Player]: { [string]: boolean } } = {} -- mirrored from the profile's gifts.passes
 local mirroredPremiumDebug: { [Player]: boolean } = {}
 local persistent = false
 local ledger: GlobalDataStore? = nil
@@ -86,9 +92,19 @@ local function attrFor(key: string): string
 	return Cfg.Attr.PassPrefix .. key
 end
 
-local function owns(player: Player, key: string): boolean
+local function ownsReal(player: Player, key: string): boolean
 	local cache = owned[player]
 	return Rules.owns(cache and cache[key], player:GetAttribute(Cfg.Attr.DebugPrefix .. key), IS_STUDIO)
+end
+
+local function isGifted(player: Player, key: string): boolean
+	local g = gifted[player]
+	return g ~= nil and g[key] == true
+end
+
+-- gifted == owned: every reader (ToolService foam, BattlePassService premium, the store) sees Pass_<Key>.
+local function owns(player: Player, key: string): boolean
+	return ownsReal(player, key) or isGifted(player, key)
 end
 
 local function topUpFoam(player: Player)
@@ -107,6 +123,7 @@ local function applyAttrs(player: Player)
 		local name = attrFor(key)
 		local before = player:GetAttribute(name) == true
 		player:SetAttribute(name, if has then true else nil)
+		player:SetAttribute(Cfg.Attr.GiftedPrefix .. key, if isGifted(player, key) and not ownsReal(player, key) then true else nil)
 		if has and not before and key == "UnlimitedFoam" then
 			topUpFoam(player)
 		end
@@ -619,7 +636,23 @@ local function onPlayerAdded(player: Player)
 	task.spawn(checkOwnership, player)
 end
 
+local function loadGifts(player: Player)
+	local Data = services.DataService
+	local p = Data and Data:GetProfile(player)
+	local g: { [string]: boolean } = {}
+	if p then
+		for _, key in Schema.giftedPasses(p) do
+			if Cfg.GamePasses[key] ~= nil then
+				g[key] = true
+			end
+		end
+	end
+	gifted[player] = g
+	applyAttrs(player)
+end
+
 local function onProfileLoaded(player: Player)
+	loadGifts(player)
 	local total = donatedOf(player)
 	if total > 0 then
 		player:SetAttribute(Cfg.Attr.Donated, total)
@@ -664,6 +697,7 @@ function MonetizationService:Start()
 	end
 	Players.PlayerRemoving:Connect(function(player: Player)
 		owned[player] = nil
+		gifted[player] = nil
 		mirroredPremiumDebug[player] = nil
 	end)
 	if Data and Data.ProfileLoaded then
@@ -701,6 +735,96 @@ function MonetizationService:Start()
 	end
 end
 
+------------------------------------------------------------------------------------ public API
+
+function MonetizationService:Owns(player: Player, key: string): boolean
+	return owns(player, key)
+end
+
+-- Owner gift (AdminService :giftpass): saved in the profile, applied at once. An in-game entitlement only.
+function MonetizationService:GiftPass(player: Player, key: string, byUserId: number?): (boolean, string)
+	if Cfg.GamePasses[key] == nil then
+		return false, `unknown pass {tostring(key)}`
+	end
+	local Data = services.DataService
+	if not Data or not Data:GetProfile(player) then
+		return false, `{player.Name}'s profile isn't loaded yet`
+	end
+	local added = false
+	Data:Update(player, function(p: any)
+		added = Schema.giftPass(p, key, byUserId or 0, os.time())
+	end)
+	if not added then
+		return false, `{player.Name} already has a gifted {key}`
+	end
+	Data:Save(player)
+	gifted[player] = gifted[player] or {}
+	gifted[player][key] = true
+	applyAttrs(player)
+	Telemetry.count("monetization_passes_gifted")
+	Net.notify(player, `You were gifted {prettyName(key)}!`, "good")
+	Popup.show(player, "GIFT!", "good", player)
+	local real = if ownsReal(player, key) then " (they also own the real pass)" else ""
+	return true, `gifted {key} to {player.Name}{real}`
+end
+
+function MonetizationService:RevokePass(player: Player, key: string): (boolean, string)
+	if Cfg.GamePasses[key] == nil then
+		return false, `unknown pass {tostring(key)}`
+	end
+	local Data = services.DataService
+	if not Data or not Data:GetProfile(player) then
+		return false, `{player.Name}'s profile isn't loaded yet`
+	end
+	local removed = false
+	Data:Update(player, function(p: any)
+		removed = Schema.revokePass(p, key)
+	end)
+	if gifted[player] then
+		gifted[player][key] = nil
+	end
+	applyAttrs(player)
+	if not removed then
+		return false, `{player.Name} has no gifted {key}`
+	end
+	Data:Save(player)
+	local real = if ownsReal(player, key) then " (they still own the real pass)" else ""
+	return true, `revoked gifted {key} from {player.Name}{real}`
+end
+
+-- Owner :donorboard reset. Wipes the board's top donors (profiles keep their own donation totals).
+function MonetizationService:ResetDonorBoard(): (boolean, string)
+	local removed = 0
+	for k in memoryDonors do
+		memoryDonors[k] = nil
+		removed += 1
+	end
+	local ods = donorStore
+	if ods then
+		removed = 0
+		for _ = 1, 10 do
+			local ok, page = pcall(function()
+				return ods:GetSortedAsync(false, 100):GetCurrentPage()
+			end)
+			if not ok or type(page) ~= "table" or #page == 0 then
+				break
+			end
+			for _, item in page :: any do
+				local okR = pcall(function()
+					ods:RemoveAsync(item.key)
+				end)
+				if okR then
+					removed += 1
+				end
+			end
+		end
+	end
+	topRows = {}
+	renderBoard()
+	Telemetry.count("monetization_board_resets")
+	return true, `donor board reset ({removed} donor rows removed)`
+end
+
 ----------------------------------------------------------------------------------- test hooks
 
 -- Calls the real receipt flow with a fake receipt for a fake product worth `robux` (never a real id).
@@ -721,9 +845,16 @@ end
 function MonetizationService:_owns(player: Player): string
 	local out = {}
 	for _, key in passKeys() do
-		table.insert(out, `{key}={owns(player, key)}`)
+		table.insert(out, `{key}={owns(player, key)}{if isGifted(player, key) then "(gifted)" else ""}`)
 	end
 	return table.concat(out, ",")
+end
+
+-- Studio test: forget the real Roblox ownership this session (so a gift shows as GIFTED).
+function MonetizationService:_dropReal(player: Player): string
+	owned[player] = {}
+	applyAttrs(player)
+	return self:_owns(player)
 end
 
 function MonetizationService:_board(): string
