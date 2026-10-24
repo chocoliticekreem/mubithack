@@ -37,7 +37,8 @@ local changed = Instance.new("BindableEvent")
 local current: Mode = "keyboard"
 
 type Binding = { kind: string, a: any, b: any, c: any }
-local bound: { [Instance]: Binding } = setmetatable({}, { __mode = "k" }) :: any
+-- strong keys (Instance proxies in a weak table get collected while the Instance lives); dropped on Destroying
+local bound: { [Instance]: Binding } = {}
 
 local function preferred(): Mode?
 	local ok, v = pcall(function()
@@ -141,6 +142,11 @@ function InputHints.pick(keyboard: string, touch: string?, gamepad: string?): st
 end
 
 local function bind(obj: Instance, b: Binding)
+	if not bound[obj] then
+		obj.Destroying:Connect(function()
+			bound[obj] = nil
+		end)
+	end
 	bound[obj] = b
 	apply(obj, b)
 end

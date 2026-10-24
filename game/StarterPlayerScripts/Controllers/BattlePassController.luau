@@ -420,7 +420,7 @@ local function paintTiles(s: { [string]: any }, pass: PassRules.Pass)
 	if dance then
 		local e = Cfg.Rewards[pass.equipped.emote or ""]
 		dance.Visible = e ~= nil and owned[pass.equipped.emote] == true
-		dance.Text = InputHints.chip(Cfg.EmoteKey.Name, "DANCE", true)
+		InputHints.setChip(dance, Cfg.EmoteKey.Name, "DANCE", true)
 	end
 end
 
