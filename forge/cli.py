@@ -621,7 +621,18 @@ async def _checks(args) -> None:
                 return
         async with Studio(s) as studio:
             await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
+            if not getattr(args, "no_sync", False):
+                await sync_before_checks(studio, RunStore(s, args.slug).game_dir, s.sync_port)
             await run_plan(studio, args.slug, settings=s, llm=llm, only=only, prior=prior)
+
+
+async def sync_before_checks(studio, game_dir: Path, port: int) -> str:
+    """Checks run against whatever is in Studio: push the game on disk first, or they test old code."""
+    out = str(await studio.sync(game_dir, port) or "")
+    if out.startswith("ERROR"):
+        raise RuntimeError(f"sync before checks failed: {out[:300]}")
+    print(f"[check] synced the game into Studio: {out[:80]}")
+    return out
 
 
 def cmd_checks(args) -> int:
@@ -1084,6 +1095,8 @@ def build_parser() -> argparse.ArgumentParser:
     ck.add_argument("--run", action="store_true", help="play, run every check, review failures, stop play")
     ck.add_argument("--max", type=int, default=15, help="most checks to plan")
     ck.add_argument("--studio", help="Studio name part or id (default FORGE_STUDIO)")
+    ck.add_argument("--no-sync", action="store_true",
+                    help="run against what is already in Studio (default: sync the game on disk first)")
     ck.add_argument("--headless-first", action="store_true",
                     help="with --run: run checks headless first (checks.triage); only the rest go to Studio")
 
