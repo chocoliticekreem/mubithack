@@ -734,7 +734,7 @@ local function bindTouch(tool: Tool, label: string)
 		ThumbLayout.forget(TOUCH_ACTION)
 		return
 	end
-	ContextActionService:BindAction(TOUCH_ACTION, function(_, state: Enum.UserInputState)
+	local function onUse(_: string, state: Enum.UserInputState, _i: any): Enum.ContextActionResult
 		local t = touchTool
 		if not t or t.Parent ~= LocalPlayer.Character then
 			return Enum.ContextActionResult.Pass
@@ -745,10 +745,11 @@ local function bindTouch(tool: Tool, label: string)
 			t:Deactivate()
 		end
 		return Enum.ContextActionResult.Sink
-	end, true)
+	end
+	ContextActionService:BindAction(TOUCH_ACTION, onUse, false)
 	ContextActionService:SetTitle(TOUCH_ACTION, label)
-	-- the big button of the thumb cluster, left of the jump button (ClientLib/ThumbLayout)
-	ThumbLayout.place(TOUCH_ACTION, "primary")
+	-- the big button of the thumb cluster, left of the jump button (ClientLib/ThumbLayout draws it)
+	ThumbLayout.place(TOUCH_ACTION, "primary", onUse)
 end
 
 -- On touch the SPRAY / CHOP button is the ONLY trigger: Roblox also activates the equipped Tool on any

@@ -13,6 +13,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -434,8 +435,13 @@ function RescueController:Start()
 			ContextActionService:BindAction("RescueThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonX)
 			ContextActionService:SetTitle("RescueDrop", "DROP")
 			ContextActionService:SetTitle("RescueThrow", "YEET")
+			-- touch: drawn in the thumb cluster round the jump button (ClientLib/ThumbLayout)
+			ThumbLayout.place("RescueDrop", "upleft", onDrop)
+			ThumbLayout.place("RescueThrow", "primary", onThrow)
 			bound = true
 		elseif not on and bound and not held.RescueDrop and not held.RescueThrow then
+			ThumbLayout.forget("RescueDrop")
+			ThumbLayout.forget("RescueThrow")
 			ContextActionService:UnbindAction("RescueDrop")
 			ContextActionService:UnbindAction("RescueThrow")
 			bound = false

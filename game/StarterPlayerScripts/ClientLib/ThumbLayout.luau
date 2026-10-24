@@ -1,29 +1,49 @@
 --!strict
--- ThumbLayout [owner: G3]. Lays the touch action buttons (ContextActionService touch buttons) out as ONE
--- cluster around Roblox's jump button, sized from the real jump button, so nothing overlaps it, the
--- squad strip, the hotbar or each other on phones and iPads:
+-- ThumbLayout [owner: G3]. The touch action buttons, drawn by US as ONE cluster around Roblox's jump
+-- button (sized from the real jump button), so nothing overlaps it, the squad strip, the hotbar or each
+-- other on phones and iPads:
 --
---              [above]          slot "above"   : SWAP          (small, over the jump button)
---      [upleft]                 slot "upleft"  : DROP          (small, over the primary)
---  [left] (  PRIMARY  ) (JUMP)  slot "primary" : SPRAY / CHOP  (big, left of jump)
---                               slot "left"    : THROW / YEET  (small, left of the primary)
+--              [above]          slot "above"   : SWAP / OUT          (small, over the jump button)
+--      [upleft]                 slot "upleft"  : DROP / HONK         (small, over the primary)
+--  [left] (  PRIMARY  ) (JUMP)  slot "primary" : SPRAY / CHOP / DRIFT (big, left of jump)
+--                               slot "left"    : THROW / SIREN       (small, left of the primary)
+--                               "upfar" / "leftfar": overflow
 --
---   ThumbLayout.place(actionName, slot)   call right after BindAction/SetTitle; re-applied on resize
--- Positions are computed in screen pixels from the live JumpButton (TouchGui) and converted into the
--- ContextButtonFrame's space, so they don't depend on how Roblox sizes that frame.
+--   ThumbLayout.place(action, slot, handler)   after ContextActionService:BindAction(action, handler, ...)
+--   ThumbLayout.forget(action)                 before UnbindAction
+-- The handler is called as handler(action, Begin / End, nil), exactly like ContextActionService does.
+-- Roblox's own ContextActionService touch buttons are hidden: they live in a small frame by the jump
+-- button that clipped / mis-placed buttons on some phones (SPRAY simply did not show), so we never rely
+-- on them. Shown whenever the input mode is touch (InputHints.isTouch: real touch, or the dev attrs
+-- InputHintsMode = "touch" / ForceTouchUI in Studio).
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 
 local ThumbLayout = {}
 
 export type Slot = "primary" | "above" | "upleft" | "left" | "upfar" | "leftfar"
+type Handler = (string, Enum.UserInputState, any) -> any
 
--- when a wanted slot is taken by another bound button (e.g. SPRAY still bound while driving), the
--- button takes the first free slot in this order, so two buttons never share a spot
 local ORDER: { Slot } = { "primary", "above", "upleft", "left", "upfar", "leftfar" }
 
-local placed: { [string]: Slot } = {}
+type Entry = { slot: Slot, handler: Handler?, button: TextButton? }
+local entries: { [string]: Entry } = {}
+local gui: ScreenGui? = nil
 local hooked = false
+
+local function isTouch(): boolean
+	local ok, InputHints = pcall(function()
+		return require(script.Parent:WaitForChild("InputHints") :: ModuleScript) :: any
+	end)
+	if ok and InputHints and type(InputHints.isTouch) == "function" then
+		local ok2, v = pcall(InputHints.isTouch)
+		if ok2 and v then
+			return true
+		end
+	end
+	local p = Players.LocalPlayer
+	return p:GetAttribute("ForceTouchUI") == true or game:GetService("UserInputService").TouchEnabled
+end
 
 local function jumpRect(): (Vector2, number)
 	local cam = workspace.CurrentCamera
@@ -31,14 +51,13 @@ local function jumpRect(): (Vector2, number)
 	local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
 	local touch = pg and pg:FindFirstChild("TouchGui")
 	local jump = touch and touch:FindFirstChild("JumpButton", true)
-	if jump and jump:IsA("GuiObject") and jump.AbsoluteSize.X > 10 then
+	if jump and jump:IsA("GuiObject") and jump.AbsoluteSize.X > 10 and jump.Visible then
 		local inset = 0
 		local sg = jump:FindFirstAncestorOfClass("ScreenGui")
 		if sg and not sg.IgnoreGuiInset then
 			inset = game:GetService("GuiService"):GetGuiInset().Y
 		end
-		local c = jump.AbsolutePosition + jump.AbsoluteSize / 2 + Vector2.new(0, inset)
-		return c, jump.AbsoluteSize.X
+		return jump.AbsolutePosition + jump.AbsoluteSize / 2 + Vector2.new(0, inset), jump.AbsoluteSize.X
 	end
 	-- Roblox's own rule (TouchJump): small screens get a 70 px button, big ones 120 px
 	local small = math.min(vp.X, vp.Y) <= 500
@@ -47,7 +66,7 @@ local function jumpRect(): (Vector2, number)
 	return c, j
 end
 
--- centre + size of a slot, in screen pixels (inset-free)
+-- centre + size of a slot, in screen pixels (top-bar inset included: our gui ignores the inset)
 local function slotRect(slot: Slot): (Vector2, number)
 	local jc, j = jumpRect()
 	local big = math.floor(j * 1.2)
@@ -63,64 +82,141 @@ local function slotRect(slot: Slot): (Vector2, number)
 	elseif slot == "left" then
 		return Vector2.new(primary.X - (big / 2 + gap + small / 2), primary.Y + big * 0.15), small
 	elseif slot == "upfar" then
-		-- over "left", level with "upleft"
 		return Vector2.new(primary.X - (big / 2 + gap + small / 2), primary.Y - (big / 2 + gap + small / 2)), small
-	else -- "leftfar": left of "left"
+	else
 		return Vector2.new(primary.X - (big / 2 + gap + small * 1.5 + gap), primary.Y + big * 0.15), small
 	end
 end
 
-local function apply(action: string, slot: Slot)
+local function screen(): ScreenGui
+	if gui and gui.Parent then
+		return gui :: ScreenGui
+	end
+	local g = Instance.new("ScreenGui")
+	g.Name = "ThumbButtons"
+	g.ResetOnSpawn = false
+	g.IgnoreGuiInset = true
+	g.ScreenInsets = Enum.ScreenInsets.None
+	g.DisplayOrder = 20
+	g.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	gui = g
+	return g
+end
+
+local function title(action: string): string
+	local ok, info = pcall(function()
+		return ContextActionService:GetBoundActionInfo(action)
+	end)
+	local t = if ok and type(info) == "table" then info.title else nil
+	return if type(t) == "string" and t ~= "" then t else action
+end
+
+local function hideRoblox(action: string)
 	local b = ContextActionService:GetButton(action)
-	if not b then
-		return
+	if b then
+		b.Visible = false
 	end
-	local frame = b.Parent
-	if not frame or not frame:IsA("GuiObject") then
-		return
-	end
-	local c, size = slotRect(slot)
-	-- the frame lives in a ScreenGui that may or may not ignore the top-bar inset
-	local inset = 0
-	local sg = frame:FindFirstAncestorOfClass("ScreenGui")
-	if sg and not sg.IgnoreGuiInset then
-		inset = game:GetService("GuiService"):GetGuiInset().Y
-	end
-	local origin = frame.AbsolutePosition + Vector2.new(0, inset)
+end
+
+local function makeButton(action: string): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = action
 	b.AnchorPoint = Vector2.new(0.5, 0.5)
+	b.AutoButtonColor = false
+	b.BackgroundColor3 = Color3.fromRGB(30, 26, 28)
+	b.BackgroundTransparency = 0.25
+	b.Text = ""
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.5, 0)
+	c.Parent = b
+	local s = Instance.new("UIStroke")
+	s.Thickness = 3
+	s.Color = Color3.fromRGB(255, 244, 196)
+	s.Transparency = 0.15
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = b
+	local l = Instance.new("TextLabel")
+	l.Name = "Label"
+	l.BackgroundTransparency = 1
+	l.AnchorPoint = Vector2.new(0.5, 0.5)
+	l.Position = UDim2.fromScale(0.5, 0.5)
+	l.Size = UDim2.fromScale(0.82, 0.46)
+	l.Font = Enum.Font.FredokaOne
+	l.TextScaled = true
+	l.TextColor3 = Color3.fromRGB(255, 244, 196)
+	l.Parent = b
+	local lim = Instance.new("UITextSizeConstraint")
+	lim.MinTextSize = 8
+	lim.Parent = l
+	-- press / release drive the bound handler like ContextActionService would
+	local down = false
+	local function fire(state: Enum.UserInputState)
+		local e = entries[action]
+		if e and e.handler then
+			task.spawn(e.handler, action, state, nil)
+		end
+	end
+	b.InputBegan:Connect(function(input: InputObject)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+			if not down then
+				down = true
+				b.BackgroundTransparency = 0.05
+				fire(Enum.UserInputState.Begin)
+			end
+		end
+	end)
+	b.InputEnded:Connect(function(input: InputObject)
+		local t = input.UserInputType
+		if (t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1) and down then
+			down = false
+			b.BackgroundTransparency = 0.25
+			fire(Enum.UserInputState.End)
+		end
+	end)
+	b.Parent = screen()
+	return b
+end
+
+local function apply(action: string)
+	local e = entries[action]
+	if not e then
+		return
+	end
+	hideRoblox(action)
+	if not isTouch() or not e.handler then
+		if e.button then
+			e.button.Visible = false
+		end
+		return
+	end
+	local b = e.button or makeButton(action)
+	e.button = b
+	local c, size = slotRect(e.slot)
 	b.Size = UDim2.fromOffset(size, size)
-	b.Position = UDim2.fromOffset(c.X - origin.X, c.Y - origin.Y)
-	local title = b:FindFirstChild("ActionTitle")
-	if title and title:IsA("TextLabel") then
-		title.TextScaled = true
-		title.TextWrapped = false
-		title.Font = Enum.Font.FredokaOne
-		local lim = title:FindFirstChildOfClass("UITextSizeConstraint") or Instance.new("UITextSizeConstraint")
-		lim.MaxTextSize = if slot == "primary" then 30 else 18
-		lim.MinTextSize = 8
-		lim.Parent = title
-		title.Size = UDim2.fromScale(0.82, 0.5)
-		title.AnchorPoint = Vector2.new(0.5, 0.5)
-		title.Position = UDim2.fromScale(0.5, 0.5)
+	b.Position = UDim2.fromOffset(c.X, c.Y)
+	b.Visible = true
+	local l = b:FindFirstChild("Label") :: TextLabel?
+	if l then
+		l.Text = title(action)
+		local lim = l:FindFirstChildOfClass("UITextSizeConstraint")
+		if lim then
+			lim.MaxTextSize = if e.slot == "primary" then 30 else 18
+		end
 	end
 end
 
 local function reapply()
-	for action, slot in placed do
-		apply(action, slot)
+	for action in entries do
+		apply(action)
 	end
 end
 
-local function bound(action: string): boolean
-	return ContextActionService:GetBoundActionInfo(action) ~= nil
-		and next(ContextActionService:GetBoundActionInfo(action)) ~= nil
-end
-
-function ThumbLayout.place(action: string, want: Slot)
+function ThumbLayout.place(action: string, want: Slot, handler: Handler?)
 	local taken: { [Slot]: boolean } = {}
-	for other, s in placed do
-		if other ~= action and bound(other) then
-			taken[s] = true
+	for other, e in entries do
+		if other ~= action then
+			taken[e.slot] = true
 		end
 	end
 	local slot = want
@@ -132,15 +228,17 @@ function ThumbLayout.place(action: string, want: Slot)
 			end
 		end
 	end
-	placed[action] = slot
-	apply(action, slot)
-	-- Roblox can build / move the frame a frame later: apply again once it has settled
-	task.defer(apply, action, slot)
-	task.delay(0.3, function()
-		if placed[action] == slot then
-			apply(action, slot)
-		end
-	end)
+	local e = entries[action]
+	if e then
+		e.slot = slot
+		e.handler = handler or e.handler
+	else
+		entries[action] = { slot = slot, handler = handler, button = nil }
+	end
+	apply(action)
+	-- Roblox builds its own touch button a frame later: hide it again once it exists; titles too
+	task.defer(apply, action)
+	task.delay(0.3, apply, action)
 	if not hooked then
 		hooked = true
 		local cam = workspace.CurrentCamera
@@ -149,11 +247,26 @@ function ThumbLayout.place(action: string, want: Slot)
 				task.defer(reapply)
 			end)
 		end
+		local p = Players.LocalPlayer
+		p:GetAttributeChangedSignal("InputHintsMode"):Connect(reapply)
+		p:GetAttributeChangedSignal("ForceTouchUI"):Connect(reapply)
+		game:GetService("UserInputService").LastInputTypeChanged:Connect(function()
+			task.defer(reapply)
+		end)
 	end
 end
 
+-- relabel a placed button (e.g. OUT -> OFF)
+function ThumbLayout.refresh(action: string)
+	apply(action)
+end
+
 function ThumbLayout.forget(action: string)
-	placed[action] = nil
+	local e = entries[action]
+	entries[action] = nil
+	if e and e.button then
+		e.button:Destroy()
+	end
 end
 
 return ThumbLayout
