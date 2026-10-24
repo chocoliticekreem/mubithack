@@ -63,6 +63,15 @@ distance), `jump`, `interact {path?}` (nearest enabled ProximityPrompt, or the o
 also fires `Net.Tool.Spray` with the aim direction while held if that remote exists), `look_at
 {pos | path}`, `say {text}` (bubble chat, for demo readability), `wait {seconds}`.
 
+Macros (one tester decision = one whole interaction; `timeout` 2-60 s, default 20):
+`go_touch {path}` (walk to the part, step onto it and hop until our character's Touched fires),
+`go_use {path}` (walk into the prompt's MaxActivationDistance, then `interact`), `chase {path,
+touches<=5}` (follow a moving part/model and count touches, 0.5 s apart), `repeat {action, args,
+times<=5}` (any other action N times; `repeat` of `press` loops in Python). Each returns
+`effect`: `{leaderstats, attrs, counters: {key: [old, new]}, hud_new, hud_gone, events}` with only
+what changed (empty = nothing happened). Python waits per action (`harness.act_budget`), capped
+under the 120 s MCP call limit.
+
 `press {path | text}` is handled in Python (`Harness.press`), because a LocalScript can't fake a
 click and firing the game's remotes would skip the UI under test: `ui_target` → a real
 `user_mouse_input` click (instance path, else x/y) in the Studio window that drives that player →

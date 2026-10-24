@@ -355,9 +355,12 @@ async def test_multiplayer_start_reports_immediate_error(fake_studio):
 
 async def test_harness_calls_route_to_server_window_then_client_relay(fake_studio, monkeypatch):
     """A Server-DM call that fails on the selected window moves to the window that has a Server
-    datamodel; with no server window at all (Team Test) it relays through a client."""
+    datamodel; with no server window at all (Team Test) it relays through a client. Only windows this
+    server knows (pinned, or spawned by its multiplayer test) are candidates; `other` is a stranger's
+    playing Studio and is never adopted."""
     from forge.studio import StudioError
-    windows = {"edit-1": ["Edit"], "srv-9": ["Server"], "cl-1": ["Client"]}
+    windows = {"other": ["Client", "Server"], "edit-1": ["Edit"], "srv-9": ["Server"], "cl-1": ["Client"]}
+    ms.STATE.update(pinned="edit-1", server_window="srv-9", clients=["cl-1"], mode="server")
     ran: list = []
 
     async def list_studios():
@@ -381,6 +384,33 @@ async def test_harness_calls_route_to_server_window_then_client_relay(fake_studi
     fake_studio.studio_id = "edit-1"
     md = _text(await ms.mcp.call_tool("players", {}))
     assert "Friend1" in md and ms.STATE["mode"] == "client" and ran[-1] == ("cl-1", "Client", True)
+    assert not any(sid == "other" for sid, _, _ in ran)
+    # nothing of ours has a Server/Client datamodel: fail clearly instead of using `other`
+    del windows["cl-1"]
+    ms.STATE.update(clients=[], mode="server")
+    fake_studio.studio_id = "edit-1"
+    with pytest.raises(Exception, match="no Server datamodel"):
+        await ms.mcp.call_tool("players", {})
+    assert not any(sid == "other" for sid, _, _ in ran)
+
+
+async def test_multiplayer_start_never_adopts_an_older_playing_window(fake_studio, monkeypatch):
+    seen = _multi_windows(fake_studio, monkeypatch)
+    inner = fake_studio.list_studios
+    other_call = fake_studio.call
+
+    async def list_studios():
+        return [{"id": "busy-1", "name": "Forge.rbxlx"}] + await inner()
+
+    async def call(tool, **args):
+        if args.get("studio_id") == "busy-1":
+            return json.dumps({"datamodels": ["Client", "Server"]})  # someone else's solo playtest
+        return await other_call(tool, **args)
+    fake_studio.list_studios, fake_studio.call = list_studios, call
+    fake_studio.studio_id = "edit-1"
+    md = _text(await ms.mcp.call_tool("multiplayer_start", {"players": 2}))
+    assert ms.STATE["studio_id"] == "srv-9" and "busy-1" not in md and ms.STATE["server_window"] == "srv-9"
+    assert "busy-1" not in seen["ran_on"]
 
 
 async def test_studios_select(fake_studio):

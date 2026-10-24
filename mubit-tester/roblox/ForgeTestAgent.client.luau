@@ -4,7 +4,8 @@
 -- player and returns {ok, result, error}. Commands:
 --   act {action, args}  walk_to {pos|path, timeout?}, jump, interact {path?}, equip {name|slot},
 --                       unequip, use {seconds?, aim?}, look_at {pos|path}, say {text, chat?},
---                       wait {seconds}
+--                       wait {seconds}; macros (one decision = one whole interaction, HUD diff
+--                       included): go_touch {path}, go_use {path}, chase {path, touches<=5}
 --   hud {}              visible HUD text (same rules as forge/play.py OBSERVE_LUAU), max 10
 --   ui {max?}           {buttons, panels}: visible, interactable GuiButtons in PlayerGui (text, path
 --                       below PlayerGui, gui, center x/y in MCP mouse coordinates, w/h) and open panels
@@ -27,6 +28,16 @@ local GuiService = game:GetService("GuiService")
 local TextChatService = game:GetService("TextChatService")
 
 local lp = Players.LocalPlayer
+-- Prompts Roblox currently shows this player. InputHoldBegin only triggers a SHOWN prompt, and with
+-- several prompts on one rack only the nearest one per key is shown.
+local shownPrompts: { [ProximityPrompt]: boolean } = {}
+local ProximityPromptService = game:GetService("ProximityPromptService")
+ProximityPromptService.PromptShown:Connect(function(p)
+	shownPrompts[p] = true
+end)
+ProximityPromptService.PromptHidden:Connect(function(p)
+	shownPrompts[p] = nil
+end)
 local ARRIVE = 4 -- studs from the target that count as arrived (plus the target's half size)
 local SPRAY_HZ = 10 -- Tool/Spray is limited to 12/s on the server
 
@@ -229,11 +240,28 @@ local function walkTo(args)
 	local path = PathfindingService:CreatePath({ AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 6 })
 	local ok = pcall(path.ComputeAsync, path, root.Position, goal)
 	if inst and not (ok and path.Status == Enum.PathStatus.Success) then
-		-- the target part is solid: aim for a spot beside it, on our side
+		-- the target is solid (a wall board, a rack): find floor beside it, on our side first, then in
+		-- front, behind and to either side, and walk to the first spot that has a path
+		local cf = if inst:IsA("BasePart") then inst.CFrame else CFrame.new(goal)
 		local away = Vector3.new(root.Position.X - goal.X, 0, root.Position.Z - goal.Z)
+		local dirs = { cf.LookVector, -cf.LookVector, cf.RightVector, -cf.RightVector }
 		if away.Magnitude > 0.1 then
-			local beside = goal + away.Unit * (halfSize(inst) + 3)
-			ok = pcall(path.ComputeAsync, path, root.Position, Vector3.new(beside.X, root.Position.Y, beside.Z))
+			table.insert(dirs, 1, away.Unit)
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { lp.Character :: Instance, inst }
+		for _, dir in dirs do
+			local flat = Vector3.new(dir.X, 0, dir.Z)
+			if flat.Magnitude > 0.1 then
+				local probe = goal + flat.Unit * (halfSize(inst) + 3)
+				local hit = workspace:Raycast(probe + Vector3.new(0, 4, 0), Vector3.new(0, -40, 0), params)
+				local spot = if hit then hit.Position else Vector3.new(probe.X, root.Position.Y, probe.Z)
+				ok = pcall(path.ComputeAsync, path, root.Position, spot)
+				if ok and path.Status == Enum.PathStatus.Success then
+					break
+				end
+			end
 		end
 	end
 	local waypoints = if ok and path.Status == Enum.PathStatus.Success then path:GetWaypoints() else nil
@@ -291,16 +319,28 @@ local function findPrompt(args, root: BasePart): ProximityPrompt?
 		if inst:IsA("BasePart") and inst.Parent and inst.Parent ~= workspace then
 			table.insert(scopes, inst.Parent)
 		end
+		-- `action` (the prompt's ActionText, from `prompts`) picks one of several prompts on a part;
+		-- otherwise a prompt directly on the part wins over one nested deeper (a locker point, a peg)
+		local want = if type(args.action) == "string" and args.action ~= "" then string.lower(args.action) else nil
+		local function fits(d: Instance): boolean
+			return d:IsA("ProximityPrompt") and d.Enabled
+				and (want == nil or string.find(string.lower(d.ActionText), want, 1, true) ~= nil)
+		end
+		for _, d in inst:GetChildren() do
+			if fits(d) then
+				return d :: ProximityPrompt
+			end
+		end
 		for _, scope in scopes do
 			if scope then
 				for _, d in scope:GetDescendants() do
-					if d:IsA("ProximityPrompt") and d.Enabled then
-						return d
+					if fits(d) then
+						return d :: ProximityPrompt
 					end
 				end
 			end
 		end
-		error("no enabled ProximityPrompt on " .. tostring(args.path))
+		error("no enabled ProximityPrompt" .. (if want then " '" .. args.action .. "'" else "") .. " on " .. tostring(args.path))
 	end
 	local best, bestD = nil, math.huge
 	for _, d in workspace:GetDescendants() do
@@ -506,7 +546,169 @@ local function say(args)
 	return { done = how ~= "none", detail = "said '" .. text .. "' via " .. how }
 end
 
+------------------------------------------------------------------------------- macros
+-- One tester decision = one whole interaction: walk there AND touch/use/chase, so a single LLM call
+-- gets a result worth judging. The server wraps these with an effect diff (stats, attributes, events).
+
+local function macroTimeout(args: any): number
+	return math.clamp(tonumber(args.timeout) or 20, 2, 60)
+end
+
+-- the part to touch for an instance: itself, a model's PrimaryPart / first part, or its ancestor part
+local function partOf(inst: Instance): BasePart?
+	if inst:IsA("BasePart") then
+		return inst
+	end
+	if inst:IsA("Model") then
+		return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+	end
+	return inst:FindFirstAncestorWhichIsA("BasePart")
+end
+
+local function mustInstance(path: any): Instance
+	if type(path) ~= "string" or path == "" then
+		error("path required (copy it from touchables, things or prompts)")
+	end
+	local inst = resolvePath(path)
+	if not inst then
+		error("no instance at path " .. path)
+	end
+	return inst
+end
+
+-- counts touches from our character on every part of `inst`, at most one per `gap` seconds
+local function touchCounter(inst: Instance, char: Model, gap: number): (() -> number, () -> ())
+	local count, last = 0, -math.huge
+	local conns = {}
+	local parts = if inst:IsA("BasePart") then { inst } else inst:GetDescendants()
+	for _, p in parts do
+		if p:IsA("BasePart") then
+			table.insert(conns, p.Touched:Connect(function(hit)
+				if hit:IsDescendantOf(char) and os.clock() - last >= gap then
+					count += 1
+					last = os.clock()
+				end
+			end))
+		end
+	end
+	return function()
+		return count
+	end, function()
+		for _, c in conns do
+			c:Disconnect()
+		end
+	end
+end
+
+local function goTouch(args)
+	local char, hum, root = body()
+	local inst = mustInstance(args.path)
+	local part = partOf(inst)
+	if not part then
+		error("nothing to touch at " .. tostring(args.path))
+	end
+	local deadline = os.clock() + macroTimeout(args)
+	local touches, stop = touchCounter(inst, char, 0.3)
+	local walked = walkTo({ path = part:GetFullName(), timeout = math.max(1, deadline - os.clock()) })
+	-- walk_to stops beside the part; step onto its top and hop to make a fresh contact
+	local hops = 0
+	while touches() == 0 and os.clock() < deadline and hum.Health > 0 and part.Parent do
+		local top = part.Position + Vector3.new(0, part.Size.Y / 2, 0)
+		moveStep(hum, root, top, math.min(1.5, deadline - os.clock()))
+		if touches() == 0 and flatDist(root.Position, part.Position) < math.max(part.Size.X, part.Size.Z) / 2 + 2 then
+			hum.Jump = true
+			hops += 1
+			task.wait(0.4)
+		end
+	end
+	task.wait(0.2)
+	stop()
+	hum:MoveTo(root.Position)
+	local n = touches()
+	local note = if part.CanTouch then "" else " (the part has CanTouch=false)"
+	return {
+		done = n > 0,
+		detail = string.format("%s %s after %s%s%s", if n > 0 then "touched" else "never touched", part:GetFullName(),
+			walked.detail, if hops > 0 then string.format(", %d hop(s)", hops) else "", note),
+		touched = n > 0,
+	}
+end
+
+local function goUse(args)
+	local _, hum, root = body()
+	mustInstance(args.path)
+	local prompt = findPrompt({ path = args.path, action = args.action }, root) :: ProximityPrompt
+	local deadline = os.clock() + macroTimeout(args)
+	local spot = prompt.Parent :: Instance
+	local walked = walkTo({ path = spot:GetFullName(), timeout = math.max(1, deadline - os.clock()) })
+	-- walk_to's "arrived" is relative to the part's size; a prompt needs its own activation range
+	local range = math.max(prompt.MaxActivationDistance - 1.5, 2)
+	while os.clock() < deadline and hum.Health > 0 do
+		local p = posOf(spot)
+		if not p or (p - root.Position).Magnitude <= range then
+			break
+		end
+		moveStep(hum, root, p, math.min(1.5, deadline - os.clock()))
+	end
+	-- in range but another prompt nearby is the shown one: close in on ours and face it
+	local closeBy = os.clock() + 3
+	while not shownPrompts[prompt] and os.clock() < math.min(closeBy, deadline) and hum.Health > 0 do
+		local p = posOf(spot)
+		if not p then
+			break
+		end
+		if flatDist(root.Position, p) > 2 then
+			moveStep(hum, root, p, 0.5)
+		end
+		faceTo(root, p)
+		aimCamera(p)
+		task.wait(0.15)
+	end
+	hum:MoveTo(root.Position)
+	local wasShown = shownPrompts[prompt] == true
+	local used = interact({ path = prompt:GetFullName() })
+	used.detail = "walked (" .. walked.detail .. "), then " .. used.detail
+		.. (if wasShown then "" else " [prompt was never shown to the player: another prompt nearby took its place]")
+	used.shown = wasShown
+	return used
+end
+
+local function chase(args)
+	local char, hum, root = body()
+	local inst = mustInstance(args.path)
+	local want = math.clamp(math.floor(tonumber(args.touches) or 1), 1, 5)
+	local t0 = os.clock()
+	local deadline = t0 + macroTimeout(args)
+	local touches, stop = touchCounter(inst, char, 0.5)
+	while touches() < want and os.clock() < deadline and hum.Health > 0 and inst:IsDescendantOf(game) do
+		local p = posOf(inst)
+		if not p then
+			break
+		end
+		hum:MoveTo(p)
+		if flatDist(root.Position, p) < 4 and p.Y > root.Position.Y + 2 then
+			hum.Jump = true
+		end
+		task.wait(0.1)
+	end
+	stop()
+	hum:MoveTo(root.Position)
+	local n = touches()
+	local p = posOf(inst)
+	return {
+		done = n >= want,
+		detail = string.format("touched %s %d/%d times in %.1fs%s", tostring(args.path), n, want, os.clock() - t0,
+			if not inst:IsDescendantOf(game) then " (target is gone)" elseif p then string.format(", %.0f studs away now", (p - root.Position).Magnitude) else ""),
+		touches = n,
+	}
+end
+
+local MACROS = { go_touch = true, go_use = true, chase = true }
+
 local ACTIONS = {
+	go_touch = goTouch,
+	go_use = goUse,
+	chase = chase,
 	walk_to = walkTo,
 	jump = jump,
 	interact = interact,
@@ -921,7 +1123,28 @@ local COMMANDS = {
 			error("unknown action " .. action)
 		end
 		local a = if type(args.args) == "table" then args.args else {}
-		return fn(a)
+		if not MACROS[action] then
+			return fn(a)
+		end
+		local before = hud(300)
+		local res = fn(a)
+		task.wait(0.3) -- let the HUD react (server replies, tweens)
+		local after = hud(300)
+		local function added(x: { string }, y: { string }): { string }
+			local seen, out = {}, {}
+			for _, t in x do
+				seen[t] = true
+			end
+			for _, t in y do
+				if not seen[t] and #out < 6 then
+					seen[t] = true
+					table.insert(out, t)
+				end
+			end
+			return out
+		end
+		res.hud_new, res.hud_gone = added(before, after), added(after, before)
+		return res
 	end,
 	hud = function()
 		return hud()

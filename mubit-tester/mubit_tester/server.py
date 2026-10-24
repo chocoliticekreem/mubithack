@@ -59,7 +59,7 @@ INSTRUCTIONS = (
 mcp = MCPServer("mubit-tester", instructions=INSTRUCTIONS)
 
 STATE: dict[str, Any] = {"studio_id": None, "hint": os.environ.get("FORGE_STUDIO") or None,
-                         "mode": "server", "clients": []}
+                         "mode": "server", "clients": [], "pinned": None, "server_window": None}
 MAX_TEXT = 20000
 MULTIPLAYER_WAIT = 90.0
 MULTIPLAYER_POLL = 2.0
@@ -339,11 +339,19 @@ async def _default_open_studio(select: bool = True) -> AsyncIterator[Any]:
             yield studio
             return
         sid = STATE.get("studio_id")
-        if sid and any(s.get("id") == sid for s in await studio.list_studios()):
+        if sid and sid in _known_windows() and any(s.get("id") == sid for s in await studio.list_studios()):
             studio.studio_id = sid
         else:
-            await studio.select(STATE.get("hint"))
+            # strict: the pinned Studio (FORGE_STUDIO / studios(select)) or an error, never another window
+            STATE["pinned"] = STATE["studio_id"] = await studio.select(STATE.get("hint"))
+            STATE["mode"], STATE["clients"], STATE["server_window"] = "server", [], None
         yield studio
+
+
+def _known_windows() -> list[str]:
+    """Windows this server may use: the pinned one and the ones its own multiplayer test spawned."""
+    ids = [STATE.get("pinned"), STATE.get("server_window"), *(STATE.get("clients") or [])]
+    return [i for i in ids if i]
 
 
 # Tests replace this with a factory yielding a fake Studio.
@@ -360,13 +368,18 @@ async def _studio_datamodels(studio: Any, sid: str) -> set[str]:
 
 async def _relocate(studio: Any) -> str | None:
     """Point `studio` at the window with a Server datamodel ("server"), else one with a Client
-    datamodel for relay ("client", Team Test), else None. Remembers the choice in STATE."""
+    datamodel for relay ("client", Team Test), else None. Remembers the choice in STATE. Only the
+    pinned window and the windows our own multiplayer test spawned are candidates: other open Studios
+    (other agents' playtests) also have Server datamodels and must never be adopted."""
     try:
         items = await studio.list_studios()
     except Exception:  # noqa: BLE001
         return None
+    known = _known_windows() or [studio.studio_id]
     clients = []
     for x in items:
+        if x["id"] not in known:
+            continue
         dms = await _studio_datamodels(studio, x["id"])
         if "Server" in dms:
             if x["id"] == studio.studio_id and STATE.get("mode") == "server":
@@ -519,16 +532,11 @@ async def studios(select: str | None = None) -> str:
     """List connected Roblox Studio windows (id, name). `select` (id or part of a name) pins which
     one every other tool uses; a name containing `placeId` is the shared Team Create place."""
     with _tool_errors():
-        if select:
-            STATE["hint"], STATE["studio_id"] = None, None
         async with open_studio(select=False) as st:
-            items = await st.list_studios()
             if select:
-                hit = next((x for x in items if x["id"] == select), None)
-                if hit is None:
-                    await st.select(select)
-                    hit = next(x for x in items if x["id"] == st.studio_id)
-                STATE["studio_id"] = hit["id"]
+                sid = await st.select(select)  # strict: an ambiguous name is an error, not a guess
+                STATE.update(hint=sid, pinned=sid, studio_id=sid, mode="server", clients=[], server_window=None)
+            items = await st.list_studios()
         rows = [f"| {'*' if x['id'] == STATE.get('studio_id') else ''} | `{x['id']}` | {_cell(x.get('name'), 80)} |"
                 for x in items]
         return "\n".join(["| sel | id | name |", "|---|---|---|", *rows]) if rows else "No Studio connected."
@@ -548,8 +556,10 @@ async def play_start() -> str:
 async def play_stop() -> str:
     """Stop the playtest and return to Edit (always call this before finishing)."""
     with _tool_errors():
-        STATE["mode"], STATE["clients"] = "server", []
         async with open_studio() as st:
+            STATE["mode"], STATE["clients"], STATE["server_window"] = "server", [], None
+            if STATE.get("pinned"):
+                STATE["studio_id"] = STATE["pinned"]
             try:
                 await st.stop()
                 return "stopped; Studio is back in Edit"
@@ -611,6 +621,7 @@ async def multiplayer_start(players: int = 2, add: bool = False) -> str:
                 return f"Could not start multiplayer from code ({_cell(out, 200)}).\n\n{manual}"
             server: dict | None = None
             clients: list[dict] = []
+            pinned = st.studio_id
             deadline = time.monotonic() + MULTIPLAYER_WAIT
             while time.monotonic() < deadline and (server is None or len(clients) < n):
                 await anyio.sleep(MULTIPLAYER_POLL)
@@ -621,6 +632,8 @@ async def multiplayer_start(players: int = 2, add: bool = False) -> str:
                 for x in sorted(items, key=lambda x: x["id"] in before):  # new windows first
                     if (server and x["id"] == server["id"]) or any(c["id"] == x["id"] for c in clients):
                         continue
+                    if x["id"] in before and x["id"] != pinned:
+                        continue  # an older window is someone else's Studio, even when it is playing
                     dms = await _studio_datamodels(st, x["id"])
                     if "Server" in dms and server is None:
                         server = x
@@ -630,7 +643,8 @@ async def multiplayer_start(players: int = 2, add: bool = False) -> str:
                     break  # client windows may not be listed separately; the player count decides
             if server is None:
                 return f"Started the test but no Server datamodel showed up within {MULTIPLAYER_WAIT:.0f}s.\n\n{manual}"
-            st.studio_id = STATE["studio_id"] = server["id"]
+            st.studio_id = STATE["studio_id"] = STATE["server_window"] = server["id"]
+            STATE["pinned"] = STATE.get("pinned") or pinned
             STATE["mode"] = "server"
             STATE["clients"] = [c["id"] for c in clients]
             count = await _wait_players(st, n, MULTIPLAYER_JOIN_WAIT)
@@ -773,7 +787,9 @@ async def screenshot(camera: list[float] | None = None, look_at: list[float] | N
 async def act(player: str, action: str, args: dict | None = None) -> str:
     """Make one player do something on their own client. Actions: walk_to {pos|path, timeout?},
     jump, interact {path?}, equip {name|slot}, unequip, use {seconds?, aim?: [x,y,z]|path},
-    look_at {pos|path}, say {text}, wait {seconds}, press {path|text} (a real mouse click on one of the
+    look_at {pos|path}, say {text}, wait {seconds}; macros with an `effect` diff (leaderstats, attributes,
+    counters, HUD text, events): go_touch {path}, go_use {path}, chase {path, touches<=5},
+    repeat {action, args, times<=5}; press {path|text} (a real mouse click on one of the
     player's GUI buttons from `observe`'s `ui`; only for a player a Studio window drives; returns whether
     the button fired and what changed on screen). Returns {done, detail}."""
     with _tool_errors():
