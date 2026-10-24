@@ -242,16 +242,16 @@ end
 
 local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: number): PadRec
 	local base = O * CFrame.new(x, APRON_Y, z)
-	local ring = disc(model, `PadRing{padId}`, base * CFrame.new(0, 0.08, 0), 8.6, 0.16, C.PadIdle, { material = Enum.Material.Neon, collide = false, shadow = false })
-	local pad = disc(model, `SquadPad{padId}`, base * CFrame.new(0, 0.14, 0), 7.6, 0.2, C.Concrete, { touch = false })
+	local ring = disc(model, `PadRing{padId}`, base * CFrame.new(0, 0.08, 0), 15.4, 0.16, C.PadIdle, { material = Enum.Material.Neon, collide = false, shadow = false })
+	local pad = disc(model, `SquadPad{padId}`, base * CFrame.new(0, 0.14, 0), 14, 0.2, C.Concrete, { touch = false })
 	pad:SetAttribute(Names.Attr.PadId, padId)
 	CollectionService:AddTag(pad, Names.Tag.SquadPad)
-	local num = disc(model, `PadNumber{padId}`, base * CFrame.new(0, 0.2, 0), 3, 0.2, C.Red, { collide = false })
+	local num = disc(model, `PadNumber{padId}`, base * CFrame.new(0, 0.2, 0), 4, 0.2, C.Red, { collide = false })
 	num.Material = Enum.Material.SmoothPlastic
 
 	local light = Instance.new("PointLight")
 	light.Color = C.PadIdle
-	light.Range = 14
+	light.Range = 20
 	light.Brightness = 1.5
 	light.Parent = ring
 
@@ -281,7 +281,7 @@ local function buildPad(model: Model, O: CFrame, padId: number, x: number, z: nu
 	prompt.ObjectText = `Pad {padId}`
 	prompt.KeyboardKeyCode = Enum.KeyCode.F
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 9
+	prompt.MaxActivationDistance = 12
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = pad
 
@@ -343,7 +343,7 @@ end
 
 function LobbyProps.padCenters(padCount: number): { Vector3 }
 	local out = {}
-	local spacing = 12
+	local spacing = 19 -- 14-stud pads: room for a squad of 4 on each
 	for i = 1, padCount do
 		local x = -40 + (i - (padCount + 1) / 2) * spacing
 		table.insert(out, Vector3.new(x, APRON_Y, 51))

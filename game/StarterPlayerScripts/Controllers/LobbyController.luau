@@ -585,7 +585,8 @@ function LobbyController:Start()
 	end)
 
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, who: Player)
-		if who == player and prompt.Parent and prompt.Parent:HasTag(Names.Tag.MissionBoard) then
+		-- the board, or "Change call" on a queue pad, opens the mission picker
+		if who == player and prompt.Parent and (prompt.Parent:HasTag(Names.Tag.MissionBoard) or prompt.Name == "PadPrompt") then
 			openPicker()
 		end
 	end)

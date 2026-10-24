@@ -676,6 +676,10 @@ local function watchSeat(t: Truck, seat: Seat | VehicleSeat)
 		if now then
 			t.occupants[seat] = now
 			VehicleService.Entered:Fire(now, t.model)
+			-- on a call: the driver rolls out with the siren already wailing
+			if seat == t.seat and (now:GetAttribute(Names.Attr.InstanceId) or "") ~= "" then
+				setSiren(t, true)
+			end
 		end
 		if seat == t.seat then
 			onDriverChanged(t)
@@ -971,6 +975,16 @@ local function onPlayer(player: Player)
 	if not VehicleConfig.PerPlayerTrucks then
 		return
 	end
+	-- dispatched while already behind the wheel: sirens on
+	player:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
+		if (player:GetAttribute(Names.Attr.InstanceId) or "") == "" then
+			return
+		end
+		local t = byOwner[player]
+		if t and t.seat and occupantPlayer(t.seat) == player then
+			setSiren(t, true)
+		end
+	end)
 	task.spawn(function()
 		-- SquadService hands out helmets on join; give it a moment so the bay matches
 		local t0 = os.clock()

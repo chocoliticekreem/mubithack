@@ -15,7 +15,7 @@ return Config.define({
 	AlarmFromSeconds = 3, -- station alarm lamps flash + siren at 3..2..1
 	BigCountdownFrom = 5, -- the client shows the big centre number from here down
 	ReturnSeconds = 20, -- safety net: after MissionEnded, bring home anyone MissionService didn't (its results take 15 s)
-	PadRadius = 4, -- studs (horizontal) from the pad centre that count as "on the pad"
+	PadRadius = 7.5, -- studs (horizontal) from the pad centre that count as "on the pad" (14-stud pads)
 	PadHeight = 7, -- studs above the pad top that still count (jumping)
 	PollHz = 10,
 	AfkSeconds = 45, -- standing still this long in the lobby -> "on coffee break"
