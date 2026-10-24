@@ -324,7 +324,7 @@ async def test_swarm_runs_ten_testers_concurrently(tmp_path):
     assert 1 < llm.peak <= 4
     tester_calls = [c for c in llm.calls if c.role == "swarm_tester"]
     assert len(tester_calls) == 30 and all(c.session_id == "swarm-" + rep["run_id"] for c in tester_calls)
-    assert "bot tester" in next(c.user for c in tester_calls if "Swarm_Griefer" in c.user)
+    assert "bot tester" in next(c.user for c in tester_calls if "## You\nSwarm_Griefer" in c.user)
     assert "Layout facts" in next(c.user for c in tester_calls if "## Persona\nAccessibility" in c.user)
     # the harness multiplexed: far fewer execute_luau round trips than harness calls
     assert rep["mux"]["max_batch"] > 1 and rep["mux"]["round_trips"] < rep["mux"]["calls"]
