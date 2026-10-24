@@ -31,6 +31,9 @@
 --   ProfileSchema.giftPass(p, key, byUserId, at): boolean   -- v7: owner-gifted in-game pass entitlement
 --   ProfileSchema.revokePass(p, key): boolean                -- v7: false = wasn't gifted
 --   ProfileSchema.hasGift(p, key): boolean / giftedPasses(p): { string }   -- v7 (MonetizationService)
+--   p.updates (v8): { lastSeen, prompted } = UpdateLog versions (Config/UpdateLog, Services/UpdateLogService)
+--   ProfileSchema.markUpdateSeen(p, version): boolean        -- v8: true = newly seen (the WHAT'S NEW panel)
+--   ProfileSchema.markNotifyPrompted(p, version): boolean    -- v8: true = first opt-in prompt for this version
 --   ProfileSchema.xpForLevel(level): number                  -- lifetime XP at the start of `level`
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
@@ -59,6 +62,7 @@ export type Profile = {
 	donations: Donations, -- v5: Robux donated through developer products (MonetizationService)
 	pass: PassData, -- v6: battle pass (BattlePassService, ReplicatedStorage/Lib/BattlePass/PassRules)
 	gifts: Gifts, -- v7: owner-gifted in-game entitlements (AdminService :giftpass -> MonetizationService)
+	updates: Updates, -- v8: WHAT'S NEW panel (UpdateLogService)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -71,6 +75,9 @@ export type Donations = { robux: number, count: number, receipts: { string } }
 export type PassData = { season: string, xp: number, free: { number }, premium: { number }, equipped: { [string]: string }, legacy: boolean }
 -- passes[key] = who gifted it and when. An in-game entitlement only: it is not a Roblox game pass.
 export type Gifts = { passes: { [string]: { by: number, at: number } } }
+-- lastSeen = newest Config/UpdateLog version this player closed the panel for ("" = never);
+-- prompted = the version we last showed the "get notified" opt-in prompt for ("" = never)
+export type Updates = { lastSeen: string, prompted: string }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -86,7 +93,7 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 7
+ProfileSchema.Version = 8
 ProfileSchema.MaxReceipts = 50 -- donation PurchaseIds remembered per profile
 ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
@@ -161,6 +168,7 @@ function ProfileSchema.default(now: number): Profile
 		donations = { robux = 0, count = 0, receipts = {} },
 		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
 		gifts = { passes = {} },
+		updates = { lastSeen = "", prompted = "" },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -280,6 +288,11 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 	[6] = function(t: any, _now: number)
 		t.gifts = { passes = {} }
 		t.version = 7
+	end,
+	-- v7 -> v8: the WHAT'S NEW panel. Everyone starts having seen nothing, so the newest update shows once.
+	[7] = function(t: any, _now: number)
+		t.updates = { lastSeen = "", prompted = "" }
+		t.version = 8
 	end,
 }
 
@@ -435,6 +448,17 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		end
 	end
 	p.gifts.passes = passes
+
+	fillMap(p, "updates")
+	for _, key in { "lastSeen", "prompted" } do
+		local v = p.updates[key]
+		p.updates[key] = if type(v) == "string" and #v <= 32 then v else ""
+	end
+	for key in p.updates do
+		if key ~= "lastSeen" and key ~= "prompted" then
+			p.updates[key] = nil
+		end
+	end
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -784,6 +808,45 @@ function ProfileSchema.giftedPasses(p: Profile): { string }
 	end
 	table.sort(out)
 	return out
+end
+
+--------------------------------------------------------------------------------------- updates
+
+local function updatesOf(p: Profile): Updates
+	local u = (p :: any).updates
+	if type(u) ~= "table" then
+		u = { lastSeen = "", prompted = "" };
+		(p :: any).updates = u
+	end
+	return u
+end
+
+local function validVersion(version: any): boolean
+	return type(version) == "string" and version ~= "" and #version <= 32
+end
+
+function ProfileSchema.markUpdateSeen(p: Profile, version: string): boolean
+	if not validVersion(version) then
+		return false
+	end
+	local u = updatesOf(p)
+	if u.lastSeen == version then
+		return false
+	end
+	u.lastSeen = version
+	return true
+end
+
+function ProfileSchema.markNotifyPrompted(p: Profile, version: string): boolean
+	if not validVersion(version) then
+		return false
+	end
+	local u = updatesOf(p)
+	if u.prompted == version then
+		return false
+	end
+	u.prompted = version
+	return true
 end
 
 function ProfileSchema.setSetting(p: Profile, key: string, value: any): boolean
