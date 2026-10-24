@@ -91,7 +91,6 @@ def env(tmp_path, monkeypatch):
                                              "local marker = 'BUY_DROPPER'\nreturn { ok = true, detail = '' }\n")
     monkeypatch.setattr(ms, "load_settings", lambda: s)
     monkeypatch.setattr(ms, "STATE", {"studio_id": None, "hint": None, "mode": "server", "clients": []})
-    monkeypatch.setattr(ms, "_free_port", lambda p: p)
     from forge import sync as fsync
     monkeypatch.setattr(fsync, "check", lambda root: [])
     return s
@@ -338,16 +337,6 @@ async def test_sync_tool_guards_shared_place_and_takes_a_game(env, monkeypatch):
         await ms.mcp.call_tool("sync", {"game": "nope"})
 
 
-def test_free_port_moves_off_a_busy_port():
-    import socket
-    from mubit_tester.server import _free_port
-    with socket.socket() as busy:
-        busy.bind(("127.0.0.1", 0))
-        busy.listen()
-        port = busy.getsockname()[1]
-        assert _free_port(port) != port
-
-
 async def test_extensions_register_tools(monkeypatch):
     mod = types.ModuleType("fake_bridge_ext")
 
@@ -362,3 +351,39 @@ async def test_extensions_register_tools(monkeypatch):
     assert ms.load_extensions(["fake_bridge_ext", "no_such_module_xyz"]) == ["fake_bridge_ext"]
     assert _text(await ms.mcp.call_tool("bridge_ping", {})) == "pong"
     ms.mcp.remove_tool("bridge_ping")
+
+
+async def test_shared_studio_session_is_reused_across_tool_calls(monkeypatch):
+    """Inside a running server one StudioMCP session serves every tool call; outside, none."""
+    import forge.studio as fstudio
+    opened = []
+
+    class OneSession:
+        def __init__(self, settings=None, **kw):
+            self.studio_id = None
+            opened.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            self.closed = True
+
+        async def list_studios(self):
+            return [{"id": "s1", "name": "Forge-agents-24.rbxlx"}]
+
+        async def select(self, hint=None):
+            self.studio_id = "s1"
+            return "s1"
+
+    monkeypatch.setattr(fstudio, "Studio", OneSession)
+    monkeypatch.setattr(ms, "open_studio", ms._default_open_studio)
+    monkeypatch.setattr(ms, "STATE", {"studio_id": None, "hint": "Forge-agents-24", "mode": "server",
+                                      "clients": [], "pinned": None, "server_window": None})
+    assert await ms.shared_studio() is None  # not serving: no shared session
+    async with ms._lifespan(ms.mcp):
+        for _ in range(3):
+            async with ms.open_studio() as st:
+                assert st.studio_id == "s1"
+        assert len(opened) == 1  # one session for all three calls
+    assert getattr(opened[0], "closed", False) and ms._SHARED["studio"] is None
