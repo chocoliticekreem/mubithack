@@ -1060,8 +1060,10 @@ class Run:
         records = []
         async with contextlib.AsyncExitStack() as stack:
             studio = None
+            # auto: a Studio window only for the screenshot pass, and only one named for this job
+            # (FORGE_STUDIO, e.g. a leased slot); never a guess at whatever window is open
             if mode == "always" or (mode == "auto" and os.environ.get("FORGE_SCREENSHOT", "1") != "0"
-                                    and (os.environ.get("FORGE_STUDIO") or hl.studio_slot_free())):
+                                    and os.environ.get("FORGE_STUDIO")):
                 studio = await self.open_studio(stack)
             state = self.store.load_state()
             start = self.store.next_iteration(state)

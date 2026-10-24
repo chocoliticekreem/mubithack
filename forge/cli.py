@@ -432,7 +432,6 @@ def cmd_mcp(args) -> int:
 async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
     from forge.improve import ImproveStore, default_faults, load_faults, pending_report_anomalies, run_cycle
     from forge.llm import make_llm
-    from forge.studio import Studio
     from mubit_tester.ai import multi_playtest
     from mubit_tester.harness import Harness
 
@@ -444,8 +443,10 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
     store = ImproveStore(s, args.slug)
     llm = make_llm(s, log_path=store.dir / "calls.jsonl")
     args.goal = args.goal or default_goal(store.run.load_spec() if store.run.spec_path.exists() else {})
-    async with Studio(s) as studio:
-        await studio.select(args.studio or os.environ.get("FORGE_STUDIO") or None)
+    from forge import headless as hl
+    # fix cycles run on the headless engine (simulated players) unless --studio always (forge/headless.py)
+    async with hl.backend(s, store.run.game_dir, studio_name=args.studio, players=max(1, args.players or 1),
+                          slug=args.slug, kind="fix_cycle") as studio:
         harness = Harness(studio)
         for n in range(args.cycles):
             extra = pending_report_anomalies(store) if getattr(args, "reports", False) else []
@@ -620,14 +621,19 @@ async def _checks(args) -> None:
     if args.plan:
         plan_checks(s, args.slug, llm=llm, max_checks=args.max)
     if args.run:
+        from forge import headless as hl
+
         only, prior = None, None
-        if getattr(args, "headless_first", False):
+        mode = hl.studio_mode()
+        # headless first by default (--studio auto|never); --studio always runs every check in Studio
+        if mode != "always" or getattr(args, "headless_first", False):
             from forge import checks as chk
             store = RunStore(s, args.slug)
-            passed, rest = chk.triage(store.game_dir, chk.load_checks(store.dir))
-            prior = [{**r, "verdict": "pass", "source": "headless"} for r in passed]
+            kept, rest = chk.triage(store.game_dir, chk.load_checks(store.dir), mode=mode if mode != "always" else "auto")
+            prior = [{**r, "verdict": r.get("verdict") or "pass", "source": "headless"} for r in kept]
             only = {c.id for c in rest}
-            print(f"[check] headless: {len(passed)} pass, {len(rest)} need Studio")
+            print(f"[check] headless: {sum(1 for r in kept if r.get('ok'))} pass, {len(rest)} need Studio"
+                  + (f" ({len(kept) - sum(1 for r in kept if r.get('ok'))} not run: --studio never)" if mode == "never" else ""))
             if not rest:
                 from forge.scenarios import save_results
                 save_results(store.dir, prior)

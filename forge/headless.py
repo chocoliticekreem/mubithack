@@ -36,8 +36,9 @@ import subprocess
 import tempfile
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from forge.studio import StudioError
 
@@ -340,7 +341,8 @@ class HeadlessStudio:
         raise NeedsStudio(f"needs studio: {tool} has no headless equivalent")
 
     async def list_studios(self) -> list[dict]:
-        return [{"id": self.studio_id, "name": "headless", "active": True}]
+        # no Studio windows: nothing to click real UI in (Harness.ui_windows -> {}, so testers don't press)
+        return []
 
     async def state(self) -> dict:
         dms = ["Edit", "Server"] + (["Client"] if self.clients and self.players else [])
@@ -409,6 +411,39 @@ class HeadlessStudio:
             self._kill()
         except Exception:  # noqa: BLE001
             pass
+
+
+# ---------------------------------------------------------------- choosing a backend
+
+
+def wants_studio(*, needs_ui: bool = False, mode: str | None = None) -> bool:
+    """Does this job go to Studio? always: yes. never: no. auto: only when it must press real UI (testers
+    can't click buttons headless; there is no layout engine to say where a button is)."""
+    m = studio_mode(mode)
+    return m == "always" or (m == "auto" and needs_ui)
+
+
+@asynccontextmanager
+async def backend(settings: Any, game_dir: Path, *, needs_ui: bool = False, studio_name: str | None = None,
+                  players: int = 2, slug: str = "", kind: str = "session") -> AsyncIterator[Any]:
+    """The `studio` object a Studio-shaped job (fix cycles, feature polish, QA, swarm) runs on: a real
+    Studio window when wants_studio(), else a HeadlessStudio on game_dir with `players` simulated clients."""
+    if wants_studio(needs_ui=needs_ui) or not available():
+        from forge.studio import Studio
+
+        t0 = time.time()
+        try:
+            async with Studio(settings) as st:
+                await st.select(studio_name or os.environ.get("FORGE_STUDIO") or None)
+                yield st
+        finally:
+            record(kind, "studio", time.time() - t0, slug=slug)
+        return
+    hs = HeadlessStudio(game_dir, players=players, slug=slug, kind=kind)
+    try:
+        yield hs
+    finally:
+        await hs.stop()
 
 
 # ---------------------------------------------------------------- the headless playtest

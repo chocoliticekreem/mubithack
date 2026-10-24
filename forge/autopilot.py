@@ -1016,6 +1016,31 @@ class Autopilot:
         return ok, {"ready": bool(r.get("ready")), "critic": crit, "fun": fun,
                     "missing": [p["part"] for p in r.get("parts") or [] if not p["ok"]]}
 
+    def final_verify(self, r: int) -> dict | None:
+        """--studio auto: every round measured headless; the version the loop ends on is measured once more
+        in Studio (screenshot, Studio checks, testers with the visual judge). Skipped with a note when no
+        Studio place was given or the policy is never / always (always measured in Studio all along)."""
+        from forge import headless as hl
+
+        if hl.studio_mode() != "auto" or not (self.opts.use_studio and self.opts.studios) or not self.slug:
+            return None
+        p = self.dir / "final.json"
+        if _read(p):
+            return _read(p)
+        try:
+            m = self.measure(max(1, r - 1), "final", self.opts.goal or "final verify")
+        except BudgetSpent:
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.log(f"final verify in Studio failed: {type(e).__name__}: {_clip(e, 160)}")
+            return None
+        out = {"version": m.get("version"), "errors": len(m.get("errors") or []), "studio": m.get("studio"),
+               "screenshot": m.get("screenshot"), "checks": m.get("checks"), "critic": m.get("critic"),
+               "fun": m.get("fun")}
+        _write(p, out)
+        self.log(f"final verify in Studio: {out['errors']} errors, checks {out.get('checks') or {}}")
+        return out
+
     def round(self, r: int) -> dict:
         self.state["round"] = r
         for phase in PHASES:
@@ -1049,6 +1074,7 @@ class Autopilot:
                     self.state["stop_reason"] = "nothing above the bar to do (no anomaly or gap worth a job)"
                     break
                 r += 1
+            self.final_verify(r)
         except BudgetSpent as e:
             self.state["stop_reason"] = str(e)
         except BaseException as e:  # a crash or Ctrl-C/SIGTERM: say so; a rerun resumes from the saved phases
@@ -1214,10 +1240,15 @@ def score_trend(run_dir: Path) -> list[dict]:
 
 
 def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
-    """Measure the current files: compile, headless boot, checks (headless first, the rest in Studio), a
-    Studio playtest (ForgeProbe + census + screenshot), a focused QA run, a short swarm, ForgeBridge events,
-    critic + fun critic. Without Studio the headless boot report stands in for the probe."""
+    """Measure the current files: compile, headless boot, checks, a playtest (probe + census), a focused QA
+    run, a short swarm, ForgeBridge events, critic + fun critic.
+
+    Headless by default (forge/headless.py, --studio auto|never): the playtest, the checks, QA and the swarm
+    run on the headless engine with simulated players, no Studio lease. Studio is used only for the final
+    verify (tag "final", --studio auto) and for every measurement with --studio always: then the playtest
+    gets a screenshot, failed checks are re-run in Studio and the testers' visual judge sees screenshots."""
     from forge import checks as chk
+    from forge import headless as hl
     from forge.loop import _load_check_fn
     s, store = ap.s, ap.store
     out_dir = ap.rdir(r) / tag
@@ -1234,11 +1265,14 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
             existing = chk.load_checks(store.dir)
         except Exception as e:  # noqa: BLE001
             ap.log(f"check planning failed: {type(e).__name__}: {_clip(e, 120)}")
-    passed, rest = chk.triage(store.game_dir, existing) if existing else ([], [])
-    results = [{**x, "verdict": "pass", "source": "headless"} for x in passed]
+    mode = hl.studio_mode()
+    in_studio = (ap.opts.use_studio and bool(ap.opts.studios) and not compile_errors
+                 and (mode == "always" or (mode == "auto" and tag == "final")))
+    passed, rest = chk.triage(store.game_dir, existing, mode="auto" if in_studio else "never") if existing else ([], [])
+    results = [{**x, "verdict": x.get("verdict") or "pass", "source": "headless"} for x in passed]
     m: dict = {}
     console = ""
-    if ap.opts.use_studio and ap.opts.studios and not compile_errors:
+    if in_studio:
         try:
             m, console, results = asyncio.run(_studio_part(ap, r, tag, focus, out_dir, rest, results))
         except BudgetSpent:
@@ -1246,6 +1280,17 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
         except Exception as e:  # noqa: BLE001
             ap.log(f"Studio measurement failed: {type(e).__name__}: {_clip(e, 200)}; using the headless boot")
             m = {}
+    elif not compile_errors and hl.available():
+        try:
+            m, console = asyncio.run(_headless_part(ap, r, tag, focus, out_dir))
+        except BudgetSpent:
+            raise
+        except Exception as e:  # noqa: BLE001
+            ap.log(f"headless measurement failed: {type(e).__name__}: {_clip(e, 200)}; using the headless boot")
+            m = {}
+        if results:
+            from forge.scenarios import save_results
+            save_results(store.dir, results)
     if not m:
         m = evm.measurement_from_probe(boot, label=f"ap{r}{tag[:1]}", studio=False)
         if results:
@@ -1275,6 +1320,54 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
             except Exception as e:  # noqa: BLE001
                 ap.log(f"fun critic failed: {type(e).__name__}: {_clip(e, 120)}")
     return m
+
+
+async def _headless_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Path) -> tuple[dict, str]:
+    """The measurement without Studio: a headless playtest (probe report + census), then a focused QA run and
+    a short swarm on headless sessions (simulated players; no screenshots, so no visual judge)."""
+    from forge import headless as hl
+    s, store = ap.s, ap.store
+    t0 = time.time()
+    spec = _read(store.spec_path, {}) or {}
+    report = await hl.playtest(store.game_dir, play=30.0, players=max(1, ap.opts.swarm_players or 1),
+                               start_round=bool((spec.get("playtest") or {}).get("start_round")), slug=ap.slug)
+    steps = [{"step": "playtest", "ok": "error" not in report, "engine": "headless", "secs": report.get("wall")}]
+    m = evm.measurement_from_probe(report, label=f"ap{r}{tag[:1]}", studio=False, playtest_steps=steps)
+    m["census"] = report.get("census") or {}
+    m["engine"] = "headless"
+    m["needs_studio"] = [n.get("feature") for n in report.get("needs_studio") or []]
+    console = "\n".join([f"[warn] {w}" for w in report.get("warnings") or []])
+    llm = ap.get_llm()
+    gsettings = dataclasses.replace(s, base_game_dir=store.game_dir)
+    if ap.opts.qa_steps and (ap.calls_left() is None or ap.calls_left() > 12):
+        hs = hl.HeadlessStudio(store.game_dir, players=1, slug=ap.slug, kind="qa")
+        try:
+            from mubit_tester.protocol import qa_test
+            qa = await qa_test(gsettings, focus, game_dir=store.game_dir, slug=ap.slug, max_steps=ap.opts.qa_steps,
+                               llm=llm, studio=hs, max_investigations=1, key_images=2)
+            m["qa"] = {"run_id": qa.get("run_id"), "goal_met": qa.get("goal_met"), "bugs": len(qa.get("bugs") or []),
+                       "test_dir": qa.get("test_dir"), "screenshots": [], "engine": "headless"}
+        except Exception as e:  # noqa: BLE001
+            ap.log(f"QA (headless) failed: {type(e).__name__}: {_clip(e, 160)}")
+        finally:
+            await hs.stop()
+    if ap.opts.swarm_players and (ap.calls_left() is None or ap.calls_left() > 20):
+        hs = hl.HeadlessStudio(store.game_dir, players=ap.opts.swarm_players, slug=ap.slug, kind="swarm")
+        try:
+            from mubit_tester.swarm import run_swarm
+            sw = await run_swarm(gsettings, players=ap.opts.swarm_players, minutes=ap.opts.swarm_minutes,
+                                 llm=llm, studio=hs, slug=ap.slug, goal=focus, max_steps=12, screenshots=False)
+            bugs = [b for b in sw.get("bugs") or [] if b.get("real")]
+            t = evm.first_reward(sw.get("soak") or [])
+            m.update(swarm={"run_id": sw.get("run_id"), "bugs": len(bugs), "shots": 0, "engine": "headless"},
+                     swarm_high=sum(1 for b in bugs if b.get("severity") == "high"), ttfr_s=t)
+        except Exception as e:  # noqa: BLE001
+            ap.log(f"swarm (headless) failed: {type(e).__name__}: {_clip(e, 160)}")
+        finally:
+            await hs.stop()
+    ap.log(f"measured headless in {time.time() - t0:.0f}s ({len(report.get('errors') or [])} errors"
+           + (f"; needs Studio to judge: {', '.join(m['needs_studio'])[:120]}" if m["needs_studio"] else "") + ")")
+    return m, console
 
 
 async def _studio_part(ap: Autopilot, r: int, tag: str, focus: str, out_dir: Path, rest: list, results: list):

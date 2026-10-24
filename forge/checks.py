@@ -363,6 +363,7 @@ async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT, *
     A setup failure (setup_failure) gets one rerun in a restarted playtest when `fresh` and the studio can
     play/stop (the rerun has restarted: true and the first run in `first`); a check that still cannot set up
     has setup: true."""
+    t0 = time.time()
     res = await _run_once(studio, check, timeout)
     if fresh and setup_failure(res) and _can_restart(studio):
         log(f"[checks] {check.id} could not set up ({str(res.get('error') or res.get('detail'))[:120]}); "
@@ -372,6 +373,12 @@ async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT, *
             res = {**await _run_once(studio, check, timeout), "restarted": True, "first": first}
     if setup_failure(res):
         res["setup"] = True
+    try:  # count where checks run (forge headless --stats); a headless session counts as headless
+        from forge import headless as hl
+        hl.record("check", "headless" if getattr(studio, "headless", False) else "studio", time.time() - t0,
+                  ok=bool(res.get("ok")), note=check.id)
+    except Exception:  # noqa: BLE001
+        pass
     return res
 
 
