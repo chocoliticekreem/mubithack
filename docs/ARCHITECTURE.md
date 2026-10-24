@@ -199,6 +199,9 @@ forge/                 Python package (uv), entry point `forge`
                        and Footing (workspace.Obby.Supports); tags Checkpoint, ObbyStart, ObbyZoneStart, RideGate, RideGatePad,
                        RideEntrance, RideEntrancePad, ObbyStage, KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline,
                        Conveyor
+  kit/modules/WorldKit.luau  WorldKit.buildPark(opts) builds the amusement park an obby runs through, around the courses
+                       it measures from the level data, and returns anchors (where each zone's course starts), gates
+                       and courses; WorldKit.client() runs the rides on each client; see "Kit modules" below
   levels.py            `forge levels <slug> [--zones a-b] [--stages-per-zone 20] [--total-zones N]`: per zone one
                        level_designer call (game, zone, park theme (zone_theme: plan theme_id, planned name words, else the
                        park order for an amusement-park game) + THEME_NOTES + signature kinds introduced early, difficulty per
@@ -477,6 +480,31 @@ user message lists (tests/test_kit_modules.py).
   geometry, on every theme x kind, turned stages, the Funfair Frenzy levels (tests/fixtures/funfair_levels.json) built
   in v2's order, v2 shapes and ground for legs. Live proof: `scripts/obby_themes_demo.py --studio <id> [--gallery]
   [--play]` (play mode: drift of riding decorations, horse bob, tile fading -> `play-proof.json`).
+- `WorldKit` (server + client, picked by park words only: park, amusement, funfair, carnival, theme park,
+  fairground): `buildPark({zones = {{name, theme, palette, length?}}, origin, size = 1600, seed, title}) -> {anchors,
+  gates, spawn, lobby, courses, parts}` builds the whole amusement park in `workspace.Park`: Terrain ground reaching
+  at least 1,500 studs past the farthest course, sky, fence + tree line + hills, the entrance gate with a forecourt
+  outside it (the SpawnLocation `ParkSpawn` 44 studs out, facing the gate), a lobby plaza with a fountain and a park
+  map, one animated landmark per zone, stalls, balloons, string lights, gardens. Zone 1 starts at the top of the
+  START stairs beside the lobby; zone i>1 on a tower on the circle r = 0.64 * size / 2, every `anchors[i]` facing the
+  clockwise tangent (park on the course's right). Each zone's course is measured before anything is placed: zone i of
+  `ReplicatedStorage.Levels` laid out with the game's ObbyKit (`LevelBuilder.layout` per stage, each stage turned by
+  its `turn` when ObbyKit.VERSION >= 2), else `length` studs straight (default 460, the zone plot of forge/obby.py);
+  `courses[i]` = its centre line (start pad, then every checkpoint) in world space. The park is built around those
+  lines: nothing taller than 6 studs within 40 studs of a course from 24 behind its start to 40 past its end; every
+  course is dressed from start to end (lamps strung with lights 46 studs out on both sides, stalls 64 out, a ride,
+  booth corner or balloon arch further out, trees, and low gardens, cafe tables, mini golf, queue mazes and kiddie
+  rides under it, sparser when the courses are long); a course that runs beyond the circle gets a paved midway under
+  it, a corridor 118 studs to each side that the fence and tree line go round, and hills along both sides beyond it;
+  a hill and a mountain stand past every course's end. About 25k parts for ten 460-stud courses, 41k (built in about
+  2.4 s in Studio) for the ten 1.4-2.3k-stud straight courses of the overnight funfair game (tests/test_worldkit.py
+  checks the clearance, the dressing within 80 studs of every 40-stud stretch, measuring with turns, and the ground's
+  reach headless). `landmark(theme, cframe, palette)` and
+  `dressing(kind, cframe, palette, text?, seed?)` build one piece (dressing seeded by its position unless a seed is
+  given). Rides move from data: each moving root carries WK* attributes (`WKMotion` kind, `WKRest`, `WKPivot`, ...)
+  and the tag `WorldKitMover`; `WorldKit.client()` (a LocalScript) runs every mover within 900 studs of the camera once
+  per rendered frame on the shared server clock and fires the `WorldKitMotion` remote, after which the server stops
+  moving them; until then the server moves the movers that have a player within 400 studs, 30 times a second.
 
 Spec (designer output):
 ```json
