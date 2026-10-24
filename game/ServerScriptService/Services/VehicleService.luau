@@ -1405,6 +1405,12 @@ local function lostTick()
 			if not c.Parent then
 				continue
 			end
+			-- built out of sight (y 2000) but never placed: a server hitch killed the spawn thread mid-way
+			if c.Anchored and c.Position.Y > 1500 and not occupied(t) then
+				pcall(place, t, homeCF(t))
+				count("truck_unstranded")
+				continue
+			end
 			if underMap(t, now) then
 				noGroundSince[t] = nil
 				count("truck_rescued")
