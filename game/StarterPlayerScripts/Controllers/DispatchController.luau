@@ -216,6 +216,17 @@ end
 
 ---------------------------------------------------------------------------- build
 
+local setAvailable: (boolean) -> ()
+-- incoming calls on / off (server: Player attr DispatchOff)
+setAvailable = function(on: boolean)
+	if remotes.Available then
+		remotes.Available:FireServer(on)
+	end
+	if not on and offer then
+		showCard(nil)
+	end
+end
+
 local function build()
 	local gui = UiKit.screen("DispatchGui", 27)
 	ui.gui = gui
@@ -295,7 +306,8 @@ local function build()
 	card.BackgroundColor3 = Palette.UiPanelDark
 	card.BackgroundTransparency = 0.04
 	card.Visible = false
-	card:SetAttribute("Menu", true) -- MenuMouseController frees the mouse in first person
+	-- NOT a menu: popping in while you drive must never grab your mouse / camera. Answer with the keys
+	-- (Y / N) or, with a free cursor or on touch, the buttons.
 	card.Parent = gui
 	UiKit.corner(card, 14)
 	stroke(card, 3, Palette.UiRed)
@@ -342,14 +354,21 @@ local function build()
 	al.Padding = UDim.new(0, 12)
 	al.SortOrder = Enum.SortOrder.LayoutOrder
 	al.Parent = actions
-	local acc = button(actions, "Accept", GREEN, UDim2.fromOffset(170, 44))
+	local acc = button(actions, "Accept", GREEN, UDim2.fromOffset(150, 44))
 	acc.LayoutOrder = 1
 	InputHints.setChip(acc, Cfg.Keys.Accept, "ACCEPT")
 	UiKit.onTap(acc, acceptOffer)
-	local dec = button(actions, "Decline", Palette.UiPanelDark, UDim2.fromOffset(150, 44))
+	local dec = button(actions, "Decline", Palette.UiPanelDark, UDim2.fromOffset(130, 44))
 	dec.LayoutOrder = 2
 	InputHints.setChip(dec, Cfg.Keys.Decline, "DECLINE")
 	UiKit.onTap(dec, declineOffer)
+	-- go unavailable straight from the card
+	local mute = button(actions, "Mute", Palette.UiPanelDark, UDim2.fromOffset(110, 44))
+	mute.LayoutOrder = 3
+	mute.Text = "NO CALLS"
+	UiKit.onTap(mute, function()
+		setAvailable(false)
+	end)
 	ui.card = card
 	-- its height includes the button row, so toasts / banners stack below the buttons
 	HudLayout.add("TopCentre", card, 25, function(): number
@@ -418,6 +437,21 @@ local function build()
 		end
 		setOpen(false)
 	end)
+	-- available / unavailable toggle for incoming calls
+	local avail = button(panel, "Available", GREEN, UDim2.fromOffset(150, 46))
+	avail.AnchorPoint = Vector2.new(0, 1)
+	avail.Position = UDim2.new(0, 14, 1, -12)
+	ui.avail = avail
+	UiKit.onTap(avail, function()
+		setAvailable(player:GetAttribute("DispatchOff") == true)
+	end)
+	local function paintAvail()
+		local off = player:GetAttribute("DispatchOff") == true
+		avail.Text = if off then "CALLS: OFF" else "CALLS: ON"
+		avail.BackgroundColor3 = if off then Palette.UiPanelDark else GREEN
+	end
+	player:GetAttributeChangedSignal("DispatchOff"):Connect(paintAvail)
+	paintAvail()
 end
 
 local function refreshVisible()
@@ -442,6 +476,7 @@ function DispatchController:Start()
 	remotes.Decline = Net.event("Dispatch", "Decline")
 	remotes.Open = Net.event("Dispatch", "Open")
 	remotes.Home = Net.event("Dispatch", "Home")
+	remotes.Available = Net.event("Dispatch", "Available")
 	Net.event("Dispatch", "Offer").OnClientEvent:Connect(function(p: any)
 		if type(p) == "table" and type(p.id) == "string" then
 			showCard(p :: Payload)

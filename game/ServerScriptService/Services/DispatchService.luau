@@ -163,8 +163,9 @@ end
 
 -- incoming calls roll in on their own only for players who've had their first call (newbies get the
 -- FirstFire tutorial call instead); the DISPATCH list works for everyone
+-- Player attr DispatchOff = true: "unavailable", no incoming calls (the DISPATCH list still works)
 local function wantsAuto(p: Player, st: St): boolean
-	return Cfg.Enabled == true and (p:GetAttribute("Onboarded") == true or st.calls > 0)
+	return Cfg.Enabled == true and p:GetAttribute("DispatchOff") ~= true and (p:GetAttribute("Onboarded") == true or st.calls > 0)
 end
 
 local function streetOf(pos: Vector3): string
@@ -724,6 +725,19 @@ function DispatchService:Start()
 	end)
 	Net.onServer(Net.event("Dispatch", "Home"), { rate = 0.5, burst = 1 }, function(p: Player)
 		DispatchService:GoHome(p)
+	end)
+	-- available / unavailable for incoming calls
+	Net.onServer(Net.event("Dispatch", "Available"), { rate = 1, burst = 3 }, function(p: Player, on: any)
+		if type(on) ~= "boolean" then
+			return
+		end
+		p:SetAttribute("DispatchOff", not on)
+		local st = state(p)
+		if not on and st.offer then
+			clearOffer(p, st, true)
+		elseif on then
+			st.nextAt = math.min(st.nextAt, now() + 10)
+		end
 	end)
 
 	local Fire = services.FireService
