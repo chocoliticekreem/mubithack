@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -45,7 +46,10 @@ Undo what the check sets up (cash, positions, spawned parts) before every return
 ok = false must mean "the game did the wrong thing". When the check cannot set up its situation (no player,
 no plot, a part or module missing), call error("setup: <what is missing>") instead: that is a broken check,
 not a proven bug, and an ok = false for it makes every fix look like a failure.
-"Correct" is what the anomaly and the game's spec expect. Never redefine it just to get a failing check."""
+"Correct" is what the anomaly and the game's spec expect. Never redefine it just to get a failing check.
+The third header line names the consumer: `-- consumer: <file>:<line>`, the game code (client or server)
+that reads or uses what the check asserts, from the line-numbered code below. A check whose premise no game
+code depends on proves nothing, and Forge will not count it."""
 
 EXAMPLES = """```luau
 -- check: Touching an affordable buy pad takes its price and marks it bought
@@ -206,17 +210,33 @@ def excerpt_files(settings: Settings, game_dir: Path, anomaly: dict, found: dict
 
 
 def reproduce_message(anomaly: dict, found: dict | None, index: str, excerpts: dict[str, str],
-                      previous: tuple[str | None, str] | None = None) -> str:
+                      previous: tuple[str | None, str] | None = None, spec: dict | None = None) -> str:
     parts = ["## Anomaly\n" + json.dumps({k: v for k, v in anomaly.items() if k != "check"}, ensure_ascii=False),
              "## Investigation\n" + _investigation_block(found),
              "## Game files\n" + (index if len(index) <= INDEX_CHARS else index[:INDEX_CHARS] + "\n...[more files]"),
              "## Relevant code\n" + "\n\n".join(f"### {rel}\n```\n{ex}\n```" for rel, ex in excerpts.items()),
-             "## Check contract\n" + CONTRACT, "## Example checks\n" + EXAMPLES]
+             "## Check contract\n" + CONTRACT + "\n\n" + fchecks.CONSUMER_RULE,
+             "## Check helpers\n" + fchecks.helpers_doc(spec), "## Example checks\n" + EXAMPLES]
     if previous:
         body, outcome = previous
         parts.append("## Your previous check\n" + (f"```luau\n{body[:3000]}\n```\n" if body else "") + outcome)
     parts.append("Reply with ONE ```luau block: the check.")
     return "\n\n".join(parts)
+
+
+_CONSUMER_LINE = re.compile(r"^\s*--\s*consumer:\s*(.+)$", re.MULTILINE)
+
+
+def consumer_of(body: str) -> str:
+    m = _CONSUMER_LINE.search(body)
+    return m.group(1).strip() if m else ""
+
+
+def _no_consumer_outcome(named: str, hits: str) -> str:
+    return (f"It failed cleanly, but it names no real consumer ({named or 'no -- consumer: line'}). A failure proves a "
+            "bug only when game code depends on what the check asserts. Game code that mentions the names your "
+            f"check uses:\n{hits}\nAdd `-- consumer: <file>:<line>` naming the code path that reads it. If no game "
+            "code reads it, the check's premise is wrong: assert what the game actually uses instead.")
 
 
 def _outcome(result: dict) -> str:
@@ -240,7 +260,9 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
     from forge.memory import RunStore
     from forge.patch import relevant_excerpt
 
-    root = RunStore(settings, slug).game_dir
+    store = RunStore(settings, slug)
+    root = store.game_dir
+    spec = store.load_spec() if store.spec_path.exists() else {}
     index = file_index(root)
     concl = (found or {}).get("conclusion") or {}
     words = f"{anomaly['title']} {anomaly.get('expected', '')} {anomaly.get('observed', '')} {concl.get('root_cause', '')}"
@@ -250,7 +272,7 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
     attempts: list[dict] = []
     previous: tuple[str | None, str] | None = None
     for _ in range(1 + max(0, retries)):
-        msg = reproduce_message(anomaly, found, index, excerpts, previous)
+        msg = reproduce_message(anomaly, found, index, excerpts, previous, spec)
         try:
             res = await asyncio.to_thread(llm.complete, "reproducer", msg, session_id=session_id,
                                           max_tokens=REPRO_MAX_TOKENS)
@@ -268,8 +290,11 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
                   else await fchecks.run_check(studio, check))
         status = "proven" if not result.get("ok") and not result.get("error") else (
             "passed" if result.get("ok") else "errored")
+        consumer = fchecks.valid_consumer(root, consumer_of(body))
+        if status == "proven" and consumer is None:
+            status = "no_consumer"  # a clean fail on a premise nothing in the game reads proves nothing
         attempts.append({"status": status, "check": check.id, "title": check.title, "result": result,
-                         "request_id": res.request_id, "body": body})
+                         "request_id": res.request_id, "body": body, "consumer": consumer or ""})
         log(f"[reproducer] {check.id}: {status} ({str(result.get('error') or result.get('detail', ''))[:120]}) "
             f"{res.request_id}")
         if status == "proven":
@@ -278,7 +303,8 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
             # The game measured as expected. A retry here pushed the reproducer to invent a stricter
             # expectation just to fail (a sign showing DisplayName became a "bug"), so stop: unproven.
             break
-        previous = (body, _outcome(result))
+        previous = (body, _no_consumer_outcome(consumer_of(body), fchecks.consumer_hits(root, body))
+                    if status == "no_consumer" else _outcome(result))
     return {"proven": False, "check": None, "result": None, "attempts": attempts}
 
 
@@ -287,4 +313,7 @@ def problem_block(check: Check, result: dict) -> str:
     out = str(result.get("error") or result.get("detail") or "")[:400]
     body = check.body if len(check.body) <= CHECK_IN_PROBLEM_CHARS else check.body[:CHECK_IN_PROBLEM_CHARS] + "\n...[cut]"
     return (f"## Failing check (proves the bug; your fix is kept only if it passes)\nResult now: FAIL - {out}\n"
-            f"```luau\n{body}\n```")
+            f"```luau\n{body}\n```\n"
+            "Fix the game's existing code path so the behaviour is right. A fix that only adds duplicate or "
+            "parallel objects (a second folder, copies of remotes, a stub) so the check finds what it looks for, "
+            "while the code players use stays unchanged, is rejected.")

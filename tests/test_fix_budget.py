@@ -20,7 +20,7 @@ def _concl(root_cause, file="ServerScriptService/Services/HoseService.luau"):
     return json.dumps({"action": "conclude", "root_cause": root_cause, "file": file, "evidence": "e", "fix_hint": "h"})
 
 
-async def _cycle(settings, llm, playtest=None):
+async def _cycle(settings, llm, playtest=None, max_fixes=2):
     async def default(settings_, goal, players, steps, *, llm, harness):
         return {"goal": goal, "counters": {"a": 1}}
 
@@ -29,7 +29,7 @@ async def _cycle(settings, llm, playtest=None):
 
     return await run_cycle(settings, "fab", llm=llm, harness=StudioHarness(FakeStudio([])),
                            playtest=playtest or default, faults=[], goal="play", rounds=1, fix=True,
-                           resync=resync, log=lambda _: None, max_fixes=2, repro=False)
+                           resync=resync, log=lambda _: None, max_fixes=max_fixes, repro=False)
 
 
 def test_unproven_markers():
@@ -56,6 +56,33 @@ async def test_unproven_anomaly_is_skipped_and_the_next_one_is_fixed(settings):
     assert [f["status"] for f in cycle["code_fixes"]] == ["unproven", "kept"]
     assert [c.role for c in llm.calls].count("fixer") == 1  # no budget spent on the unproven one
     assert ImproveStore(settings, "fab").was_unproven(HOSE)
+
+
+def _ghost(n):
+    return {**OTHER, "title": f"Ghost anomaly {n}", "system": f"sys{n}", "severity": "high"}
+
+
+async def test_unproven_anomalies_do_not_use_up_the_fix_budget(settings):
+    """Run 1: --max-fixes 3 went on two unproven highs and one check, so the real medium bug never got a turn."""
+    _seeded_game(settings)
+    real = {**HOSE, "severity": "medium"}
+    llm = FakeLLM({"auditor": [audit_reply([_ghost(1), _ghost(2), real])],
+                   "investigator": [_concl("Most likely a testing artefact"), _concl("a testing artefact"),
+                                    _concl("The hose handler never lowers heat")],
+                   "fixer": ["```luau\nreturn {hose = 2}\n```"],
+                   "verifier": [json.dumps({"verdict": "fixed", "evidence": "e"})]})
+    cycle = await _cycle(settings, llm, max_fixes=1)
+    assert [f["status"] for f in cycle["code_fixes"]] == ["unproven", "unproven", "kept"]
+    assert cycle["code_fixes"][2]["anomaly"] == real["title"]
+
+
+async def test_reproduce_attempts_are_capped_at_three_per_fix(settings):
+    _seeded_game(settings)
+    ghosts = [_ghost(n) for n in range(5)]
+    llm = FakeLLM({"auditor": [audit_reply(ghosts)], "investigator": [_concl("a testing artefact")] * 5})
+    cycle = await _cycle(settings, llm, max_fixes=1)
+    assert [f["status"] for f in cycle["code_fixes"]] == ["unproven"] * 3
+    assert [c.role for c in llm.calls].count("investigator") == 3
 
 
 async def test_previously_unproven_anomalies_go_last(settings):

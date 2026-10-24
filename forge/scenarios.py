@@ -24,7 +24,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from forge.checks import Check, check_id, checks_dir, load_checks, run_check, save_check, summary, wrap
+from forge.checks import (CONSUMER_RULE, Check, check_id, checks_dir, consumer_hits, game_sources, helpers_doc,
+                          load_checks, run_check, save_check, summary, valid_consumer, wrap)
 from forge.config import Settings
 from forge.llm import LLM, LLMError
 from forge.memory import RunStore, now_iso
@@ -110,7 +111,8 @@ def key_code(game_dir: Path, spec: dict, budget: int = EXCERPT_CHARS) -> str:
 def plan_message(spec: dict, index: str, code: str, existing: list[str], max_checks: int) -> str:
     tail = (f"\n\nWrite at most {max_checks} checks. Return only the JSON object.")
     head = (f"## Spec\n{spec_block(spec)}\n\n## Game files\n{index}\n\n"
-            f"## Existing checks\n" + ("\n".join(f"- {t}" for t in existing) or "(none)") + "\n\n")
+            f"## Existing checks\n" + ("\n".join(f"- {t}" for t in existing) or "(none)") + "\n\n"
+            f"## Check helpers\n{helpers_doc(spec)}\n\n")
     room = max(2000, MAX_USER_CHARS - len(head) - len(tail) - 40)
     return head + "## Key server code\n" + _truncate(code, room, keep="head", label="code") + tail
 
@@ -229,35 +231,52 @@ def plan_checks(settings: Settings, slug: str, *, llm: LLM, max_checks: int = 15
 # reviewing failures
 
 
-def review_message(spec: dict, code: str, failing: list[tuple[Check, dict]]) -> str:
+def review_message(spec: dict, code: str, failing: list[tuple[Check, dict]],
+                   game_dir: Path | None = None) -> str:
+    sources = game_sources(game_dir) if game_dir else {}
     listed = "\n\n".join(
         f"### {c.id}\ntitle: {c.title}\ncovers: {c.covers}\nreturned: "
         f"{_truncate(r.get('error') or r.get('detail') or '(nothing)', 600, label='output')}\n"
         f"```luau\n{_clip_block(_truncate(c.body, 3000, keep='both', label='body'))}\n```"
+        + (f"\nGame code that mentions what it asserts (line-numbered):\n{consumer_hits(game_dir, c.body, 1500, sources)}"
+           if game_dir else "")
         for c, r in failing)
-    listed = _truncate(listed, 12_000, label="checks")
-    head = f"## Spec\n{spec_block(spec, 3000)}\n\n## Failing checks\n{listed}\n\n"
+    listed = _truncate(listed, 16_000, label="checks")
+    head = (f"## Spec\n{spec_block(spec, 3000)}\n\n## Failing checks\n{listed}\n\n"
+            f"## Premise rule\n{CONSUMER_RULE}\nEvery game_bug review MUST add \"consumer\": \"<file>:<line>\" "
+            "taken from the lines above; a game_bug without a real consumer is counted as a check bug.\n\n"
+            f"## Check helpers (for rewrites)\n{helpers_doc(spec)}\n\n")
     tail = "Return only the JSON object, one review per failing check."
     room = max(1500, MAX_USER_CHARS - len(head) - len(tail) - 40)
     return head + "## Key server code\n" + _truncate(code, room, label="code") + "\n\n" + tail
 
 
 def review_failures(llm: LLM, spec: dict, code: str, failing: list[tuple[Check, dict]], *,
-                    session_id: str) -> dict[str, dict]:
+                    session_id: str, game_dir: Path | None = None) -> dict[str, dict]:
     """One check_reviewer call for every failing check -> {check id: review}. A failure the reviewer
-    skips is treated as a game bug, so a real finding is never silently lost."""
+    skips is treated as a game bug, so a real finding is never silently lost. With `game_dir`, a
+    reviewed game_bug must name its consumer (a real <file>:<line> of game code that reads what the
+    check asserts); without one the premise is unproven and it counts as a check bug."""
     if not failing:
         return {}
-    obj, _ = llm.complete_json("check_reviewer", review_message(spec, code, failing), session_id=session_id,
-                               required=REVIEW_KEYS, max_tokens=REVIEW_MAX_TOKENS)
+    obj, _ = llm.complete_json("check_reviewer", review_message(spec, code, failing, game_dir),
+                               session_id=session_id, required=REVIEW_KEYS, max_tokens=REVIEW_MAX_TOKENS)
     got = {str(r.get("id")): r for r in obj.get("reviews") or [] if isinstance(r, dict)}
+    sources = game_sources(game_dir) if game_dir else {}
     out = {}
     for c, _ in failing:
         r = got.get(c.id) or {}
         verdict = "check_bug" if r.get("verdict") == "check_bug" else "game_bug"
+        reason = str(r.get("reason") or ("not reviewed" if not r else ""))
+        consumer = valid_consumer(game_dir, r.get("consumer"), sources) if game_dir and r else None
+        if game_dir and r and verdict == "game_bug" and consumer is None:
+            verdict = "check_bug"
+            reason = (f"no consumer: the review named no game code that reads what the check asserts "
+                      f"({str(r.get('consumer') or 'none given')[:80]}), so its premise is unproven. {reason}")
         out[c.id] = {
             "verdict": verdict,
-            "reason": str(r.get("reason") or ("not reviewed" if not r else "")),
+            "reason": reason,
+            "consumer": consumer or "",
             "kind": r.get("kind") if r.get("kind") in KINDS else "error",
             "system": str(r.get("system") or ""),
             "severity": r.get("severity") if r.get("severity") in SEVERITIES else "medium",
@@ -351,7 +370,8 @@ async def run_plan(studio: Any, slug: str, *, settings: Settings, llm: LLM | Non
     if failing and llm is not None:
         spec = store.load_spec()
         sid = session_id or f"check-review-{slug}-{uuid.uuid4().hex[:8]}"
-        reviews = review_failures(llm, spec, key_code(store.game_dir, spec), failing, session_id=sid)
+        reviews = review_failures(llm, spec, key_code(store.game_dir, spec), failing, session_id=sid,
+                                  game_dir=store.game_dir)
         rewrites = _apply_verdicts(store.dir, by_id, results, reviews, log)
         if rewrites:
             reruns = await run_in_sessions(studio, rewrites, log)
@@ -369,7 +389,7 @@ def _apply_verdicts(run_dir: Path, by_id: dict[str, Check], results: list[dict],
         rev = reviews.get(r["id"])
         if not rev:
             continue
-        r.update({k: rev[k] for k in ("verdict", "reason", "kind", "system", "severity", "expected")})
+        r.update({k: rev[k] for k in ("verdict", "reason", "kind", "system", "severity", "expected", "consumer")})
         if rev["verdict"] != "check_bug":
             log(f"[review] game bug {r['id']}: {rev['reason'][:160]}")
             continue
@@ -411,6 +431,20 @@ def save_results(run_dir: Path, results: list[dict]) -> Path:
     return path
 
 
+def save_suite_results(run_dir: Path, results: list[dict], source: str) -> Path:
+    """A fix cycle's suite run (forge/repro.run_suite: suite + pending checks) as the latest results.json,
+    keeping what the plan's review knew about each check (covers, kind, severity, ...). A pending check
+    is a proven bug not fixed yet, so it fails here too."""
+    prior = {r.get("id"): r for r in load_results(run_dir)}
+    out = []
+    for r in results:
+        old = {k: v for k, v in (prior.get(r["id"]) or {}).items()
+               if k in ("covers", "reason", "kind", "system", "severity", "expected", "consumer")}
+        out.append({**old, **{k: v for k, v in r.items() if k in ("id", "title", "ok", "detail", "error", "pending")},
+                    "verdict": "pass" if r.get("ok") else "game_bug", "source": source})
+    return save_results(run_dir, out)
+
+
 def load_results(run_dir: Path) -> list[dict]:
     path = checks_dir(run_dir) / RESULTS_FILE
     return json.loads(path.read_text(encoding="utf-8")).get("results", []) if path.exists() else []
@@ -441,6 +475,7 @@ def as_anomalies(results: list[dict]) -> list[dict]:
             "expected": r.get("expected") or r.get("title") or "",
             "evidence": f"check {r['id']} ({r.get('covers') or 'no covers'}) failed: {observed}"
                         + (f"; reviewer: {r['reason']}" if r.get("reason") else ""),
+            **({"consumer": r["consumer"]} if r.get("consumer") else {}),
             "check": r["id"],
         })
     return out

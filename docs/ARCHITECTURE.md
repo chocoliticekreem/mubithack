@@ -67,12 +67,17 @@ forge/                 Python package (uv), entry point `forge`
                        verifier, then keep or roll back; base_files only get improve/patches/
                        fix_code(..., repro=True): reproduce first, judge by checks (see "Fix loop" below)
   checks.py            executable checks: runs/<slug>/checks/<id>.luau, run in the Server DM during play,
-                       return {ok, detail}; load_checks/save_check/run_check/run_checks/summary
+                       return {ok, detail}; load_checks/save_check/run_check/run_checks/summary;
+                       wrap() gives every body a `forge` table (HELPERS): waitFor(fn, t), startRound(t),
+                       endRound() via ServerStorage.ForgeTest `round` ("setup: ..." error without it);
+                       helpers_doc(spec) for user messages (+ round rule when spec playtest.start_round);
+                       premise: consumer_hits(game_dir, body) (line-numbered game lines naming what a check
+                       asserts), valid_consumer(game_dir, "<file>:<line>") -> normalised ref | None
   repro.py             reproduce(settings, slug, anomaly, investigation, *, llm, studio, session_id) ->
                        {proven, check, result, attempts}; run_suite(studio, run_dir) -> {results, anomalies};
                        save_pending / promote / load_pending / find; problem_block(check, result) for the fixer
   prompts/reproducer.md  Mubit task: anomaly + investigation + code excerpts -> ONE check that fails while the
-                       bug exists (```luau block, `-- check:` / `-- covers:` header)
+                       bug exists (```luau block, `-- check:` / `-- covers:` / `-- consumer: <file>:<line>` header)
   dashboard.py         `forge dashboard`: live view of runs/ (collect() -> GET /api/state + dashboard.html);
                        per game: live (role at work), goal, missions (one per version, what_improved()),
                        features; team_view(settings, slug, game) -> game["team"] = {lanes, testers,
@@ -93,7 +98,8 @@ forge/                 Python package (uv), entry point `forge`
   prompts/planner.md   Mubit task: feature request -> {summary, new_modules, edits, telemetry, acceptance}
   ledger.py            `forge ledger`: ledger(settings) -> {total_calls, roles[{role, calls, corrections, verified,
                        rejected}], entries} rebuilt from runs/**/traces + improve/<n>.json + state.json corrections
-  done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass,
+  done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass
+                       (latest checks/results.json, dropped ignored),
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
                        fun critic >= 8, visuals (<= 15% default-grey parts), hud (a ScreenGui), sounds (>= 1),
                        first60 (every director beat's counter reached its min); census from the playtest, else source
@@ -222,13 +228,19 @@ Default with a live Studio; `forge fix --no-repro` (run_cycle(repro=False)) is t
 ```
 cycle start: run_suite(checks/*.luau + checks/pending/*.luau)    # before faults are planted
              failing check -> anomaly {kind regression|proven_bug, system "checks", check: <id>, high}
+budget:      max_fixes counts anomalies that reach a fix attempt; unproven / no-file ones are free, but
+             at most max_fixes * REPRO_PER_FIX (3) anomalies are investigated + reproduced per cycle
 per anomaly: investigator (as before, its conclusion is a hint)
              -> reproducer writes a check -> luau-compile -> run in the live playtest
-                ok=false, no error : PROVEN, saved to checks/pending/<id>.luau
-                passed / errored   : one retry, the outcome in the user message (same Mubit task)
+                ok=false, no error : PROVEN if its `-- consumer:` names a real game line, saved to
+                                     checks/pending/<id>.luau; no real consumer -> no_consumer
+                passed / errored /
+                no_consumer        : one retry, the outcome in the user message (same Mubit task); for
+                                     no_consumer the outcome lists the game lines naming what it asserts
                 still not failing  : unproven (improve/unproven.json), no fix attempted
              (an anomaly that names a saved check reuses it if it still fails cleanly)
-             -> fixer/patcher, problem includes the failing check + its output
+             -> fixer/patcher, problem includes the failing check + its output (and: duplicate/parallel
+                objects added only so the check finds them are rejected)
              -> compile -> resync -> run the repro check + every guard (checks that passed at fix start)
                 repro still fails  : check_failed, retry with the output, no playtest spent
                 a guard fails      : check_regression, retry with the broken checks
@@ -236,9 +248,12 @@ per anomaly: investigator (as before, its conclusion is a hint)
                                      says regression or server errors rose (hard_regressions)
              kept -> version snapshot, check moves pending/ -> checks/ (joins the suite as a guard)
              rolled back -> the check stays in pending/, next cycle starts from it
+cycle end:   run_suite again (when fixes ran) -> checks/results.json (scenarios.save_suite_results: the
+             plan's review fields kept, verdict pass|game_bug, pending, source "fix cycle <n>"), which is
+             what `forge done` reads
 ```
 Cycle JSON (`improve/<n>.json`): `repro: bool`, `checks: {start, start_failing, proven, written, unproven,
-kept}`; each `code_fixes[i].repro = {check, source: reproducer|saved, before, attempts, saved}` and each
+kept, end}`; each `code_fixes[i].repro = {check, source: reproducer|saved, before, attempts, saved}` and each
 attempt may carry `checks: {repro, guards}`. `scores.json` rows add `proven`, `checks_kept` when repro ran.
 
 ### roles.py (all go through LLM; user-message builders live here)
@@ -429,13 +444,17 @@ def plan_checks(settings, slug, *, llm, max_checks=15, session_id=None, log=prin
 async def run_plan(studio, slug, *, settings, llm=None, session_id=None, log=print) -> list[dict]
     # reversible checks share one playtest; each check whose covers says "irreversible" gets a
     # fresh one. Play is always stopped. A detail containing "inconclusive" is a failure.
-    # Failures -> ONE check_reviewer call (Mubit task): game_bug | check_bug. Check bugs are rewritten
-    # once and re-run (pass -> check_bug_fixed, saved; else dropped -> checks/dropped/).
+    # Failures -> ONE check_reviewer call (Mubit task): game_bug | check_bug. The user message lists,
+    # per check, the line-numbered game lines (client + server) naming what it asserts; a game_bug
+    # must carry "consumer": "<file>:<line>" (valid_consumer), else it counts as a check bug (premise
+    # not used by the game). Check bugs are rewritten once and re-run (pass -> check_bug_fixed, saved;
+    # else dropped -> checks/dropped/).
     # result: {id, title, covers, ok, detail, error?, verdict: pass|game_bug|check_bug_fixed|dropped,
-    #          reason?, kind?, system?, severity?, expected?, first_run?}
+    #          reason?, kind?, system?, severity?, expected?, consumer?, first_run?}
+def save_suite_results(run_dir, results, source) -> Path   # a fix cycle's run_suite as results.json
 def as_anomalies(results) -> list[dict]
     # game_bug failures in the auditor's shape {title, kind, severity, system, observed, expected,
-    # evidence} + check (the id that reproduces it), for run_cycle(extra_anomalies=...)
+    # evidence} + check (the id that reproduces it) + consumer?, for run_cycle(extra_anomalies=...)
 def load_results(run_dir) -> list[dict]
 forge fix <slug> [--cycles N --max-fixes M --reports --no-repro]  # real anomalies: repro check, fix, prove, until clean
 ```

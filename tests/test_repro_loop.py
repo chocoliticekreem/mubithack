@@ -43,8 +43,9 @@ class StudioHarness(FakeHarness):
         self.studio = studio
 
 
-def repro_reply(title=REPRO, body="return { ok = false, detail = 'x' }"):
-    return f"```luau\n-- check: {title}\n-- covers: anomaly: {HOSE['title']}\n{body}\n```"
+def repro_reply(title=REPRO, body="return { ok = false, detail = 'x' }", consumer=f"{HOSE_FILE}:1"):
+    head = f"-- consumer: {consumer}\n" if consumer else ""
+    return f"```luau\n-- check: {title}\n-- covers: anomaly: {HOSE['title']}\n{head}{body}\n```"
 
 
 def conclude():
@@ -199,3 +200,97 @@ def test_reproducer_prompt_and_message():
                                    "a.luau", {HOSE_FILE: "1| return {}"}, ("return {ok=true}", "PASSED"))
     for part in ("## Anomaly", "rc", "## Check contract", "## Example checks", "## Your previous check", "PASSED"):
         assert part in msg
+
+
+# ---------------------------------------------------------------- premise: a proven bug names its consumer
+
+REMOTES_BODY = ('local f = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")\n'
+                'return { ok = f ~= nil, detail = "missing ReplicatedStorage.Remotes" }')
+
+
+async def test_clean_fail_without_a_consumer_is_not_proven_and_retries_with_the_code_that_mentions_it(settings):
+    game = _seeded_game(settings)
+    llm = llm_for([repro_reply("Remotes exist", REMOTES_BODY, consumer=""),
+                   repro_reply("Remotes exist", REMOTES_BODY, consumer="StarterPlayerScripts/Nope.luau:3")], [], [])
+    cycle, _, _ = await cycle_with(settings, llm, {"Remotes exist": lambda h: (False, "missing")}, game)
+    fx = cycle["code_fixes"][0]
+    assert fx["status"] == "unproven"
+    assert [a["status"] for a in fx["repro"]["attempts"]] == ["no_consumer", "no_consumer"]
+    retry = [c.user for c in llm.calls if c.role == "reproducer"][1]
+    assert "names no real consumer" in retry and '"Remotes": no game code mentions it' in retry
+    assert "fixer" not in [c.role for c in llm.calls]
+    assert frepro.load_pending(ImproveStore(settings, "fab").run.dir) == []
+
+
+async def test_consumer_named_on_the_retry_proves_the_bug(settings):
+    game = _seeded_game(settings)
+    llm = llm_for([repro_reply(consumer=""), repro_reply(consumer=f"./{HOSE_FILE}:1")],
+                  ["return {hose = 2}"], ["fixed"])
+    cycle, _, _ = await cycle_with(settings, llm, {REPRO: fixed}, game)
+    fx = cycle["code_fixes"][0]
+    assert [a["status"] for a in fx["repro"]["attempts"]] == ["no_consumer", "proven"]
+    assert fx["repro"]["attempts"][1]["consumer"] == f"{HOSE_FILE}:1" and fx["status"] == "kept"
+
+
+def test_consumer_must_be_a_real_line_of_game_code(tmp_path):
+    from forge.checks import valid_consumer
+
+    (tmp_path / "ServerScriptService").mkdir()
+    (tmp_path / "ServerScriptService" / "A.luau").write_text("a\nb\n")
+    (tmp_path / "ServerScriptService" / "ForgeTest.server.luau").write_text("x\n")
+    assert valid_consumer(tmp_path, "ServerScriptService/A.luau:2 (reads it)") == "ServerScriptService/A.luau:2"
+    assert valid_consumer(tmp_path, "A.luau:1") == "ServerScriptService/A.luau:1"
+    assert valid_consumer(tmp_path, "ServerScriptService/A.luau:3") is None
+    assert valid_consumer(tmp_path, "ServerScriptService/ForgeTest.server.luau:1") is None  # the harness
+    assert valid_consumer(tmp_path, "") is None and valid_consumer(tmp_path, None) is None
+
+
+async def test_fixer_is_told_that_parallel_objects_for_the_check_are_rejected(settings):
+    game = _seeded_game(settings)
+    llm = llm_for([repro_reply()], ["return {hose = 2}"], ["fixed"])
+    await cycle_with(settings, llm, {REPRO: fixed}, game)
+    fixer_msg = next(c.user for c in llm.calls if c.role == "fixer")
+    assert "duplicate or parallel objects" in fixer_msg
+
+
+def test_reproducer_message_has_the_helpers_and_the_round_rule_only_for_lobby_games():
+    found = {"conclusion": {}, "steps": []}
+    plain = frepro.reproduce_message(HOSE, found, "a.luau", {}, None, {})
+    lobby = frepro.reproduce_message(HOSE, found, "a.luau", {}, None, {"playtest": {"start_round": True}})
+    assert "forge.startRound" in plain and "MUST call forge.startRound()" not in plain
+    assert "MUST call forge.startRound()" in lobby and "-- consumer:" in lobby
+
+
+# ---------------------------------------------------------------- forge done reads the suite after the fixes
+
+async def test_cycle_writes_the_suite_after_its_fixes_to_results_json(settings):
+    from forge.done import _checks
+    from forge.scenarios import load_results, save_results
+
+    game = _seeded_game(settings)
+    run_dir = ImproveStore(settings, "fab").run.dir
+    # the planning run: one failing check (with the reviewer's fields), one dropped
+    save_results(run_dir, [{"id": "spraying-a-fire-cools-it", "ok": False, "verdict": "game_bug",
+                            "covers": "acceptance: cools", "severity": "high"},
+                           {"id": "gone", "ok": False, "verdict": "dropped"}])
+    frepro.save_pending(run_dir, Check("spraying-a-fire-cools-it", REPRO, "anomaly: hose", "return {ok = false}"))
+    llm = llm_for([], ["return {hose = 2}"], ["fixed"], anomalies=())
+    cycle, _, _ = await cycle_with(settings, llm, {REPRO: fixed}, game)
+    assert cycle["code_fixes"][0]["status"] == "kept"
+    [r] = load_results(run_dir)
+    assert r["id"] == "spraying-a-fire-cools-it" and r["ok"] is True and r["verdict"] == "pass"
+    assert r["source"] == "fix cycle 1" and r["covers"] == "acceptance: cools" and r["severity"] == "high"
+    assert cycle["checks"]["end"][0]["ok"] is True
+    assert _checks(run_dir) == {"part": "checks", "ok": True, "detail": "1/1 pass"}
+
+
+async def test_unfixed_pending_check_stays_failing_in_results_json(settings):
+    from forge.scenarios import load_results
+
+    game = _seeded_game(settings)
+    run_dir = ImproveStore(settings, "fab").run.dir
+    frepro.save_pending(run_dir, Check("spraying-a-fire-cools-it", REPRO, "anomaly: hose", "return {ok = false}"))
+    llm = llm_for([], ["return {hose = 3}", "return {hose = 4}"], [], anomalies=())
+    await cycle_with(settings, llm, {REPRO: fixed}, game)
+    [r] = load_results(run_dir)
+    assert r["ok"] is False and r["pending"] is True and r["verdict"] == "game_bug"

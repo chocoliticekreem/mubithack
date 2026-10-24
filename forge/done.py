@@ -1,7 +1,8 @@
 """`forge done <slug>`: is the game ready? One bar, the same for every game, each part proved by a record:
 
-- checks: the latest executable check run (runs/<slug>/checks/results.json) has at least one check
-  and every check passes;
+- checks: the latest executable check run (runs/<slug>/checks/results.json, written by `forge checks
+  --run` and again at the end of every fix cycle) has at least one check and every check passes
+  (dropped checks were broken tests and do not count);
 - features: every feature in features.jsonl is verified (for UI features that includes a tester
   pressing its buttons, forge/feature.py);
 - open: the latest fix cycle left nothing high or medium open;
@@ -49,6 +50,8 @@ def _checks(run: Path) -> dict:
     results = _read(run / "checks" / "results.json")
     if isinstance(results, dict):
         results = results.get("results")
+    if isinstance(results, list):  # a dropped check was a broken test, moved out of the suite
+        results = [r for r in results if isinstance(r, dict) and r.get("verdict") != "dropped"]
     if not isinstance(results, list) or not results:
         return {"part": "checks", "ok": False, "detail": "no check run yet (forge checks <slug> --plan --run)"}
     failed = [r for r in results if not r.get("ok")]

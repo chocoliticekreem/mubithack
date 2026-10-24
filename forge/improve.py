@@ -384,6 +384,9 @@ def telemetry_changes(before: list[dict], after: list[dict]) -> tuple[list[str],
 # ---------------------------------------------------------------- code fixes for real anomalies
 
 FIX_SEVERITIES = ("high", "medium")
+# max_fixes counts anomalies that reach a fix attempt; unproven ones are free, but at most
+# max_fixes * REPRO_PER_FIX anomalies are investigated/reproduced per cycle so the cost stays bounded.
+REPRO_PER_FIX = 3
 UNPROVEN_SIMILAR = 0.6
 # Only skip when the investigator says the problem is not in the game's code. A plausible but unproven
 # cause is still worth one attempt: the guards and the verifier reject a fix that does not help.
@@ -452,7 +455,11 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
     A rejected fix gets `retries` more attempts; each retry tells the fixer why the last one was
     rejected (a correction in the fixer's Mubit task). If none is verified `fixed`, the file is
     restored and Studio resynced. Human-owned files (a seeded game's base_files) only get a saved
-    patch unless `edit_human` is set; the Forge runtime is never edited."""
+    patch unless `edit_human` is set; the Forge runtime is never edited.
+
+    `max_fixes` counts anomalies that reach a fix attempt (proven ones); unproven or not-a-bug anomalies
+    do not use it up, so a real bug further down the list still gets its turn. At most
+    max_fixes * REPRO_PER_FIX anomalies are tried in total."""
     from forge import repro as frepro
     from forge import roles
     from forge import sync as fsync
@@ -484,7 +491,13 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
     results: list[dict] = []
     todo = sorted((x for x in anomalies if x["severity"] in FIX_SEVERITIES),
                   key=lambda x: store.was_unproven(x))  # stable: unproven-before anomalies go last
-    for a in todo[:max(0, max_fixes)]:
+    fixes = tries = 0
+    for i, a in enumerate(todo):
+        if fixes >= max_fixes or tries >= max_fixes * REPRO_PER_FIX:
+            log(f"[fix] budget spent ({fixes} fix attempt(s), {tries} anomalies tried): "
+                f"{len(todo) - i} left for the next cycle")
+            break
+        tries += 1
         found = None
         if investigate_first and studio is not None:
             await harness.ensure_ready()
@@ -509,6 +522,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             results.append({"anomaly": a["title"], "status": "no_file", "investigation": found, "repro": rp})
             log(f"[fix] {a['title']}: no matching file")
             continue
+        fixes += 1
         old = (root / rel).read_text(encoding="utf-8")
         problem = (f"Playtest anomaly ({a['kind']}, {a['severity']}, system {a['system']}): {a['title']}\n"
                    f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
@@ -908,6 +922,15 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
                                     playtest=playtest, resync=resync, goal=goal, players=players,
                                     steps=steps, max_fixes=max_fixes, session_id=session_id,
                                     edit_human=edit_human, repro=repro, log=log)
+    suite_end = suite_start
+    if repro and code_fixes:  # fixes changed the game or the suite: measure it again
+        await harness.ensure_ready()
+        suite_end = await frepro.run_suite(harness.studio, store.run.dir, log=log)
+    if repro and suite_end["results"]:
+        from forge.scenarios import save_suite_results
+
+        # `forge done` reads checks/results.json: it must describe the game after this cycle, not the plan
+        log(f"[checks] latest suite -> {save_suite_results(store.run.dir, suite_end['results'], f'fix cycle {n}')}")
     cycle = {
         "cycle": n, "ts": now_iso(), "session_id": session_id, "goal": goal,
         "planted": len(faults), "detected": len(sc["detected"]), "missed": len(sc["missed"]),
@@ -917,7 +940,8 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         "before": before, "open": sum(1 for a in real if a["severity"] in FIX_SEVERITIES),
         "code_fixes": code_fixes, "code_kept": sum(1 for f in code_fixes if f["status"] == "kept"),
         "backlog": backlog,
-        "repro": repro, "checks": _checks_record(suite_start["results"], code_fixes),
+        "repro": repro, "checks": {**_checks_record(suite_start["results"], code_fixes),
+                                   "end": suite_end["results"]},
     }
     path = store.save_cycle(cycle)
     log(f"[cycle {n}] detected {cycle['detected']}/{cycle['planted']}, unmatched anomalies "
