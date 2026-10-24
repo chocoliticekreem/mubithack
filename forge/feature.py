@@ -13,6 +13,7 @@ Everything happens in runs/<slug>/game, versioned (forge versions / forge rollba
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Callable
@@ -63,7 +64,7 @@ def validate_plan(plan: dict, game_dir) -> dict:
 
 
 async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any = None, ui=None,
-                      iterations: int = 1, use_studio: bool = True, polish: int = 0,
+                      iterations: int = 1, use_studio: bool = True, polish: int = 0, jobs: int | None = None,
                       log: Callable[[str], None] = print) -> dict:
     from forge import roles
     from forge.improve import destructive, file_index
@@ -75,7 +76,7 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
     store = RunStore(settings, slug)
     if not store.exists():
         raise FileNotFoundError(f"no game {slug!r}")
-    run = Run(settings, store, llm, ui)
+    run = Run(settings, store, llm, ui, jobs=jobs, command="feature")
     spec = store.load_spec()
     run.spec = spec
     versions = GameVersions(store.game_dir)
@@ -83,9 +84,10 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
     session = f"feature-{slug}"
     lessons = read_lessons(settings)
 
-    raw = await run.call("planner", "feature plan", lambda llm_, *a, **k: llm_.complete_json(*a, **k)[0],
-                         "planner", plan_message(spec, file_index(store.game_dir), request, lessons),
-                         session_id=session, required=PLAN_KEYS, max_tokens=4096)
+    with run.stage("feature: plan"):
+        raw = await run.call("planner", "feature plan", lambda llm_, *a, **k: llm_.complete_json(*a, **k)[0],
+                             "planner", plan_message(spec, file_index(store.game_dir), request, lessons),
+                             session_id=session, required=PLAN_KEYS, max_tokens=4096)
     plan = validate_plan(raw, store.game_dir)
     log(f"[planner] {plan['summary'][:140]} -> {len(plan['new_modules'])} new, {len(plan['edits'])} edits, "
         f"telemetry {plan['telemetry']}")
@@ -102,35 +104,47 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
     store.save_spec(spec)
     run.spec = spec
 
-    built, edited, skipped = [], [], []
-    for m in topo_order(plan["new_modules"]):
-        deps = {d: run.read(d) for d in m["depends"] if run.read(d)}
-        try:
-            src = await run.call("coder", m["path"], roles.code_module, spec, m, deps, lessons, session_id=session)
-            run.write(m["path"], src)
-            built.append(m["path"])
-        except Exception as e:  # noqa: BLE001 - logged by run.call; the iteration's critic will see the gap
-            skipped.append({"path": m["path"], "error": str(e)[:200]})
+    # New modules (as a dependency DAG, each compiled as soon as it is written) and the hook-in edits to
+    # existing files all go out at once: an edit only needs the planned file names, not their code.
+    planned = [m["path"] for m in topo_order(plan["new_modules"])]
+    edited: list[str] = []
+    edit_skips: list[dict] = []
 
-    for e in plan["edits"]:
+    async def edit_one(e: dict) -> None:
         old = run.read(e["path"])
         rewrite = roles.patch_file if len(old.splitlines()) > PATCH_ABOVE_LINES else roles.fix_file
         problem = (f"Feature to add: {request.strip()}\nChange needed in this file: {e['change']}\n"
-                   f"New feature files: {', '.join(built) or '(none)'}.{telemetry_note}")
+                   f"New feature files: {', '.join(planned) or '(none)'}.{telemetry_note}")
         try:
             new = await run.call("patcher" if rewrite is roles.patch_file else "fixer", f"{e['path']} (feature)",
                                  rewrite, e["path"], old, problem, spec.get("pitch", ""), lessons, session_id=session)
         except (LLMError, Exception) as err:  # noqa: BLE001
-            skipped.append({"path": e["path"], "error": str(err)[:200]})
-            continue
+            edit_skips.append({"path": e["path"], "error": str(err)[:200]})
+            return
         why = destructive(old, new)
         if why:
-            skipped.append({"path": e["path"], "error": why})
-            continue
+            edit_skips.append({"path": e["path"], "error": why})
+            return
         run.write(e["path"], new)
         edited.append(e["path"])
 
-    remaining = await run.compile_fix({"fixes": [], "steps": []}, only=set(built + edited) or None)
+    async def edit_file(edits: list[dict]) -> None:
+        for e in edits:  # several edits to one file: one after another, each on the last one's result
+            await edit_one(e)
+
+    by_file: dict[str, list[dict]] = {}
+    for e in plan["edits"]:
+        by_file.setdefault(e["path"], []).append(e)
+    with run.stage("feature: build + edits"):
+        (built, skipped), _ = await asyncio.gather(
+            run.build_modules(plan["new_modules"], session_id=session, lessons=lessons, spec=spec),
+            asyncio.gather(*(edit_file(es) for es in by_file.values())))
+    order = [e["path"] for e in plan["edits"]]
+    edited.sort(key=order.index)
+    skipped += edit_skips
+
+    with run.stage("feature: compile"):
+        remaining = await run.compile_fix({"fixes": [], "steps": []}, only=set(built + edited) or None)
     version = versions.snapshot(f"feature: {request.strip()[:120]} ({len(built)} new, {len(edited)} edited)")
     log(f"[feature] built {built}, edited {edited}, skipped {len(skipped)}, compile errors {len(remaining)} "
         f"-> {version}")
@@ -152,6 +166,7 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
             log(f"[feature] telemetry {dict((t, counters.get(t)) for t in plan['telemetry'])}"
                 f"{', needs a tester UI press' if feature_has_ui(feature) else ''} -> "
                 f"{'verified' if verified else 'not seen in the playtest'}")
+    run.save_timings()
     polished = await polish_feature(settings, slug, cycles=polish, log=log) if polish > 0 and use_studio else []
     if polished:
         verified = polished[-1].get("feature_verified", verified)

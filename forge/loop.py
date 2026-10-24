@@ -8,20 +8,27 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
+import functools
 import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
 from forge import director
 from forge.config import Settings, load_settings
 from forge.fun import FUN_BAR
+from forge.llm import _JSONMixin, jobs_from_env
 from forge.patch import PATCH_ABOVE_LINES
+from forge.timings import Timeline
 from forge.versions import GameVersions
 from forge.memory import (
     RunStore,
@@ -98,21 +105,40 @@ def short_rid(rid: str | None) -> str:
 
 # ================================================================ LLM tracing
 
+# Calls run concurrently, so per-call bookkeeping lives in context variables (copied into the worker
+# thread), not in "whatever was appended last".
+_CALL_BUCKET: contextvars.ContextVar[list | None] = contextvars.ContextVar("forge_call_bucket", default=None)
+_LAST_RID: contextvars.ContextVar[str | None] = contextvars.ContextVar("forge_last_rid", default=None)
+_CALLS_SINK: contextvars.ContextVar[list | None] = contextvars.ContextVar("forge_calls_sink", default=None)
+
+
 class TracingLLM:
-    """Wraps any LLM (MubitLLM / FakeLLM) and keeps every LLMResult so the loop can show request ids."""
+    """Wraps any LLM (MubitLLM / FakeLLM) and keeps every LLMResult so the loop can show request ids.
+    Each Run.call also collects its own results (thread-safe, per call) for its timing line."""
 
     def __init__(self, inner: Any):
         self.inner = inner
         self.results: list[Any] = []
+        self._lock = threading.Lock()
+
+    def _record(self, res) -> None:
+        with self._lock:
+            self.results.append(res)
+        bucket = _CALL_BUCKET.get()
+        if bucket is not None:
+            bucket.append(res)
 
     def complete(self, role, user, *args, **kwargs):
         res = self.inner.complete(role, user, *args, **kwargs)
-        self.results.append(res)
+        self._record(res)
         return res
 
     def complete_json(self, role, user, *args, **kwargs):
+        # JSON repair calls go through self.complete too, so each one is counted (and timed)
+        if isinstance(self.inner, _JSONMixin):
+            return _JSONMixin.complete_json(self, role, user, *args, **kwargs)
         data, res = self.inner.complete_json(role, user, *args, **kwargs)
-        self.results.append(res)
+        self._record(res)
         return data, res
 
     def __getattr__(self, name):
@@ -239,7 +265,8 @@ def copy_base_game(settings: Settings, dest: Path) -> None:
 # ================================================================ the run
 
 class Run:
-    def __init__(self, settings: Settings, store: RunStore, llm: Any = None, ui: UI | None = None):
+    def __init__(self, settings: Settings, store: RunStore, llm: Any = None, ui: UI | None = None, *,
+                 jobs: int | None = None, command: str = "run"):
         self.settings = settings
         self.store = store
         self.ui = ui or UI()
@@ -251,6 +278,35 @@ class Run:
         self.spec: dict = {}
         self.calls: list[dict] = []          # calls of the current phase (iteration / correction)
         self._check_fn: Callable | None = None
+        # LLM calls run on a bounded pool: independent modules / files go out together (--jobs N).
+        self.jobs = max(1, int(jobs or jobs_from_env()))
+        self._pool = ThreadPoolExecutor(max_workers=self.jobs, thread_name_prefix="forge-llm")
+        self.timeline = Timeline(command, store.dir / "timings.json", self.jobs)
+        self._reflecting: asyncio.Task | None = None  # the previous iteration's reflector, off the critical path
+        # compile fixes made while building (pipelined); the next iteration's record takes them over
+        self.build_rec: dict = {"fixes": [], "steps": []}
+        self.compile_first: dict[str, str | None] = {}  # path -> first luau-compile error (None = compiled)
+
+    def stage(self, name: str):
+        """Time a stage into runs/<slug>/timings.json (written live as it starts and ends)."""
+        return self.timeline.stage(name)
+
+    def close(self) -> None:
+        """Release the LLM pool's threads (long-lived processes like `forge server` run many Runs)."""
+        self._pool.shutdown(wait=False)
+
+    def save_timings(self) -> dict:
+        """Final timings.json write plus a one-line summary; the run is over, so its pool is released."""
+        self.close()
+        rec = self.timeline.finish()
+        cache = getattr(self.llm.inner, "hits", None)
+        if cache is not None:
+            self.ui.line("timing", f"{rec['wall_s']:.1f}s wall, LLM {rec['llm_busy_s']:.1f}s", True,
+                         self.ui.dim(f"x{rec['parallelism']} overlap, jobs {self.jobs}, cache hits {cache}"))
+        else:
+            self.ui.line("timing", f"{rec['wall_s']:.1f}s wall, LLM {rec['llm_busy_s']:.1f}s", True,
+                         self.ui.dim(f"x{rec['parallelism']} overlap, jobs {self.jobs}"))
+        return rec
 
     @property
     def slug(self) -> str:
@@ -269,30 +325,54 @@ class Run:
 
     # ---------------------------------------------------------- LLM calls
     async def call(self, role: str, label: str, fn: Callable, *args, **kwargs) -> Any:
-        mark = len(self.llm.results)
+        """Run fn(llm, *args, **kwargs) on the LLM pool. Safe to run many at once (asyncio.gather)."""
+        new: list = []
+        token = _CALL_BUCKET.set(new)
+        sink = _CALLS_SINK.get()
+        calls = sink if sink is not None else self.calls
+        span: dict = {}
         t0 = time.monotonic()
+
+        def job():
+            nonlocal t0
+            t0 = time.monotonic()  # timed from when a pool worker picks it up, not while it queues
+            span["_c"] = self.timeline.start_call(role, label)
+            return fn(self.llm, *args, **kwargs)
+
         try:
-            out = await asyncio.to_thread(fn, self.llm, *args, **kwargs)
+            ctx = contextvars.copy_context()
+            out = await asyncio.get_running_loop().run_in_executor(self._pool, functools.partial(ctx.run, job))
         except Exception as e:
             secs = time.monotonic() - t0
-            new = self.llm.results[mark:]
             self.ui.call(role, label, False, secs, None, err=f"{type(e).__name__}: {e}")
-            self.calls.append({"role": role, "label": label, "ok": False, "error": str(e),
-                               "request_ids": [getattr(r, "request_id", None) for r in new]})
+            calls.append({"role": role, "label": label, "ok": False, "error": str(e),
+                          "request_ids": [getattr(r, "request_id", None) for r in new]})
+            if span:
+                self.timeline.end_call(span["_c"], ok=False, n_calls=len(new), error=f"{type(e).__name__}: {e}")
             raise
-        new = self.llm.results[mark:]
+        finally:
+            _CALL_BUCKET.reset(token)
+        cached = bool(new) and all(getattr(r, "cached", False) for r in new)
         secs = (sum((getattr(r, "latency_ms", 0) or 0) for r in new) / 1000) if new else 0.0
-        if secs <= 0:
+        if secs <= 0 and not cached:
             secs = time.monotonic() - t0
         rid = getattr(new[-1], "request_id", None) if new else None
-        self.ui.call(role, label, True, secs, rid, n_calls=len(new))
-        self.calls.append({"role": role, "label": label, "ok": True, "request_id": rid,
-                           "request_ids": [getattr(r, "request_id", None) for r in new],
-                           "latency_ms": int(secs * 1000)})
+        _LAST_RID.set(rid)
+        self.ui.call(role, label + (" (cached)" if cached else ""), True, secs, rid, n_calls=len(new))
+        calls.append({"role": role, "label": label, "ok": True, "request_id": rid,
+                      "request_ids": [getattr(r, "request_id", None) for r in new],
+                      "latency_ms": int(secs * 1000), **({"cached": True} if cached else {})})
+        if span:
+            self.timeline.end_call(span["_c"], ok=True, latency_ms=int(secs * 1000), request_id=rid,
+                                   cached=cached, n_calls=len(new))
         return out
 
     @property
     def last_request_id(self) -> str | None:
+        """Request id of the last call made by this task (concurrent calls each see their own)."""
+        rid = _LAST_RID.get()
+        if rid:
+            return rid
         for c in reversed(self.calls):
             if c.get("request_id"):
                 return c["request_id"]
@@ -360,12 +440,60 @@ class Run:
             out.append((_rel(path, self.game_dir), str(msg)))
         return out
 
-    async def compile_fix(self, rec: dict | None = None, only: set[str] | None = None) -> list[tuple[str, str]]:
-        """luau-compile everything; send each failing file to the fixer, up to MAX_FIX_ATTEMPTS per file."""
+    def check_file(self, rel: str) -> str | None:
+        """luau-compile one file: its error text, or None if it compiles (or cannot be checked here)."""
+        exe = shutil.which("luau-compile")
+        p = self.file_path(rel)
+        if not exe or not p.exists():
+            return None
+        r = subprocess.run([exe, "--null", str(p)], capture_output=True, text=True)
+        if r.returncode == 0:
+            return None
+        lines = [ln for ln in (r.stdout + r.stderr).splitlines() if ln.strip() and not ln.startswith("Compiled ")]
+        return "\n".join(ln.replace(str(p), p.name) for ln in lines) or f"luau-compile exit {r.returncode}"
+
+    def _fixable(self, path: str) -> bool:
+        return path not in self.base_files and not path.startswith("tools/")
+
+    async def fix_compile_file(self, path: str, msg: str | None = None, *, rec: dict | None = None,
+                               lessons: str | None = None, session_id: str | None = None) -> str | None:
+        """Fixer loop for one file: fix, recompile just this file, up to MAX_FIX_ATTEMPTS. Many files run
+        at once. msg=None compiles the file first. Returns the error left, or None if it compiles."""
         from forge import roles
 
-        attempts: dict[str, int] = defaultdict(int)
-        while True:
+        if msg is None:
+            msg = await asyncio.to_thread(self.check_file, path)
+        attempt = 0
+        while msg and attempt < MAX_FIX_ATTEMPTS and self._fixable(path):
+            attempt += 1
+            if lessons is None:
+                await self.settle_reflection()  # the fixer reads lessons: wait for a pending reflector
+                lessons = read_lessons(self.settings)
+            module = next((m for m in self.spec.get("modules", []) if m["path"] == path), {})
+            context = spec_summary(self.spec)
+            if module.get("purpose"):
+                context += f"\nThis file: {module['purpose']}"
+            problem = f"luau-compile failed (attempt {attempt}/{MAX_FIX_ATTEMPTS}):\n{msg.strip()}"
+            try:
+                fixed = await self.call("fixer", f"{path} (compile)", roles.fix_file, path,
+                                        self.read(path), problem, context, lessons,
+                                        session_id=session_id or self.slug)
+                self.write(path, fixed)
+                if rec is not None:
+                    rec["fixes"].append({"path": path, "kind": "compile", "problem": msg.strip()[:500],
+                                         "request_id": self.last_request_id})
+            except Exception as e:
+                if rec is not None:
+                    rec["steps"].append({"step": f"fix_compile:{path}", "ok": False, "error": str(e)})
+                continue
+            msg = await asyncio.to_thread(self.check_file, path)
+        return msg or None
+
+    async def compile_fix(self, rec: dict | None = None, only: set[str] | None = None) -> list[tuple[str, str]]:
+        """luau-compile everything; every failing file goes to the fixer at once (one loop per file,
+        up to MAX_FIX_ATTEMPTS each); then one final check of the whole tree."""
+
+        async def full_check() -> list[tuple[str, str]] | None:
             t0 = time.monotonic()
             try:
                 errors = await asyncio.to_thread(self.check)
@@ -373,62 +501,89 @@ class Run:
                 self.ui.line("check", "luau-compile", False, self.ui.red(str(e)[:80]))
                 if rec is not None:
                     rec["steps"].append({"step": "compile_check", "ok": False, "error": str(e)})
-                return []
+                return None
             n_files = len(self.game_files())
-            secs = time.monotonic() - t0
             if not errors:
-                self.ui.line("check", f"luau-compile {n_files} files", True, f"{secs:4.1f}s")
-                return []
-            self.ui.line("check", f"luau-compile {len(errors)}/{n_files} failing", False,
-                         self.ui.dim(", ".join(Path(p).name for p, _ in errors)[:60]))
-            fixable = [(p, m) for p, m in errors
-                       if p not in self.base_files and not p.startswith("tools/")
-                       and attempts[p] < MAX_FIX_ATTEMPTS and (only is None or p in only)]
-            if not fixable:
-                if rec is not None:
-                    rec["compile_errors"] = [{"path": p, "error": m} for p, m in errors]
-                return errors
+                self.ui.line("check", f"luau-compile {n_files} files", True, f"{time.monotonic() - t0:4.1f}s")
+            else:
+                self.ui.line("check", f"luau-compile {len(errors)}/{n_files} failing", False,
+                             self.ui.dim(", ".join(Path(p).name for p, _ in errors)[:60]))
+            return errors
+
+        errors = await full_check()
+        if not errors:
+            return []
+        fixable = [(p, m) for p, m in errors if self._fixable(p) and (only is None or p in only)]
+        if fixable:
+            await self.settle_reflection()
             lessons = read_lessons(self.settings)
-            for path, msg in fixable:
-                attempts[path] += 1
-                module = next((m for m in self.spec.get("modules", []) if m["path"] == path), {})
-                context = spec_summary(self.spec)
-                if module.get("purpose"):
-                    context += f"\nThis file: {module['purpose']}"
-                problem = f"luau-compile failed (attempt {attempts[path]}/{MAX_FIX_ATTEMPTS}):\n{msg.strip()}"
-                try:
-                    fixed = await self.call("fixer", f"{path} (compile)", roles.fix_file, path,
-                                            self.read(path), problem, context, lessons,
-                                            session_id=self.slug)
-                    self.write(path, fixed)
-                    if rec is not None:
-                        rec["fixes"].append({"path": path, "kind": "compile", "problem": msg.strip()[:500],
-                                             "request_id": self.last_request_id})
-                except Exception as e:
-                    if rec is not None:
-                        rec["steps"].append({"step": f"fix_compile:{path}", "ok": False, "error": str(e)})
+            await asyncio.gather(*(self.fix_compile_file(p, m, rec=rec, lessons=lessons) for p, m in fixable))
+            errors = await full_check()
+            if errors is None:
+                return []
+        if errors and rec is not None:
+            rec["compile_errors"] = [{"path": p, "error": m} for p, m in errors]
+        return errors
 
     # ---------------------------------------------------------- build
-    async def build_all(self) -> None:
+    async def build_modules(self, modules: list[dict], *, session_id: str | None = None,
+                            lessons: str | None = None, spec: dict | None = None,
+                            compile_check: bool = True) -> tuple[list[str], list[dict]]:
+        """Write modules with the coder, as a DAG: a module starts the moment the modules it depends on
+        are written (independent ones go out together, up to --jobs). Each written module is compiled
+        right away and sent to the fixer if it fails, while the others are still being written.
+        Returns (built paths in dependency order, [{path, error}] for modules that failed)."""
         from forge import roles
 
-        modules = topo_order(self.spec.get("modules", []))
-        self.ui.header(f"build  {len(modules)} modules")
-        for module in modules:
-            if module.get("prebuilt"):
-                continue  # written by the art pass (director.install_kit), not the coder
-            deps = {}
-            for d in module.get("depends", []):
-                src = self.read(d) if clean_rel_path(d) else ""
-                if src:
-                    deps[d] = src
-            lessons = director.coder_notes(self.spec, read_lessons(self.settings))
+        order = topo_order(modules)
+        pos = {m["path"]: i for i, m in enumerate(order)}
+        written = {m["path"]: asyncio.Event() for m in order}
+        spec = spec if spec is not None else self.spec
+        if lessons is None:
+            lessons = director.coder_notes(spec, read_lessons(self.settings))
+        built: set[str] = set()
+        failed: list[dict] = []
+
+        async def one(module: dict) -> None:
+            path = module["path"]
+            if module.get("prebuilt"):  # written by the art pass (director.install_kit), not the coder
+                written[path].set()
+                return
             try:
-                source = await self.call("coder", module["path"], roles.code_module, self.spec, module,
-                                         deps, lessons, session_id=self.slug)
-                self.write(module["path"], source)
-            except Exception:
-                continue  # logged by call(); the critic/fixer will see the missing file
+                # only deps earlier in topo order: a dependency cycle falls back to the designer's order
+                for d in module.get("depends", []):
+                    if d in written and pos[d] < pos[path]:
+                        await written[d].wait()
+                deps = {}
+                for d in module.get("depends", []):
+                    src = self.read(d) if clean_rel_path(d) else ""
+                    if src:
+                        deps[d] = src
+                try:
+                    source = await self.call("coder", path, roles.code_module, spec, module, deps, lessons,
+                                             session_id=session_id or self.slug)
+                except Exception as e:  # logged by call(); the critic/fixer will see the missing file
+                    failed.append({"path": path, "error": str(e)[:200]})
+                    return
+                self.write(path, source)
+                built.add(path)
+            finally:
+                written[path].set()
+            if compile_check:
+                first = await asyncio.to_thread(self.check_file, path)
+                self.compile_first[path] = first  # the coder's first try, before any fixer (forge bench)
+                if first:
+                    await self.fix_compile_file(path, first, rec=self.build_rec, lessons=lessons,
+                                                session_id=session_id)
+
+        await asyncio.gather(*(one(m) for m in order))
+        return [m["path"] for m in order if m["path"] in built], failed
+
+    async def build_all(self) -> None:
+        modules = self.spec.get("modules", [])
+        self.ui.header(f"build  {len(modules)} modules  (jobs {self.jobs})")
+        with self.stage("build"):
+            await self.build_modules(modules)
 
     # ---------------------------------------------------------- studio
     async def playtest(self, studio: Any, rec: dict, it_dir: Path) -> tuple[dict, str]:
@@ -514,9 +669,13 @@ class Run:
                      "compile_errors": [], "runtime_errors": [], "fixes": [], "score": None,
                      "issues": [], "summary": "", "done": False}
         it_dir = self.store.iteration_dir(n)
+        rec["fixes"] += self.build_rec["fixes"]
+        rec["steps"] += self.build_rec["steps"]
+        self.build_rec = {"fixes": [], "steps": []}
 
         # 1. compile check + fixer
-        remaining = await self.compile_fix(rec)
+        with self.stage(f"iteration {n}: compile"):
+            remaining = await self.compile_fix(rec)
         rec["compile_errors"] = [{"path": p, "error": m} for p, m in remaining]
         versions = GameVersions(self.store.game_dir)
         rec["version"] = versions.snapshot(f"iteration {n}: code under test")
@@ -527,7 +686,8 @@ class Run:
         console = ""
         if studio is not None:
             try:
-                report, console = await self.playtest(studio, rec, it_dir)
+                with self.stage(f"iteration {n}: playtest"):
+                    report, console = await self.playtest(studio, rec, it_dir)
             except Exception as e:
                 rec["steps"].append({"step": "playtest", "ok": False, "error": str(e)})
                 self.ui.line("studio", "playtest", False, self.ui.red(str(e)[:80]))
@@ -550,12 +710,18 @@ class Run:
                 src = src[:MAX_FILE_CHARS] + "\n-- [truncated]\n"
             files[rel] = src
         critique: dict | None = None
+        # the fun critic reads the same files and report, so it runs alongside the critic
+        fun_task = asyncio.create_task(self.fun_pass(n, files, report))
         try:
-            critique = await self.call("critic", f"{len(files)} files", roles.critique, self.spec,
-                                       report, console[-4000:], files, session_id=self.slug)
+            with self.stage(f"iteration {n}: critic"):
+                critique = await self.call("critic", f"{len(files)} files", roles.critique, self.spec,
+                                           report, console[-4000:], files, session_id=self.slug)
+                fun_res = await fun_task
             self.store.save_iteration_json(n, "critique.json", critique)
         except Exception as e:
             rec["steps"].append({"step": "critique", "ok": False, "error": str(e)})
+            if not fun_task.done():
+                fun_task.cancel()
 
         stop = False
         if critique:
@@ -568,7 +734,6 @@ class Run:
             rec["issues"] = [i for i in critique.get("issues") or [] if isinstance(i, dict)]
             rec["done"] = bool(critique.get("done")) or score >= TARGET_SCORE
             # fun critic (forge/fun.py): its issues join the critic's, and "done" needs fun >= bar too
-            fun_res = await self.fun_pass(n, files, report)
             if fun_res is not None:
                 rec["fun"] = {k: fun_res.get(k) for k in ("score", "scores", "summary", "missing_juice")}
                 rec["issues"] = (rec["issues"] + fun_res["issues"])[:8]
@@ -588,25 +753,19 @@ class Run:
 
             # 4. fix critic issues: one fixer call per file (not on code that was just rolled back)
             if not stop and rec["issues"] and not rec.get("rolled_back_to"):
-                await self.fix_issues(rec, report)
-                remaining = await self.compile_fix(rec)
+                with self.stage(f"iteration {n}: fix"):
+                    await self.fix_issues(rec, report)
+                    remaining = await self.compile_fix(rec)
                 rec["compile_errors_after_fix"] = [{"path": p, "error": m} for p, m in remaining]
 
-        # 5. reflect -> lessons
-        try:
-            summary = self.iteration_summary(rec)
-            lessons = read_lessons(self.settings)
-            new_lessons = await self.call("reflector", "runs/lessons.md", roles.reflect, lessons, summary,
-                                          session_id=self.slug)
-            if isinstance(new_lessons, str) and new_lessons.strip():
-                write_lessons(self.settings, new_lessons)
-                rec["lessons_updated"] = True
-        except Exception as e:
-            rec["steps"].append({"step": "reflect", "ok": False, "error": str(e)})
-
-        # 6. save
+        # 5. reflect -> lessons, in the background: nothing until the next fixer reads lessons needs it,
+        # so it overlaps the next iteration's compile check, playtest and critic (settle_reflection).
         rec["ended"] = now_iso()
         rec["calls"] = self.calls
+        self._reflecting = asyncio.create_task(
+            self._reflect(n, rec, self.iteration_summary(rec), self._reflecting))
+
+        # 6. save
         self.store.save_iteration_json(n, "record.json", rec)
         state = self.store.load_state()
         state["iterations"] = [it for it in state["iterations"] if it.get("n") != n]
@@ -640,7 +799,39 @@ class Run:
                      self.ui.dim(" ".join(f"{k} {v:g}" for k, v in sc.items())))
         return res
 
+    async def _reflect(self, n: int, rec: dict, summary: str, previous: asyncio.Task | None) -> None:
+        """Reflector for iteration n (background task). Waits for the previous one so two reflectors
+        never rewrite lessons.md from the same old copy; re-saves record.json when done."""
+        from forge import roles
+
+        if previous is not None:
+            with contextlib.suppress(Exception):
+                await previous
+        token = _CALLS_SINK.set(rec["calls"])  # this iteration's call list, not the next one's
+        try:
+            with self.stage(f"iteration {n}: reflect (background)"):
+                lessons = read_lessons(self.settings)
+                new_lessons = await self.call("reflector", "runs/lessons.md", roles.reflect, lessons, summary,
+                                              session_id=self.slug)
+            if isinstance(new_lessons, str) and new_lessons.strip():
+                write_lessons(self.settings, new_lessons)
+                rec["lessons_updated"] = True
+        except Exception as e:
+            rec["steps"].append({"step": "reflect", "ok": False, "error": str(e)})
+        finally:
+            _CALLS_SINK.reset(token)
+        with contextlib.suppress(OSError):
+            self.store.save_iteration_json(n, "record.json", rec)
+
+    async def settle_reflection(self) -> None:
+        """Wait for a background reflector (before anything reads lessons, and before exiting)."""
+        task = self._reflecting
+        if task is not None and task is not asyncio.current_task():
+            with contextlib.suppress(Exception):
+                await task
+
     async def fix_issues(self, rec: dict, report: dict) -> None:
+        """One fixer call per file the critic named, all files at once."""
         from forge import roles
 
         by_path: dict[str, list[dict]] = defaultdict(list)
@@ -653,8 +844,10 @@ class Run:
             if path and path not in self.base_files:
                 by_path[path].append(issue)
         runtime = report.get("errors") or []
+        await self.settle_reflection()
         lessons = director.coder_notes(self.spec, read_lessons(self.settings))
-        for path, issues in by_path.items():
+
+        async def fix_one(path: str, issues: list[dict]) -> None:
             problem = "Playtest critique:\n" + "\n".join(
                 f"- {i.get('problem', '')}" + (f" (hint: {i['fix_hint']})" if i.get("fix_hint") else "")
                 for i in issues)
@@ -671,6 +864,8 @@ class Run:
                                      "request_id": self.last_request_id})
             except Exception as e:
                 rec["steps"].append({"step": f"fix:{path}", "ok": False, "error": str(e)})
+
+        await asyncio.gather(*(fix_one(p, issues) for p, issues in by_path.items()))
 
     def best_version(self) -> dict | None:
         """The best-scoring earlier iteration that has a version: {"version", "score"}. Only iterations
@@ -724,6 +919,7 @@ class Run:
                 if stop:
                     self.ui.line("done", f"target reached at iteration {n}", True)
                     break
+        await self.settle_reflection()  # Studio is already released; the last lessons still get written
         return records
 
     async def open_studio(self, stack: contextlib.AsyncExitStack) -> Any | None:
@@ -743,8 +939,8 @@ class Run:
 
 async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
                    settings: Settings | None = None, llm: Any = None, ui: UI | None = None,
-                   use_director: bool | None = None) -> str:
-    """Design, build and iterate a new game. Returns its slug."""
+                   use_director: bool | None = None, jobs: int | None = None) -> str:
+    """Design, build and iterate a new game. Returns its slug. jobs = concurrent LLM calls."""
     from forge import roles
 
     settings = settings or load_settings()
@@ -752,18 +948,19 @@ async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
     store = RunStore(settings, slug)
     store.ensure()
     store.save_state(store.new_state(idea))
-    run = Run(settings, store, llm, ui)
+    run = Run(settings, store, llm, ui, jobs=jobs, command="new")
     run.ui.header(f"forge new  {slug}")
     run.ui.print(f"  {run.ui.dim('idea:')} {idea}")
 
     if use_director is None:
         use_director = os.environ.get("FORGE_DIRECTOR", "1") != "0"
-    if use_director:  # director design doc -> designer (forge/director.py)
-        spec = await run.call("director", "design doc + spec.json", director.plan, idea,
-                              read_lessons(settings), session_id=slug)
-    else:
-        spec = await run.call("designer", "spec.json", roles.design, idea, read_lessons(settings),
-                              session_id=slug)
+    with run.stage("design"):
+        if use_director:  # director design doc -> designer (forge/director.py)
+            spec = await run.call("director", "design doc + spec.json", director.plan, idea,
+                                  read_lessons(settings), session_id=slug)
+        else:
+            spec = await run.call("designer", "spec.json", roles.design, idea, read_lessons(settings),
+                                  session_id=slug)
     spec = normalize_spec(spec, slug)
     run.spec = spec
     store.save_spec(spec)
@@ -776,17 +973,19 @@ async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
     await run.build_all()
     await run.iterate(iterations, use_studio)
     print_summary(run)
+    run.save_timings()
     return slug
 
 
 async def run_game(slug: str, iterations: int = 3, use_studio: bool = True, *,
-                   settings: Settings | None = None, llm: Any = None, ui: UI | None = None) -> str:
+                   settings: Settings | None = None, llm: Any = None, ui: UI | None = None,
+                   jobs: int | None = None) -> str:
     """Continue iterating an existing game."""
     settings = settings or load_settings()
     store = RunStore(settings, slug)
     if not store.exists():
         raise FileNotFoundError(f"no game {slug!r} in {settings.runs_dir}")
-    run = Run(settings, store, llm, ui)
+    run = Run(settings, store, llm, ui, jobs=jobs, command="run")
     run.spec = store.load_spec()
     run.ui.header(f"forge run  {slug}")
     if not store.game_dir.exists():
@@ -801,6 +1000,7 @@ async def run_game(slug: str, iterations: int = 3, use_studio: bool = True, *,
         run.spec = spec_all
     await run.iterate(iterations, use_studio)
     print_summary(run)
+    run.save_timings()
     return slug
 
 
@@ -813,7 +1013,7 @@ async def correct(slug: str, path: str, note: str, use_studio: bool = True, *,
     store = RunStore(settings, slug)
     if not store.exists():
         raise FileNotFoundError(f"no game {slug!r} in {settings.runs_dir}")
-    run = Run(settings, store, llm, ui)
+    run = Run(settings, store, llm, ui, command="correct")
     run.spec = store.load_spec()
     run.calls = []
     run.ui.header(f"forge correct  {slug}")
@@ -868,6 +1068,8 @@ async def correct(slug: str, path: str, note: str, use_studio: bool = True, *,
     run.ui.print(f"  {run.ui.green('●')} correction recorded in the {run.ui.bold('fixer')} task  "
                  f"{run.ui.cyan(request_id or '-')}")
     run.ui.print(f"    {run.ui.dim('rate it Good in the Mubit console → Requests: https://app.mubit.ai/console/')}")
+    run.close()
+    run.timeline.finish()
     return correction
 
 

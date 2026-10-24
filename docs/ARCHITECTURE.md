@@ -85,8 +85,9 @@ forge/                 Python package (uv), entry point `forge`
                        ts, assertions[{text, ok, detail}]). GET /api/shot?slug=&path= serves only .png
                        under runs/<slug>/{tests,iterations}/. POST /api/rollback {slug, version} ->
                        rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building
-  feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish) -> result:
-                       planner plan -> coder (new modules) -> patcher/fixer (hook edits, destructive guard) ->
+  feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish, jobs) -> result:
+                       planner plan -> coder (new modules, as a DAG) and patcher/fixer (hook edits, destructive
+                       guard; one file's edits in order) all at once ->
                        compile -> version -> iterate -> polish_feature (round_starting AI testers, auditor vs
                        spec acceptance, run_cycle fix=True until open == 0) -> verified by planned counters
   prompts/planner.md   Mubit task: feature request -> {summary, new_modules, edits, telemetry, acceptance}
@@ -187,9 +188,22 @@ class MubitLLM(LLM):  # __init__(settings, log_path: Path | None)
     # system prompt = (prompts/<role>.md). Appends one JSON line per call to log_path:
     # {ts, role, session_id, model, request_id, latency_ms, input_tokens, output_tokens,
     #  user_chars, reply_chars}
-class FakeLLM(LLM):   # __init__(responses: dict[str, list[str]]) — pops scripted replies per role
-def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else MubitLLM; raises if no key
+class FakeLLM(LLM):   # __init__(responses, default=None, log_path=None, latency=None) — pops scripted
+                      # replies per role; latency (s, or {role: s}) simulates Mubit; peak_concurrency = peak concurrency
+class CachedLLM(LLM): # __init__(inner, cache_dir) — runs/.cache/llm/<role>/<sha256>.json for CACHE_ROLES
+                      # (designer, coder, planner, critic, reflector) and compile-error fixes only (a critic,
+                      # improve or human fix always reaches Mubit); key = (role, sha256(system prompt), model,
+                      # max_tokens, user msg); hit -> cached=True, no call; aborted / cut-off replies not stored
+def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 (FORGE_FAKE_LATENCY) else
+                                          # CachedLLM(MubitLLM) (FORGE_NO_CACHE=1: bare MubitLLM); raises if no key
+def jobs_from_env() -> int                # FORGE_JOBS or DEFAULT_JOBS (8)
+def stream_verdict(role, text) -> "abort" | "done" | "more"   # streaming early abort / early finish
 ```
+LLMResult also has `cached: bool = False` and `aborted: bool = False`. MubitLLM streams (anthropic;
+FORGE_STREAM=0 turns it off): a code role that writes 1500 chars of prose with no fence (or a JSON role with
+no `{`) is cut short and returned with aborted=True, so the role's own repair/retry path takes over; a code
+reply stops reading once its ```luau block closes. A 429 gets RATE_LIMIT_TRIES (6) attempts with
+retry-after or exponential backoff with jitter, and every thread waits out the cooldown together.
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, ..., `scenarist`
 (test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
@@ -331,8 +345,8 @@ forge assets sync [--check]
 ### loop.py / memory.py / cli.py
 ```
 forge doctor                       # checks key, luau-compile, StudioMCP binary, studios connected
-forge new "<idea>" [--iterations N] [--no-studio]   # design + build + playtest loop
-forge run <slug> [--iterations N] [--no-studio]     # continue iterating an existing game
+forge new "<idea>" [--iterations N] [--no-studio] [--jobs N] [--no-cache]   # design + build + playtest loop
+forge run <slug> [--iterations N] [--no-studio] [--jobs N] [--no-cache]     # continue iterating an existing game
 forge correct <slug> <path> "<note>"                # human correction → fixer call → resync
 forge status [<slug>]                                # iterations, scores, call counts per role
 forge seed <slug> [--spec FILE]                      # runs/<slug>/game <- game/ (+ spec base_files)
@@ -426,6 +440,23 @@ def load_results(run_dir) -> list[dict]
 forge fix <slug> [--cycles N --max-fixes M --reports --no-repro]  # real anomalies: repro check, fix, prove, until clean
 ```
 `--no-studio`: compile-check only (no MCP), so the loop works without Studio open.
+
+Speed (`--jobs N`, default 8 = FORGE_JOBS; also on `feature`, `improve`, `fix`; `--no-cache` = FORGE_NO_CACHE=1):
+`Run(settings, store, llm, ui, *, jobs=None, command="run")` runs every LLM call on a bounded thread pool
+of `jobs` workers. `Run.build_modules(modules, *, session_id, lessons, spec, compile_check=True) ->
+(built, failed)` schedules coders over the spec's `depends` DAG (a module starts once the modules it depends
+on are written; a cycle falls back to designer order) and compiles each module as soon as it is written
+(`fix_compile_file`, pipelined; those fixes join the next iteration's record). `compile_fix` and
+`fix_issues` send every failing / criticised file to the fixer at once. The reflector runs in the
+background: the next iteration's compile check, playtest and critic overlap it, and anything that reads
+lessons (a fixer) waits for it (`settle_reflection`). `new_game`, `run_game` and `add_feature` take `jobs=`.
+Mubit grouping is unchanged: same system prompts, session_id = slug.
+`runs/<slug>/timings.json` (forge/timings.py, written live, the format `forge dashboard` reads):
+`{command, started, jobs, running, total_secs, stages[{name, start, end, secs, before_secs, parallel,
+start_s, end_s}], calls[{role, lane, lane_label, label, step, start, end, latency_ms, cached, ok, error,
+request_id, secs}], speedups[{stage, before_secs, after_secs}], by_role, llm_busy_s, parallelism, history}`.
+start/end are epoch seconds (end null while running); each role's concurrent calls get lanes coder-1,
+coder-2, ...; before_secs is the stage's summed call time (its serial equivalent).
 State per game in `runs/<slug>/state.json`: `{slug, idea, iterations: [{n, score, issues, errors}],
 created, updated}`.
 
