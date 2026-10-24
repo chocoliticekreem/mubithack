@@ -11,10 +11,10 @@
 --     re-asserted whenever something else (SquadService's spawn/revive lock) changes CameraMode.
 --   * Physics hands (ClientLib/PhysicsHands, HandsConfig.Enabled): gloves on springs that collide,
 --     reach, grab, slap and hold the equipped Tool as a floppy physics item (see that file).
---     Fallback on touch-only devices (unless HandsConfig.MobileEnabled) or when disabled: the simple
---     camera-attached Viewmodel (ClientLib/Viewmodel): olive/yellow gloves + turnout sleeves with
---     reflective bands; poses empty / hose / axe / carry / item from the equipped Tool and the
---     Carrying attr; axe swing on Tool.Activated, hose jitter while Spraying.
+--     Phones / iPads use them too (HandsConfig.MobileEnabled; no mouse, so no grabbing there, but
+--     the held tool and the gloves are the same as on desktop). Fallback when disabled or when they
+--     fail to build: the simple camera-attached Viewmodel (ClientLib/Viewmodel): the same gloves on
+--     fixed poses, the held item copied into the right glove, the glove on the ONE real axe's grip.
 --   * The rescue you carry fades (local only) while you look through it in first person.
 --   * Soot on the gloves after time near fire. Other players' arms follow their replicated hands
 --     (PhysicsHands.startRemote, always on).
@@ -200,7 +200,8 @@ end
 local vm: Viewmodel.Viewmodel? = nil
 local hands: PhysicsHands.PhysicsHands? = nil
 
--- Physics hands unless disabled, or on a touch-only device (no mouse buttons to grab with).
+-- Physics hands unless disabled (touch-only devices too while HandsConfig.MobileEnabled: the simple
+-- viewmodel there used to draw its own axe next to the real one and drop the extinguisher).
 local function wantPhysicsHands(): boolean
 	if HandsConfig.Enabled == false then
 		return false
@@ -243,8 +244,6 @@ local state = {
 	viewFlip = false, -- V pressed: the other view until the mission state changes
 	stepOutPending = false, -- mission just ended: step out of first person once (free mouse)
 	hiddenTool = nil :: Tool?,
-	toolConn = nil :: RBXScriptConnection?,
-	toolFor = nil :: Tool?,
 	heatShown = 0,
 	bobPhase = 0,
 	lastShake = CFrame.identity,
@@ -445,24 +444,6 @@ local function carriedModel(): Model?
 	local folder = workspace:FindFirstChild("Rescuables")
 	local m = folder and folder:FindFirstChild(id)
 	return if m and m:IsA("Model") then m else nil
-end
-
-local function bindSwing(tool: Tool?, pose: string)
-	if state.toolFor == tool then
-		return
-	end
-	if state.toolConn then
-		state.toolConn:Disconnect()
-		state.toolConn = nil
-	end
-	state.toolFor = tool
-	if tool and pose == "axe" then
-		state.toolConn = tool.Activated:Connect(function()
-			if vm then
-				vm:Swing()
-			end
-		end)
-	end
 end
 
 local function updateScreen(dt: number)
@@ -691,7 +672,6 @@ local function step(dt: number)
 	local v = if hands then nil else vm
 	if v then
 		local pose, tool = poseFor(char)
-		bindSwing(tool, pose)
 		local show = fp and not downed and not (hum ~= nil and hum.Sit) -- no hands over the windshield
 		v:SetVisible(show)
 		if show then
@@ -699,6 +679,7 @@ local function step(dt: number)
 			v:SetSoot(state.nearFireSeconds / CAM.SootAfter)
 			v:Update(dt, cam.CFrame, {
 				pose = pose :: any,
+				tool = tool,
 				bob = Vector2.new(bobX, bobY) * CAM.ViewmodelBobScale,
 				sway = state.sway,
 				spraying = attr(Names.Attr.Spraying) == true,

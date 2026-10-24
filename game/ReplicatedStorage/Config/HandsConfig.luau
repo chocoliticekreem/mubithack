@@ -7,7 +7,7 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	Enabled = true, -- false = the simple camera-attached viewmodel everywhere (no grabbing)
-	MobileEnabled = false, -- touch-only devices use the simple viewmodel unless this is true
+	MobileEnabled = true, -- touch-only devices get the physics hands too (false = the simple viewmodel)
 	GloveScale = 0.6, -- glove rig size (1 = a 1-stud-wide palm); the collider palm matches it
 	IdleCurl = 0.24, -- 0 open .. 1 fist: how curled the relaxed gloves' fingers are
 
