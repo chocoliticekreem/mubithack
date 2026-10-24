@@ -332,9 +332,9 @@ Inside this repo both plugins are enabled by `.claude/settings.json`.
   (`scripts/git-sync.sh`) pushes local commits on your current branch after every Claude turn, so
   keep work on branches.
 
-## Hall of fame
+## Hall of fame!!!
 
-**Christopher White** was here.
+**Christopher White** was here!!!
 
 > Why is the game called *Flame and Blame*? Because that's every codebase: something's on fire, and
-> `git blame` says it was you.
+> `git blame` says it was you!!!
