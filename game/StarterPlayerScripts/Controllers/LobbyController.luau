@@ -225,6 +225,8 @@ local function buildUi()
 	go.TextColor3 = C.Cream
 	go.Parent = strip
 	corner(go, 10)
+	-- first person locks the mouse: MenuMouseController frees it while this shows, so GO NOW is clickable
+	go:SetAttribute("Menu", true)
 	ui.go = go
 
 	-- Mission picker
