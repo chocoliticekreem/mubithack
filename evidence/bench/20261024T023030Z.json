@@ -1,0 +1,229 @@
+{
+ "schema": 1,
+ "stamp": "20261024T023030Z",
+ "label": "baseline main 910ba38",
+ "mode": "real",
+ "studio": null,
+ "model": "claude-sonnet-5-5",
+ "iterations": 2,
+ "improve": 0,
+ "lessons": "starter",
+ "git": {
+  "sha": "910ba38",
+  "branch": "worktree-agent-acce60cdbc558192e",
+  "subject": "forge done: one readiness bar for every game (#103)"
+ },
+ "ideas": [
+  {
+   "id": "tycoon",
+   "idea": "A tiny tycoon: a dropper spawns cubes, a conveyor carries them to a collector that pays cash, and players buy a second dropper and a faster conveyor with that cash.",
+   "slug": "a-tiny-tycoon-a-dropper-spawns",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 95.93,
+    "compile_fix": 0.22,
+    "iterate": 189.42,
+    "design": 16.38
+   },
+   "compile_first": {
+    "modules": 4,
+    "written": 4,
+    "failing": [],
+    "pass_rate": 1.0
+   },
+   "overhead_s": 0.06,
+   "wall_s": 301.72,
+   "llm": {
+    "calls": 15,
+    "input_tokens": 89811,
+    "output_tokens": 50423,
+    "latency_s": 299.9,
+    "by_role": {
+     "coder": 4,
+     "critic": 2,
+     "designer": 1,
+     "fixer": 6,
+     "reflector": 2
+    },
+    "request_ids": [
+     "mreq_01a16bbed9fc7ab29c02edacb181b172",
+     "mreq_01a16bbf14b77bd08592edda319c29f1",
+     "mreq_01a16bbf29f673b38dd141abcd946f6c",
+     "mreq_01a16bbfa32277d3b3ce6304e50e6b02",
+     "mreq_01a16bc00811754382463ea1fe3c29ce",
+     "mreq_01a16bc08c4f7df28dfb800a79500c0a",
+     "mreq_01a16bc0dc4b79928644d0c33b4ddcf0",
+     "mreq_01a16bc129667fb1877f0866642039c8",
+     "mreq_01a16bc173747ec38a13daa95ba2a71a",
+     "mreq_01a16bc1e5c075609084c2b78390b64b",
+     "mreq_01a16bc1fd577503a3e6bcb0183c9301",
+     "mreq_01a16bc234c37251a07d1e853032b3de",
+     "mreq_01a16bc2b39b7701abff9c93432e7a2c",
+     "mreq_01a16bc2dc3b79d28d80804b118e7a1d",
+     "mreq_01a16bc34fd87d538d01c37d3e95895c"
+    ]
+   },
+   "title": "Cube Cash Tycoon",
+   "modules": 4,
+   "iterations": 2,
+   "fixes": {
+    "compile": 0,
+    "critic": 6,
+    "total": 6
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 7,
+    "checks": 0,
+    "passed": 0
+   },
+   "critic": {
+    "scores": [
+     5.0,
+     5.0
+    ],
+    "first": 5.0,
+    "final": 5.0,
+    "best": 5.0
+   },
+   "fun": {
+    "scores": [],
+    "final": null
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 1,
+    "of": 4,
+    "parts": {
+     "checks": false,
+     "features": true,
+     "open": false,
+     "critic": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T023030Z/tycoon/a-tiny-tycoon-a-dropper-spawns"
+  },
+  {
+   "id": "obby",
+   "idea": "A short obby: eight platforms with gaps, two lava strips and one moving platform, checkpoints that respawn you, and a finish pad that shows your time.",
+   "slug": "a-short-obby-eight-platforms-with",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 90.88,
+    "compile_fix": 0.23,
+    "iterate": 201.06,
+    "design": 13.4
+   },
+   "compile_first": {
+    "modules": 4,
+    "written": 4,
+    "failing": [],
+    "pass_rate": 1.0
+   },
+   "overhead_s": 0.06,
+   "wall_s": 305.34,
+   "llm": {
+    "calls": 15,
+    "input_tokens": 88499,
+    "output_tokens": 50923,
+    "latency_s": 304.8,
+    "by_role": {
+     "coder": 4,
+     "critic": 2,
+     "designer": 1,
+     "fixer": 6,
+     "reflector": 2
+    },
+    "request_ids": [
+     "mreq_01a16bc36fe072b0b310faa72e550716",
+     "mreq_01a16bc3a40070718802a3e1b4948c06",
+     "mreq_01a16bc3b6377422bba79ac900f0bea2",
+     "mreq_01a16bc427857841a27e63af73bb96a0",
+     "mreq_01a16bc47f3578919e7799aad19409bc",
+     "mreq_01a16bc507db7633888bb1fa4b3d097b",
+     "mreq_01a16bc54ce072e0a69ad52a3f925441",
+     "mreq_01a16bc599157e6086299d1b2a43369d",
+     "mreq_01a16bc5eabd7611b20d63dbf57ef8d9",
+     "mreq_01a16bc65cf67112900428c67b167585",
+     "mreq_01a16bc6777178438748b871187782ba",
+     "mreq_01a16bc6bbba72b29f30a31c4c881c74",
+     "mreq_01a16bc71e5b7873819f03b7e64ff0a2",
+     "mreq_01a16bc774337b62b728c24da8ddb89e",
+     "mreq_01a16bc7fc2a77f3840657c82bc7f4fd"
+    ]
+   },
+   "title": "Lava Hop Dash",
+   "modules": 4,
+   "iterations": 2,
+   "fixes": {
+    "compile": 0,
+    "critic": 6,
+    "total": 6
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 8,
+    "checks": 0,
+    "passed": 0
+   },
+   "critic": {
+    "scores": [
+     5.0,
+     5.0
+    ],
+    "first": 5.0,
+    "final": 5.0,
+    "best": 5.0
+   },
+   "fun": {
+    "scores": [],
+    "final": null
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 1,
+    "of": 4,
+    "parts": {
+     "checks": false,
+     "features": true,
+     "open": false,
+     "critic": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T023030Z/obby/a-short-obby-eight-platforms-with"
+  }
+ ],
+ "totals": {
+  "ideas": 2,
+  "built": 2,
+  "wall_s": 607.1,
+  "llm_calls": 30,
+  "input_tokens": 178310,
+  "output_tokens": 101346,
+  "first_try_pass_rate": 1.0,
+  "fixes": 12,
+  "compile_errors_left": 0,
+  "critic_final": 5.0,
+  "fun_final": null,
+  "checks_passed": 0,
+  "checks": 0,
+  "done_parts": 2,
+  "done_of": 8,
+  "ready": 0,
+  "corrections": 0
+ }
+}

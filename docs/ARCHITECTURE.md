@@ -94,6 +94,9 @@ forge/                 Python package (uv), entry point `forge`
                        rejected}], entries} rebuilt from runs/**/traces + improve/<n>.json + state.json corrections
   done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass,
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded)
+  bench.py             `forge bench`: fixed 5-idea suite (tycoon, obby, minigame, simulator, defence) built with
+                       loop.new_game (+ optional improve cycles); run_bench(ids, *, iterations, studio, improve, fake,
+                       lessons) -> (result, runs/bench/<stamp>.json + .md); compare(a, b) -> markdown deltas (docs/BENCH.md)
   versions.py          GameVersions(game_dir): runs/<slug>/game is a git repo, tags v1..vN;
                        snapshot(msg) -> tag, log(), restore(tag, reason) -> new tag (rollback as a commit)
   faults/<slug>.json   planted faults (live ForgeTest config) the auditor is scored against
