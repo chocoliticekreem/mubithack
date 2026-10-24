@@ -28,6 +28,26 @@ CRITIQUE_KEYS = ["score", "summary", "issues"]
 ROOTS = ("ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts")
 RUNTIME_MODULES = {"ReplicatedStorage/ForgeTelemetry.luau", "ServerScriptService/ForgeProbe.server.luau"}
 MAX_MODULES = 7
+# The frozen coder prompt still calls ForgeTelemetry a no-op on the client, and planners asked for counters
+# "on the server" wrote one *Ack remote + script per client effect. The runtime now forwards client counts
+# itself (game/ReplicatedStorage/ForgeTelemetry.luau), so the user message says so.
+CLIENT_TELEMETRY_NOTE = (
+    "## Telemetry from client code\n"
+    "ForgeTelemetry.count(name, n) works in LocalScripts and client modules too: the module forwards client "
+    "counts to the server over its own shared, rate-limited remote (this replaces any rule that it is a no-op "
+    "on the client). Count a client-side moment (an effect shown, a panel opened, a button pressed) right where "
+    "it happens, with `require(ReplicatedStorage:WaitForChild(\"ForgeTelemetry\")).count(\"name\", 1)`. Never "
+    "create a RemoteEvent, an *Ack script or a server handler only to bump a counter.\n"
+)
+_TELEMETRY_WORDS = re.compile(r"(?i)telemetry|counter")
+
+
+def telemetry_note(problem: str) -> str:
+    """CLIENT_TELEMETRY_NOTE for a fix or patch about counters (never for a compile error)."""
+    text = problem or ""
+    if text.lstrip().startswith("luau-compile") or not _TELEMETRY_WORDS.search(text):
+        return ""
+    return CLIENT_TELEMETRY_NOTE
 
 
 # ---------------------------------------------------------------------------------------------
@@ -268,6 +288,7 @@ def code_module(
         f"depends: {', '.join(module.get('depends') or []) or '(none)'}\n\n"
         f"{_deps_block(deps, 10_000)}\n"
         f"{kit + chr(10) if kit else ''}"
+        f"{CLIENT_TELEMETRY_NOTE}\n"
         f"{_lessons_block(lessons, 5000)}\n"
     )
     tail = f"Write the complete file {path} in one ```luau block."
@@ -296,6 +317,7 @@ def fix_file(
         f"{_truncate(problem.strip(), max(1200, min(3000, spare * 3 // 10)), keep='both', label='problem')}\n\n"
         "## Context\n"
         f"{_truncate((context or '').strip() or '(none)', max(800, min(3500, spare * 3 // 10)), keep='both', label='context')}\n\n"
+        f"{telemetry_note(problem)}"
         f"{_lessons_block(lessons, max(800, min(4000, spare * 4 // 10)))}\n"
     )
     tail = f"Return the full corrected {path} in one ```luau block."
@@ -320,6 +342,7 @@ def patch_file(
         f"{_truncate(problem.strip(), 3000, keep='both', label='problem')}\n\n"
         "## Context\n"
         f"{_truncate((context or '').strip() or '(none)', 2000, keep='both', label='context')}\n\n"
+        f"{telemetry_note(problem)}"
         f"{_lessons_block(lessons, 2500)}\n"
     )
     head = _with_ui_kit(head, "", path, problem, PATCH_UI_KIT_CHARS)

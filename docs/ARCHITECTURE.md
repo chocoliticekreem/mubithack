@@ -127,6 +127,11 @@ forge/                 Python package (uv), entry point `forge`
                        code side by side with the reference's) -> {summary, verdict, improvements[{rank, title,
                        category, impact, effort, why, how, files, new_files, reference}]} (files/pointers validated)
   prompts/code_judge.md  Mubit task: static comparison + excerpts -> ranked improvements (JSON)
+  consolidate.py       `forge consolidate <slug> [--plan-only] [--max-merges 6] [--studio S]`: one architect pass over a game
+                       that grew feature by feature (see "Consolidate" below): merge overlapping modules, fold loose
+                       Scripts/LocalScripts into Init/Start services and controllers booted by prebuilt bootstraps, delete
+                       telemetry-only *Ack scripts; gated in Studio, rolled back (GameVersions) on failure
+  prompts/architect.md Mubit task: module map + compare's architecture gaps + spec + prebuilt list -> consolidation plan (JSON)
   director.py          quality brain 1 (`forge direct "<idea>" [--compare]`): genre_lessons(text) (forge/lessons_library),
                        direct(llm, idea, lessons, *, session_id) -> design doc (Mubit task `director`),
                        design_from_doc(llm, idea, doc, lessons, *, session_id) -> spec (frozen designer, doc in the user
@@ -220,6 +225,8 @@ runs/reflection.md     forge reflect --all
 runs/lessons.md        shared lessons, injected into every coder/fixer user message
 forge/ui_kit.py        picks UI kit rules + snippets for UI work (user message only)        [owner: llm]
 forge/ui_library/      the UI kit: README.md (rules + sources), index.json, *.luau snippets
+forge/kit/bootstrap/   Main.server.luau / Main.client.luau: Forge's prebuilt bootstraps (the reference's Init/Start
+                       contract without its Net lines), installed by `forge consolidate`
 forge/kit/             GameAssets.luau template, sounds.json ("sounds" + "music"), modules/ (prebuilt kit
                        modules, installed as ReplicatedStorage/Kit/<Name>.luau; see "Kit modules" below)
 ```
@@ -298,7 +305,8 @@ Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, .
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
 `triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`, `gap_finder`
 (ranked gaps, forge/gaps.py), `code_judge` (ranked code improvements vs the reference game, forge/compare.py),
-`anomaly_detector` (forge/autopilot.py registers it, like swarm.py its roles).
+`anomaly_detector` (forge/autopilot.py registers it, like swarm.py its roles), `architect` (consolidation plans,
+forge/consolidate.py).
 (ranked gaps, forge/gaps.py), `level_designer` (obby zones as data, forge/levels.py).
 
 Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
@@ -444,7 +452,16 @@ clone's functions into the live module table (used by `Studio.hot_reload`); `Inv
 `physics` comes from a sampler (every 0.5 s, at most 150 unanchored assembly roots, no Humanoid, no
 occupied seat; details in docs/TESTER.md). `Invoke("physics")` returns just that object.
 Games may call `require(ReplicatedStorage.ForgeTelemetry).count(name, n)` to bump counters
-(ReplicatedStorage/ForgeTelemetry.luau, server side only). Also `ServerStorage.DevHook`
+(ReplicatedStorage/ForgeTelemetry.luau), on the server and, in Studio playtests, on the client: a LocalScript's
+counts are summed and sent at most every 0.25 s over one RemoteEvent, `ReplicatedStorage.ForgeTelemetryRemote`,
+which the server copy creates when first required in a running playtest (ForgeProbe requires it at boot; one
+listener per server, marked by the remote's `Listening` attribute, so an execute_luau VM never counts twice). The
+server re-validates every message: names `^[%w_]+$`, at most 64 chars, no `RBX` prefix, at most 64 distinct names
+per player, 32 names and 1000 per name per message, 8 messages per player per second; drops are counted as
+`telemetry_client_dropped`. Server behaviour is unchanged; get() stays server-only. No game needs its own *Ack
+remote to count a client moment: the coder (every message), fixer/patcher (problems about counters) and planner
+(`forge feature`, which refreshes the game's runtime files first) are told so in their USER messages
+(roles.CLIENT_TELEMETRY_NOTE), because coder.md and planner.md are frozen Mubit prompts. Also `ServerStorage.DevHook`
 (BindableFunction) `Invoke(moduleName, method, ...)` to reach live server modules from execute_luau.
 
 ### studio.py
@@ -597,8 +614,49 @@ forge autopilot --advise [--root game] [--name N] [--evidence DIR ...]   # read-
 forge queue <slug>                                   # orchestrator jobs, leases, budget
 forge reflect <slug> [--llm]                         # reflection since the last one -> runs/<slug>/reflection/<n>.md
 forge reflect --all                                  # every game summed -> runs/reflection.md
+forge consolidate <slug> [--plan-only] [--max-merges 6] [--studio S]  # architect pass, gated, rolled back on failure
 forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]  # code vs the reference game: 0-10 per
                                                      # category, evidence, gaps with reference files to copy
+```
+
+### Consolidate (forge/consolidate.py, `forge consolidate`)
+Features built one at a time each add their own files; this pass gives a game the reference's shape. Never touched:
+ReplicatedStorage/Kit/*, ReplicatedStorage/Levels/*, GameAssets, the Forge runtime, tools/, spec base_files and
+prebuilt modules, and Forge's own bootstraps from an earlier pass (`protected_paths`).
+```
+map      module_map(game_dir, protected): per file path, type, lines, chars, first comment line, game modules it
+         requires and is required by, remotes it creates / fires / handles, counters, public functions; a module
+         nothing requires or even names is flagged "never runs". module_refs resolves lookups (GetService locals,
+         script.Parent chains and their locals, PlayerScripts locals, one level of folder locals) on lines that
+         require, or whose local is required within 6 lines; dangling(game_dir) = lookups whose target is gone
+plan     architect (Mubit task, prompts/architect.md) <- user message: spec + features, the map, compare's
+         architecture category (metrics below the reference, gaps + reference pointers), the prebuilt list, limits,
+         and the last pass's refusal reasons when it was rolled back -> {summary, merges[{into, from, purpose, why}],
+         server_bootstrap[{from Script, into Services/<X>Service.luau}], client_bootstrap[{from LocalScript, into
+         Controllers/<X>Controller.luau}], delete[{path, why}], rewire[{path, change}]}
+validate refused (a problem line each): prebuilt / runtime / bootstrap paths, sides mixed (server, client, shared),
+         a file in two entries, an into that exists and is not one of its originals, originals over
+         MERGE_SOURCE_CHARS (18k), units over --max-merges (6); callers of every merged or deleted module are added as
+         rewires; files that still name a deleted file's remote are reported. Problems -> ONE correction call (same
+         task, previous plan + problems); then the clean plan runs. --plan-only stops here, changes nothing
+baseline copy_base_game (current runtime: ForgeTelemetry with the client channel), snapshot "before consolidate",
+         measure(): sync, the saved checks (scenarios.run_in_sessions, no reviewer), probe(): play, a player, 12 s,
+         ForgeProbe report + the Client datamodel's LogService errors/warnings, stop
+build    coder per unit, in parallel: the originals' full source, their public functions, the callers' call sites
+         (6 lines around each), every move of the pass, the Init/Start contract for a service/controller, kit API,
+         client telemetry note -> compile + fixer; originals and deletes removed; Main.server.luau / Main.client.luau
+         copied from forge/kit/bootstrap when a service / controller was written; rewires: patcher (over 300 lines) or
+         fixer + destructive guard, problem = the moves that concern the file + the change, context = the new
+         modules' API + the deleted files' code; compile (touched files) -> new dangling lookups -> one
+         fixer/patcher pass
+gate     measure() again; a check that passed and fails now is rerun once; probe findings (new server or client
+         errors (numbers normalised), new warnings naming a changed module or "[Boot]", a counter that was above 0
+         and is gone, no player) must repeat in a second probe
+outcome  kept: snapshot "consolidate: ...", spec modules (removed paths out, new files + bootstraps in, so `forge run`
+         does not rebuild a merged-away module), spec["consolidations"], state rollback_floor, checks/results.json
+         (source "consolidate <n>"), compare before + after saved; rolled back: GameVersions.restore(before) as a new
+         version, Studio resynced; record runs/<slug>/consolidate/<n>.json {plan, problems, request_ids, before,
+         execute, after, why, outcome, version_before/after, compare_before/after}
 ```
 
 ### Reflection (forge/reflect.py)

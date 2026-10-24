@@ -31,12 +31,14 @@ ROOTS = ("ServerScriptService/", "ReplicatedStorage/", "StarterPlayerScripts/")
 
 def plan_message(spec: dict, index: str, request: str, lessons: str) -> str:
     from forge.loop import spec_summary
-    from forge.roles import _lessons_block, _truncate
+    from forge.roles import CLIENT_TELEMETRY_NOTE, _lessons_block, _truncate
 
     return "\n\n".join([
         "## Game\n" + _truncate(spec_summary(spec), 3000, label="spec"),
         "## Game files\n" + index,
         "## Feature request\n" + request.strip(),
+        CLIENT_TELEMETRY_NOTE.rstrip() + " The feature's counters may be bumped by its client files: plan no "
+        "acknowledgement remote, *Ack module or server handler whose only job is counting.",
         _lessons_block(lessons, 3000),
         "Return only the plan JSON object.",
     ])
@@ -68,7 +70,7 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
                       log: Callable[[str], None] = print) -> dict:
     from forge import roles
     from forge.improve import destructive, file_index
-    from forge.loop import Run, topo_order
+    from forge.loop import Run, copy_base_game, topo_order
     from forge.patch import PATCH_ABOVE_LINES
 
     if not request.strip():
@@ -79,6 +81,7 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
     run = Run(settings, store, llm, ui, jobs=jobs, command="feature")
     spec = store.load_spec()
     run.spec = spec
+    copy_base_game(settings, store.game_dir)  # the current runtime: client code may count (ForgeTelemetry)
     versions = GameVersions(store.game_dir)
     before = versions.snapshot(f"before feature: {request.strip()[:120]}")
     session = f"feature-{slug}"
@@ -96,7 +99,9 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
         return {"request": request, "plan": plan, "status": "nothing_to_build", "version": before}
 
     # the feature's modules become part of the spec, so later iterations and fixes know about them
-    telemetry_note = f" Bump ForgeTelemetry counters: {', '.join(plan['telemetry'])}." if plan["telemetry"] else ""
+    telemetry_note = (f" Bump ForgeTelemetry counters: {', '.join(plan['telemetry'])} (ForgeTelemetry.count works "
+                      "in client code too: count client-side moments there, with no extra remote)."
+                      if plan["telemetry"] else "")
     for m in plan["new_modules"]:
         m["purpose"] = f"Feature: {request.strip()} -- {m['purpose']}{telemetry_note}"
     spec.setdefault("modules", []).extend(plan["new_modules"])
