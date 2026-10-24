@@ -407,10 +407,11 @@ local function buildHelp(gui: ScreenGui): Frame
 	local pad = Instance.new("UIPadding")
 	pad.PaddingRight = UDim.new(0, 14)
 	pad.Parent = scroll
-	local list = Instance.new("UIListLayout")
-	list.SortOrder = Enum.SortOrder.LayoutOrder
-	list.Padding = UDim.new(0, 6)
-	list.Parent = scroll
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = scroll
+	local list = scroll
 
 	local hoseKey = keyName(InventoryConfig.TruckHoseKey, "T")
 	local kick = keyName(GearConfig.KickKey, "F")
@@ -753,13 +754,21 @@ local function currentGuide(): Guide?
 		local seated = seat ~= nil and truck ~= nil and seat:IsDescendantOf(truck)
 		local driving = truck ~= nil and truck:GetAttribute("Driver") == player.UserId
 		local doorOpen = truck ~= nil and truck:GetAttribute("DoorOpen_L") == true or (truck ~= nil and truck:GetAttribute("DoorGone_L") == true)
+		-- past the "get in your truck" steps: riding in ANY seat (crew seat, a friend's truck), or already
+		-- at the scene (within ArrivedStuds of the GPS waypoint), so the card doesn't hang around
+		local r = root()
+		local wp = player:GetAttribute("WaypointPos")
+		local arrived = r ~= nil and typeof(wp) == "Vector3" and (wp - r.Position).Magnitude <= (Cfg.ArrivedStuds or 150)
+		if seat ~= nil and not seated then
+			seated = true
+		end
 		local hint = Flow.missionHint({
 			state = st,
 			hasTruck = truck ~= nil,
 			seated = seated,
 			driving = driving,
 			doorOpen = doorOpen,
-			arrived = false,
+			arrived = arrived,
 		})
 		if hint == "drive" then
 			if state.driveHintUntil == 0 then

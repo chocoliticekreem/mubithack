@@ -895,7 +895,25 @@ local function onDoneDispatch(run: Live)
 			p:SetAttribute(Names.Attr.InstanceId, "")
 		end
 	end
-	notify(players, "Call closed. Drive back to the station!", "info")
+	-- only the ones out in the city: a player already at the station (within ~150 studs of a TruckBay)
+	-- doesn't need to be told to drive back
+	local away = {}
+	for _, p in players do
+		local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		local atStation = false
+		if root and root:IsA("BasePart") then
+			for _, bay in CollectionService:GetTagged(SITE.TruckBay) do
+				if bay:IsA("BasePart") and (bay.Position - root.Position).Magnitude <= 150 then
+					atStation = true
+					break
+				end
+			end
+		end
+		if not atStation then
+			table.insert(away, p)
+		end
+	end
+	notify(away, "Call closed. Drive back to the station!", "info")
 	safe("StowHose", function()
 		local Inv = services.InventoryService
 		if Inv and type(Inv.StowHose) == "function" then

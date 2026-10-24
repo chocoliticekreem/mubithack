@@ -24,6 +24,7 @@ return Config.define({
 		drive = { head = "FOLLOW THE GPS", sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn" },
 	},
 	DriveHintSeconds = 8,
+	ArrivedStuds = 150, -- within this of the GPS waypoint = at the scene: the RUN TO BAY / HOP IN cards stop
 	DispatchHintDelay = 3.5, -- s after dispatch before "RUN TO BAY n" (the HUD ALARM banner goes first)
 	HelpKey = "H", -- replay the tutorial / show controls
 	BoardLookDistance = 16, -- studs: close enough to "look at" the board

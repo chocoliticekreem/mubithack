@@ -711,7 +711,8 @@ local function placeArrow(part: BasePart?, model: Instance?, label: string, t: n
 	local vp = cam.ViewportSize
 	local rel = cam.CFrame:PointToObjectSpace(part.Position)
 	local side = if rel.X >= 0 then 1 else -1
-	ui.edge.Position = UDim2.fromOffset(if side > 0 then vp.X - 56 else 56, vp.Y * 0.5)
+	-- left: under the guide card, above the Pass button; right: under the minimap / GPS panel
+	ui.edge.Position = UDim2.fromOffset(if side > 0 then vp.X - 56 else 56, vp.Y * (if side > 0 then 0.66 else 0.42))
 	ui.pointer.Position = UDim2.fromOffset(23 + side * 27, 23)
 	ui.edge.Visible = true
 end
