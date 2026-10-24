@@ -96,7 +96,14 @@ forge/                 Python package (uv), entry point `forge`
                        {report.json, step-NN.png[, step-NN.json]} (steps: action, reason, latency_ms,
                        ts, assertions[{text, ok, detail}]). GET /api/shot?slug=&path= serves only .png
                        under runs/<slug>/{tests,iterations}/. POST /api/rollback {slug, version} ->
-                       rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building
+                       rollback(): GameVersions.restore, 127.0.0.1 only, 409 while a run is building.
+                       The page leads with state["active"] (now_view: running jobs/logs/playtests + autopilots
+                       with a live pid), game["result"] (result_view: newest screenshot + one-line verdict) and
+                       game["agents"] (agents_view(game_calls(run_dir), live_role): one row per Mubit role over
+                       calls.jsonl of build/improve/autopilot/orchestrator); the rest sits behind "More".
+                       GET /api/agent?slug=&role= -> agent_detail(settings, slug, role): {rows newest first
+                       [{n, ts, source, step, thought, file, request_id, ok, error, latency_ms}], files, shots,
+                       outcomes [{what, outcome, version, file, where}]}, 404 for an unknown game or role
   feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish, jobs) -> result:
                        planner plan -> coder (new modules, as a DAG) and patcher/fixer (hook edits, destructive
                        guard; one file's edits in order) all at once ->

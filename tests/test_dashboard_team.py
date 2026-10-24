@@ -211,6 +211,63 @@ def test_thought_and_step_parsers():
     assert db.step_of("nothing") == ""
 
 
+def test_parsers_read_cut_json_tool_calls_and_anomaly_titles():
+    assert db.thought_of('{"understanding": "an obby with a lobby and 200 st') == "an obby with a lobby and 200 st"
+    assert db.thought_of('{"reviews": [{"id": "x", "reason": "check is flaky here"}]}') == "check is flaky here"
+    assert db.thought_of('<invoke name="read">\n<parameter name="path">A.luau</parameter>\n'
+                         '<parameter name="why">find the coin handler</parameter>\n</invoke>') == "read: find the coin handler"
+    assert db.thought_of("--!strict\n-- HUD shows coins\nreturn 1") == "HUD shows coins"
+    assert db.thought_of("# Lessons\n- build the map from code") == "- build the map from code"
+    assert db.step_of('## Anomaly\n{"kind": "bug", "title": "Coins never drop"}\n') == "Coins never drop"
+
+
+def test_agents_list_every_role_newest_first(settings):
+    store = RunStore(settings, "tycoon")
+    (store.dir / "autopilot").mkdir()
+    (store.dir / "autopilot" / "calls.jsonl").write_text(json.dumps(call("anomaly_detector", 90, 4_000, "mreq_ad")) + "\n")
+    trace(store.dir / "autopilot" / "traces", "anomaly_detector", 90, "mreq_ad", "## Goal\nfun",
+          '{"summary": "onboarding never finishes"}')
+    g = db.collect(settings)["games"][0]
+    agents = {a["role"]: a for a in g["agents"]}
+    assert [a["role"] for a in g["agents"]][:2] == ["anomaly_detector", "fixer"]
+    assert agents["coder"]["calls"] == 3 and agents["coder"]["sources"] == ["build"]
+    assert agents["anomaly_detector"]["sources"] == ["autopilot"]
+    assert agents["anomaly_detector"]["thought"] == "onboarding never finishes"
+    assert agents["fixer"]["step"] == "Shop.luau: price never updates" and not agents["fixer"]["running"]
+    assert g["result"]["verdict"] == "Build round 2: score 8.5/10" and g["result"]["why"] == "conveyor feels good"
+    assert g["result"]["shot"].startswith("/api/shot?slug=tycoon")
+
+
+def test_agent_detail_endpoint(settings):
+    store = RunStore(settings, "tycoon")
+    (store.dir / "autopilot").mkdir()
+    (store.dir / "autopilot" / "status.json").write_text(json.dumps({"state": "finished", "rounds": [
+        {"round": 1, "version": "v2", "decisions": [
+            {"title": "Price label stale", "picked": True, "outcome": "kept", "sources": ["critic"]},
+            {"title": "Not picked", "picked": False, "outcome": None, "sources": ["critic"]}]}]}))
+    server = db.serve("127.0.0.1", 0, settings)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{port}/api/agent?slug=tycoon&role="
+    try:
+        coder = json.loads(urllib.request.urlopen(base + "coder", timeout=5).read())
+        assert coder["calls"] == 3 and [r["n"] for r in coder["rows"]] == [3, 2, 1]
+        assert coder["rows"][-1]["thought"] == "Dropper spawns a cube every 2s"
+        assert coder["rows"][0]["request_id"] == "mreq_c3" and coder["rows"][0]["ok"] is True
+        assert {f["path"] for f in coder["files"]} == {"ServerScriptService/Dropper.luau",
+                                                       "ServerScriptService/Shop.luau", "ServerScriptService/Plots.luau"}
+        critic = json.loads(urllib.request.urlopen(base + "critic", timeout=5).read())
+        assert critic["shots"][0]["label"] == "build round 1" and critic["shots"][0]["shot"].endswith("screenshot.png")
+        assert critic["outcomes"] == [{"what": "Price label stale", "outcome": "kept", "version": "v2", "file": None,
+                                       "where": "autopilot round 1"}]
+        for bad in (base + "nobody", f"http://127.0.0.1:{port}/api/agent?slug=nope&role=coder"):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(bad, timeout=5)
+            assert e.value.code == 404
+    finally:
+        server.shutdown()
+
+
 def test_shot_route_serves_only_run_pngs(settings):
     server = db.serve("127.0.0.1", 0, settings)
     port = server.server_address[1]
@@ -233,3 +290,78 @@ def test_shot_route_serves_only_run_pngs(settings):
 def test_old_tester_run_without_end_is_stopped(settings):
     d = db.team_view(settings, "tycoon", db.game_view(settings, "tycoon"), now=time.time() + 3600)
     assert d["testers"][0]["status"] == "stopped"
+
+
+def _result(settings, slug: str) -> dict:
+    g = db.game_view(settings, slug)
+    return db.result_view(RunStore(settings, slug).dir, g, db.team_view(settings, slug, g))
+
+
+def test_result_reads_improve_cycles(settings):
+    only = RunStore(settings, "cycles-only")
+    only.ensure()
+    only.save_spec({"title": "Fire game"})
+    imp = only.dir / "improve"
+    imp.mkdir()
+    (imp / "scores.json").write_text(json.dumps([
+        {"cycle": 1, "ts": iso(10), "open": 3, "code_kept": 1, "code_tried": 2},
+        {"cycle": 7, "ts": iso(20), "open": 5, "code_kept": 0, "code_tried": 4}]))
+    (imp / "7.json").write_text(json.dumps({"audit": {"anomalies": [{"title": "Fire spreads uncontested"}]},
+                                            "code_fixes": [{"anomaly": "hose", "status": "rolled_back"}]}))
+    r = _result(settings, "cycles-only")
+    assert r["verdict"] == "Fix cycle 7: 0/4 fixes kept, 5 open" and r["why"] == "Fire spreads uncontested"
+
+    # tycoon: build round 2 has no end time, so it stays the latest result over cycle 1 (80s)
+    assert _result(settings, "tycoon")["verdict"] == "Build round 2: score 8.5/10"
+    store = RunStore(settings, "tycoon")
+    state = store.load_state()
+    state["iterations"][-1]["ended"] = iso(40)
+    store.save_state(state)
+    r = _result(settings, "tycoon")
+    assert r["verdict"] == "Fix cycle 1: 0/0 fixes kept, 0 open" and r["why"] == "kept: price never updates"
+    state["iterations"][-1]["ended"] = iso(100)
+    store.save_state(state)
+    assert _result(settings, "tycoon")["verdict"] == "Build round 2: score 8.5/10"
+
+
+def test_autopilot_log_and_fresh_call_mark_the_agent_at_work(settings):
+    runs = [{"name": "autopilot-tycoon.log", "kind": "log", "status": "active", "command": "", "updated": 1.0,
+             "tail": ["10:09:58 [autopilot] tycoon round 2", "10:10:03 [autopilot] [checks] PASS shop-sells", "10:10:11 [autopilot] checks: 13/13 pass"]}]
+    live = db.live_for(settings, "tycoon", runs)
+    assert live["role"] == "tester" and live["line"].endswith("PASS shop-sells")
+
+    store = RunStore(settings, "tycoon")
+    (store.dir / "autopilot").mkdir()
+    (store.dir / "autopilot" / "calls.jsonl").write_text(json.dumps(call("step_judge", 300, 4_000, "mreq_sj")) + "\n")
+    calls = db.game_calls(store.dir)
+    now = (T0 + timedelta(seconds=360)).timestamp()
+    agents = db.agents_view(calls, None, now)
+    assert agents[0]["role"] == "step_judge" and agents[0]["running"]
+    assert not any(a["running"] for a in agents[1:])
+    assert not any(a["running"] for a in db.agents_view(calls, None, now + db.FRESH_CALL))
+
+    game = {"slug": "tycoon", "title": "Cube Cash Tycoon", "live": live, "agents": agents,
+            "autopilot": {"alive": True, "round": 2, "phase": "verify"}}
+    rows = db.now_view(runs, [game], now)
+    assert [(r["kind"], r["role"]) for r in rows] == [("log", "step_judge"), ("autopilot", "step_judge")]
+
+
+def test_agent_screenshots_come_from_its_own_tester_runs(settings):
+    store = RunStore(settings, "tycoon")
+    other = store.dir / "tests" / "20261024-130000-b2-01-griefer"
+    other.mkdir(parents=True)
+    (other / "report.json").write_text(json.dumps({"persona": "griefer", "started": iso(3600), "ended": iso(3700),
+                                                   "steps": [{"n": 1, "action": "jump"}]}))
+    (other / "step-01.png").write_bytes(PNG)
+    (store.dir / "autopilot").mkdir()
+    (store.dir / "autopilot" / "calls.jsonl").write_text("\n".join(json.dumps(c) for c in [
+        {**call("step_judge", 63, 900, "mreq_j1"), "session_id": "qa-20261024-120100-a1"},
+        {**call("swarm_tester", 3650, 900, "mreq_w1"), "session_id": "swarm-20261024-130000-b2"},
+        {**call("player", 9000, 900, "mreq_p1"), "session_id": "playtest-20261024-150000-c3"},
+        {**call("judge", 64, 900, "mreq_u1"), "session_id": "s1"}]) + "\n")
+    shots = {r: db.agent_detail(settings, "tycoon", r)["shots"]
+             for r in ("step_judge", "swarm_tester", "player", "judge")}
+    assert {s["label"].split(" · ")[0] for s in shots["step_judge"]} == {"speedrunner"}
+    assert [s["label"].split(" · ")[0] for s in shots["swarm_tester"]] == ["griefer"]
+    assert shots["player"] == []  # its playtests never wrote a tests/ run
+    assert shots["judge"] == []  # no tester run in its session id
