@@ -361,7 +361,26 @@ local function hydrantAtt(hydrant: BasePart): Attachment
 	return na
 end
 
--- The fat yellow supply line (visible) or the hidden leash that keeps the holder in reach.
+-- The fat yellow hose you SEE: a straight Beam between two attachments (no physics, so it never sags
+-- through the floor the way a slack visible RopeConstraint does).
+local function supplyBeam(a0: Attachment, a1: Attachment, parent: Instance): Beam
+	local b = Instance.new("Beam")
+	b.Name = "SupplyLineLook"
+	b.Attachment0 = a0
+	b.Attachment1 = a1
+	b.Width0 = 0.7
+	b.Width1 = 0.7
+	b.FaceCamera = true
+	b.Segments = 1
+	b.Color = ColorSequence.new(Cfg.SupplyColor)
+	b.LightInfluence = 1
+	b.Transparency = NumberSequence.new(0)
+	b.Parent = parent
+	return b
+end
+
+-- The physics of a line (always hidden): it holds the holder / coupling / truck at `length`.
+-- visible = also draw the hose (a Beam inside the rope, so both go together).
 local function supplyRope(name: string, a0: Attachment, a1: Attachment, length: number, visible: boolean, parent: Instance): RopeConstraint
 	local r = Instance.new("RopeConstraint")
 	r.Name = name
@@ -369,10 +388,11 @@ local function supplyRope(name: string, a0: Attachment, a1: Attachment, length: 
 	r.Attachment1 = a1
 	r.Length = length
 	r.Restitution = 0
-	r.Visible = visible
-	r.Thickness = 0.6
-	r.Color = BrickColor.new(Cfg.SupplyColor)
+	r.Visible = false
 	r.Parent = parent
+	if visible then
+		supplyBeam(a0, a1, r)
+	end
 	return r
 end
 
@@ -582,7 +602,7 @@ local function equipHand(player: Player, ps: PState)
 		if hyd and hyd:IsDescendantOf(workspace) and handle and root then
 			local tail = handle:FindFirstChild("CouplingEnd") :: Attachment?
 			if tail then
-				supplyRope("SupplyLine", hydrantAtt(hyd), tail, Cfg.SupplyLength + 4, true, t)
+				supplyBeam(hydrantAtt(hyd), tail, t)
 			end
 			local tug = root:FindFirstChild("InvSupplyTug") :: Attachment?
 			if not tug then
