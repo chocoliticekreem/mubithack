@@ -127,22 +127,41 @@ local function makeSlot(parent: Instance, key: string, label: string, order: num
 	InputHints.setPick(keyChip, label, (string.gsub(label, "^1/2 ", ""))) -- phones: the SWAP button, no keys
 	local bar = Instance.new("Frame")
 	bar.Name = "Gauge"
-	bar.Size = UDim2.new(1, -12, 0, 14)
-	bar.Position = UDim2.new(0, 6, 1, -19)
+	-- a pill tucked inside the tile's rounded bottom edge (clear of the 12 px corners + 3 px border), so it
+	-- follows the tile's curve instead of butting into it; the fill is clipped to the same pill shape
+	bar.Size = UDim2.new(1, -20, 0, 14)
+	bar.Position = UDim2.new(0, 10, 1, -21)
 	bar.BackgroundColor3 = Palette.UiInk
 	bar.BorderSizePixel = 0
 	bar.Visible = false
 	bar.ZIndex = 3
 	bar.Parent = tile
-	UiKit.corner(bar, 5)
+	local pill = UDim.new(0.5, 0)
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = pill
+	bc.Parent = bar
+	local bs = Instance.new("UIStroke")
+	bs.Thickness = 1.5
+	bs.Color = Palette.UiCream
+	bs.Transparency = 0.35
+	bs.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	bs.Parent = bar
+	local clip = Instance.new("CanvasGroup")
+	clip.Name = "Clip"
+	clip.Size = UDim2.fromScale(1, 1)
+	clip.BackgroundTransparency = 1
+	clip.ZIndex = 3
+	clip.Parent = bar
+	local cc = Instance.new("UICorner")
+	cc.CornerRadius = pill
+	cc.Parent = clip
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
 	fill.Size = UDim2.fromScale(1, 1)
 	fill.BackgroundColor3 = Palette.WaterSpray
 	fill.BorderSizePixel = 0
 	fill.ZIndex = 3
-	fill.Parent = bar
-	UiKit.corner(fill, 5)
+	fill.Parent = clip
 	-- charge readout on the gauge ("72%"): cream on the dark track, a thin ink stroke so it reads over the fill
 	local charge = Instance.new("TextLabel")
 	charge.Name = "Charge"
@@ -261,7 +280,7 @@ local function paint(key: string, id: string, isProp: boolean)
 			s.fill.Size = UDim2.fromScale(1, 1)
 			s.fill.BackgroundColor3 = color
 			s.charge.Text = "∞"
-			s.charge.TextSize = 16
+			s.charge.TextSize = 20
 		elseif frac then
 			s.charge.TextSize = 11
 			s.fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
