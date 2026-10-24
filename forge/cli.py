@@ -82,17 +82,33 @@ async def _list_studios(settings) -> list[dict]:
 
 # ---------------------------------------------------------------- new / run / correct
 
+def _speed_args(p) -> None:
+    from forge.llm import DEFAULT_JOBS
+    p.add_argument("--jobs", "-j", type=int, default=None,
+                   help=f"concurrent LLM calls (default FORGE_JOBS or {DEFAULT_JOBS}; 1 = one at a time)")
+    p.add_argument("--no-cache", action="store_true",
+                   help="always call Mubit (skip the reply cache in runs/.cache/llm)")
+
+
+def _apply_speed_args(args) -> None:
+    """--jobs / --no-cache become FORGE_JOBS / FORGE_NO_CACHE, so every LLM client in the process sees them."""
+    if getattr(args, "jobs", None):
+        os.environ["FORGE_JOBS"] = str(max(1, args.jobs))
+    if getattr(args, "no_cache", False):
+        os.environ["FORGE_NO_CACHE"] = "1"
+
+
 def cmd_new(args) -> int:
     from forge.loop import new_game
     slug = asyncio.run(new_game(args.idea, args.iterations, not args.no_studio,
-                                use_director=False if args.no_director else None))
+                                use_director=False if args.no_director else None, jobs=args.jobs))
     print(f"\nslug: {slug}   (continue with: forge run {slug})")
     return 0
 
 
 def cmd_run(args) -> int:
     from forge.loop import run_game
-    asyncio.run(run_game(args.slug, args.iterations, not args.no_studio))
+    asyncio.run(run_game(args.slug, args.iterations, not args.no_studio, jobs=args.jobs))
     return 0
 
 
@@ -418,7 +434,7 @@ def cmd_feature(args) -> int:
     from forge.feature import add_feature
     _sigterm_as_interrupt()
     res = asyncio.run(add_feature(load_settings(), args.slug, args.request, iterations=args.iterations,
-                                  use_studio=not args.no_studio, polish=args.polish))
+                                  use_studio=not args.no_studio, polish=args.polish, jobs=args.jobs))
     print(f"\nfeature: {res.get('status') or ('verified' if res.get('verified') else 'built')}  "
           f"new {res.get('built')}  edited {res.get('edited')}  version {res.get('version')}")
     print(f"roll back with: forge rollback {args.slug} {res.get('before')}")
@@ -600,6 +616,7 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--iterations", "-n", type=int, default=3)
     n.add_argument("--no-studio", action="store_true", help="compile-check only, no Studio MCP")
     n.add_argument("--no-director", action="store_true", help="skip the game director (designer only)")
+    _speed_args(n)
 
     di = sub.add_parser("direct", help="dry run: director design doc + designer spec, no build")
     di.add_argument("idea")
@@ -613,6 +630,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("slug")
     r.add_argument("--iterations", "-n", type=int, default=3)
     r.add_argument("--no-studio", action="store_true")
+    _speed_args(r)
 
     c = sub.add_parser("correct", help="human correction -> fixer call -> resync")
     c.add_argument("slug")
@@ -684,6 +702,7 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("--faults-file", help="faults JSON (default forge/faults/<slug>.json)")
     im.add_argument("--studio", help="Studio name part (default FORGE_STUDIO)")
     im.add_argument("--fix", action="store_true", help="also fix real (non-planted) anomalies in code")
+    _speed_args(im)
 
     fx = sub.add_parser("fix", help="playtest -> auditor -> fix real anomalies in code -> verify, until clean")
     fx.add_argument("slug")
@@ -702,6 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="let the fixer edit a seeded game's human files (in runs/<slug>/game only)")
     fx.add_argument("--no-repro", action="store_true",
                     help="old loop: no reproducer checks; the verifier alone judges each fix")
+    _speed_args(fx)
 
     db = sub.add_parser("dashboard", help="live view of jobs, games, fix cycles, versions and Mubit calls")
     db.add_argument("--port", type=int, default=8765)
@@ -719,6 +739,7 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--polish", type=int, default=0,
                     help="then N end-to-end cycles: AI testers in a round, auditor vs acceptance, fix, verify")
     fe.add_argument("--no-studio", action="store_true")
+    _speed_args(fe)
 
     po = sub.add_parser("polish", help="end-to-end cycles on a game's latest feature (testers in a round, auditor vs acceptance, fix, verify)")
     po.add_argument("slug")
@@ -773,6 +794,7 @@ def main(argv: list[str] | None = None) -> int:
     with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(line_buffering=True)
     args = build_parser().parse_args(argv)
+    _apply_speed_args(args)
     from forge.bench import cmd_bench
     handler = {"doctor": cmd_doctor, "bench": cmd_bench, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,

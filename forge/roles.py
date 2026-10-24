@@ -14,10 +14,16 @@ from forge import ui_kit
 from forge.llm import LLM, LLMError
 
 MAX_USER_CHARS = 24_000
+# Luau and JSON run ~2 chars per token (measured on real Mubit calls), so 24k chars is ~12k tokens.
+# Optional context (the UI kit) only gets room up to this many chars, which keeps a call with its system
+# prompt near the ~8k-token run size. Required text (the file being fixed, deps) is never cut for it.
+INPUT_BUDGET_CHARS = 15_000
 LESSONS_HEADER = "## Lessons from past builds"
 
 SPEC_KEYS = ["title", "slug", "pitch", "core_loop", "modules", "acceptance"]
-CRITIQUE_KEYS = ["score", "summary", "issues", "done"]
+# "done" is not required: it defaults to false (and the loop also stops on the score), so a reply that
+# leaves it out is used as is instead of paying for a ~15s JSON repair call (seen on real Mubit runs).
+CRITIQUE_KEYS = ["score", "summary", "issues"]
 ROOTS = ("ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts")
 RUNTIME_MODULES = {"ReplicatedStorage/ForgeTelemetry.luau", "ServerScriptService/ForgeProbe.server.luau"}
 MAX_MODULES = 7
@@ -94,7 +100,7 @@ def _with_ui_kit(msg: str, tail: str, path: str, problem: str, cap: int) -> str:
     name), and compile errors never get it: the fix there is syntax, not style."""
     if (problem or "").lstrip().startswith("luau-compile"):
         return msg
-    room = min(cap, MAX_USER_CHARS - len(msg) - len(tail) - 2)
+    room = min(cap, INPUT_BUDGET_CHARS - len(msg) - len(tail) - 2)
     kit = ui_kit.block(path, problem or "", room, path_words=False)
     return msg + (kit + "\n" if kit else "")
 
@@ -258,7 +264,7 @@ def code_module(
         f"{_lessons_block(lessons, 5000)}\n"
     )
     tail = f"Write the complete file {path} in one ```luau block."
-    room = min(ui_kit.MAX_CHARS, MAX_USER_CHARS - len(head) - len(tail) - 2)
+    room = min(ui_kit.MAX_CHARS, INPUT_BUDGET_CHARS - len(head) - len(tail) - 2)
     kit = ui_kit.block(path, module.get("purpose", "") or "", room)
     user = _fit(head + (kit + "\n" if kit else "") + tail)
     return _complete_luau(llm, "coder", user, session_id=session_id)

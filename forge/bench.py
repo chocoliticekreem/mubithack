@@ -156,6 +156,10 @@ def instrument(rec: dict):
                                     "pass_rate": None, "error": str(e)[:200]}
             return
         failing = sorted({p for p, _ in errors if p in modules})
+        # the build compiles and fixes each module as it is written (pipelined): use its first-try results
+        first = getattr(run, "compile_first", None) or {}
+        if first:
+            failing = sorted(set(failing) | {p for p, err in first.items() if err and p in modules})
         missing = len(modules) - len(written)
         ok = len(modules) - len(failing) - missing
         rec["compile_first"] = {"modules": len(modules), "written": len(written), "failing": failing,

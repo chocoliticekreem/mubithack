@@ -10,13 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import re
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from forge.config import Settings
 
@@ -27,10 +28,23 @@ ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge",
          "auditor", "verifier", "triage", "investigator", "patcher", "planner", "scenarist",
          "check_reviewer", "reproducer", "director", "fun_critic")
 
-MAX_TRIES = 3  # total attempts for retryable gateway errors (429 / 503 / 529 overloaded)
+MAX_TRIES = 3  # total attempts for retryable gateway errors (503 / 529 overloaded / connection)
+RATE_LIMIT_TRIES = 6  # 429s get more attempts: with --jobs 8 a burst can trip the gateway's rate limit
 RETRY_STATUSES = {429, 503, 529}
 MAX_RETRY_WAIT_S = 60.0
 JSON_REPAIRS = 2
+DEFAULT_JOBS = 8  # concurrent LLM calls (forge new/run/feature --jobs N, or FORGE_JOBS)
+# Roles whose reply is cached on disk by (system prompt, model, max_tokens, user message). The fixer and
+# patcher are cached only for compile-error repairs (COMPILE_FIX_MARK in the message): a critic, improve or
+# human fix must always reach Mubit, so a retry gets a fresh attempt and a correction stays a training call.
+CACHE_ROLES = ("designer", "director", "coder", "planner", "critic", "fun_critic", "reflector")
+COMPILE_FIX_ROLES = ("fixer", "patcher")
+COMPILE_FIX_MARK = "luau-compile failed"
+# Early abort: a code role that has written this many chars without opening a fence (or a JSON role
+# without a "{") is writing prose; stop paying for it and let the role's repair/retry path take over.
+ABORT_AFTER_CHARS = 1500
+LUAU_ROLES = ("coder", "fixer")
+JSON_ROLES = ("designer", "director", "critic", "fun_critic", "planner", "patcher", "auditor", "verifier", "triage", "investigator")
 
 
 class LLMError(RuntimeError):
@@ -46,6 +60,28 @@ class LLMResult:
     latency_ms: int
     input_tokens: int | None
     output_tokens: int | None
+    cached: bool = False   # served from the on-disk reply cache (no Mubit call)
+    aborted: bool = False  # streaming stopped early: the reply was going nowhere
+
+
+def jobs_from_env(default: int = DEFAULT_JOBS) -> int:
+    try:
+        return max(1, int(os.environ.get("FORGE_JOBS") or default))
+    except ValueError:
+        return default
+
+
+def stream_verdict(role: str, text: str) -> str:
+    """While a reply streams in: "abort" (prose where code/JSON should be), "done" (a code reply's
+    ```luau block has closed, the rest is commentary) or "more"."""
+    if role in LUAU_ROLES:
+        opened = re.search(r"```[ \t]*(?:luau|lua)[ \t]*\r?\n", text, re.IGNORECASE)
+        if opened is None:
+            return "abort" if len(text) >= ABORT_AFTER_CHARS and "```" not in text else "more"
+        return "done" if "```" in text[opened.end():] else "more"
+    if role in JSON_ROLES and len(text) >= ABORT_AFTER_CHARS and "{" not in text:
+        return "abort"
+    return "more"
 
 
 class LLM(Protocol):
@@ -91,11 +127,67 @@ def load_prompt(role: str) -> str:
 _FENCE_RE = re.compile(r"```[ \t]*([A-Za-z0-9_+-]*)[ \t]*\n(.*?)```", re.DOTALL)
 
 
-def extract_json_object(text: str) -> dict:
+def extract_json_object(text: str, required: list[str] | None = None) -> dict:
     """Return the first JSON object in text. Fenced ```json blocks are tried first.
 
+    With `required`, the first object that has all those keys wins over an earlier one that does not
+    (a fence or a `{}` quoted inside the reply's own strings must not shadow the real reply).
     Raises ValueError with a short reason if none parses.
     """
+    if required:
+        first: dict | None = None
+        for obj in _json_objects(text):
+            if all(k in obj for k in required):
+                return obj
+            if first is None:
+                first = obj
+        salvaged = _salvage_json(text)
+        if salvaged is not None and all(k in salvaged for k in required):
+            return salvaged
+        if first is not None:
+            return first
+    return _first_json_object(text)
+
+
+def _salvage_json(text: str, max_edits: int = 3) -> dict | None:
+    """Fix the commonest model slip locally instead of paying for a repair call: a stray closing
+    bracket (e.g. `}]]` for `}]`). Drops the closer the parser chokes on, up to max_edits times."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    s = text[start:]
+    for _ in range(max_edits + 1):
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(s)
+            return obj if isinstance(obj, dict) else None
+        except json.JSONDecodeError as e:
+            if e.pos >= len(s) or s[e.pos] not in "]}":
+                return None
+            s = s[:e.pos] + s[e.pos + 1:]
+    return None
+
+
+def _json_objects(text: str):
+    """Every top-level JSON object in text, in the order extract_json_object tries them."""
+    candidates = [m.group(2) for m in _FENCE_RE.finditer(text) if m.group(1).lower() in ("json", "", "jsonc")]
+    candidates.append(text)
+    decoder = json.JSONDecoder()
+    for cand in candidates:
+        start = cand.find("{")
+        while start != -1:
+            try:
+                obj, end = decoder.raw_decode(cand, start)
+            except json.JSONDecodeError:
+                start = cand.find("{", start + 1)
+                continue
+            if isinstance(obj, dict):
+                yield obj
+                start = cand.find("{", end)
+            else:
+                start = cand.find("{", start + 1)
+
+
+def _first_json_object(text: str) -> dict:
     candidates: list[str] = []
     for m in _FENCE_RE.finditer(text):
         lang = m.group(1).lower()
@@ -156,7 +248,7 @@ class _JSONMixin:
         for attempt in range(JSON_REPAIRS + 1):
             res = self.complete(role, msg, session_id=session_id, max_tokens=max_tokens)
             try:
-                obj = extract_json_object(res.text)
+                obj = extract_json_object(res.text, required)
                 _check_required(obj, required)
                 return obj, res
             except ValueError as e:
@@ -209,6 +301,13 @@ class MubitLLM(_JSONMixin):
         self._log_lock = threading.Lock()
         self._openai_metadata_mode = "metadata"  # -> "store" -> "none" if the gateway rejects it
         self.sleep: Callable[[float], None] = time.sleep
+        # Streaming lets a reply stop early (stream_verdict). FORGE_STREAM=0 turns it off; a gateway
+        # that rejects streaming turns it off for the rest of the process.
+        self.stream = os.environ.get("FORGE_STREAM", "1") != "0"
+        self._tl = threading.local()  # role / abort flag of the call running on this thread
+        # A 429 on one thread makes every thread wait it out, so a burst backs off together.
+        self._cool_lock = threading.Lock()
+        self._cool_until = 0.0
         if self.provider == "anthropic":
             import anthropic
 
@@ -227,6 +326,13 @@ class MubitLLM(_JSONMixin):
     # -- provider calls: return (text, request_id, input_tokens, output_tokens, model)
 
     def _call_anthropic(self, system: str, user: str, session_id: str, max_tokens: int):
+        if self.stream:
+            try:
+                return self._stream_anthropic(system, user, session_id, max_tokens)
+            except Exception as e:  # noqa: BLE001
+                if getattr(e, "status_code", None) not in (400, 404, 405, 415, 501) or "stream" not in str(e).lower():
+                    raise
+                self.stream = False  # this gateway does not stream: plain calls from now on
         raw = self._client.messages.with_raw_response.create(
             model=self.model,
             max_tokens=max_tokens,
@@ -247,6 +353,34 @@ class MubitLLM(_JSONMixin):
             getattr(usage, "output_tokens", None),
             getattr(msg, "model", None) or self.model,
         )
+
+    def _stream_anthropic(self, system: str, user: str, session_id: str, max_tokens: int):
+        """Streamed call: reads until the reply ends, a code reply's block closes, or stream_verdict
+        says it is going nowhere (then self._tl.aborted is set and the partial text is returned)."""
+        role = getattr(self._tl, "role", "")
+        with self._client.messages.stream(
+            model=self.model, max_tokens=max_tokens, system=system,
+            messages=[{"role": "user", "content": user}], metadata={"user_id": session_id},
+        ) as stream:
+            rid = _header(stream.response.headers, "x-middleware-request-id")
+            parts: list[str] = []
+            n = 0
+            stopped = False
+            for chunk in stream.text_stream:
+                parts.append(chunk)
+                before, n = n, n + len(chunk)
+                # judge only when it can change: a fence arrived, or the abort threshold was crossed
+                if "`" in chunk or (before < ABORT_AFTER_CHARS <= n):
+                    verdict = stream_verdict(role, "".join(parts))
+                    if verdict != "more":
+                        self._tl.aborted = verdict == "abort"
+                        stopped = True
+                        break
+            text = "".join(parts)
+            msg = stream.current_message_snapshot if stopped else stream.get_final_message()
+        usage = getattr(msg, "usage", None)
+        return (text, rid, getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None),
+                getattr(msg, "model", None) or self.model)
 
     def _call_openai(self, system: str, user: str, session_id: str, max_tokens: int):
         import openai
@@ -304,18 +438,39 @@ class MubitLLM(_JSONMixin):
             return True, _retry_after(headers), rid
         return False, None, rid
 
+    def _wait_cooldown(self) -> None:
+        """Wait out a 429 cooldown set by another thread (not one this thread already slept through)."""
+        with self._cool_lock:
+            until = self._cool_until
+            if until <= getattr(self._tl, "slept_until", 0.0):
+                return
+            rem = until - time.monotonic()
+        if rem > 0:
+            self._tl.slept_until = until
+            self.sleep(min(rem, MAX_RETRY_WAIT_S))
+
+    def _backoff(self, wait: float) -> None:
+        with self._cool_lock:
+            self._cool_until = max(self._cool_until, time.monotonic() + wait)
+            self._tl.slept_until = self._cool_until
+        self.sleep(wait)
+
     def complete(self, role: str, user: str, *, session_id: str, max_tokens: int = 4096) -> LLMResult:
         system = load_prompt(role)
         call = self._call_anthropic if self.provider == "anthropic" else self._call_openai
         t0 = time.monotonic()
-        last_exc: Exception | None = None
-        for attempt in range(1, MAX_TRIES + 1):
+        self._tl.role = role
+        attempt = 0
+        while True:
+            attempt += 1
+            self._tl.aborted = False
+            self._wait_cooldown()
             try:
                 text, rid, tin, tout, model = call(system, user, session_id, max_tokens)
             except Exception as e:  # noqa: BLE001
-                last_exc = e
                 retry, wait, rid = self._is_retryable(e)
-                if not retry or attempt == MAX_TRIES:
+                limit = RATE_LIMIT_TRIES if getattr(e, "status_code", None) == 429 else MAX_TRIES
+                if not retry or attempt >= limit:
                     self._log(
                         role=role, session_id=session_id, model=self.model, request_id=rid,
                         latency_ms=int((time.monotonic() - t0) * 1000), input_tokens=None,
@@ -325,7 +480,10 @@ class MubitLLM(_JSONMixin):
                     self._trace(role, session_id, system, user, None, rid=rid, model=self.model,
                                 error=f"{type(e).__name__}: {str(e)[:2000]}")
                     raise LLMError(f"{role} call failed: {type(e).__name__}: {e}") from e
-                self.sleep(min(wait if wait is not None else 2.0 * attempt, MAX_RETRY_WAIT_S))
+                if wait is None:  # exponential with jitter, so a burst of threads does not retry in step
+                    wait = 2.0 * attempt if attempt < 3 else 2.0 ** attempt
+                    wait += random.uniform(0, 0.25 * attempt) if attempt > 1 else 0.0
+                self._backoff(min(wait, MAX_RETRY_WAIT_S))
                 continue
             res = LLMResult(
                 text=text,
@@ -335,16 +493,17 @@ class MubitLLM(_JSONMixin):
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 input_tokens=tin,
                 output_tokens=tout,
+                aborted=bool(getattr(self._tl, "aborted", False)),
             )
             self._log(
                 role=role, session_id=session_id, model=model, request_id=rid,
                 latency_ms=res.latency_ms, input_tokens=tin, output_tokens=tout,
                 user_chars=len(user), reply_chars=len(text),
+                **({"aborted": True} if res.aborted else {}),
             )
             self._trace(role, session_id, system, user, text, rid=rid, model=model,
                         latency_ms=res.latency_ms, input_tokens=tin, output_tokens=tout)
             return res
-        raise LLMError(f"{role} call failed: {last_exc}")  # pragma: no cover
 
     def _trace(self, role: str, session_id: str, system: str, user: str, reply: str | None, **meta) -> None:
         """Save the full call (prompt and reply) as traces/<time>-<role>-<request id>.json next to the
@@ -396,34 +555,55 @@ class FakeLLM(_JSONMixin):
         responses: dict[str, list[str]],
         default: Callable[[str, str], str] | None = None,
         log_path: Path | None = None,
+        latency: dict[str, float] | float | None = None,
     ):
         self.responses = {k: list(v) for k, v in responses.items()}
         self.default = default
         self.log_path = log_path
         self.calls: list[FakeCall] = []
+        # simulated seconds per call (per role, or one number): profiles the loop's structure offline
+        self.latency = latency
+        self._lock = threading.Lock()
+        self._active = 0           # calls running right now
+        self.peak_concurrency = 0  # most calls running at once
+
+    def _delay(self, role: str) -> float:
+        if isinstance(self.latency, dict):
+            return float(self.latency.get(role, 0.0))
+        return float(self.latency or 0.0)
 
     def complete(self, role: str, user: str, *, session_id: str, max_tokens: int = 4096) -> LLMResult:
         if role not in ROLES:
             raise LLMError(f"unknown role {role!r}")
-        self.calls.append(FakeCall(role, user, session_id, max_tokens))
-        queue = self.responses.get(role) or []
-        if queue:
-            text = queue.pop(0)
-        elif self.default is not None:
-            text = self.default(role, user)
-        else:
-            raise LLMError(f"FakeLLM has no scripted reply left for role {role!r}")
+        with self._lock:
+            self.calls.append(FakeCall(role, user, session_id, max_tokens))
+            n_call = len(self.calls)
+            queue = self.responses.get(role) or []
+            text = queue.pop(0) if queue else None
+            self._active += 1
+            self.peak_concurrency = max(self.peak_concurrency, self._active)
+        try:
+            delay = self._delay(role)
+            if delay > 0:
+                time.sleep(delay)
+            if text is None:
+                if self.default is None:
+                    raise LLMError(f"FakeLLM has no scripted reply left for role {role!r}")
+                text = self.default(role, user)
+        finally:
+            with self._lock:
+                self._active -= 1
         res = LLMResult(
-            text=text, role=role, request_id=f"fake-{len(self.calls)}", model="fake",
-            latency_ms=0, input_tokens=None, output_tokens=None,
+            text=text, role=role, request_id=f"fake-{n_call}", model="fake",
+            latency_ms=int(self._delay(role) * 1000), input_tokens=None, output_tokens=None,
         )
         if self.log_path is not None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.log_path.open("a", encoding="utf-8") as f:
+            with self._lock, self.log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "role": role, "session_id": session_id, "model": "fake",
-                    "request_id": res.request_id, "latency_ms": 0, "input_tokens": None,
+                    "request_id": res.request_id, "latency_ms": res.latency_ms, "input_tokens": None,
                     "output_tokens": None, "user_chars": len(user), "reply_chars": len(text),
                 }) + "\n")
         return res
@@ -483,10 +663,89 @@ def make_llm(settings: Settings, log_path: Path | None) -> LLM:
         script = os.environ.get("FORGE_FAKE_LLM_FILE")
         if script:
             responses = json.loads(Path(script).read_text(encoding="utf-8"))
-        return FakeLLM(responses, default=fake_default_reply, log_path=log_path)
+        latency: dict[str, float] | float | None = None
+        raw = os.environ.get("FORGE_FAKE_LATENCY")  # "2.5" or '{"coder": 30, "critic": 14}'
+        if raw:
+            latency = json.loads(raw) if raw.strip().startswith("{") else float(raw)
+        return FakeLLM(responses, default=fake_default_reply, log_path=log_path, latency=latency)
     if not settings.mubit_api_key:
         raise LLMError(
             "MUBIT_API_KEY is not set. Add it to .env (keys start with mbt_), "
             "or set FORGE_FAKE_LLM=1 for an offline run."
         )
-    return MubitLLM(settings, log_path)
+    llm = MubitLLM(settings, log_path)
+    if os.environ.get("FORGE_NO_CACHE") == "1":
+        return llm
+    return CachedLLM(llm, settings.runs_dir / ".cache" / "llm")
+
+
+# ---------------------------------------------------------------------------------------------
+# Reply cache
+
+
+class CachedLLM(_JSONMixin):
+    """On-disk reply cache in front of any LLM, for CACHE_ROLES (and compile-error fixes).
+
+    Key = sha256(role, sha256(system prompt), model, max_tokens, user message). Everything a reply
+    depends on is in the key: an edited system prompt, a different model, or any change to the module,
+    its deps, the spec or the lessons (all in the user message) is a miss. A hit returns the stored
+    reply with cached=True and makes no Mubit call. Cut-off and early-aborted replies are not stored.
+    Files live in runs/.cache/llm/<role>/<key>.json; FORGE_NO_CACHE=1 (or --no-cache) skips the cache.
+    """
+
+    def __init__(self, inner: Any, cache_dir: Path, roles: tuple[str, ...] = CACHE_ROLES):
+        self.inner = inner
+        self.dir = Path(cache_dir)
+        self.roles = set(roles)
+        self.hits = 0
+        self.misses = 0
+        self._lock = threading.Lock()
+
+    def key(self, role: str, user: str, max_tokens: int) -> str:
+        system = load_prompt(role)
+        model = getattr(self.inner, "model", "")
+        h = hashlib.sha256()
+        for part in (role, hashlib.sha256(system.encode("utf-8")).hexdigest(), str(model), str(max_tokens), user):
+            h.update(part.encode("utf-8"))
+            h.update(b"\x00")
+        return h.hexdigest()
+
+    def _path(self, role: str, key: str) -> Path:
+        return self.dir / role / f"{key}.json"
+
+    def cacheable(self, role: str, user: str) -> bool:
+        return role in self.roles or (role in COMPILE_FIX_ROLES and COMPILE_FIX_MARK in user)
+
+    def complete(self, role: str, user: str, *, session_id: str, max_tokens: int = 4096) -> LLMResult:
+        if not self.cacheable(role, user):
+            return self.inner.complete(role, user, session_id=session_id, max_tokens=max_tokens)
+        key = self.key(role, user, max_tokens)
+        path = self._path(role, key)
+        if path.exists():
+            try:
+                rec = json.loads(path.read_text(encoding="utf-8"))
+                with self._lock:
+                    self.hits += 1
+                return LLMResult(text=rec["text"], role=role, request_id=rec.get("request_id"),
+                                 model=rec.get("model", ""), latency_ms=0, input_tokens=rec.get("input_tokens"),
+                                 output_tokens=rec.get("output_tokens"), cached=True)
+            except (OSError, ValueError, KeyError):
+                pass  # unreadable entry: call again and overwrite it
+        with self._lock:
+            self.misses += 1
+        res = self.inner.complete(role, user, session_id=session_id, max_tokens=max_tokens)
+        cut = res.output_tokens is not None and res.output_tokens >= max_tokens
+        if res.text.strip() and not res.aborted and not cut:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(f".{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps({"role": role, "text": res.text, "request_id": res.request_id,
+                                       "model": res.model, "input_tokens": res.input_tokens,
+                                       "output_tokens": res.output_tokens, "latency_ms": res.latency_ms,
+                                       "session_id": session_id,
+                                       "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")}),
+                           encoding="utf-8")
+            tmp.replace(path)
+        return res
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
