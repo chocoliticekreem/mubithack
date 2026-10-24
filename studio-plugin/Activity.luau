@@ -48,6 +48,14 @@ function Activity.headerAside(run)
     return (if run.status == "running" then "running" else "idle") .. " · " .. Activity.age(run.age_s)
 end
 
+-- A build's progress.json as one line under its run header: "42% Designing zones 3, 4, 5 of 10".
+function Activity.progress(p)
+    if type(p) ~= "table" then return nil end
+    local pct = math.clamp(math.floor(tonumber(p.pct) or 0), 0, 100)
+    local step = if p.stalled then "stalled" else tostring(p.step or "")
+    return Activity.clip(string.format("%d%% %s", pct, step), Activity.maxText)
+end
+
 -- What a click prints to Output.
 function Activity.detail(run, ev)
     local age = Activity.age(ev.age_s)
@@ -70,6 +78,13 @@ function Activity.rows(feed)
     for _, run in feed.runs or {} do
         table.insert(rows, {kind="run", text=Activity.header(run), aside=Activity.headerAside(run),
             status=if run.status == "running" then "running" else nil, run=run})
+        local prog = Activity.progress(run.progress)
+        if prog then
+            local p = run.progress
+            table.insert(rows, {kind="progress", text="  " .. prog, run=run,
+                status=if p.phase == "failed" then "fail" elseif p.stalled then "stopped"
+                    elseif p.running then "running" else "ok"})
+        end
         local events = run.events or {}
         if #events == 0 then
             table.insert(rows, {kind="note", text="  no actions logged yet", run=run})

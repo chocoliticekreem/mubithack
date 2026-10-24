@@ -17,6 +17,8 @@ ObbyKit builds).
 A zone's park theme (obby.THEMES, zone_theme): the plan entry's theme_id (or a theme that is one), words in its
 planned name/theme, else, for an amusement-park game, its place in the park (entrance first, finale last).
 Resumable: a zone whose JSON exists and passes both validators is skipped (its .luau re-rendered when stale).
+The pending zones are designed concurrently (`jobs` at a time, FORGE_JOBS): their themes are fixed in course order
+first, and each message then lists the whole planned course instead of the zones already written.
 Every run installs the latest ObbyKit into the game (director.ensure_kit) and the obby genre checks with the
 spec's stage count. spec["levels"] = {"zones", "stages_per_zone", "plan": [{zone, name, theme, theme_id, kinds,
 stages, written, request_ids, corrections, fallback, rules_left, stats}]}; a plan entry written by hand
@@ -25,8 +27,12 @@ stages, written, request_ids, corrections, fallback, rules_left, stats}]}; a pla
 
 from __future__ import annotations
 
+import concurrent.futures as cf
+import contextvars
+import copy
 import json
 import math
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -374,7 +380,9 @@ def route_doc(first: int, count: int) -> str:
     return "\n".join(lines)
 
 
-def zone_message(spec: dict, zone: int, total_zones: int, per_zone: int) -> str:
+def zone_message(spec: dict, zone: int, total_zones: int, per_zone: int, *, planned_course: bool = False) -> str:
+    """The level designer's user message. planned_course: zones are designed at the same time, so the message lists
+    the whole course's planned zones (number, stages, theme) instead of the zones already written."""
     first, count = zone_range(zone, per_zone)
     last = first + count - 1
     total = total_zones * per_zone
@@ -427,7 +435,9 @@ def zone_message(spec: dict, zone: int, total_zones: int, per_zone: int) -> str:
     parts.append(route_doc(first, count))
     parts.append(WORK_FAST)
     done = [p for z, p in sorted(_plan(spec).items()) if z != zone and p.get("written")]
-    if done:
+    if planned_course:
+        parts.append(course_doc(spec, zone, total_zones, per_zone))
+    elif done:
         parts.append("## Zones already designed (one course: keep it consistent, never repeat their names)\n"
                      + "\n".join(f"- Zone {p['zone']} \"{p.get('name')}\" (stages {p.get('stages', ['?', '?'])[0]}-"
                                  f"{p.get('stages', ['?', '?'])[-1]}): {str(p.get('theme') or '')[:120]}; kinds: "
@@ -439,6 +449,19 @@ def zone_message(spec: dict, zone: int, total_zones: int, per_zone: int) -> str:
                  f"{obby.RUN_LENGTH[0]:g}-{obby.RUN_LENGTH[1]:g} studs)\n" + json.dumps(example, ensure_ascii=False))
     parts.append(f"Return only the zone JSON object with all {count} stages ({first} to {last}).")
     return "\n\n".join(parts)
+
+
+def course_doc(spec: dict, zone: int, total_zones: int, per_zone: int) -> str:
+    plan = _plan(spec)
+    lines = []
+    for z in range(1, total_zones + 1):
+        a, n = zone_range(z, per_zone)
+        p = plan.get(z) or {}
+        what = zone_theme(spec, z, total_zones) or p.get("theme") or "its own theme"
+        name = f" \"{p['name']}\"" if p.get("name") and p.get("written") else ""
+        lines.append(f"- Zone {z}{name} (stages {a}-{a + n - 1}): {what}" + (" <- this zone" if z == zone else ""))
+    return ("## The whole course (its zones are designed at the same time: keep this one consistent with them and give "
+            "it a name of its own)\n" + "\n".join(lines))
 
 
 def zone_overview(zone: dict, first: int, count: int) -> str:
@@ -499,13 +522,14 @@ def forge_owned(data: dict, first: int, count: int, theme: str | None) -> dict:
 
 
 def design_zone(llm: Any, spec: dict, zone: int, *, total_zones: int, per_zone: int, session_id: str,
-                log: Callable[[str], None] = print, corrections: int = CORRECTIONS) -> tuple[dict, dict]:
+                log: Callable[[str], None] = print, corrections: int = CORRECTIONS,
+                planned_course: bool = False) -> tuple[dict, dict]:
     """One zone: the level_designer call, up to `corrections` correction calls in the same task (jump errors and
     zone-rule errors alike), fallbacks for stages still unreachable. -> (zone data, record {zone, first, count,
     theme_id, attempts, corrections, fallback, rules_left, stats})."""
     first, count = zone_range(zone, per_zone)
     theme = zone_theme(spec, zone, total_zones)
-    user = zone_message(spec, zone, total_zones, per_zone)
+    user = zone_message(spec, zone, total_zones, per_zone, planned_course=planned_course)
     obj, res = llm.complete_json(ROLE, user, session_id=session_id, required=["stages"], max_tokens=MAX_TOKENS)
     data = forge_owned(obby.normalize_zone(obj, zone, first, count, theme), first, count, theme)
 
@@ -562,8 +586,12 @@ def _llm_calls(path: Path) -> int:
 
 def run_levels(settings: Settings, slug: str, *, llm: Any = None, zones: tuple[int, int] | None = None,
                stages_per_zone: int | None = None, total_zones: int | None = None,
-               log: Callable[[str], None] = print) -> dict:
-    """Design (or skip, when already valid) every zone in `zones` and write the game's level data."""
+               log: Callable[[str], None] = print, jobs: int | None = None,
+               on_zone: Callable[[dict], None] | None = None,
+               on_start: Callable[[list[int]], None] | None = None) -> dict:
+    """Design (or skip, when already valid) every zone in `zones` and write the game's level data. Pending zones
+    are designed `jobs` at a time (FORGE_JOBS, default 6); every write and spec save happens on this thread.
+    on_start(zones in flight) fires whenever that set changes, on_zone(record) as each zone finishes."""
     store = RunStore(settings, slug)
     if not store.exists():
         raise FileNotFoundError(f"no game {slug!r} in {settings.runs_dir}")
@@ -588,8 +616,15 @@ def run_levels(settings: Settings, slug: str, *, llm: Any = None, zones: tuple[i
     if llm is None:
         from forge.llm import make_llm
         llm = make_llm(settings, store.calls_log)
-    out: list[dict] = []
+    results: dict[int, dict] = {}
     levels_dir = store.game_dir / obby.LEVELS_DIR
+
+    def report(zone: int, rec: dict) -> None:
+        results[zone] = rec
+        if on_zone:
+            on_zone(dict(rec, stages=rec["count"]))
+
+    pending = []
     for zone in range(lo, hi + 1):
         first, count = zone_range(zone, per_zone)
         rec_path = rec_dir / f"zone-{zone:02d}.json"
@@ -603,31 +638,97 @@ def run_levels(settings: Settings, slug: str, *, llm: Any = None, zones: tuple[i
                     luau_path.parent.mkdir(parents=True, exist_ok=True)
                     luau_path.write_text(text, encoding="utf-8")
                 log(f"[levels] zone {zone} \"{data.get('name')}\": already written and valid, skipped")
-                out.append({"zone": zone, "status": "skipped", "name": data.get("name"), "first": first, "count": count})
+                report(zone, {"zone": zone, "status": "skipped", "name": data.get("name"), "first": first,
+                              "count": count, "theme_id": data.get("theme_id")})
                 continue
-        try:
-            data, rec = design_zone(llm, spec, zone, total_zones=total_zones, per_zone=per_zone, session_id=slug, log=log)
-        except LLMError as e:  # one zone's failed call must not lose the others; a re-run retries it
-            log(f"[levels] zone {zone} FAILED: {e}")
-            out.append({"zone": zone, "status": "failed", "name": "", "first": first, "count": count, "error": str(e)[:300]})
-            continue
+        pending.append(zone)
+
+    # Every pending zone's theme is fixed before any call goes out, in course order, so zones designed at the same
+    # time still get distinct themes; the stubs live in a copy of the spec, which is what the messages read, and
+    # the saved spec only ever gains zones that were written.
+    ctx = copy.deepcopy(spec)
+    cplan = ctx["levels"]["plan"]
+    for zone in pending:
+        theme = zone_theme(ctx, zone, total_zones)
+        entry = next((p for p in cplan if isinstance(p, dict) and str(p.get("zone")) == str(zone)), None)
+        if entry is None:
+            cplan.append({"zone": zone, "theme_id": theme})
+        else:
+            entry["theme_id"] = theme
+    width = min(len(pending), max(1, int(jobs or os.environ.get("FORGE_JOBS") or 6)))
+    parallel = width > 1
+
+    def finish(zone: int, data: dict, rec: dict) -> None:
+        first, count = zone_range(zone, per_zone)
+        # zones designed together cannot see each other's names
+        data["name"] = _unique_name(data["name"], {str(p.get("name") or "").lower() for z, p in _plan(spec).items()
+                                                   if z != zone and p.get("written")})
         rec_dir.mkdir(parents=True, exist_ok=True)
-        rec_path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        (rec_dir / f"zone-{zone:02d}.json").write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        luau_path = levels_dir / f"Zone{zone:02d}.luau"
         luau_path.parent.mkdir(parents=True, exist_ok=True)
         luau_path.write_text(obby.render_zone_luau(data), encoding="utf-8")
-        plan = [p for p in lv["plan"] if not (isinstance(p, dict) and p.get("zone") == zone)]
-        plan.append({"zone": zone, "name": data["name"], "theme": data.get("theme", ""), "theme_id": rec["theme_id"],
-                     "kinds": kinds_used(data), "stages": [first, first + count - 1], "written": _now(),
-                     "request_ids": [a["request_id"] for a in rec["attempts"]], "corrections": rec["corrections"],
-                     "fallback": rec["fallback"], "rules_left": len(rec["rules_left"]), "stats": rec["stats"]})
-        lv["plan"] = sorted(plan, key=lambda p: int(p.get("zone") or 0))
+        entry = {"zone": zone, "name": data["name"], "theme": data.get("theme", ""), "theme_id": rec["theme_id"],
+                 "kinds": kinds_used(data), "stages": [first, first + count - 1], "written": _now(),
+                 "request_ids": [a["request_id"] for a in rec["attempts"]], "corrections": rec["corrections"],
+                 "fallback": rec["fallback"], "rules_left": len(rec["rules_left"]), "stats": rec["stats"]}
+        for doc in (spec, ctx):
+            plan = [p for p in doc["levels"]["plan"] if not (isinstance(p, dict) and str(p.get("zone")) == str(zone))]
+            doc["levels"]["plan"] = sorted(plan + [dict(entry)], key=lambda p: int(p.get("zone") or 0))
         store.save_spec(spec)
         with (rec_dir / "log.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": _now(), **rec}, ensure_ascii=False) + "\n")
-        out.append({"zone": zone, "status": "written", "name": data["name"], "first": first, "count": count,
-                    "theme_id": rec["theme_id"], "corrections": rec["corrections"], "fallback": rec["fallback"],
-                    "errors": [a["errors"] for a in rec["attempts"]], "rules_left": rec["rules_left"],
-                    "stats": rec["stats"]})
+        report(zone, {"zone": zone, "status": "written", "name": data["name"], "first": first, "count": count,
+                      "theme_id": rec["theme_id"], "corrections": rec["corrections"], "fallback": rec["fallback"],
+                      "errors": [a["errors"] for a in rec["attempts"]], "rules_left": rec["rules_left"],
+                      "stats": rec["stats"]})
+
+    def failed(zone: int, e: Exception) -> None:  # one zone's failed call must not lose the others; a re-run retries it
+        first, count = zone_range(zone, per_zone)
+        log(f"[levels] zone {zone} FAILED: {e}")
+        report(zone, {"zone": zone, "status": "failed", "name": "", "first": first, "count": count,
+                      "error": str(e)[:300]})
+
+    # zones designed together read a frozen plan, so a zone's message (its kinds, the course list) does not depend on
+    # which other zone happened to finish first
+    frozen = copy.deepcopy(ctx) if parallel else ctx
+
+    def design(zone: int) -> tuple[dict, dict]:
+        return design_zone(llm, frozen, zone, total_zones=total_zones, per_zone=per_zone, session_id=slug, log=log,
+                           planned_course=parallel)
+
+    if not parallel:
+        for zone in pending:
+            if on_start:
+                on_start([zone])
+            try:
+                data, rec = design(zone)
+            except LLMError as e:
+                failed(zone, e)
+                continue
+            finish(zone, data, rec)
+    else:
+        log(f"[levels] designing {len(pending)} zones, {width} at a time")
+        queue = list(pending)
+        with cf.ThreadPoolExecutor(max_workers=width, thread_name_prefix="forge-zone") as pool:
+            running: dict[cf.Future, int] = {}
+            while queue or running:
+                while queue and len(running) < width:
+                    zone = queue.pop(0)
+                    # each worker gets its own copy of the caller's context (Run.call's request-id bucket)
+                    running[pool.submit(contextvars.copy_context().run, design, zone)] = zone
+                if on_start:
+                    on_start(sorted(running.values()))
+                done, _ = cf.wait(running, return_when=cf.FIRST_COMPLETED)
+                for fut in sorted(done, key=lambda f: running[f]):
+                    zone = running.pop(fut)
+                    try:
+                        data, rec = fut.result()
+                    except LLMError as e:
+                        failed(zone, e)
+                        continue
+                    finish(zone, data, rec)
+    out = [results[z] for z in sorted(results)]
     director.install_genre_checks(spec, store.game_dir)
     template.render(spec, store.game_dir)  # a template game's Config takes its zones from the plan above
     compile_errors = _compile(levels_dir)
@@ -637,6 +738,28 @@ def run_levels(settings: Settings, slug: str, *, llm: Any = None, zones: tuple[i
             "calls": _llm_calls(store.calls_log) - calls_before, "compile_errors": compile_errors,
             "ok": not compile_errors and all(not z.get("fallback") and not z.get("rules_left")
                                              and z["status"] != "failed" for z in out)}
+
+
+def _unique_name(name: str, taken: set[str]) -> str:
+    for suffix in ("", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X", " XI", " XII"):
+        if (name + suffix).lower() not in taken:
+            return name + suffix
+    return f"{name} {len(taken) + 1}"
+
+
+def course_status(spec: dict) -> tuple[int, int, list[int]]:
+    """(stages built, stages planned, zones not written) of a template obby's course; (0, 0, []) for other games.
+    A missing zone means Config.Zones and the level data disagree, and ParkObby stops at boot."""
+    lv = spec.get("levels") or {}
+    try:
+        zones, per = int(lv.get("zones") or 0), int(lv.get("stages_per_zone") or 0)
+    except (TypeError, ValueError):
+        return 0, 0, []
+    if zones <= 0 or per <= 0:
+        return 0, 0, []
+    plan = _plan(spec)
+    missing = [z for z in range(1, zones + 1) if not (plan.get(z) or {}).get("written")]
+    return sum(zone_range(z, per)[1] for z in range(1, zones + 1) if z not in missing), zones * per, missing
 
 
 def _compile(levels_dir: Path) -> list[str]:

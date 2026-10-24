@@ -370,6 +370,29 @@
   @media (max-width: 900px) { .gamecard { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
 
+  /* ---------- live build progress (runs/<slug>/progress.json) on "Running now" */
+  .prog { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 12px 14px; border-radius: 14px; cursor: pointer;
+    background: var(--panel2); border: 2px solid var(--ink); color: var(--text, var(--ink)); }
+  .prog-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
+  .prog .pct { font: 64px/0.9 var(--head); min-width: 2.6ch; text-align: right; }
+  .prog .pct small { font-size: 28px; }
+  .prog .nm { font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prog .stp { font-weight: 900; font-size: 17px; overflow-wrap: anywhere; }
+  .prog .meta { font: 800 13px var(--body); color: var(--muted); }
+  .pbar { height: 16px; margin: 10px 0 8px; border: 2.5px solid var(--ink); border-radius: 99px; background: var(--line); overflow: hidden; }
+  .pbar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--orange), var(--yellow));
+    transition: width 1.6s linear; }
+  .prog.done .pbar > i { background: var(--green); } .prog.failed .pbar > i { background: var(--red); }
+  .prog.stalled .pbar > i { background: var(--grey); } .prog.stalled .stp { color: var(--muted); }
+  .pfeed { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+  .pfeed li { font-size: 13.5px; font-weight: 800; padding-left: 18px; position: relative; overflow-wrap: anywhere; }
+  .pfeed li::before { content: "·"; position: absolute; left: 4px; font-weight: 900; }
+  .pfeed li.ok::before { content: "✓"; color: var(--green); } .pfeed li.bad { color: var(--red); } .pfeed li.bad::before { content: "✗"; }
+  .pfeed li.new { animation: pfeedIn .45s ease-out; }
+  @keyframes pfeedIn { from { opacity: 0; transform: translateY(-8px); } }
+  @media (prefers-reduced-motion: reduce) { .pbar > i { transition: none; } .pfeed li.new { animation: none; } }
+  @media (max-width: 560px) { .prog .pct { font-size: 44px; } }
+
   /* ---------- nerd view (the old dashboard, kept) */
   #more { display: none; margin-top: 22px; padding-top: 18px; border-top: 3px dashed #ffffff44; }
   body.more #more { display: block; }
@@ -659,18 +682,62 @@ const moreOn = () => document.body.classList.contains("more");
 const roleName = r => String(r || "").replace(/_/g, " ");
 let AGENT = null, AGENT_DATA = null;   // the open drawer: {slug, role}, and its last /api/agent reply
 
+// the progress cards live outside put() and are patched in place, so the bar's width transition and
+// the feed's slide-in survive every poll instead of being rebuilt
+const PROG = {};
+function progNode(slug) {
+  const el = document.createElement("div");
+  el.className = "prog"; el.dataset.slug = slug;
+  el.innerHTML = `<div class="prog-top"><div class="pct"><span></span><small>%</small></div><div style="min-width:0">
+    <div class="nm"></div><div class="stp"></div><div class="meta"></div></div></div><div class="pbar"><i></i></div><ul class="pfeed"></ul>`;
+  return el;
+}
+function renderProgress(A) {
+  const box = $("nowProg"), want = A.filter(a => a.progress && a.slug);
+  for (const s of Object.keys(PROG)) if (!want.some(a => a.slug === s)) { PROG[s].remove(); delete PROG[s]; }
+  for (const a of want) {
+    const p = a.progress, el = PROG[a.slug] ||= progNode(a.slug);
+    if (el.parentNode !== box) box.appendChild(el);
+    el.classList.toggle("done", p.phase === "done"); el.classList.toggle("failed", p.phase === "failed");
+    el.classList.toggle("stalled", !!p.stalled);
+    el.querySelector(".pct span").textContent = p.pct;
+    el.querySelector(".nm").textContent = `${a.title || a.slug}${a.role ? " · " + roleName(a.role) : ""}`;
+    el.querySelector(".stp").textContent = p.stalled ? `Stalled: no news for ${secs(Date.now() / 1000 - p.updated)}` : (p.step || "Working…");
+    const it = p.items, bits = [it ? `${it.done} of ${it.total} ${it.label}` : "",
+      p.eta_s != null ? `about ${secs(p.eta_s)} left` : "", a.elapsed != null ? `${secs(a.elapsed)} in` : ""];
+    el.querySelector(".meta").textContent = bits.filter(Boolean).join(" · ");
+    el.querySelector(".pbar > i").style.width = `${p.pct}%`;
+    const ul = el.querySelector(".pfeed"), have = {}, first = !ul.dataset.ready;
+    for (const li of ul.children) have[li.dataset.k] = li;
+    const nodes = p.events.map(e => {
+      const k = `${e.t}|${e.text}`;
+      const old = have[k];
+      if (old) { delete have[k]; return old; }
+      const li = document.createElement("li");
+      li.dataset.k = k; li.textContent = e.text; li.className = e.ok === false ? "bad" : e.ok ? "ok" : "";
+      if (!first) { li.classList.add("new"); li.addEventListener("animationend", () => li.classList.remove("new"), {once: true}); }
+      return li;
+    });
+    for (const li of Object.values(have)) li.remove();
+    nodes.forEach((li, i) => { if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null); });
+    ul.dataset.ready = "1";
+  }
+}
+
 function renderNow() {
   const A = DATA.active || [];
-  const rows = A.map(a => `<button class="nowrow" ${a.slug ? `data-slug="${esc(a.slug)}"` : ""}>
+  if (!$("nowProg")) $("nowBox").innerHTML = `<div class="card"><div id="nowHead"></div><div id="nowProg"></div><div id="nowRows"></div></div>`;
+  renderProgress(A);
+  const rows = A.filter(a => !(a.progress && a.slug)).map(a => `<button class="nowrow" ${a.slug ? `data-slug="${esc(a.slug)}"` : ""}>
       <span class="chip live"><i class="dot"></i>${esc(a.kind)}</span>
       <span style="min-width:0"><span class="nm">${esc(a.title || a.name)}${a.role ? ` · <span style="text-transform:capitalize">${esc(roleName(a.role))}</span>` : ""}</span>
         <span class="ln" style="display:block">${esc(a.step || a.name)}</span></span>
       <span class="el">${a.elapsed != null ? secs(a.elapsed) : ""}<span class="small muted" style="display:block">moved ${esc(ago(a.updated))}</span></span></button>`).join("");
   const slugs = [...new Set(A.map(a => a.slug).filter(Boolean))];
   const results = slugs.map(s => DATA.games.find(g => g.slug === s)).filter(Boolean).map(g => resultBlock(g, true)).join("");
-  put("nowBox", `<div class="card"><div class="sec-head"><h2>Running now</h2><span class="sub">${A.length ? `${A.length} at work` : ""}</span></div>
-    ${rows || `<div class="empty small">Nothing is running. Start one with <code>forge autopilot &lt;slug&gt;</code> or <code>forge new "idea"</code>.</div>`}
-    ${results ? `<div class="results">${results}</div>` : ""}</div>`);
+  put("nowHead", `<div class="sec-head"><h2>Running now</h2><span class="sub">${A.length ? `${A.length} at work` : ""}</span></div>`);
+  put("nowRows", `${rows || (A.length ? "" : `<div class="empty small">Nothing is running. Start one with <code>forge autopilot &lt;slug&gt;</code> or <code>forge new "idea"</code>.</div>`)}
+    ${results ? `<div class="results">${results}</div>` : ""}`);
 }
 
 function resultBlock(g, titled) {
@@ -1157,13 +1224,14 @@ async function refresh() {
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
-refresh();
-setInterval(refresh, 3000);
+// a build in flight polls fast so the bar and feed feel live; otherwise the old 3s
+const pollMs = () => (DATA?.active || []).some(a => a.progress?.running) ? 1500 : 3000;
+(async function poll() { await refresh(); setTimeout(poll, pollMs()); })();
 </script>
 </body>
 </html>

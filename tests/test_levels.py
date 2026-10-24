@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import shutil
 import subprocess
 
@@ -87,7 +88,7 @@ def test_prompt_is_fixed_and_role_registered():
 def test_a_valid_zone_is_written_as_data_with_the_kit_and_checks(settings):
     store = make_game(settings)
     llm = FakeLLM({"level_designer": [zone_reply(1, 1, 4), zone_reply(2, 5, 4)]}, log_path=store.calls_log)
-    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 2), stages_per_zone=4, log=lambda _: None)
+    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 2), stages_per_zone=4, log=lambda _: None, jobs=1)
     assert res["ok"] and res["stages"] == 8 and res["planned"] == 8 and res["calls"] == 2
     assert [z["status"] for z in res["zones"]] == ["written", "written"]
     assert all(c.role == "level_designer" and c.session_id == "park" for c in llm.calls)
@@ -177,7 +178,7 @@ def test_a_zone_whose_call_fails_is_reported_and_the_next_zone_still_runs(settin
     store = make_game(settings)
     llm = FakeLLM({"level_designer": ["no json here", "still none", "nope", zone_reply(2, 4, 3)]},
                   log_path=store.calls_log)
-    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 2), stages_per_zone=3, log=lambda _: None)
+    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 2), stages_per_zone=3, log=lambda _: None, jobs=1)
     assert [z["status"] for z in res["zones"]] == ["failed", "written"] and res["ok"] is False
     assert "zone  1: FAILED" in levels.render_summary(res) and not (store.dir / "levels" / "zone-01.json").exists()
 
@@ -356,3 +357,95 @@ def test_zone_theme_never_gives_a_later_zone_a_ride_an_earlier_zone_has():
     # a theme the plan sets explicitly is kept, even a repeat (a human chose it)
     spec["levels"]["plan"][3]["theme_id"] = "carousel"
     assert levels.zone_theme(spec, 4, 6) == "carousel"
+
+
+ZONE_ASK = re.compile(r"Zone (\d+) of \d+: stages (\d+) to (\d+)")
+
+
+def by_zone(fail: frozenset = frozenset()):
+    """A FakeLLM default that answers whichever zone the message asks for, so concurrent zones get their own reply."""
+    def reply(role: str, user: str) -> str:
+        z, a, b = map(int, ZONE_ASK.search(user).groups())
+        return "no json here" if z in fail else zone_reply(z, a, b - a + 1)
+    return reply
+
+
+def test_pending_zones_are_designed_concurrently_with_distinct_themes(settings):
+    store = make_game(settings)
+    llm = FakeLLM({}, default=by_zone(), log_path=store.calls_log, latency={"level_designer": 0.2})
+    started, finished = [], []
+    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 5), stages_per_zone=3, log=lambda _: None, jobs=3,
+                            on_start=started.append, on_zone=finished.append)
+    assert llm.peak_concurrency == 3 and started[0] == [1, 2, 3] and {4, 5} <= {z for s in started for z in s}
+    assert [z["status"] for z in res["zones"]] == ["written"] * 5 and res["stages"] == 15
+    assert sorted(z["zone"] for z in finished) == [1, 2, 3, 4, 5] and all(z["stages"] == 3 for z in finished)
+    plan = store.load_spec()["levels"]["plan"]
+    assert [p["zone"] for p in plan] == [1, 2, 3, 4, 5]
+    assert [p["theme_id"] for p in plan] == ["entrance", "carousel", "bumper", "teacups", "finale"]
+    for z in range(1, 6):
+        assert (store.dir / "levels" / f"zone-{z:02d}.json").exists()
+        assert (store.game_dir / obby.LEVELS_DIR / f"Zone{z:02d}.luau").exists()
+    users = {int(ZONE_ASK.search(c.user).group(1)): c.user for c in llm.calls}
+    assert "## Park theme: bumper" in users[3] and "## Park theme: finale" in users[5]
+    assert "## The whole course" in users[1] and "- Zone 5 (stages 13-15): finale" in users[1]
+    assert "- Zone 3 (stages 7-9): bumper <- this zone" in users[3] and "## Zones already designed" not in users[5]
+
+
+def test_one_failing_zone_in_a_parallel_run_keeps_the_others(settings):
+    store = make_game(settings)
+    llm = FakeLLM({}, default=by_zone(frozenset({2})), log_path=store.calls_log)
+    res = levels.run_levels(settings, "park", llm=llm, zones=(1, 4), stages_per_zone=3, log=lambda _: None, jobs=4)
+    assert [z["status"] for z in res["zones"]] == ["written", "failed", "written", "written"] and res["ok"] is False
+    plan = store.load_spec()["levels"]["plan"]
+    assert [p["zone"] for p in plan] == [1, 3, 4]  # the failed zone's theme stub never reaches the saved spec
+    assert [p["theme_id"] for p in plan] == ["entrance", "bumper", "finale"]
+    assert not (store.dir / "levels" / "zone-02.json").exists()
+
+
+def test_a_single_zone_run_still_lists_the_zones_already_designed(settings):
+    store = make_game(settings)
+    llm = FakeLLM({}, default=by_zone(), log_path=store.calls_log)
+    levels.run_levels(settings, "park", llm=llm, zones=(1, 1), stages_per_zone=3, total_zones=2, log=lambda _: None)
+    levels.run_levels(settings, "park", llm=llm, zones=(2, 2), stages_per_zone=3, log=lambda _: None)
+    assert 'Zone 1 "Zone Name 1" (stages 1-3)' in llm.calls[-1].user and "## The whole course" not in llm.calls[-1].user
+
+
+def test_zones_designed_together_get_messages_that_do_not_depend_on_finish_order_and_distinct_names(settings):
+    import random
+
+    users: dict[int, set[str]] = {}
+    for run in range(4):
+        rnd = random.Random(run)
+
+        def reply(role: str, user: str) -> str:
+            import time
+            time.sleep(rnd.random() * 0.05)
+            z, a, b = map(int, ZONE_ASK.search(user).groups())
+            obj = json.loads(zone_reply(z, a, b - a + 1))
+            obj["name"] = "Sky Loop"
+            return json.dumps(obj)
+
+        s = dataclasses.replace(settings, runs_dir=settings.runs_dir.parent / f"runs{run}")
+        store = make_game(s)
+        llm = FakeLLM({}, default=reply, log_path=store.calls_log)
+        levels.run_levels(s, "park", llm=llm, zones=(1, 6), stages_per_zone=3, log=lambda _: None, jobs=3)
+        first: dict[int, str] = {}
+        for c in llm.calls:
+            m = ZONE_ASK.search(c.user)
+            if m:
+                first.setdefault(int(m.group(1)), c.user)  # the zone's design call, before any correction
+        for z, user in first.items():
+            users.setdefault(z, set()).add(user)
+        names = [p["name"] for p in store.load_spec()["levels"]["plan"]]
+        assert len(set(names)) == 6 and all(n.startswith("Sky Loop") for n in names), names
+    assert all(len(v) == 1 for v in users.values()), {z: len(v) for z, v in users.items()}
+
+
+def test_course_status_names_the_missing_zones(settings):
+    store = make_game(settings)
+    llm = FakeLLM({}, default=by_zone(frozenset({2})), log_path=store.calls_log)
+    levels.run_levels(settings, "park", llm=llm, zones=(1, 4), stages_per_zone=3, log=lambda _: None, jobs=4)
+    spec = store.load_spec()
+    spec["levels"].update(zones=4, stages_per_zone=3)
+    assert levels.course_status(spec) == (9, 12, [2])
+    assert levels.course_status({"title": "a tycoon"}) == (0, 0, [])

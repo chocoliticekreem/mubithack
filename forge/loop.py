@@ -27,6 +27,7 @@ from forge import director, levels, template
 from forge.config import Settings, load_settings
 from forge.fun import FUN_BAR
 from forge.llm import _JSONMixin, jobs_from_env
+from forge.progress import Progress
 from forge.patch import PATCH_ABOVE_LINES
 from forge.timings import Timeline
 from forge.versions import GameVersions
@@ -322,9 +323,16 @@ class Run:
         self.compile_first: dict[str, str | None] = {}  # path -> first luau-compile error (None = compiled)
         # where the playtest runs (forge/headless.py): "headless" (auto / never) or "studio" (always)
         self.engine = "headless"
+        # build_modules calls on_module(path, ok, error left) as each coder module finishes (compile fixes included)
+        self.on_module: Callable[[str, bool, str | None], None] | None = None
+        # new_game's live progress: on_stage(name) as each timed stage starts, on_iteration(rec) as each one ends
+        self.on_stage: Callable[[str], None] | None = None
+        self.on_iteration: Callable[[dict], None] | None = None
 
     def stage(self, name: str):
         """Time a stage into runs/<slug>/timings.json (written live as it starts and ends)."""
+        if self.on_stage:
+            self.on_stage(name)
         return self.timeline.stage(name)
 
     def close(self) -> None:
@@ -600,17 +608,22 @@ class Run:
                                              session_id=session_id or self.slug)
                 except Exception as e:  # logged by call(); the critic/fixer will see the missing file
                     failed.append({"path": path, "error": str(e)[:200]})
+                    if self.on_module:
+                        self.on_module(path, False, f"{type(e).__name__}: {e}")
                     return
                 self.write(path, source)
                 built.add(path)
             finally:
                 written[path].set()
+            left = None
             if compile_check:
                 first = await asyncio.to_thread(self.check_file, path)
                 self.compile_first[path] = first  # the coder's first try, before any fixer (forge bench)
                 if first:
-                    await self.fix_compile_file(path, first, rec=self.build_rec, lessons=lessons,
-                                                session_id=session_id)
+                    left = await self.fix_compile_file(path, first, rec=self.build_rec, lessons=lessons,
+                                                       session_id=session_id)
+            if self.on_module:
+                self.on_module(path, left is None, left)
 
         await asyncio.gather(*(one(m) for m in order))
         return [m["path"] for m in order if m["path"] in built], failed
@@ -1070,6 +1083,8 @@ class Run:
             for n in range(start, start + max(0, iterations)):
                 rec, stop = await self.iteration(n, studio)
                 records.append(rec)
+                if self.on_iteration:
+                    self.on_iteration(rec)
                 if stop:
                     self.ui.line("done", f"target reached at iteration {n}", True)
                     break
@@ -1094,51 +1109,160 @@ class Run:
 async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
                    settings: Settings | None = None, llm: Any = None, ui: UI | None = None,
                    use_director: bool | None = None, jobs: int | None = None) -> str:
-    """Design, build and iterate a new game. Returns its slug. jobs = concurrent LLM calls."""
-    from forge import roles
-
+    """Design, build and iterate a new game. Returns its slug. jobs = concurrent LLM calls. The build's live
+    progress goes to runs/<slug>/progress.json (forge/progress.py) for the screens that watch it."""
     settings = settings or load_settings()
     slug = unique_slug(settings, slugify(idea))
     store = RunStore(settings, slug)
     store.ensure()
     store.save_state(store.new_state(idea))
+    with Progress(store.dir / "progress.json", slug, "new") as prog:
+        await _new_game(idea, iterations, use_studio, settings=settings, store=store, llm=llm, ui=ui,
+                        use_director=use_director, jobs=jobs, prog=prog)
+    return slug
+
+
+ITERATION_STEPS = {"compile": "Checking every script compiles", "playtest": "Playtesting the game",
+                   "critic": "The critic is reviewing the playtest", "fix": "Fixing what the critic found"}
+
+
+def _zone_list(zones: list[int]) -> str:
+    if len(zones) > 1 and zones == list(range(zones[0], zones[-1] + 1)):
+        return f"zones {zones[0]}-{zones[-1]}"
+    return ("zone " if len(zones) == 1 else "zones ") + ", ".join(map(str, zones))
+
+
+async def _new_game(idea: str, iterations: int, use_studio: bool, *, settings: Settings, store: RunStore, llm: Any,
+                    ui: UI | None, use_director: bool | None, jobs: int | None, prog: Progress) -> None:
+    from forge import roles
+
+    slug = store.slug
     run = Run(settings, store, llm, ui, jobs=jobs, command="new")
     run.ui.header(f"forge new  {slug}")
     run.ui.print(f"  {run.ui.dim('idea:')} {idea}")
 
     if use_director is None:
         use_director = os.environ.get("FORGE_DIRECTOR", "1") != "0"
+    prog.phase("design", "Planning the game: the director writes the design doc, then the designer the spec")
+    lessons = read_lessons(settings)
+    if template.requested_stages(idea) is not None:
+        # the course scope Forge will enforce, first in the lessons so the doc's acceptance and systems use its
+        # numbers (the user message, never the fixed prompts)
+        lessons = template.scope_block(*template.scope_from_idea(idea, None)[:2]) + "\n\n" + lessons
     with run.stage("design"):
         if use_director:  # director design doc -> designer (forge/director.py)
-            spec = await run.call("director", "design doc + spec.json", director.plan, idea,
-                                  read_lessons(settings), session_id=slug)
-        else:
-            spec = await run.call("designer", "spec.json", roles.design, idea, read_lessons(settings),
+            spec = await run.call("director", "design doc + spec.json", director.plan, idea, lessons,
                                   session_id=slug)
+        else:
+            spec = await run.call("designer", "spec.json", roles.design, idea, lessons, session_id=slug)
     spec = normalize_spec(spec, slug)
+    obby_template = bool(template.template_of(spec)) and "ReplicatedStorage/Kit/ObbyKit.luau" in (
+        director.kit_paths() & {m.get("path") for m in spec.get("modules") or []})
+    if obby_template:
+        # the idea's own stage count wins over the director's numbers (docs/GAME_PRODUCTION_GUIDE.md 8.3); set
+        # before the kit renders Config and the stage-count check
+        lv = spec.setdefault("levels", {})
+        n, per, note = template.scope_from_idea(idea, lv)
+        lv.update(zones=n, stages_per_zone=per, requested_stages=template.requested_stages(idea), scope_note=note)
+        template.align_scope(spec, n, per)
     run.spec = spec
     store.save_spec(spec)
-    run.ui.print(f"  {run.ui.bold(spec.get('title', slug))} - {run.ui.dim(str(spec.get('pitch', '')))}")
+    scripts = [m for m in spec.get("modules") or [] if not m.get("prebuilt")]
+    title = spec.get("title", slug)
+    if obby_template:
+        prog.event(f"Game plan ready: {title}, {n} zones x {per} stages", True)
+        if spec["levels"]["requested_stages"]:
+            prog.event(f"You asked for {spec['levels']['requested_stages']} stages: building {n} zones x {per} "
+                       "stages", True)
+        if note:
+            prog.event(note, None)
+    else:
+        prog.event(f"Game plan ready: {title}, {len(scripts)} scripts to write", True)
+    prog.plan((["levels"] if obby_template else []) + ["build"] + (["playtest"] if iterations > 0 else []))
+    run.ui.print(f"  {run.ui.bold(title)} - {run.ui.dim(str(spec.get('pitch', '')))}")
     if spec.get("director"):
         run.ui.print("  " + run.ui.dim(json.dumps(director.spec_stats(spec))))
 
     copy_base_game(settings, store.game_dir)
     director.install_kit(spec, store.game_dir)  # art pass: GameAssets.luau before the coder runs
-    if template.template_of(spec) and "ReplicatedStorage/Kit/ObbyKit.luau" in director.kit_paths() & {
-            m.get("path") for m in spec.get("modules") or []}:
+    stages = None
+    if obby_template:
         # a template obby: the level designer lays out the course first, then Forge renders Config from its zones
-        lv = spec.get("levels") or {}
-        n, per = int(lv.get("zones") or template.PARK_ZONES), int(lv.get("stages_per_zone") or template.PARK_STAGES_PER_ZONE)
+        prog.phase("levels", f"Designing {n} zones of {per} stages", items=("zones", n))
+
+        def started(zones: list[int]) -> None:
+            prog.step(f"Designing {_zone_list(zones)} of {n}", inflight=len(zones))
+
+        retry: list[int] = []
+
+        def zone_done(z: dict) -> None:
+            head = f"Zone {z['zone']} of {n}" + (f" '{z['name']}'" if z.get("name") else "")
+            if z["status"] == "failed":
+                again = "a re-run retries it" if z["zone"] in retry else "retrying it"
+                prog.event(f"{head} failed: {z.get('error', '')[:120]}; {again}", False)
+            elif z["status"] == "skipped":
+                prog.event(f"{head} already built: {z['stages']} stages", True)
+            else:
+                errors = len(z.get("rules_left") or [])  # what is still broken after the corrections
+                fb = f", {len(z['fallback'])} fallback stages" if z.get("fallback") else ""
+                prog.event(f"{head} built: {z['stages']} stages, {errors} error{'' if errors == 1 else 's'}{fb}",
+                           not errors and not fb)
+            prog.item_done()
+
+        def design(first: int, last: int) -> Callable[[Any], dict]:
+            return lambda llm: levels.run_levels(settings, slug, llm=llm, zones=(first, last), stages_per_zone=per,
+                                                 total_zones=n, log=run.ui.print, jobs=run.jobs, on_zone=zone_done,
+                                                 on_start=started)
+
         with run.stage("levels"):
-            await run.call("level_designer", f"{n} zones x {per} stages",
-                           lambda llm: levels.run_levels(settings, slug, llm=llm, zones=(1, n), stages_per_zone=per,
-                                                         total_zones=n, log=run.ui.print))
+            res = await run.call("level_designer", f"{n} zones x {per} stages", design(1, n))
+            # a missing zone leaves Config.Zones shorter than the level data and ParkObby stops at boot: one retry
+            # here, and a course still short makes the draft not ready (studio_builder.describe_draft)
+            retry += [z["zone"] for z in res["zones"] if z["status"] == "failed"]
+            for z in retry:
+                res = await run.call("level_designer", f"zone {z} again", design(z, z))
         run.spec = spec = store.load_spec()
+        stages, planned, missing = levels.course_status(spec)
+        if missing:
+            prog.event(f"The course has {stages} of the {planned} planned stages: "
+                       f"{_zone_list(missing)} failed twice", False)
+    prog.phase("build", f"Writing {len(scripts)} scripts", items=("scripts", len(scripts)))
+    broken: list[str] = []
+
+    def module_done(path: str, ok: bool, error: str | None) -> None:
+        if ok:
+            prog.event(f"Wrote {path}", True)
+        else:
+            broken.append(path)
+            why = (error or "").strip().splitlines()
+            prog.event(f"{path} failed: {why[0][:140] if why else 'no file'}", False)
+        prog.item_done()
+
+    run.on_module = module_done
     await run.build_all()
+    run.on_module = None
+    prog.event("Build finished: " + (f"{stages} stages, " if stages is not None else "")
+               + f"{len(broken)} compile errors", not broken)
+    if iterations > 0:
+        prog.phase("playtest", "Playtesting the game", items=("playtest rounds", iterations))
+
+        def stage_started(name: str) -> None:
+            what = name.split(": ", 1)[-1].split(" (")[0]
+            if name.startswith("iteration ") and what in ITERATION_STEPS:
+                prog.step(ITERATION_STEPS[what])
+
+        def iteration_done(rec: dict) -> None:
+            score = rec.get("score")
+            prog.event(f"Playtest round {rec['n']} done" + (f": score {score:g}" if score is not None else ""),
+                       not rec.get("compile_errors") and not rec.get("runtime_errors"))
+            prog.item_done()
+
+        run.on_stage, run.on_iteration = stage_started, iteration_done
     await run.iterate(iterations, use_studio)
+    run.on_stage = run.on_iteration = None
     print_summary(run)
     run.save_timings()
-    return slug
+    prog.done(f"Game ready: {title}")
 
 
 async def run_game(slug: str, iterations: int = 3, use_studio: bool = True, *,
@@ -1245,4 +1369,13 @@ def print_summary(run: Run) -> None:
         score = it.get("score")
         run.ui.print(f"  iteration {it['n']}: score {'-' if score is None else format(score, 'g')}"
                      f"  issues {len(it.get('issues') or [])}  errors {len(it.get('errors') or [])}")
+    built, planned, missing = levels.course_status(run.spec or {})
+    if planned:
+        lv = run.spec["levels"]
+        fallback = sum(len(p.get("fallback") or []) for p in lv.get("plan") or [] if isinstance(p, dict))
+        run.ui.print(f"  course: {built}/{planned} stages, {lv['zones']} zones x {lv['stages_per_zone']}"
+                     + (f", {fallback} fallback stages" if fallback else "")
+                     + (f", zones {', '.join(map(str, missing))} MISSING" if missing else ""))
+        if lv.get("scope_note"):
+            run.ui.print("  " + run.ui.dim(str(lv["scope_note"])))
     run.ui.print(f"  game files: {_rel(run.game_dir, run.settings.repo_root)}")
