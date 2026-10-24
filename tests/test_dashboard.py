@@ -91,7 +91,7 @@ def test_server_serves_page_and_state(settings):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         page = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read().decode()
-        assert "<title>Forge runs</title>" in page and "/api/state" in page
+        assert "<title>Forge Workshop</title>" in page and "/api/state" in page and "/api/rollback" in page
         state = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=5).read())
         assert state["games"][0]["slug"] == "g1"
         with pytest.raises(urllib.error.HTTPError):
@@ -103,3 +103,78 @@ def test_server_serves_page_and_state(settings):
 def test_old_playtests_are_not_listed_as_running(settings):
     d = db.running(settings, now=time.time() + db.PLAYTEST_RECENT + 60)
     assert not any(r["kind"] == "playtest" for r in d)
+
+
+def test_what_improved_says_it_in_plain_words():
+    its = [{"n": 1, "fixes": 2, "issues": [{"path": "ServerScriptService/Services/FlareUpService.luau"},
+                                           {"path": "ServerScriptService/Plots.luau"}]}]
+    w = db.what_improved
+    assert w("iteration 1: code under test", its) == {"kind": "build", "title": "Built the first version"}
+    assert w("iteration 1: code under test", its, seeded=True)["title"] == "Playtest round 1"
+    assert w("iteration 2: code under test", its) == {"kind": "round", "title": "Fixed Flare Up, Plots"}
+    assert w("fix: Cube drop rate about twice the specified rate in ReplicatedStorage/Config.luau "
+             "(verifier: fixed, mreq_1)", [])["title"] == "Fixed cube drop rate"
+    assert w("fix: Pathfinding returns NoPath in the lobby", [])["title"] == "Fixed pathfinding"
+    assert w("feature: game passes, like a battle pass (3 new, 0 edited)", []) == \
+        {"kind": "feature", "title": "Added game passes"}
+    assert w("feature: Add a conveyor belt that moves orbs (2 new, 1 edited)", [])["title"] == "Added conveyor belt"
+    assert w("before fixes (improve-g1-2)", [])["kind"] == "save"
+    assert w("rollback to v4: iteration 4 scored 5", []) == {"kind": "rollback", "title": "Went back to v4"}
+    assert w("seeded from /x/game (186 human files)", [])["title"] == "Started from the base game"
+    assert w("", [])["title"] == "Saved"
+
+
+def test_one_chest_per_version_with_files_and_kept_fixes(settings):
+    gdir = RunStore(settings, "g1").game_dir
+    (gdir / "b.luau").write_text("return 2\n")
+    (gdir / "c.luau").write_text("return 3\n")
+    GameVersions(gdir).snapshot("fix: Board dead in ServerScriptService/Round.luau (verifier: fixed)")
+    m = db.collect(settings)["games"][0]["missions"]
+    assert [x["version"] for x in m] == ["v1", "v2"]
+    assert m[0]["title"] == "Started from the base game" and m[0]["files"] == 1 and not m[0]["current"]
+    assert m[1]["kind"] == "fix" and m[1]["title"] == "Fixed board dead" and m[1]["current"]
+    assert m[1]["files"] == 2 and m[1]["file_list"] == ["b.luau", "c.luau"]
+    assert m[1]["fixes"] == ["Board dead"]  # the kept fix cycle 1 recorded for v2
+
+
+def test_live_run_shows_the_working_role_and_blocks_rollback(settings):
+    (settings.runs_dir / "g1-run.log").write_text("━━ forge run  g1 ━━\n  [critic]  6 files ✓\n  [fixer]  a.luau ✓\n")
+    g = db.collect(settings)["games"][0]
+    assert g["live"]["role"] == "fixer" and g["live"]["name"] == "g1-run.log"
+    assert g["goal"] == {"rounds": 2, "target": 3, "score": 3, "best": 6, "max": 10}
+    with pytest.raises(db.RollbackError) as e:
+        db.rollback(settings, "g1", "v1")
+    assert e.value.code == 409
+
+
+def _post(port, body):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/rollback", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_rollback_endpoint_restores_as_a_new_version(settings, monkeypatch):
+    gdir = RunStore(settings, "g1").game_dir
+    gv = GameVersions(gdir)
+    (gdir / "a.luau").write_text("return 'broken'\n")
+    gv.snapshot("iteration 2: code under test")
+    server = db.serve("127.0.0.1", 0, settings)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert _post(port, {"slug": "g1", "version": "v1"}) == (200, {"slug": "g1", "restored": "v1", "as": "v3"})
+        assert (gdir / "a.luau").read_text() == "return 1\n"
+        assert gv.tags() == ["v1", "v2", "v3"]  # nothing lost
+        assert _post(port, {"slug": "g1", "version": "v9"})[0] == 400
+        assert _post(port, {"slug": "g1", "version": "HEAD~1"})[0] == 400
+        assert _post(port, {"slug": "nope", "version": "v1"})[0] == 404
+        assert _post(port, ["not", "an", "object"])[0] == 400
+        monkeypatch.setattr(db, "LOCAL", ())
+        assert _post(port, {"slug": "g1", "version": "v1"})[0] == 403
+        assert gv.tags() == ["v1", "v2", "v3"]
+    finally:
+        server.shutdown()
