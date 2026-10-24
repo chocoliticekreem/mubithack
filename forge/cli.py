@@ -565,6 +565,54 @@ def cmd_scores(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- orchestrate / gaps
+
+def cmd_orchestrate(args) -> int:
+    from forge.orchestrator import Options, Orchestrator
+    _sigterm_as_interrupt()
+    studios = [x.strip() for x in (args.studio or os.environ.get("FORGE_STUDIO") or "").split(",") if x.strip()]
+    use_studio = not args.no_studio and bool(studios)
+    if not args.no_studio and not studios:
+        print("no --studio place given (and FORGE_STUDIO unset): running compile-only (--no-studio)")
+    opts = Options(goal=args.goal, workers=args.workers, studios=studios, use_studio=use_studio,
+                   max_calls=args.max_calls, minutes=args.minutes, rounds=args.rounds, per_round=args.per_round,
+                   min_rank=args.min_rank, checks=not args.no_checks, fix_cycle=not args.no_fix_cycle)
+    res = Orchestrator(load_settings(), args.slug, opts).run()
+    b, a = res["before"], res["after"]
+    print(f"\n{args.slug}: {res['stop_reason']}")
+    print(f"  critic {b['critic']} -> {a['critic']}   forge done {b['ready']} -> {a['ready']}   "
+          f"{res['budget']['calls_used']} Mubit calls, {res['budget']['minutes_used']} min")
+    for r in res["rounds"]:
+        print(f"  round {r['round']}: {len(r['jobs'])} jobs "
+              f"({sum(1 for j in r['jobs'] if j['status'] == 'done')} done), critic {r['score']['critic']}")
+    return 0 if a["target_met"] else 1
+
+
+def cmd_gaps(args) -> int:
+    from forge import gaps
+    from forge.llm import make_llm
+    s = load_settings()
+    if args.find or args.correct:
+        llm = make_llm(s, log_path=gaps.orch_dir(s, args.slug) / "calls.jsonl")
+        if args.correct:
+            rec = gaps.correct_gaps(s, args.slug, args.correct, llm=llm, goal=args.goal, reject=args.reject)
+        else:
+            rec = gaps.find_gaps(s, args.slug, llm=llm, goal=args.goal)
+    else:
+        rec = gaps.latest(s, args.slug)
+        if rec is None:
+            print(f"no gap list for {args.slug} yet: forge gaps {args.slug} --find")
+            return 0
+    print(json.dumps(rec, indent=1) if args.json else gaps.render(rec))
+    return 0
+
+
+def cmd_queue(args) -> int:
+    from forge.orchestrator import queue_view
+    print(queue_view(load_settings(), args.slug))
+    return 0
+
+
 # ---------------------------------------------------------------- seed / promote
 
 def cmd_seed(args) -> int:
@@ -765,6 +813,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("scores", help="per-cycle improve scores for a game")
     sc.add_argument("slug")
+
+    oc = sub.add_parser("orchestrate", help="team lead: gap finder (Mubit) -> job queue -> workers with "
+                                            "Studio/LLM leases -> verify -> re-score, until forge done + critic >= 8")
+    oc.add_argument("slug")
+    oc.add_argument("--goal", default="", help="what 'good' means for this game (goes to the gap finder)")
+    oc.add_argument("--workers", type=int, default=4, help="parallel workers (LLM jobs run in parallel)")
+    oc.add_argument("--studio", help="place window(s) for Studio jobs, comma separated (default FORGE_STUDIO)")
+    oc.add_argument("--no-studio", action="store_true", help="compile-only: no Studio jobs")
+    oc.add_argument("--max-calls", type=int, default=300, help="Mubit call budget (all roles)")
+    oc.add_argument("--minutes", type=float, default=120, help="wall-clock budget")
+    oc.add_argument("--rounds", type=int, default=3, help="gap-find -> build -> verify rounds")
+    oc.add_argument("--per-round", type=int, default=4, help="gaps turned into build jobs per round")
+    oc.add_argument("--min-rank", type=float, default=2.0, help="ignore gaps ranked below this (impact x confidence)")
+    oc.add_argument("--no-checks", action="store_true", help="skip the executable-checks job each round")
+    oc.add_argument("--no-fix-cycle", action="store_true", help="skip the AI-tester fix cycle each round")
+
+    gp = sub.add_parser("gaps", help="trace-driven gap list (Mubit gap_finder): what is missing or broken, ranked")
+    gp.add_argument("slug")
+    gp.add_argument("--find", action="store_true", help="run the gap finder now (one Mubit call)")
+    gp.add_argument("--goal", default="")
+    gp.add_argument("--correct", metavar="NOTE", help="correct the latest list (same Mubit task, so it learns)")
+    gp.add_argument("--reject", action="append", default=[], metavar="ID", help="gap id never to propose again")
+    gp.add_argument("--json", action="store_true")
+
+    qu = sub.add_parser("queue", help="the orchestrator's job queue and leases for a game")
+    qu.add_argument("slug")
     return p
 
 
@@ -780,7 +854,8 @@ def main(argv: list[str] | None = None) -> int:
                "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
-               "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]
+               "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,
+               "orchestrate": cmd_orchestrate, "gaps": cmd_gaps, "queue": cmd_queue}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

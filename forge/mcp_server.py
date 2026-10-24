@@ -2,6 +2,7 @@
 
 Setup:   setup (guided first run: Mubit key, model, luau, Roblox Studio, MCP toggle)
 Build:   doctor, new_game, iterate, correct, improve, fix, tester_report (long ones start a background job)
+Lead:    orchestrate, gaps, orchestrator (gap finder -> job queue -> workers with Studio/LLM leases)
 Jobs:    job, jobs, cancel_job
 Read:    games, game, read_file, scores, playbook, lessons, calls
 Ship:    seed, promote, sync
@@ -375,6 +376,54 @@ def fix(slug: str, cycles: int = 3, rounds: int = 2, steps: int = 15, max_fixes:
     return _job_reply(start_job("fix", args), f"up to {cycles} fix cycle(s) on {slug}")
 
 
+@mcp.tool()
+def orchestrate(slug: str, goal: str = "", max_calls: int = 300, minutes: float = 120, rounds: int = 3,
+                workers: int = 4, per_round: int = 4, studio: str | None = None, use_studio: bool = True) -> str:
+    """Run Forge like a team lead until the game is good (background job). Each round the gap finder
+    (Mubit task) reads every record of the game (critic, AI tester runs and screenshots, checks, fix
+    cycles, call failures, a genre checklist) and ranks what is missing or broken; the top gaps become
+    jobs in a queue (fix / feature / visual), workers run them as Forge commands while leasing Studio
+    windows, the Mubit pool and sync ports, then the round is verified (compile, playtest + critic,
+    executable checks, AI-tester fix cycle) and re-scored. Stops when `done` is green and the critic
+    is >= 8, or the budget (Mubit calls, minutes, rounds) runs out. `studio`: place window(s) for
+    Studio jobs, comma separated. Watch it with `orchestrator(slug)`, `gaps(slug)` or the dashboard."""
+    _store(slug)
+    args = ["orchestrate", slug, "--goal", goal, "--max-calls", str(max(1, max_calls)), "--minutes",
+            str(max(1.0, minutes)), "--rounds", str(max(1, rounds)), "--workers", str(max(1, workers)),
+            "--per-round", str(max(1, per_round))]
+    if not use_studio:
+        args.append("--no-studio")
+    elif studio:
+        args += ["--studio", studio]
+    return _job_reply(start_job("orchestrate", args), f"the orchestrator on {slug}")
+
+
+@mcp.tool()
+def gaps(slug: str, find: bool = False, correct: str | None = None, reject: list[str] | None = None,
+         goal: str = "") -> str:
+    """The game's ranked gap list: what is missing or broken, each with evidence refs, an impact score
+    and the Forge job that would close it. `find` runs the gap finder now; `correct` is a developer
+    note on the latest list (and `reject` gap ids never to propose again): both are calls in the
+    gap_finder Mubit task, so corrections become training data. Both run as a background job."""
+    _store(slug)
+    if find or correct:
+        args = ["gaps", slug, "--goal", goal] + (["--correct", correct] if correct else ["--find"])
+        for r in reject or []:
+            args += ["--reject", r]
+        return _job_reply(start_job("gaps", args), f"the gap finder on {slug}")
+    from forge import gaps as gapmod
+    rec = gapmod.latest(_settings(), slug)
+    return gapmod.render(rec) if rec else f"No gap list for {slug} yet: gaps(slug, find=True)."
+
+
+@mcp.tool()
+def orchestrator(slug: str) -> str:
+    """The orchestrator's state for a game: budget used, stop reason, and every job in its queue."""
+    _store(slug)
+    from forge.orchestrator import queue_view
+    return queue_view(_settings(), slug)
+
+
 DASHBOARD_PORT = 8765
 
 
@@ -670,7 +719,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 TOOL_NAMES = ("setup", "doctor", "new_game", "iterate", "correct", "improve", "job", "jobs", "cancel_job",
               "fix", "feature", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
-              "seed", "promote", "sync")
+              "seed", "promote", "sync", "orchestrate", "gaps", "orchestrator")
 
 
 def main() -> None:
