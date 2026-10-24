@@ -33,6 +33,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
+local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
@@ -658,22 +659,14 @@ local function bindTouch(tool: Tool, label: string)
 		return Enum.ContextActionResult.Sink
 	end, true)
 	ContextActionService:SetTitle(TOUCH_ACTION, label)
-	-- above the jump button, clear of DROP / THROW / SWAP (InventoryController)
-	ContextActionService:SetPosition(TOUCH_ACTION, UDim2.new(1, -118, 1, -235))
-	local b = ContextActionService:GetButton(TOUCH_ACTION)
-	if b then
-		b.Size = UDim2.fromOffset(86, 86)
-		local title = b:FindFirstChild("ActionTitle")
-		if title and title:IsA("TextLabel") then
-			title.TextScaled = true
-			title.Font = Enum.Font.FredokaOne
-		end
-	end
+	-- the big button of the thumb cluster, left of the jump button (ClientLib/ThumbLayout)
+	ThumbLayout.place(TOUCH_ACTION, "primary")
 end
 
 local function unbindTouch(tool: Tool)
 	if touchTool == tool then
 		touchTool = nil
+		ThumbLayout.forget(TOUCH_ACTION)
 		ContextActionService:UnbindAction(TOUCH_ACTION)
 	end
 end

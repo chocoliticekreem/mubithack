@@ -32,6 +32,7 @@ local LobbyConfig = require(ConfigFolder:WaitForChild("LobbyConfig") :: ModuleSc
 local FeedbackConfig = require(ConfigFolder:WaitForChild("FeedbackConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
+local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnabled -- phones + iPads (even with a keyboard)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
@@ -338,16 +339,16 @@ local function build(): Ui
 		stroke = true,
 	})
 
-	-- phones: the bottom-right corner belongs to the touch jump button (+ our action buttons), so the
-	-- tank and thermometer move to the left edge, above the thumbstick
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		tank.AnchorPoint = Vector2.new(0, 0.5)
-		tank.Position = UDim2.new(0, 14, 0.5, -10)
+	-- phones / iPads: the bottom-right corner is the thumb cluster (jump + SPRAY etc.) and the left edge
+	-- holds the HELP / STORE / ADMIN chips, so the big tank is not drawn at all (the hotbar slot's gauge
+	-- already shows the water); the thermometer sits right of the chip column, the refill hint over the hotbar
+	if TOUCH then
+		tank.Visible = false
 		heat.AnchorPoint = Vector2.new(0, 0.5)
-		heat.Position = UDim2.new(0, 98, 0.5, -10)
-		refillHint.AnchorPoint = Vector2.new(0, 1)
-		refillHint.Position = UDim2.new(0, 14, 0.5, -110)
-		refillHint.TextXAlignment = Enum.TextXAlignment.Left
+		heat.Position = UDim2.new(0, 146, 0.5, -10)
+		refillHint.AnchorPoint = Vector2.new(0.5, 1)
+		refillHint.Position = UDim2.new(0.5, 0, 1, -140)
+		refillHint.TextXAlignment = Enum.TextXAlignment.Center
 	end
 
 	-- carry slot (bottom left)
@@ -903,7 +904,7 @@ local function refresh(t: number)
 	-- tank
 	local size = (player:GetAttribute(Names.Attr.TankSize) :: number?) or 0
 	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	u.tank.Visible = size > 0
+	u.tank.Visible = size > 0 and not TOUCH
 	local frac = if size > 0 then math.clamp(water / size, 0, 1) else 0
 	u.tankFill.Size = UDim2.fromScale(1, frac)
 	u.tankWave.Visible = frac > 0.02 and frac < 0.98

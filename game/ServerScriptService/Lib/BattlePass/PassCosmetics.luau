@@ -163,10 +163,16 @@ function PassCosmetics.title(character: Model, def: { [string]: any }?)
 	end
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "PassTitle"
-	gui.Size = UDim2.fromOffset(240, 30)
+	-- sized in studs (it shrinks with distance like a name tag, instead of a fixed 240 px banner that
+	-- filled a phone screen), and hidden from its own wearer: you never need your own title over your head
+	gui.Size = UDim2.new(5, 0, 0.7, 0)
 	gui.StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0) -- just above the helmet number tag (3.4)
 	gui.AlwaysOnTop = false -- walls hide it (and it shows in Studio screen captures)
-	gui.MaxDistance = 140
+	gui.MaxDistance = 70
+	local owner = game:GetService("Players"):GetPlayerFromCharacter(character)
+	if owner then
+		gui.PlayerToHideFrom = owner
+	end
 	gui.LightInfluence = 0
 	gui.Adornee = head
 	local label = Instance.new("TextLabel")
