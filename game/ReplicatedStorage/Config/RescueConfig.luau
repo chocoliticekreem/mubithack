@@ -14,9 +14,9 @@ return Config.define({
 	SpeedCivilian = 0.75,
 	SpeedDog = 0.95,
 	SpeedCat = 0.95,
-	SpeedPanda = 0.4, -- solo (only allowed when nobody else is around to help)
+	SpeedPanda = 0.85, -- one penguin carries the panda (kids: no pairing needed)
 	SpeedPandaPair = 0.6, -- each of the two carriers
-	PandaCarriers = 2, -- players needed to lift the panda
+	PandaCarriers = 1, -- players needed to lift the panda (was 2: too hard for kids)
 	PandaPairWindow = 2.5, -- s: both "Pick up" triggers must land within this window
 	PandaSoloIfAlone = true, -- a lone player may drag the panda (at SpeedPanda) so solo runs can finish
 	PandaPairSnap = 16, -- studs: carriers further apart than this drop the panda
@@ -26,13 +26,13 @@ return Config.define({
 	HoldForwardPanda = 4.5,
 	HoldResponsiveness = 28, -- AlignPosition: lower = more wobble/lag
 	HoldTwistResponsiveness = 9, -- AlignOrientation: lower = more swing
-	DeliverPad = 2, -- studs added around the RescueDropoff box when checking delivery
+	DeliverPad = 14, -- studs added around the RescueDropoff box: anywhere NEAR the truck delivers (no need to get inside it)
 	-- throwing (hold Q while carrying, release to YEET)
 	ThrowChargeTime = 1.0, -- s of holding for a full-power throw
 	ThrowMin = 25, -- studs/s forward at zero charge
 	ThrowMax = 70, -- studs/s forward at full charge
 	ThrowUp = 28, -- studs/s upward at full charge
-	ThrowPandaMult = 0.35, -- the panda barely leaves your arms
+	ThrowPandaMult = 0.6, -- the panda is heavy but you can still yeet it
 	ThrowSpin = 12, -- rad/s random tumble
 	DownedImpact = 55, -- studs/s: a landing faster than this knocks the NPC out (Downed, X eyes)
 	LandRagdoll = 1.4, -- s an NPC lies flopped after landing before it gets up
