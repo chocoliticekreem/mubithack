@@ -10,6 +10,7 @@
 --   DataService:RecordMission(player, missionId: string, results: Types.ResultsPayload): MissionSummary?
 --   DataService:Equip(player, slot: "helmet" | "hose", id: string): boolean
 --   DataService:IsPersistent(): boolean                        -- false = in-memory store (Studio)
+--   DataService:Save(player): boolean                          -- save now (MonetizationService after a receipt)
 -- Signals (pure Signal, the live profile is never copied):
 --   ProfileLoaded(player), XpGained(player, amount, reason), LevelUp(player, level),
 --   MissionRecorded(player, missionId, summary), StatsChanged(player)  -- leaderboard stats moved
@@ -371,6 +372,12 @@ end
 
 function DataService:IsPersistent(): boolean
 	return store ~= nil and (store :: Store).kind == "datastore"
+end
+
+-- Saves now (keeps the session lock). true when written, or when this profile never persists
+-- (memory store / unsaved session), so callers like ProcessReceipt don't retry forever in Studio.
+function DataService:Save(player: Player): boolean
+	return save(player, false)
 end
 
 function DataService:Update(player: Player, fn: (Profile) -> ()): boolean

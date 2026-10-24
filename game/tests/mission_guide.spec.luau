@@ -81,7 +81,7 @@ end)
 
 Spec.test("profile v4: guides.seen defaults empty, mark/seen round-trip", function()
 	local p = Schema.default(NOW)
-	Spec.eq(Schema.Version, 4)
+	Spec.eq(Schema.Version >= 4, true) -- v4 added guides (v5: donations)
 	Spec.eq(Schema.guideSeen(p, "storage_fusebox"), false)
 	Spec.eq(Schema.markGuideSeen(p, "storage_fusebox"), true)
 	Spec.eq(Schema.markGuideSeen(p, "storage_fusebox"), false, "second mark is a no-op")
@@ -97,7 +97,7 @@ Spec.test("migrate v3 -> v4 seeds seen from missions already played", function()
 		gear = { unlocked = { Axe = true }, loadout = { "Axe" } },
 	}
 	local p = Schema.migrate(v3, NOW) :: any
-	Spec.eq(p.version, 4)
+	Spec.eq(p.version, Schema.Version)
 	Spec.eq(p.guides.seen.house_fire, true)
 	Spec.eq(p.guides.seen.panda_zoo, nil, "never played -> still new")
 	Spec.eq(p.gear.unlocked.Axe, true, "v3 data kept")

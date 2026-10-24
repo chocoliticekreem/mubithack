@@ -15,7 +15,7 @@ lobby plus "+XP" popups.
 | `ReplicatedStorage/Config/DataConfig.luau` | both | every number: store names, timings, XP rewards, blame weights, cosmetics, board placement |
 | `game/tests/data.spec.luau` | CI | 18 specs over ProfileSchema |
 
-## Profile (schema v4)
+## Profile (schema v5)
 
 ```
 version, xp (lifetime), level (derived from xp, stored for readers)
@@ -28,6 +28,7 @@ cosmetics = { owned[id] = true, equipped = { helmet, hose } }    -- ids from Dat
 settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups, ... }  -- whitelisted
 gear = { unlocked[id] = true, loadout = { id } }                  -- v3: locker (GearService)
 guides = { seen[missionId] = true }                              -- v4: first-time mission guide done (MissionGuideService)
+donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux donated (MonetizationService; last 50 receipts)
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
 meta = { created, lastSeen, sessions }
 ```
@@ -42,6 +43,8 @@ add a spec, and never edit an old migration. v1 was the draft shape: `petsRescue
 number, cosmetics were a flat list, and there were no settings or weekly counters. v3 added `gear`.
 v4 added `guides.seen`; the v3 -> v4 migration marks every mission you've already played as seen, so
 veterans get the one-line tip instead of the full first-time guide.
+v5 added `donations` (all-time R$ donated through developer products). Its `receipts` list keeps
+ProcessReceipt idempotent even when the global purchase ledger write fails.
 
 ## Session locking and saving
 

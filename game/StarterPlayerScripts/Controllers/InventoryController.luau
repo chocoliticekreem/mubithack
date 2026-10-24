@@ -250,7 +250,15 @@ local function paint(key: string, id: string, isProp: boolean)
 		s.tile.BackgroundTransparency = 0
 		local frac, color = gauge(id, key)
 		s.bar.Visible = frac ~= nil
-		if frac then
+		if id == "Extinguisher" and LocalPlayer:GetAttribute("Pass_UnlimitedFoam") == true then
+			-- Unlimited Foam pass (MonetizationService): a full bar and a small infinity sign
+			s.bar.Visible = true
+			s.fill.Size = UDim2.fromScale(1, 1)
+			s.fill.BackgroundColor3 = color
+			s.charge.Text = "∞"
+			s.charge.TextSize = 16
+		elseif frac then
+			s.charge.TextSize = 11
 			s.fill.Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1)
 			s.fill.BackgroundColor3 = if frac < 0.2 then Palette.UiRed else color
 			s.charge.Text = `{math.floor(math.clamp(frac, 0, 1) * 100 + 0.5)}%`
@@ -662,7 +670,7 @@ function InventoryController:Start()
 			refreshIntakes()
 		end)
 	end
-	for _, name in { Names.Attr.Water, Names.Attr.TankSize, "Foam", "FoamBack", "FoamSize", "OxygenAir" } do
+	for _, name in { Names.Attr.Water, Names.Attr.TankSize, "Foam", "FoamBack", "FoamSize", "OxygenAir", "Pass_UnlimitedFoam" } do
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(refreshHud)
 	end
 	rebind()

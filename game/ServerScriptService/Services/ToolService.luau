@@ -70,6 +70,7 @@ ToolService.HoseRecoil = Signal.new() :: Signal.Signal<Player, Vector3>
 
 local ATTR_FOAM = "Foam"
 local ATTR_FOAM_SIZE = "FoamSize"
+local ATTR_UNLIMITED_FOAM = "Pass_UnlimitedFoam" -- MonetizationService: Unlimited Foam pass owners never drain
 local TOOL_NAMES = { "Hose", "Axe", "Extinguisher" }
 
 type DoorState = {
@@ -530,13 +531,14 @@ local function sprayFoam(player: Player, head: BasePart, aim: Vector3)
 		return
 	end
 	local size = (player:GetAttribute(ATTR_FOAM_SIZE) :: number?) or ToolConfig.FoamSize
-	local foam = math.clamp((player:GetAttribute(ATTR_FOAM) :: number?) or 0, 0, size)
+	local unlimited = player:GetAttribute(ATTR_UNLIMITED_FOAM) == true
+	local foam = if unlimited then size else math.clamp((player:GetAttribute(ATTR_FOAM) :: number?) or 0, 0, size)
 	local charges = math.min(foam, ToolConfig.FoamPerSpray)
 	if charges <= 0 then
 		return
 	end
 	lastFoam[player] = now
-	player:SetAttribute(ATTR_FOAM, foam - charges)
+	player:SetAttribute(ATTR_FOAM, if unlimited then size else foam - charges)
 	Telemetry.count("foam_used", charges)
 	markSpraying(player)
 	call("FireService", "ApplyWater", player, head.Position, aim, charges * ToolConfig.FoamEfficiency)
