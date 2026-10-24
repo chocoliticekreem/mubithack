@@ -1535,8 +1535,8 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	end
 	SK.cyl(site, "WaterTower", wt * CF(0, 9, 0), 6, 6, Color3.fromHex("#8A5A3C"))
 	SK.cyl(site, "WaterTowerCap", wt * CF(0, 12.3, 0), 0.6, 6.8, C.RoofSlate)
-	for k, z in { deckZ - 3, deckZ - 9 } do
-		SK.part(site, `RoofAC{k}`, F * CF(-w * 0.19, top + 1.5, z), V(5, 3, 3.5), C.Metal)
+	for k, z in { deckZ * 0.45, deckZ * 0.75 } do -- along the right parapet, clear of the hut's doorway
+		SK.part(site, `RoofAC{k}`, F * CF(w / 2 - 4.5, top + 1.5, z), V(5, 3, 3.5), C.Metal)
 	end
 	local crates = box(site, "RoofCrates", F * CF(-w * 0.12, top, 4), V(5, 3, 4), C.Wood, true)
 	box(site, "DeckChair", F * CF(-w * 0.11, top, 9), V(2.4, 1.6, 4), C.Awnings[3], true)
@@ -1573,7 +1573,7 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	end
 	-- trapped: R1 on the roof by the helipad (always spawned: first marker), two at the 2nd/3rd-floor
 	-- windows (ladder), the rest higher up (stairs), a cat on a 6th-floor sill
-	SK.rescue(site, "R1", "Civilian", F * CF(w * 0.36, top, deckZ - 3), "stand", "Office")
+	SK.rescue(site, "R1", "Civilian", F * CF(w * 0.18, top + 0.2, deckZ - 2.5), "stand", "Office")
 	SK.rescue(site, "R2", "Civilian", F * CF(-w * 0.05, ys[3], 1.6) * FLIP, "stand", "Office")
 	SK.rescue(site, "R3", "Civilian", F * CF(w * 0.25, ys[2], 1.6) * FLIP, "stand", "Office")
 	SK.rescue(site, "R4", "Civilian", F * CF(0, ys[4], d * 0.6), "lying", "Office")
