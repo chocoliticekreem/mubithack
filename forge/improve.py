@@ -454,7 +454,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                    llm: LLM, harness, playtest: Playtest, resync: Resync, goal: str, players=None,
                    steps: int = 15, max_fixes: int = 3, session_id: str, edit_human: bool = False,
                    retries: int = 1, investigate_first: bool = True, repro: bool = True,
-                   log: Callable[[str], None] = print) -> list[dict]:
+                   journey_judge: bool = False, log: Callable[[str], None] = print) -> list[dict]:
     """Fix real anomalies in code, one at a time: fixer -> compile -> resync -> replay -> verifier.
 
     With `repro` (and a live Studio), every anomaly is reproduced first (forge/repro.py): the reproducer
@@ -471,7 +471,11 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
 
     `max_fixes` counts anomalies that reach a fix attempt (proven ones); unproven or not-a-bug anomalies
     do not use it up, so a real bug further down the list still gets its turn. At most
-    max_fixes * REPRO_PER_FIX anomalies are tried in total."""
+    max_fixes * REPRO_PER_FIX anomalies are tried in total.
+
+    With `journey_judge` a fix to a dead interaction or a failed journey step is judged by the live journey on a
+    fresh server (forge/journey.py still_failing): kept only when the anomaly's own journey evidence passes and no
+    step that passed before fails; a static audit that is clean while the game still does nothing is a rejection."""
     from forge import repro as frepro
     from forge import roles
     from forge import sync as fsync
@@ -502,6 +506,8 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
     context = (f"Game: {spec.get('pitch', slug)}\nRound digests before the fix:\n"
                + "\n".join(json.dumps(d) for d in before[-2:]))[:4000]
     results: list[dict] = []
+    from forge import journey as fjourney
+    jbase = fjourney.latest(store.run.dir) if journey_judge else None  # the journey the cycle started from
     todo = sorted((x for x in anomalies if x["severity"] in FIX_SEVERITIES),
                   key=lambda x: store.was_unproven(x))  # stable: unproven-before anomalies go last
     fixes = tries = 0
@@ -517,7 +523,8 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             found = await investigate(settings, slug, a, llm=llm, studio=studio, session_id=session_id, log=log)
         concl = (found or {}).get("conclusion") or {}
         check, rp = None, None
-        if repro:
+        proof = a.get("proof")  # deterministic evidence (static audit, live journey): nothing left to reproduce
+        if repro and not proof:
             check, rp = await _reproduce(settings, slug, a, found, llm=llm, harness=harness, session_id=session_id,
                                          log=log)
             if check is None:
@@ -525,7 +532,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                 results.append({"anomaly": a["title"], "status": "unproven", "investigation": found, "repro": rp})
                 log(f"[fix] {a['title']}: no failing check reproduces it, skipped")
                 continue
-        elif found is not None and unproven(concl):
+        elif found is not None and unproven(concl) and not proof:
             store.mark_unproven(a)
             results.append({"anomaly": a["title"], "status": "unproven", "investigation": found})
             log(f"[fix] {a['title']}: investigator could not prove a code cause, skipped")
@@ -552,6 +559,8 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                    f"Expected: {a.get('expected', '')}\nObserved: {a.get('observed', '')}")
         if check is not None:
             problem += "\n\n" + frepro.problem_block(check, rp["before"])
+        if proof:
+            problem += f"\n\n## Proof\n{proof}"
         if concl:
             problem += (f"\n\n## Root cause (from experiments in the running game)\n{concl.get('root_cause', '')}\n"
                         f"Evidence: {concl.get('evidence', '')}\nFix hint: {concl.get('fix_hint', '')}")
@@ -607,6 +616,24 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                     log(f"[fix] {a['title']}: attempt {attempt + 1} failed to compile")
                     continue
                 await resync(root)
+                if a.get("finding"):  # a static-audit anomaly: the audit itself says whether it is fixed
+                    from forge.interactions import still_dead
+                    still = still_dead(root, a["finding"])
+                    if still:
+                        rec["attempts"].append({"status": "check_failed", "error": still})
+                        why = still
+                        log(f"[fix] {a['title']}: attempt {attempt + 1} check_failed: {still[:120]}")
+                        continue
+                judged = ""
+                if journey_judge and (a.get("finding") or a.get("kind") == "journey"):
+                    jrec = await fjourney.refresh(harness, root, store.run.dir, force=True, log=log)
+                    failing = fjourney.still_failing(jrec, a, jbase) if jrec else ""
+                    if failing:
+                        rec["attempts"].append({"status": "check_failed", "error": failing})
+                        why = failing
+                        log(f"[fix] {a['title']}: attempt {attempt + 1} check_failed (journey): {failing[:120]}")
+                        continue
+                    judged = f"journey {jrec.get('n')} passes it" if jrec else ""
                 checked: dict = {}
                 if check is not None:
                     await harness.ensure_ready()
@@ -629,7 +656,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                                             session_id=session_id)
                 hard = hard_regressions(before, after)
                 verdict = v["verdict"]
-                if check is not None and verdict != "regression":
+                if (check is not None or a.get("finding") or judged) and verdict != "regression":
                     verdict = "fixed"  # the check is exact; a noisy playtest's not_fixed/inconclusive is not
                 if verdict == "fixed" and hard:
                     v = {**v, "regressions": v["regressions"] + hard,
@@ -638,7 +665,12 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                 rec["attempts"].append({"status": verdict, "verdict": v, **({"checks": checked} if checked else {})})
                 if verdict == "fixed":
                     status = "kept"
-                    judge = f"check {check.id} passes, verifier {v['verdict']}" if check is not None else "verifier: fixed"
+                    judge = (f"check {check.id} passes, verifier {v['verdict']}" if check is not None else
+                             f"static audit clean, verifier {v['verdict']}" if a.get("finding") else
+                             f"verifier {v['verdict']}" if judged else "verifier: fixed")
+                    if judged:
+                        judge = f"{judged}, {judge}"
+                        jbase = fjourney.latest(store.run.dir)  # the kept version's journey: the next baseline
                     rec["version"] = versions.snapshot(f"fix: {a['title']} in {rel} ({judge}, {v['request_id']})")
                     if check is not None:
                         rec["repro"]["saved"] = str(frepro.promote(store.run.dir, check))
@@ -914,6 +946,10 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         log(f"[playbook] seeded curated genre lessons -> {store.playbook_path}")
 
     await harness.ensure_ready()
+    from forge import journey as fjourney
+    gates = fix and fjourney.enabled() and getattr(harness, "studio", None) is not None
+    if gates:  # the journey must describe this code before its failures become anomalies (forge/journey.py)
+        await fjourney.refresh(harness, store.run.game_dir, store.run.dir, log=log)
     repro = repro and fix and getattr(harness, "studio", None) is not None
     # saved checks run first, before any fault is planted: a failing one is an anomaly with its repro in hand
     suite_start = (await frepro.run_suite(harness.studio, store.run.dir, log=log)) if repro else {
@@ -966,6 +1002,11 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         if fun_issues:
             log(f"[fun] {len(fun_issues)} fun critic issue(s) join this cycle's fixes")
         real += fun_issues
+    if gates:  # dead interactions (static audit) and failed journey steps are fixed like any other anomaly
+        dead = fjourney.anomalies_for(store.run.game_dir, store.run.dir)
+        if dead:
+            log(f"[journey] {len(dead)} dead interaction / journey anomalies join this cycle's fixes")
+        real = dead + real  # proven already: first in line for the max_fixes budget (as in autopilot's detect)
     # focus (e.g. one feature): only these anomalies are fixed and count as open; the rest is a backlog
     backlog = [a for a in real if focus is not None and not focus(a)]
     real = [a for a in real if focus is None or focus(a)]
@@ -980,7 +1021,9 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         code_fixes = await fix_code(settings, slug, real, baseline, llm=llm, harness=harness,
                                     playtest=playtest, resync=resync, goal=goal, players=players,
                                     steps=steps, max_fixes=max_fixes, session_id=session_id,
-                                    edit_human=edit_human, repro=repro, log=log)
+                                    edit_human=edit_human, repro=repro, journey_judge=gates, log=log)
+    if gates and any(f.get("status") == "kept" for f in code_fixes):  # `forge done` reads a journey of this code
+        await fjourney.refresh(harness, store.run.game_dir, store.run.dir, log=log)  # unless the judge's is of it
     suite_end = suite_start
     if repro and code_fixes:  # fixes changed the game or the suite: measure it again
         await harness.ensure_ready()

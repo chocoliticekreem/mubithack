@@ -50,7 +50,7 @@ async def test_cheap_bench_records_every_metric(settings, tmp_path):
         assert i["compile_first"]["pass_rate"] == pytest.approx(0.667)
         assert i["fixes"]["compile"] == 1 and i["compile_errors_left"] == 0
         assert i["iterations"] == 2 and i["critic"]["final"] == 6
-        assert i["done"]["of"] == 9 and i["done"]["ready"] is False
+        assert i["done"]["of"] == 11 and i["done"]["ready"] is False
         assert i["corrections"] == 0
         assert i["acceptance"]["criteria"] == 2
         # each idea lives in its own runs dir with fresh starter lessons
