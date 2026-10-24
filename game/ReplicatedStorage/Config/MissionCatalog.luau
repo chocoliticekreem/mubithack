@@ -5,7 +5,9 @@
 -- Readers: LobbyService / LobbyController (Mission Board), MissionService:StartMission,
 -- AtmosphereService:ApplyMission. A mission stays `enabled = false` until the MapService builder for
 -- its `locationId` exists; flipping it on is a one-line PR by the lane that ships the builder.
--- v1 ships house_fire only.
+-- v2: every mission is enabled; each one has IncidentSites in the city (CityConfig.KindMissions,
+-- Districts). nightclub_fire / skyscraper_fire are city-only calls (their locationId has no standalone
+-- builder; the sites are BlockFiller "nightclub" / "skyscraper" lots).
 -- v2 dispatch: a mission runs at any IncidentSite whose MissionTypes attr lists its id; `call` is the
 -- dispatch line ("DISPATCH: House fire at 12 Maple St"), `seconds` is the on-scene timer (MissionService
 -- adds a driving allowance on top).
@@ -47,7 +49,7 @@ local Missions = {
 		blurb = "Three floors of brick and bad wiring. Jumpers at the windows: hold the trampoline together.",
 		locationId = "Apartment",
 		enabled = true,
-		players = { min = 2, max = 8 }, -- the trampoline needs two holders
+		players = { min = 1, max = 8 }, -- best with 2+ (the trampoline needs two holders); solo still rolls out
 		seconds = 240,
 		atmosphere = "NightStreet",
 		objectives = {
@@ -237,7 +239,7 @@ local Missions = {
 		blurb = "The bamboo is burning and the panda will not walk. It takes two to carry a panda.",
 		locationId = "Zoo",
 		enabled = true,
-		players = { min = 2, max = 8 }, -- the panda is a 2-carrier
+		players = { min = 1, max = 8 }, -- best with 2+ (the panda is a 2-carrier); solo still rolls out
 		seconds = 180,
 		atmosphere = "DuskSuburb",
 		objectives = {
@@ -255,6 +257,61 @@ local Missions = {
 			{ id = "finish", text = "Finish the shift" },
 			{ id = "allRescued", text = "Panda safe" },
 			{ id = "allOut", text = "Bamboo saved" },
+		},
+	},
+	{
+		id = "nightclub_fire",
+		title = "Club Inferno",
+		call = "Nightclub fire",
+		blurb = "The fog machine was a flamethrower. The DJ won't stop the set and the dance floor is packed.",
+		locationId = "Nightclub",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 210,
+		atmosphere = "NightStreet",
+		objectives = {
+			{ kind = "rescue", count = 8, text = "Get every partygoer and the DJ out" },
+			{ kind = "extinguish", text = "Put out every fire" },
+		},
+		fires = { count = 4, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 6, variant = "Partygoer" },
+			{ kind = "Civilian", count = 1, variant = "DJ" },
+			{ kind = "Dog", count = 1 },
+		},
+		hazards = { "explosion" }, -- the fog machine's gas bottle
+		tools = {},
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Nobody left on the dance floor" },
+			{ id = "underTime", text = "Out before the drop", seconds = 150 },
+		},
+	},
+	{
+		id = "skyscraper_fire",
+		title = "Sky Tower",
+		call = "High-rise fire",
+		blurb = "Fire on the upper floors of the tallest tower downtown. Ladder the low windows, take the stairs for the rest.",
+		locationId = "Skyscraper",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 300,
+		atmosphere = "NightStreet",
+		objectives = {
+			{ kind = "rescue", count = 6, text = "Reach everyone trapped up high" },
+			{ kind = "extinguish", text = "Put out the upper floors" },
+		},
+		fires = { count = 5, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 5, variant = "Office" },
+			{ kind = "Cat", count = 1, variant = "Windowsill" },
+		},
+		hazards = {},
+		tools = { "Ladder" },
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Everyone down safe" },
+			{ id = "noDowns", text = "Nobody fell" },
 		},
 	},
 }

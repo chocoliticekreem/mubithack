@@ -161,6 +161,8 @@ local SITE_KINDS = {
 	school = true,
 	storage = true,
 	zoo = true,
+	nightclub = true,
+	skyscraper = true,
 }
 Districts.SiteKinds = SITE_KINDS
 
@@ -366,6 +368,10 @@ Districts.CorridorSites = { Station = 0, Farm = 1, Town = 1, Storage = 1, School
 Districts.CorridorBigSites = { Town = "school", School = "school", Storage = "apartment" }
 -- a whole corridor run becomes one big scenery landmark (not a site)
 Districts.CorridorFeature = { Station = "cityhall" }
+-- special incident sites on a district's corridor frontage, one lot each (on different runs, never the
+-- big-site/feature run), placed before the regular CorridorSites picks: the Sky Tower rises on the hub's
+-- own downtown frontage (a short, dramatic drive), a nightclub on each downtown district's avenue
+Districts.CorridorSpecial = { Station = { "skyscraper", "nightclub" }, Apartment = { "nightclub" } }
 
 export type Corridor = {
 	district: string,
@@ -493,13 +499,43 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 					}
 				end
 			end
+			-- special sites first (Districts.CorridorSpecial): one lot per run, different runs
+			local usedRun: { [any]: boolean } = {}
+			for _, kind in Districts.CorridorSpecial[d.id] or {} do
+				local cands = {}
+				for _, run in sides do
+					if run ~= bigRun and not usedRun[run] then
+						for _, l in run.lots do
+							if l.w >= 40 and not l.site then
+								table.insert(cands, { run = run, lot = l })
+							end
+						end
+					end
+				end
+				if #cands > 0 then
+					-- the middle of a run reads best (skyline either side); ties: a fixed run order
+					table.sort(cands, function(a, b)
+						local ma, mb = (a.run.a0 + a.run.a1) / 2, (b.run.a0 + b.run.a1) / 2
+						local ta = math.abs((if a.run.axis == "x" then a.lot.z else a.lot.x) - ma)
+						local tb = math.abs((if b.run.axis == "x" then b.lot.z else b.lot.x) - mb)
+						if math.abs(ta - tb) > 0.01 then
+							return ta < tb
+						end
+						return a.run.line * 7 + a.run.a0 < b.run.line * 7 + b.run.a0
+					end)
+					local c = cands[1]
+					c.lot.kind = kind
+					c.lot.site = true
+					usedRun[c.run] = true
+				end
+			end
 			-- incident sites: pick lots across this district's runs
 			local want = Districts.CorridorSites[d.id] or 0
 			if want > 0 and #style.sites > 0 then
 				local pool = {}
 				for _, run in sides do
 					for _, l in (if run == bigRun then {} else run.lots) do
-						if l.w >= 40 then
+						if l.w >= 40 and not l.site then
 							table.insert(pool, l)
 						end
 					end
@@ -520,7 +556,7 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 					pool[i], pool[j] = pool[j], pool[i]
 				end
 				-- one site per run at most
-				local used: { [any]: boolean } = {}
+				local used: { [any]: boolean } = table.clone(usedRun)
 				local placed = 0
 				for _, l in pool do
 					if placed >= n then

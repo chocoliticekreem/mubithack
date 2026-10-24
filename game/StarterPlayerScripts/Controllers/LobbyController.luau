@@ -1,8 +1,8 @@
 --!strict
 -- LobbyController [owner: G3]. Client side of the station lobby:
---   * Mission picker: opens from the MissionBoard ProximityPrompt or a click on the board; lists
---     ReplicatedStorage.Config.MissionCatalog (disabled ones greyed "COMING SOON"); a pick sends
---     Lobby/Choose(missionId).
+--   * Mission picker: opens from the MissionBoard ProximityPrompt, a click on the board or a pad's
+--     "Change call" prompt (PadPrompt); a scrolling list of ReplicatedStorage.Config.MissionCatalog
+--     (disabled ones greyed "COMING SOON"); ROLL OUT sends Lobby/Choose(missionId) (leader / solo).
 --   * Squad strip (bottom): your squad, its call, "2/4 READY", and the leader's GO NOW (Lobby/Launch).
 --   * Countdown: Lobby/Countdown(padId, seconds, title). Above BigCountdownFrom a banner; from 5..1 a
 --     huge centre number with a tick sound and a screen pulse (red + shake at 3..2..1); 0 = "GO GO GO!",
@@ -263,22 +263,44 @@ local function buildUi()
 	close.Activated:Connect(function()
 		panel.Visible = false
 	end)
+	-- 11+ calls: a scrolling list (mouse wheel, touch drag, gamepad). The canvas follows the layout's
+	-- content height explicitly (AutomaticCanvasSize under-counts list padding on some devices, which
+	-- cut the last card off), and the scroll bar is bright enough to see on the dark panel.
+	panel:SetAttribute("Menu", true) -- MenuMouseController frees the first-person mouse while it's open
 	local list = Instance.new("ScrollingFrame")
 	list.Name = "List"
 	list.Position = UDim2.new(0, 12, 0, 84)
 	list.Size = UDim2.new(1, -24, 1, -96)
 	list.BackgroundTransparency = 1
 	list.BorderSizePixel = 0
-	list.ScrollBarThickness = 8
-	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.ScrollingDirection = Enum.ScrollingDirection.Y
+	list.ScrollingEnabled = true
+	list.ScrollBarThickness = 12
+	list.ScrollBarImageColor3 = C.Yellow
+	list.ScrollBarImageTransparency = 0.1
+	list.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+	list.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+	list.AutomaticCanvasSize = Enum.AutomaticSize.None
 	list.CanvasSize = UDim2.new()
+	list.Selectable = true
 	list.ZIndex = 31
 	list.Parent = panel
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 2)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 4)
+	pad.Parent = list
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 8)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = list
+	local function fitCanvas()
+		list.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 12)
+	end
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
+	fitCanvas()
 	ui.list = list
+	ui.listLayout = layout
 end
 
 local function renderPicker()
@@ -293,10 +315,16 @@ local function renderPicker()
 	end
 	local current = mySquad and mySquad.missionId
 	local leader = mySquad == nil or mySquad.leader == player.UserId
-	ui.pickerSub.Text = if mySquad == nil
+	local open = 0
+	for _, m in MissionCatalog do
+		if m.enabled then
+			open += 1
+		end
+	end
+	ui.pickerSub.Text = (if mySquad == nil
 		then "Pick a call, then step on a glowing pad outside."
 		elseif leader then "You lead this squad: your pick is the squad's call."
-		else "Only your squad leader can change the call."
+		else "Only your squad leader can change the call.") .. `  ({open} calls, scroll for more)`
 	for i, m in MissionCatalog do
 		local card = Instance.new("Frame")
 		card.Name = m.id
@@ -343,8 +371,23 @@ local function openPicker()
 	if inMission() or not ui.panel then
 		return
 	end
+	local wasOpen = ui.panel.Visible
 	renderPicker()
 	ui.panel.Visible = true
+	if not wasOpen then
+		-- start at the squad's current call (it may be far down the list)
+		task.defer(function()
+			local list: ScrollingFrame = ui.list
+			local current = mySquad and mySquad.missionId
+			local card = current and list:FindFirstChild(current)
+			if card and card:IsA("GuiObject") then
+				local y = card.AbsolutePosition.Y - list.AbsolutePosition.Y + list.CanvasPosition.Y
+				list.CanvasPosition = Vector2.new(0, math.max(0, y - 8))
+			else
+				list.CanvasPosition = Vector2.zero
+			end
+		end)
+	end
 end
 
 -- Sit just above InventoryController's hotbar, whatever its UIScale (it is ~100px at 720p, ~145px at

@@ -1,5 +1,5 @@
 --!strict
--- MissionCatalog: every entry has the Types.MissionDef shape, ids are unique, v1 ships house_fire only.
+-- MissionCatalog: every entry has the Types.MissionDef shape, ids are unique, every mission is enabled (v2 city dispatch).
 local Spec = require("./Spec")
 local Missions = require("../ReplicatedStorage/Config/MissionCatalog") :: { any }
 
@@ -13,6 +13,8 @@ local TRAILER_IDS = {
 	"tornado_field",
 	"dam_finale",
 	"panda_zoo",
+	"nightclub_fire", -- v2 city-only calls
+	"skyscraper_fire",
 }
 local HAZARDS = { electrocution = true, fire_tornado = true, explosion = true, tidal_wave = true, cigarette = true }
 local KINDS = { Civilian = true, Dog = true, Cat = true, Panda = true }
@@ -33,13 +35,12 @@ Spec.test("every trailer mission is listed once", function()
 	end
 end)
 
-Spec.test("v1 ships house_fire on Town only", function()
-	Spec.eq(byId.house_fire.enabled, true, "house_fire.enabled")
+Spec.test("every mission is enabled and a solo player can roll out", function()
 	Spec.eq(byId.house_fire.locationId, "Town", "house_fire.locationId")
 	for _, m in Missions do
-		if m.id ~= "house_fire" then
-			Spec.eq(m.enabled, false, `{m.id}.enabled`)
-		end
+		Spec.eq(m.enabled, true, `{m.id}.enabled`)
+		Spec.eq(m.players.min, 1, `{m.id}.players.min`)
+		Spec.eq(type(m.call), "string", `{m.id}.call`)
 	end
 end)
 

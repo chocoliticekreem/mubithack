@@ -8,6 +8,8 @@ local byId: { [string]: any } = {}
 for _, m in Missions do
 	byId[m.id] = m
 end
+-- every catalog mission lets a solo squad roll out now; a test-only duo call keeps the min-players rule covered
+byId.duo_test = { id = "duo_test", players = { min = 2, max = 8 } }
 
 local function fresh()
 	return LobbyQueue.new({
@@ -150,7 +152,7 @@ end)
 
 Spec.test("a mission below its min players restarts the countdown instead of launching", function()
 	local q = fresh()
-	LobbyQueue.setPadMission(q, 1, nil, "panda_zoo") -- needs 2 carriers
+	LobbyQueue.setPadMission(q, 1, nil, "duo_test") -- needs 2 players
 	LobbyQueue.join(q, 1, 1)
 	local ev = LobbyQueue.tick(q, 15.01)
 	Spec.eq(#kinds(ev, "short"), 1, "short event")

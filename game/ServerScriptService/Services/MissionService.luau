@@ -46,7 +46,11 @@
 --   LocationId, Address, Call; ObjectValue Site). Back-compat mirror Workspace.Instances.<runId> carries
 --   the same attrs with RoundState "Active" while Dispatched (v1.5 readers: HUD, Audio, Blame, Graphics).
 --   Remote added: Lobby/BackToStation (C->S, no args, 1/s; ResultsController already fires it).
---   Counters: missions_dispatched, missions_arrived, missions_fast_arrival, dispatch_no_site.
+--   Counters: missions_dispatched, missions_arrived, missions_fast_arrival, dispatch_no_site, missions_rekindled.
+--   Every mission has something to do at its site: fires.starts "Scripted" lights FireStart markers too
+--   (the hazard adds more), a run with nothing burning GameConfig.RekindleSeconds after arrival (and no
+--   fire put out yet) lights its FireStart markers once, and a site without RescueSpawn markers gets
+--   invisible ones by its FireStarts.
 -- Test hooks (DevHook only): _startRound(locationId, seconds), _startMission(userIds|nil, missionId, seconds),
 --   _endMission(instanceId), _selftest()
 local CollectionService = game:GetService("CollectionService")
@@ -101,6 +105,7 @@ type Live = {
 	flow: MissionFlow.Run,
 	firesOut: number,
 	firesLit: number,
+	rekindled: boolean?, -- the no-fire safety net already ran (rekindle)
 	downs: number,
 	payload: Types.ResultsPayload?,
 }
@@ -498,7 +503,10 @@ local function nearest(list: { BasePart }, pos: Vector3, within: number): BasePa
 	return best
 end
 
-local function lightFires(run: Live, limit: number?): number
+-- `force` overrides the mission's fires.starts. "Scripted" missions (cigarette, campfire) light the
+-- site's FireStart markers like any other call; their hazard adds more fires on top, so a hazard that
+-- never fires (no farmer near the hay, a city site without its prop) can't leave a call with nothing to do.
+local function lightFires(run: Live, limit: number?, force: string?): number
 	local Fire = services.FireService
 	if not (Fire and type(Fire.Ignite) == "function") then
 		return 0
@@ -508,9 +516,9 @@ local function lightFires(run: Live, limit: number?): number
 	if limit then
 		want = math.min(want, limit)
 	end
-	local mode = fires.starts or "FireStart"
+	local mode = force or fires.starts or "FireStart"
 	if mode == "Scripted" then
-		return 0 -- the mission's hazard (cigarette, campfire) lights its own fires
+		mode = "FireStart"
 	end
 	local rng = Random.new()
 	local pool = flammables(run.model)
@@ -546,6 +554,43 @@ local function lightFires(run: Live, limit: number?): number
 	return lit
 end
 
+-- A site without RescueSpawn markers still gets its people: invisible markers by its FireStart markers
+-- (else round its arrival target), one per wanted rescue. They live in the bound site copy, so the
+-- site reset removes them.
+local function fallbackRescueMarkers(run: Live): { Instance }
+	local want = 0
+	for _, r in run.def.rescues or {} do
+		want += r.count or 0
+	end
+	local anchors: { Vector3 } = {}
+	for _, m in tagged(Names.Tag.FireStart, run.model) do
+		if m:IsA("BasePart") then
+			table.insert(anchors, m.Position)
+		end
+	end
+	if #anchors == 0 then
+		table.insert(anchors, sitePos(run.model))
+	end
+	local out: { Instance } = {}
+	for i = 1, math.min(want, 12) do
+		local base = anchors[(i - 1) % #anchors + 1]
+		local a = i * 2.4
+		local p = Instance.new("Part")
+		p.Name = `FallbackRescue{i}`
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
+		p.Transparency = 1
+		p.Size = Vector3.new(2, 2, 2)
+		p.CFrame = CFrame.new(base + Vector3.new(math.cos(a) * 6, 0, math.sin(a) * 6))
+		p:AddTag(Names.Tag.RescueSpawn)
+		p.Parent = run.model
+		table.insert(out, p)
+	end
+	if #out > 0 then
+		warn(`[MissionService] {run.id}: {run.siteId} has no RescueSpawn markers; made {#out}`)
+	end
+	return out
+end
+
 local function spawnRescues(run: Live)
 	local Rescue = services.RescueService
 	if not Rescue then
@@ -554,6 +599,9 @@ local function spawnRescues(run: Live)
 	local wanted = run.def.rescues or {}
 	if type(Rescue.SpawnAt) == "function" then
 		local markers = tagged(Names.Tag.RescueSpawn, run.model)
+		if #markers == 0 then
+			markers = fallbackRescueMarkers(run)
+		end
 		table.sort(markers, byName)
 		local kinds: { string } = {}
 		for i, m in markers do
@@ -906,12 +954,34 @@ local function handle(run: Live, events: { string })
 	end
 end
 
+-- Safety net: a call must never be "all clear" before anything burned. If nothing is burning a few
+-- seconds after arrival and the squad hasn't put a single fire out (the hazard that should light it
+-- didn't, or every Ignite failed), light the site's FireStart markers (then random Flammable parts).
+local function rekindle(run: Live, obs: MissionFlow.Obs, t: number)
+	if run.rekindled or obs.burning > 0 or run.firesOut > 0 or not run.model.Parent then
+		return
+	end
+	local since = t - (if run.flow.arrivedAt > 0 then run.flow.arrivedAt else run.flow.activeSince)
+	if since < (GameConfig.RekindleSeconds or 4) then
+		return
+	end
+	run.rekindled = true
+	local lit = lightFires(run, nil, "FireStart")
+	run.firesLit += lit
+	obs.burning += lit
+	count("missions_rekindled")
+	print(`[MissionService] {run.id} ({run.missionId}): nothing burning {math.floor(since)}s after arrival, lit {lit} fires`)
+end
+
 local function tickAll()
 	local t = now()
 	for _, run in runs do
 		local ok, err = pcall(function()
 			local st = run.flow.state
 			local obs = if st == "Active" or st == "Dispatched" then observe(run) else nil
+			if obs and st == "Active" then
+				rekindle(run, obs, t)
+			end
 			handle(run, MissionFlow.tick(run.flow, t, obs))
 		end)
 		if not ok then

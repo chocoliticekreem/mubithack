@@ -89,6 +89,8 @@ return Config.define({
 		storage = { "storage_fusebox" },
 		zoo = { "panda_zoo" },
 		dam = { "dam_finale" },
+		nightclub = { "nightclub_fire" },
+		skyscraper = { "skyscraper_fire" },
 	},
 	-- builder district (location id) -> extra mission ids beyond those whose locationId matches
 	DistrictExtraMissions = {
