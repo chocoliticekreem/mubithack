@@ -5,7 +5,12 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	-- electrocution (wet floor + fuse box)
-	ZapDamage = 40,
+	ZapDamage = 40, -- (legacy) heat from a zap; the two below replace it
+	ZapStunHeat = 8, -- first touch: you're stuck buzzing, can stagger off the puddle
+	ZapStunSeconds = 1.6,
+	ZapStunWalkSpeed = 5,
+	ZapKnockHeat = 25, -- touch it again within ZapKnockWindow: knocked flat
+	ZapKnockWindow = 6,
 	ZapRagdollSeconds = 2,
 	ZapTickSeconds = 0.5,
 	ZapRadius = 80, -- WetFloor parts within this many studs of a powered FuseBox are live

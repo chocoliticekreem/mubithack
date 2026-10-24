@@ -424,8 +424,44 @@ function HazardController:Init(all: { [string]: any })
 	controllers = all
 end
 
+-- Shocked (first touch of a live puddle): the victim buzzes in place, skeleton flickering and arms
+-- jittering, for every viewer; the victim's own camera rattles. They can still stagger off.
+local function shockLoop()
+	local jitter: { [Motor6D]: CFrame } = {}
+	while true do
+		task.wait(0.12)
+		local live: { [Motor6D]: boolean } = {}
+		for _, p in Players:GetPlayers() do
+			local char = p.Character
+			if p:GetAttribute("Shocked") == true and char then
+				skeletonFlash(char, 0.08)
+				for _, name in { "RightShoulder", "LeftShoulder", "Waist", "Neck" } do
+					local m = char:FindFirstChild(name, true)
+					if m and m:IsA("Motor6D") then
+						jitter[m] = jitter[m] or m.C0
+						live[m] = true
+						m.C0 = jitter[m] * CFrame.Angles(math.rad(math.random(-25, 25)), math.rad(math.random(-20, 20)), math.rad(math.random(-30, 30)))
+					end
+				end
+				if p == player then
+					shake(1.2, 0.15)
+				end
+			end
+		end
+		for m, c0 in jitter do
+			if not live[m] then
+				if m.Parent then
+					m.C0 = c0
+				end
+				jitter[m] = nil
+			end
+		end
+	end
+end
+
 function HazardController:Start()
 	task.spawn(puddleLoop)
+	task.spawn(shockLoop)
 	local ok, Zapped = pcall(Net.event, "Hazard", "Zapped")
 	if ok then
 		(Zapped :: RemoteEvent).OnClientEvent:Connect(onZapped)

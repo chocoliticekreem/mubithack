@@ -74,7 +74,7 @@ return Config.define({
 	FeelKey = Enum.KeyCode.T, -- "Feel door" prompt
 	-- rescue NPCs
 	ChokeAt = 0.45, -- smoke fraction where NPCs start choking
-	ChokeDps = 1.2, -- HP / s at full smoke (NPC Health 100: ~1.5 min in thick smoke)
+	ChokeDps = 0.4, -- HP / s at full smoke (NPC Health 100: ~4 min in thick smoke; was dying too fast)
 	CoughEvery = 7, -- seconds between "*cough*" popups per NPC
 	-- client visuals (SmokeController)
 	FxDistance = 220, -- rooms / doors farther than this from the camera aren't drawn

@@ -56,6 +56,7 @@ local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local HazardConfig = require(ConfigFolder:WaitForChild("HazardConfig") :: ModuleScript)
+local SquadConfig = require(ConfigFolder:WaitForChild("SquadConfig") :: ModuleScript) :: any
 local HazardMath = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Hazard"):WaitForChild("HazardMath") :: ModuleScript)
 local Rubble = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Physics"):WaitForChild("Rubble") :: ModuleScript)
 local Twists = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Hazard"):WaitForChild("Twists") :: ModuleScript) :: any
@@ -75,6 +76,7 @@ local armed: { [string]: Armed } = {}
 local zapRemote: RemoteEvent? = nil
 local fxRemote: RemoteEvent? = nil
 local zapCooldown: { [Player]: number } = {}
+local lastShock: { [Player]: number } = {} -- first touch stuns, a second one within ZapKnockWindow knocks you flat
 local lastFlipper: { [BasePart]: Player } = {}
 local floodBlocks: { [string]: { CFrame | Vector3 } } = {}
 
@@ -344,9 +346,37 @@ local function zap(victim: Player, culprit: Player?, pos: Vector3)
 	if not char then
 		return
 	end
-	zapCooldown[victim] = os.clock()
-	hurt(victim, HazardConfig.ZapDamage, "electrocution")
-	ragdoll(char, HazardConfig.ZapRagdollSeconds, Vector3.new(math.random(-8, 8), 22, math.random(-8, 8)))
+	local now = os.clock()
+	local again = now - (lastShock[victim] or -math.huge) < HazardConfig.ZapKnockWindow
+	lastShock[victim] = now
+	zapCooldown[victim] = now
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if again then
+		-- touched it AGAIN: knocked flat
+		hurt(victim, HazardConfig.ZapKnockHeat, "electrocution")
+		ragdoll(char, HazardConfig.ZapRagdollSeconds, Vector3.new(math.random(-8, 8), 22, math.random(-8, 8)))
+	else
+		-- first touch: stuck buzzing (clients shake you + flash your skeleton), staggering slowly; walk off it
+		hurt(victim, HazardConfig.ZapStunHeat, "electrocution")
+		victim:SetAttribute("Shocked", true)
+		if hum then
+			hum.WalkSpeed = math.min(hum.WalkSpeed, HazardConfig.ZapStunWalkSpeed)
+			hum.UseJumpPower = false
+			hum.JumpHeight = 0
+		end
+		task.delay(HazardConfig.ZapStunSeconds, function()
+			if victim:GetAttribute("Shocked") ~= true then
+				return
+			end
+			victim:SetAttribute("Shocked", nil)
+			local h = victim.Character and victim.Character:FindFirstChildOfClass("Humanoid")
+			if h and victim:GetAttribute(Names.Attr.Downed) ~= true then
+				local broken = victim:GetAttribute("BrokenLeg") == true
+				h.WalkSpeed = if broken then 7 else SquadConfig.WalkSpeed
+				h.JumpHeight = if broken then 0 else SquadConfig.JumpHeight
+			end
+		end)
+	end
 	count("electrocutions")
 	if culprit and culprit ~= victim then
 		count("electrocutions_teammate")
@@ -356,12 +386,14 @@ local function zap(victim: Player, culprit: Player?, pos: Vector3)
 		zapRemote:FireAllClients(victim.UserId, if culprit then culprit.UserId else nil)
 	end
 	fx("electrocution", pos, { victim = victim.UserId })
-	if culprit and culprit ~= victim then
-		Popup.show(victim, `Zapped by {culprit.DisplayName}! SHOCKING`, "blame", culprit)
+	if again then
+		Popup.show(victim, "ZAPPED AGAIN! Knocked flat. Cut the power!", "bad", victim)
+	elseif culprit and culprit ~= victim then
+		Popup.show(victim, `Zapped by {culprit.DisplayName}! Get off the puddle!`, "blame", culprit)
 	elseif culprit == victim then
-		Popup.show(victim, "Self-zap! Self own!", "blame", victim)
+		Popup.show(victim, "Self-zap! Get off the puddle!", "blame", victim)
 	else
-		Popup.show(victim, "BZZZT! Live puddle!", "bad", victim)
+		Popup.show(victim, "BZZZT! Live puddle! Get off it!", "bad", victim)
 	end
 end
 

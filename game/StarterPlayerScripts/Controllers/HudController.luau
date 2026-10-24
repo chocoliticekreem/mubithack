@@ -69,6 +69,7 @@ type Ui = {
 	heatBulb: Frame,
 	heatPct: TextLabel,
 	heatVignette: { Frame },
+	heatWarn: TextLabel,
 	carry: Frame,
 	carryText: TextLabel,
 	squad: Frame,
@@ -274,6 +275,14 @@ local function build(): Ui
 	heat.Size = UDim2.fromOffset(56, 184)
 	heat.BackgroundTransparency = 1
 	heat.Parent = gui
+	-- big centre warning so you KNOW you're about to drop (the thermometer alone is easy to miss)
+	local heatWarn = UiKit.label(gui, "HeatWarn", "", UDim2.fromOffset(640, 56), UDim2.new(0.5, -320, 0.62, 0), {
+		font = UiKit.Header,
+		textSize = 44,
+		color = Palette.UiFlameTop,
+		stroke = true,
+	})
+	heatWarn.Visible = false
 	local heatTube = Instance.new("Frame")
 	heatTube.Name = "Tube"
 	heatTube.AnchorPoint = Vector2.new(0.5, 0)
@@ -429,6 +438,7 @@ local function build(): Ui
 		heatBulb = heatBulb,
 		heatPct = heatPct,
 		heatVignette = heatVignette,
+		heatWarn = heatWarn,
 		carry = carry,
 		carryText = carryText,
 		squad = squad,
@@ -856,6 +866,16 @@ local function refresh(t: number)
 	else
 		u.heatBulb.BackgroundColor3 = if heat > 0 then Palette.UiFlameLow:Lerp(Palette.UiRed, heat / 100) else Palette.UiPanelDark
 		u.heatTube.BackgroundColor3 = Palette.UiCream
+	end
+	if heat >= 75 and heat < 100 then
+		local critical = heat >= 90
+		u.heatWarn.Visible = true
+		u.heatWarn.Text = if critical then "OVERHEATING! GET OUT NOW!" else "TOO HOT! GET OUT OR GET HOSED"
+		local pulse = 0.5 + 0.5 * math.sin(t * (if critical then 16 else 7))
+		u.heatWarn.TextColor3 = Palette.UiFlameTop:Lerp(Palette.UiRed, pulse)
+		u.heatWarn.TextTransparency = if critical then 0 else 0.25 * (1 - pulse)
+	else
+		u.heatWarn.Visible = false
 	end
 	if heat >= 85 then
 		UiKit.shake(u.heat, 0.2, if heat >= 100 then 6 else 3)

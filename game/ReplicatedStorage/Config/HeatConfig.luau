@@ -11,11 +11,11 @@ return Config.define({
 	TickHz = 5,
 	-- gain
 	Radius = 20, -- studs; Burning parts further than this add no heat
-	RisePerSecond = 14, -- heat/s from a FireLevel-2 part at distance 0
+	RisePerSecond = 8, -- heat/s from a FireLevel-2 part at distance 0 (was 14: overheated too fast)
 	RefDistance = 6, -- studs; a part this far gives half of RisePerSecond
 	LevelWeight = { 0.6, 1, 1.5 }, -- by FireLevel 1..3
 	OccludedFactor = 0.25, -- a wall between you and the fire
-	MaxRisePerSecond = 40, -- cap from all parts together
+	MaxRisePerSecond = 22, -- cap from all parts together
 	MaxSources = 12, -- closest Burning parts considered per player per tick
 	MaxRaycasts = 6, -- of those, how many get a wall check (the rest count as open)
 	-- cooling
