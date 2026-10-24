@@ -552,6 +552,13 @@ local function equipFace(player: Player, ps: PState)
 		ps.faceModel:Destroy()
 		ps.faceModel = nil
 	end
+	-- bring back whatever the mask hid (the penguin's beak and googly eyes)
+	for part, t in (ps :: any).faceHidden or {} do
+		if part.Parent then
+			part.Transparency = t
+		end
+	end
+	(ps :: any).faceHidden = nil
 	ps.faceFor = ps.face
 	local held = ps.face
 	local char = player.Character
@@ -559,9 +566,26 @@ local function equipFace(player: Player, ps: PState)
 	if not held or not char or not head then
 		return
 	end
-	local m = ItemProps.build(held.id, "face", 0.8)
+	-- penguins wear a big HeadBlob over the rig head: size the mask to it, line the lenses up with the
+	-- googly eyes, and hide the beak + eyes while it's on so nothing pokes through
+	local blob = char:FindFirstChild("HeadBlob", true) :: BasePart?
+	local scale, at = 0.8, head.CFrame * CFrame.new(0, 0.05, -(head.Size.Z / 2 + 0.12))
+	if blob then
+		scale = 0.62 * blob.Size.X
+		local rel = head.CFrame:ToObjectSpace(blob.CFrame).Position
+		at = head.CFrame * CFrame.new(0, rel.Y - 0.15 * blob.Size.Y, rel.Z - blob.Size.Z / 2 - 0.05)
+		local hidden: { [BasePart]: number } = {}
+		for _, d in blob.Parent:GetChildren() do
+			if d:IsA("BasePart") and (string.match(d.Name, "^Beak") or string.match(d.Name, "^Eye%d") or string.match(d.Name, "^Pupil%d")) then
+				hidden[d] = d.Transparency
+				d.Transparency = 1
+			end
+		end
+		(ps :: any).faceHidden = hidden
+	end
+	local m = ItemProps.build(held.id, "face", scale)
 	m.Name = "InvFace"
-	m:PivotTo(head.CFrame * CFrame.new(0, 0.05, -(head.Size.Z / 2 + 0.12)))
+	m:PivotTo(at)
 	local w = Instance.new("WeldConstraint")
 	w.Part0 = head
 	w.Part1 = m.PrimaryPart
