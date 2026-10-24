@@ -576,6 +576,10 @@ local function porch(ctx: Ctx, dx: number)
 	light(lamp, 12, 1.2)
 end
 
+-- Doorway (x) in the ground-floor z = 0 wall that leads into the stair hall: lined up with the
+-- flight (x 12..17) so a player walks straight onto the first step instead of squeezing past the wall.
+local STAIR_GAP = 13.5
+
 local function stairs(ctx: Ctx)
 	-- 12 steps of 1 x 1.5, x 12..17, rising from z -1 (ground, hall side) to z -19 (upper landing).
 	for i = 1, 12 do
@@ -717,7 +721,7 @@ local function houseB(model: Model, origin: CFrame)
 		{ { "door", 10, "D3" }, { "win", -10 } },
 		{ { "win", 10 } }
 	)
-	table.insert(g, { -17, 0, 17, 0, ops = { { "gap", -8 }, { "gap", 11 } } })
+	table.insert(g, { -17, 0, 17, 0, ops = { { "gap", -8 }, { "gap", STAIR_GAP } } })
 	table.insert(g, { 4, 0.5, 4, 19, ops = { { "gap", 10 } } })
 	table.insert(g, { 4, -19, 4, -0.5, ops = { { "gap", -5 } } })
 	storey(ctx, g, 1)
@@ -903,7 +907,7 @@ local function houseD(model: Model, origin: CFrame)
 		{ { "win", 10 }, { "win", -10 } },
 		{ { "win", 10 } }
 	)
-	table.insert(g, { -17, 0, 17, 0, ops = { { "gap", -8 }, { "gap", 11 } } })
+	table.insert(g, { -17, 0, 17, 0, ops = { { "gap", -8 }, { "gap", STAIR_GAP } } })
 	table.insert(g, { 6, 0.5, 6, 19, ops = { { "gap", 10 } } })
 	table.insert(g, { 4, -19, 4, -0.5, ops = { { "gap", -5 } } })
 	storey(ctx, g, 1)

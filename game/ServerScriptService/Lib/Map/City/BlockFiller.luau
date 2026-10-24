@@ -243,6 +243,11 @@ end
 -- Walls, floors, stairs and roof of a box building. spec: { w, d, storeys, H, color, roof = "gable"|"flat",
 -- roofColor, front(s, w) -> openings, back(s, w) -> openings, side(s, d) -> openings, ceiling = bool }
 -- Returns the y of each floor surface.
+-- Stairs (walkable to every floor): one wedge flight per storey along the left wall, rising toward
+-- +Z, alternating between two 4.5-stud lanes (floor 2 lane A by the wall, floor 3 lane B beside it,
+-- floor 4 lane A ...) so no flight runs under the one above it: full headroom (H - 0.6) everywhere.
+-- Each slab has a hole only over the flight arriving there. Arrive at the back of a flight, walk
+-- round to the front strip (z < z0) of the other lane and climb on. Same scheme as the Sky Tower.
 local function shell(site: Instance, F: CFrame, spec: any): { number }
 	local w, d, H = spec.w, spec.d, spec.H
 	local bid = site.Name
@@ -250,6 +255,25 @@ local function shell(site: Instance, F: CFrame, spec: any): { number }
 	local fy = GY + 1
 	local floors = {}
 	local L = math.min(H * 1.35, d - 4)
+	-- a walk-in strip in front of each flight (up to 3 studs) and a landing behind it (>= 1 stud)
+	local z0 = math.clamp(d - 3 - L, 2, 3.5)
+	local z1 = z0 + L
+	local lanes = {
+		A = { x0 = -w / 2 + 0.5, x1 = -w / 2 + 5 },
+		B = { x0 = -w / 2 + 5, x1 = -w / 2 + 9.5 },
+	}
+	local function slab(y: number, lane: any)
+		local xl, xr, zf, zb = -w / 2 + 0.5, w / 2 - 0.5, 0.5, d - 0.5
+		local function piece(ax: number, bx: number, az: number, bz: number)
+			if bx - ax > 0.2 and bz - az > 0.2 then
+				SK.part(site, "Floor", F * CF((ax + bx) / 2, y - 0.3, (az + bz) / 2), V(bx - ax, 0.6, bz - az), C.Wood)
+			end
+		end
+		piece(xl, lane.x0, zf, zb)
+		piece(lane.x1, xr, zf, zb)
+		piece(lane.x0, lane.x1, zf, z0)
+		piece(lane.x0, lane.x1, z1, zb)
+	end
 	for s = 0, spec.storeys - 1 do
 		local y0 = fy + s * H
 		floors[s + 1] = y0
@@ -258,10 +282,10 @@ local function shell(site: Instance, F: CFrame, spec: any): { number }
 		SK.wall(site, F, V(-w / 2, 0, d - 0.5), V(-w / 2, 0, 0.5), y0, H, spec.color, spec.side(s, d - 1), bid)
 		SK.wall(site, F, V(w / 2, 0, 0.5), V(w / 2, 0, d - 0.5), y0, H, spec.color, spec.side(s, d - 1), bid)
 		if s > 0 then
-			-- floor slab with a stairwell along the left wall; stairs rise toward +Z
-			SK.part(site, "Floor", F * CF(2.25, y0 - 0.3, d / 2), V(w - 5.5, 0.6, d - 1), C.Wood)
-			SK.part(site, "Floor", F * CF(-w / 2 + 2.75, y0 - 0.3, (2 + L + d - 0.5) / 2), V(4.5, 0.6, d - 2.5 - L), C.Wood)
-			SK.wedge(site, "Stairs", F * CF(-w / 2 + 2.75, y0 - H / 2, 2 + L / 2), V(4.5, H, L), C.Wood)
+			-- the flight arriving at this floor (storey s + 1): lane A on even floors, lane B on odd ones
+			local lane = if (s + 1) % 2 == 0 then lanes.A else lanes.B
+			slab(y0, lane)
+			SK.wedge(site, "Stairs", F * CF((lane.x0 + lane.x1) / 2, y0 - H / 2, (z0 + z1) / 2), V(lane.x1 - lane.x0, H, L), C.Wood)
 		end
 	end
 	local top = fy + spec.storeys * H
