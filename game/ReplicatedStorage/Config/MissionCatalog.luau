@@ -5,7 +5,9 @@
 -- Readers: LobbyService / LobbyController (Mission Board), MissionService:StartMission,
 -- AtmosphereService:ApplyMission. A mission stays `enabled = false` until the MapService builder for
 -- its `locationId` exists; flipping it on is a one-line PR by the lane that ships the builder.
--- v1 ships house_fire only.
+-- v2: every mission is enabled; each one has IncidentSites in the city (CityConfig.KindMissions,
+-- Districts). nightclub_fire / skyscraper_fire are city-only calls (their locationId has no standalone
+-- builder; the sites are BlockFiller "nightclub" / "skyscraper" lots).
 -- v2 dispatch: a mission runs at any IncidentSite whose MissionTypes attr lists its id; `call` is the
 -- dispatch line ("DISPATCH: House fire at 12 Maple St"), `seconds` is the on-scene timer (MissionService
 -- adds a driving allowance on top).
@@ -25,7 +27,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 5, text = "Carry everyone to truck 67" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 4, starts = "FireStart" },
 		rescues = {
 			{ kind = "Civilian", count = 2 },
 			{ kind = "Cat", count = 1 },
@@ -46,8 +48,8 @@ local Missions = {
 		call = "Apartment fire",
 		blurb = "Three floors of brick and bad wiring. Jumpers at the windows: hold the trampoline together.",
 		locationId = "Apartment",
-		enabled = false,
-		players = { min = 2, max = 8 }, -- the trampoline needs two holders
+		enabled = true,
+		players = { min = 1, max = 8 }, -- best with 2+ (the trampoline needs two holders); solo still rolls out
 		seconds = 240,
 		atmosphere = "NightStreet",
 		objectives = {
@@ -74,7 +76,7 @@ local Missions = {
 		call = "School fire",
 		blurb = "A kid pulled the alarm. This time it's real: smoke in the halls and a chem lab ready to pop.",
 		locationId = "School",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 240,
 		atmosphere = "DuskSuburb",
@@ -101,7 +103,7 @@ local Missions = {
 		call = "Barn fire",
 		blurb = "The farmer is smoking next to the hay again. Slap the cigarette out before it all goes up.",
 		locationId = "Farm",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 200,
 		atmosphere = "FireGlow",
@@ -110,7 +112,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Save the hay" },
 			{ kind = "rescue", count = 2, text = "Get the farmer and his dog clear" },
 		},
-		fires = { count = 2, starts = "Scripted" }, -- the cigarette relights hay until confiscated
+		fires = { count = 3, starts = "Scripted" }, -- the cigarette relights hay until confiscated
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Farmer" },
 			{ kind = "Dog", count = 1 },
@@ -129,7 +131,7 @@ local Missions = {
 		call = "Wildfire",
 		blurb = "A campfire got away. No minimap out here: the walkie is how you find the campers.",
 		locationId = "Forest",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 240,
 		atmosphere = "FireGlow",
@@ -156,7 +158,7 @@ local Missions = {
 		call = "Storage unit fire",
 		blurb = "Burst pipes, a burning unit, and a fuse box right above the puddle. Cut the power first.",
 		locationId = "Storage",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 180,
 		atmosphere = "NightStreet",
@@ -165,7 +167,7 @@ local Missions = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 2, text = "Get the night guard and his dog out" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 4, starts = "FireStart" },
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Guard" },
 			{ kind = "Dog", count = 1 },
@@ -184,7 +186,7 @@ local Missions = {
 		call = "Field fire",
 		blurb = "The field fire got big enough to spin. Hose it down before it eats the truck.",
 		locationId = "Field",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 180,
 		atmosphere = "FireGlow",
@@ -210,7 +212,7 @@ local Missions = {
 		call = "City-wide fire",
 		blurb = "The city is too big to put out. Move everyone to high ground, plant the charges, press the button.",
 		locationId = "Dam",
-		enabled = false,
+		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 300,
 		atmosphere = "FireGlow",
@@ -236,8 +238,8 @@ local Missions = {
 		call = "Zoo fire",
 		blurb = "The bamboo is burning and the panda will not walk. It takes two to carry a panda.",
 		locationId = "Zoo",
-		enabled = false,
-		players = { min = 2, max = 8 }, -- the panda is a 2-carrier
+		enabled = true,
+		players = { min = 1, max = 8 }, -- best with 2+ (the panda is a 2-carrier); solo still rolls out
 		seconds = 180,
 		atmosphere = "DuskSuburb",
 		objectives = {
@@ -255,6 +257,61 @@ local Missions = {
 			{ id = "finish", text = "Finish the shift" },
 			{ id = "allRescued", text = "Panda safe" },
 			{ id = "allOut", text = "Bamboo saved" },
+		},
+	},
+	{
+		id = "nightclub_fire",
+		title = "Club Inferno",
+		call = "Nightclub fire",
+		blurb = "The fog machine was a flamethrower. The DJ won't stop the set and the dance floor is packed.",
+		locationId = "Nightclub",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 210,
+		atmosphere = "NightStreet",
+		objectives = {
+			{ kind = "rescue", count = 8, text = "Get every partygoer and the DJ out" },
+			{ kind = "extinguish", text = "Put out every fire" },
+		},
+		fires = { count = 4, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 6, variant = "Partygoer" },
+			{ kind = "Civilian", count = 1, variant = "DJ" },
+			{ kind = "Dog", count = 1 },
+		},
+		hazards = { "explosion" }, -- the fog machine's gas bottle
+		tools = {},
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Nobody left on the dance floor" },
+			{ id = "underTime", text = "Out before the drop", seconds = 150 },
+		},
+	},
+	{
+		id = "skyscraper_fire",
+		title = "Sky Tower",
+		call = "High-rise fire",
+		blurb = "Fire on the upper floors of the tallest tower downtown. Ladder the low windows, take the stairs for the rest.",
+		locationId = "Skyscraper",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 300,
+		atmosphere = "NightStreet",
+		objectives = {
+			{ kind = "rescue", count = 6, text = "Reach everyone trapped up high" },
+			{ kind = "extinguish", text = "Put out the upper floors" },
+		},
+		fires = { count = 5, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 5, variant = "Office" },
+			{ kind = "Cat", count = 1, variant = "Windowsill" },
+		},
+		hazards = {},
+		tools = { "Ladder" },
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Everyone down safe" },
+			{ id = "noDowns", text = "Nobody fell" },
 		},
 	},
 }

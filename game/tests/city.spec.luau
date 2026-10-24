@@ -44,6 +44,8 @@ local cfg = {
 		storage = { "storage_fusebox" },
 		zoo = { "panda_zoo" },
 		dam = { "dam_finale" },
+		nightclub = { "nightclub_fire" },
+		skyscraper = { "skyscraper_fire" },
 	},
 	DistrictExtraMissions = { Farm = { "tornado_field" } },
 }

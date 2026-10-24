@@ -451,16 +451,6 @@ function LobbyService:Choose(player: Player, missionId: string): boolean
 	return ok
 end
 
-local function enabledIds(): { string }
-	local out = {}
-	for _, m in MissionCatalog do
-		if m.enabled then
-			table.insert(out, m.id)
-		end
-	end
-	return out
-end
-
 local function endFallback(squadId: string)
 	local s = active[squadId]
 	if not s then
@@ -957,29 +947,9 @@ local function buildLobby(station: Model)
 	end
 	local LobbyProps = require(ServerScriptService.Lib.Lobby.LobbyProps :: ModuleScript) :: any
 	built = LobbyProps.build(station, MapConfig.SlotOrigin(0), LobbyConfig.SquadPads, LobbyConfig.BoardPixelsPerStud)
-	for _, rec in built.pads do
-		rec.prompt.Triggered:Connect(function(player: Player)
-			local q = queue
-			if not q then
-				return
-			end
-			local ids = enabledIds()
-			if #ids <= 1 then
-				Net.notify(player, "Only one call today. It's a kitchen fire. Again.", "info")
-				return
-			end
-			local pad = q.pads[rec.padId]
-			local i = table.find(ids, pad.missionId or "") or 0
-			local nextId = ids[(i % #ids) + 1]
-			if LobbyQueue.setPadMission(q, rec.padId, player.UserId, nextId) then
-				padChanged(rec.padId, pad.squadId)
-				renderBoard()
-				broadcast()
-			else
-				Net.notify(player, "Only the squad leader picks the call.", "bad")
-			end
-		end)
-	end
+	-- a pad's "Change call" prompt opens the mission picker on the client (LobbyController); the pick
+	-- comes back as Lobby/Choose. (It used to cycle the pad through every call: with 11 calls that was
+	-- a lottery, and it fought the picker.)
 	setupBell()
 	setupPole(station)
 	setupTruck(station)

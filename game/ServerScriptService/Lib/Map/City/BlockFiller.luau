@@ -7,7 +7,7 @@
 --   BlockFiller.fillBlock(ctx, parent, block) -> Model        -- ctx: { cfg, rng: Random, siteFor(block, lot) -> Site?, onSite(model, site) }
 --   BlockFiller.buildSiteLot(ctx, parent, site, lotFrame, lot) -> Model   -- (re)builds one incident site
 --   BlockFiller.tree(parent, cf, rng) / car(parent, cf, color, eyes?)
--- Lot kinds: house (site or LOD shell), apartment, shop, diner, gas, storage, school, zoo (sites);
+-- Lot kinds: house (site or LOD shell), apartment, shop, diner, gas, storage, school, zoo, nightclub, skyscraper (sites);
 -- tower, warehouse, tanks, parking, plaza, park, field (scenery). Only site buildings carry
 -- Flammable chunks; scenery is a few big anchored parts (LOD-friendly).
 -- Lot frame: centre of the lot on the ground, -Z = toward its street. Building frame F: the middle of
@@ -284,7 +284,7 @@ local function shell(site: Instance, F: CFrame, spec: any): { number }
 		local r2 = SK.wedge(site, "Roof2", F * CF(0, top + rise / 2, d / 2 + (d / 2 + 1) / 2) * FLIP, V(w + 2, rise, d / 2 + 1), rc)
 		r1:SetAttribute(Names.Attr.BuildingId, bid)
 		r2:SetAttribute(Names.Attr.BuildingId, bid)
-	else
+	elseif spec.roof ~= "none" then -- "none": the caller stacks more storeys on top
 		local roof = SK.part(site, "Roof", F * CF(0, top + 0.5, d / 2), V(w + 1, 1, d + 1), spec.roofColor or C.Concrete)
 		roof:SetAttribute(Names.Attr.BuildingId, bid)
 		SK.part(site, "Parapet", F * CF(0, top + 1.75, -0.25), V(w + 1, 1.5, 0.5), spec.trim or C.Trim)
@@ -1294,6 +1294,214 @@ function Scenery.copse(ctx: any, parent: Instance, F: CFrame, maxW: number, maxD
 	for _ = 1, 3 do
 		BlockFiller.pine(parent, F * CF(rng:NextNumber(-maxW / 2 + 8, maxW / 2 - 8), GY, rng:NextNumber(10, math.max(11, maxD - 8))), rng, 1.3)
 	end
+end
+
+---------------------------------------------------------------------------------------------------
+-- big downtown sites: nightclub, skyscraper (after `dress`, which the tower reuses)
+---------------------------------------------------------------------------------------------------
+local NEON_PINK = Color3.fromHex("#FF3DAE")
+local NEON_CYAN = Color3.fromHex("#2FE6FF")
+local NEON_LIME = Color3.fromHex("#B6FF3B")
+local NEON_GOLD = Color3.fromHex("#FFC53D")
+
+-- Club Inferno: a windowless black box with a neon sign and marquee, a glowing dance floor, a DJ booth
+-- with a fog machine (gas bottle: explosion hazard), a bar, a VIP couch and a crowd of partygoers.
+function Build.nightclub(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.min(maxW, 52), math.min(maxD, 42)
+	local H = 16
+	local floors = shell(site, F, {
+		w = w,
+		d = d,
+		H = H,
+		storeys = 1,
+		color = Color3.fromHex("#241A33"),
+		roof = "flat",
+		roofColor = Color3.fromHex("#1A1424"),
+		trim = NEON_PINK,
+		front = function(_s, ww)
+			return { { at = ww * 0.5, w = 6, kind = "gap", top = 9 } } -- wide entrance (no door to jam)
+		end,
+		back = function(_s, ww)
+			return { { at = ww * 0.8, w = 4, kind = "door" } } -- fire exit
+		end,
+		side = function(_s, dd)
+			return { { at = dd * 0.5, w = 4, kind = "window" } }
+		end,
+	})
+	local fy, top = floors[1], floors.top
+	-- neon sign, marquee canopy and a strip of neon along the parapet
+	local sign = SK.part(site, "NeonSign", F * CF(0, top + 4.5, -0.9), V(w * 0.8, 6, 0.6), Color3.fromHex("#120C1A"))
+	SK.sign(sign, "CLUB INFERNO", Enum.NormalId.Front, NEON_PINK)
+	SK.part(site, "SignGlow", F * CF(0, top + 1.2, -1.3), V(w * 0.8, 0.5, 0.3), NEON_PINK, { neon = true, collide = false, cast = false })
+	for _, sx in { -1, 1 } do -- neon pilasters on the front corners
+		SK.part(site, "NeonStrip", F * CF(sx * (w / 2 - 0.6), fy + H / 2, -0.7), V(0.6, H, 0.4), if sx < 0 then NEON_CYAN else NEON_PINK, {
+			neon = true,
+			collide = false,
+			cast = false,
+		})
+	end
+	SK.part(site, "Marquee", F * CF(0, fy + 10, -3), V(14, 0.8, 6), Color3.fromHex("#120C1A"))
+	SK.part(site, "MarqueeGlow", F * CF(0, fy + 9.5, -5.9), V(14, 0.5, 0.3), NEON_CYAN, { neon = true, collide = false, cast = false })
+	-- velvet rope + bouncer stand out front
+	for _, x in { -9, 9 } do
+		SK.cyl(site, "RopePost", F * CF(x, GY + 1.6, -6), 3.2, 0.6, NEON_GOLD)
+	end
+	SK.part(site, "VelvetRope", F * CF(-5.5, GY + 2.6, -6), V(7, 0.4, 0.4), Color3.fromHex("#B0123C"), { collide = false })
+	-- dance floor: 4 x 4 glowing tiles
+	local colors = { NEON_PINK, NEON_CYAN, NEON_LIME, NEON_GOLD }
+	local tile = 5
+	local fz = d * 0.42
+	for i = 0, 3 do
+		for k = 0, 3 do
+			SK.part(site, "DanceTile", F * CF((i - 1.5) * tile, fy + 0.1, fz + (k - 1.5) * tile), V(tile - 0.3, 0.2, tile - 0.3), colors[(i + k) % 4 + 1], {
+				neon = true,
+				cast = false,
+			})
+		end
+	end
+	local ball = SK.ball(site, "DiscoBall", F * CF(0, top - 3, fz), 3, Color3.fromHex("#D6D8DC"), { material = Enum.Material.Foil, collide = false })
+	local light = Instance.new("PointLight")
+	light.Color = NEON_PINK
+	light.Range = 26
+	light.Brightness = 2
+	light.Parent = ball
+	-- DJ booth + speakers at the back, fog machine with its gas bottle
+	local booth = box(site, "DJBooth", F * CF(0, fy, d - 4), V(12, 4, 3), Color3.fromHex("#120C1A"), true)
+	SK.part(site, "DJGlow", F * CF(0, fy + 2, d - 5.6), V(12, 0.4, 0.2), NEON_CYAN, { neon = true, collide = false, cast = false })
+	local spk = box(site, "Speaker", F * CF(-w / 2 + 3.5, fy, d - 3.5), V(4, 9, 3.5), Color3.fromHex("#1B1B1F"), true)
+	box(site, "Speaker", F * CF(w / 2 - 3.5, fy, d - 3.5), V(4, 9, 3.5), Color3.fromHex("#1B1B1F"), true)
+	local fog = box(site, "FogMachine", F * CF(8.5, fy, d - 4), V(3, 2, 2.4), C.MetalDark)
+	local bottle = SK.cyl(site, "FogGasBottle", F * CF(10.6, fy + 1.6, d - 4), 3.2, 1.4, Color3.fromHex("#E9C46A"))
+	SK.hazard(bottle, "explosion")
+	-- bar along the left wall, VIP couch on the right
+	local bar = box(site, "Bar", F * CF(-w / 2 + 3, fy, d * 0.45), V(3, 4, 16), Color3.fromHex("#5A2A3A"), true)
+	box(site, "BarShelf", F * CF(-w / 2 + 1.2, fy + 4.5, d * 0.45), V(1, 4, 14), C.Wood, true)
+	local couch = box(site, "VIPCouch", F * CF(w / 2 - 3, fy, d * 0.45), V(4, 3, 12), Color3.fromHex("#8E1A5A"), true)
+	local curtain = box(site, "Curtain", F * CF(w / 2 - 1.2, fy, d * 0.75), V(0.6, H - 1, 8), Color3.fromHex("#6A0F2E"), true)
+	SK.fireStart(site, "F1", booth.CFrame * CF(0, 2.5, 0))
+	SK.fireStart(site, "F2", spk.CFrame * CF(0, 1, 0))
+	SK.fireStart(site, "F3", bar.CFrame * CF(0, 2.5, 0))
+	SK.fireStart(site, "F4", couch.CFrame * CF(0, 2, 0))
+	SK.fireStart(site, "F5", curtain.CFrame)
+	SK.fireStart(site, "F6", fog.CFrame * CF(0, 1.5, 0))
+	-- the crowd: still dancing on the floor, the DJ won't leave the decks, a very good dog by the couch
+	for k = 1, 6 do
+		local i, j = (k - 1) % 3, (k - 1) // 3
+		local pose = if rng:NextNumber() < 0.25 then "sitting" else "stand"
+		SK.rescue(site, `R{k}`, "Civilian", F * CF((i - 1) * 6, fy + 0.2, fz + (j - 0.5) * 7) * ANG(0, rng:NextNumber(0, 6.28), 0), pose, "Partygoer")
+	end
+	SK.rescue(site, "R7", "Civilian", F * CF(-3, fy, d - 7) * FLIP, "stand", "DJ")
+	SK.rescue(site, "R8", "Dog", F * CF(w / 2 - 7, fy, d * 0.3), "sitting")
+	SK.rescue(site, "R9", "Civilian", F * CF(-w / 2 + 6.5, fy, d * 0.6), "lying", "Partygoer")
+end
+
+-- Sky Tower: a 6-storey office block you can play in (stairwell on every floor, breakable glass so a
+-- ladder reaches floors 2-3 from the street), crowned by a tall cheap tower + spire so it rules the
+-- skyline next to the station. Fires start on the upper floors; people are trapped high up.
+function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.min(maxW, 44), math.min(maxD, 40)
+	local H, storeys = 12, 6
+	local bid = site.Name
+	local body = Color3.fromHex("#8E9AAF")
+	local glass = Color3.fromHex("#6FA8C8")
+	-- ground floor: a full flammable shell with the lobby doors (stairs included)
+	local floors = shell(site, F, {
+		w = w,
+		d = d,
+		H = H,
+		storeys = 1,
+		color = body,
+		roof = "none",
+		front = function(_s, ww)
+			return {
+				{ at = ww * 0.2, w = 8, kind = "glass" },
+				{ at = ww * 0.44, w = 4, kind = "door" },
+				{ at = ww * 0.56, w = 4, kind = "door" },
+				{ at = ww * 0.8, w = 8, kind = "glass" },
+			}
+		end,
+		back = function(_s, ww)
+			return { { at = ww * 0.75, w = 4, kind = "door", locked = true } }
+		end,
+		side = function(_s, dd)
+			return { { at = dd * 0.5, w = 4, kind = "window" } }
+		end,
+	})
+	local fy = floors[1]
+	-- upper storeys, cheap: per face a spandrel + header (flammable cladding) and a band of breakable
+	-- glass panes between them; a floor slab with the stairwell along the left wall, like `shell`
+	local L = math.min(H * 1.35, d - 4)
+	local ys = { fy }
+	local faces = {
+		{ cf = CF(0, 0, 0), len = w, panes = 3, rot = CFrame.identity },
+		{ cf = CF(0, 0, d), len = w, panes = 3, rot = CFrame.identity },
+		{ cf = CF(-w / 2, 0, d / 2), len = d - 1, panes = 2, rot = YAW90 },
+		{ cf = CF(w / 2, 0, d / 2), len = d - 1, panes = 2, rot = YAW90 },
+	}
+	for s = 1, storeys - 1 do
+		local y0 = fy + s * H
+		ys[s + 1] = y0
+		for _, f in faces do
+			local base = F * f.cf * f.rot
+			local sp = SK.part(site, "Spandrel", base * CF(0, y0 + 1.5, 0), V(f.len, 3, 1), body, { flammable = true, fuel = 25 })
+			local hd = SK.part(site, "Header", base * CF(0, y0 + 10.5, 0), V(f.len, 3, 1), body, { flammable = true, fuel = 25 })
+			sp:SetAttribute(Names.Attr.BuildingId, bid)
+			hd:SetAttribute(Names.Attr.BuildingId, bid)
+			local pw = f.len / f.panes
+			for k = 1, f.panes do
+				SK.part(site, "Window", base * CF(-f.len / 2 + (k - 0.5) * pw, y0 + 6, 0), V(pw - 0.2, 6, 0.4), glass, {
+					material = Enum.Material.Glass,
+					transparency = 0.35,
+					tags = { Names.Tag.Window },
+				})
+			end
+		end
+		SK.part(site, "Floor", F * CF(2.25, y0 - 0.3, d / 2), V(w - 5.5, 0.6, d - 1), C.Concrete)
+		SK.part(site, "Floor", F * CF(-w / 2 + 2.75, y0 - 0.3, (2 + L + d - 0.5) / 2), V(4.5, 0.6, d - 2.5 - L), C.Concrete)
+		SK.wedge(site, "Stairs", F * CF(-w / 2 + 2.75, y0 - H / 2, 2 + L / 2), V(4.5, H, L), C.Metal)
+	end
+	local top = fy + storeys * H
+	SK.part(site, "Roof", F * CF(0, top + 0.5, d / 2), V(w + 1, 1, d + 1), C.Concrete)
+	-- the cheap tower above (non-flammable, non-queryable scenery): stepped body, glass bands, spire
+	local w2, d2 = math.floor(w * 0.8), math.floor(d * 0.8)
+	local F2 = F * CF(0, 0, (d - d2) / 2)
+	local h2 = 128 -- taller than every skyline slab round the hub (they top out ~160 total)
+	SK.part(site, "Tower", F2 * CF(0, top + 1 + h2 / 2, d2 / 2), V(w2, h2, d2), body, { query = false })
+	dress(site, F2, w2, d2, h2, rng, { y0 = top + 1, base = 2, band = glass, floor = 7, maxBands = 8, canopy = false, roof = false })
+	local cap = F2 * CF(0, top + 1 + h2, d2 / 2)
+	SK.part(site, "Crown", cap * CF(0, 2, 0), V(w2 - 6, 4, d2 - 6), C.MetalDark, { query = false })
+	SK.part(site, "CrownGlow", cap * CF(0, 4.3, 0), V(w2 - 5.6, 0.6, d2 - 5.6), NEON_CYAN, { neon = true, collide = false, query = false, cast = false })
+	SK.cyl(site, "Spire", cap * CF(0, 18, 0), 28, 1.2, C.Metal, { query = false })
+	SK.ball(site, "SpireBeacon", cap * CF(0, 32.5, 0), 2, C.Red, { neon = true, collide = false, query = false })
+	local sign = SK.part(site, "Sign", F * CF(0, top - 1.5, -0.9), V(w * 0.7, 3, 0.5), Color3.fromHex("#1F2A3A"))
+	SK.sign(sign, "SKY TOWER", Enum.NormalId.Front, NEON_CYAN)
+	-- offices: desks + a filing cabinet per floor; fires on the upper floors
+	local nf = 0
+	for s = 2, storeys do
+		local y = ys[s]
+		local desk = box(site, "Desk", F * CF(w * 0.12, y, d * 0.5), V(7, 2.6, 3.5), C.Wood, true)
+		local cab = box(site, "Cabinet", F * CF(w * 0.36, y, d - 2.2), V(4, 5, 2), C.MetalDark, true)
+		box(site, "Plant", F * CF(-w * 0.15, y, d - 2.5), V(2, 4, 2), C.Leaf[1], true)
+		if s >= 3 and nf < 6 then
+			nf += 1
+			SK.fireStart(site, `F{nf}`, desk.CFrame * CF(0, 2, 0))
+			if s >= 5 and nf < 6 then
+				nf += 1
+				SK.fireStart(site, `F{nf}`, cab.CFrame * CF(0, 1, -1.5))
+			end
+		end
+	end
+	-- trapped: two at the 3rd-floor windows (ladder), the rest higher up (stairs), a cat on a sill
+	SK.rescue(site, "R1", "Civilian", F * CF(-w * 0.25, ys[3], 1.6) * FLIP, "stand", "Office")
+	SK.rescue(site, "R2", "Civilian", F * CF(w * 0.25, ys[2], 1.6) * FLIP, "stand", "Office")
+	SK.rescue(site, "R3", "Civilian", F * CF(0, ys[4], d * 0.6), "lying", "Office")
+	SK.rescue(site, "R4", "Civilian", F * CF(w * 0.2, ys[5], d * 0.4), "stand", "Office")
+	SK.rescue(site, "R5", "Civilian", F * CF(-w * 0.1, ys[6], d * 0.7), "sitting", "Office")
+	SK.rescue(site, "R6", "Cat", F * CF(w * 0.3, ys[6], 1.5) * FLIP, "sitting", "Windowsill")
+	-- a lobby desk downstairs
+	box(site, "LobbyDesk", F * CF(w * 0.2, fy, d * 0.5), V(8, 3.4, 3), C.Trim)
 end
 
 ---------------------------------------------------------------------------------------------------
