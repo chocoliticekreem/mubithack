@@ -440,6 +440,18 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		P(`HeadlightRim_{s}`, Vector3.new(side * 3.7, 4.3, -13.05), Vector3.new(0.2, 1.7, 1.7), Chrome, { shape = Enum.PartType.Cylinder, collide = false }, ROT_Z_AXIS)
 		P(`Headlight_{s}`, Vector3.new(side * 3.7, 4.3, -13.12), Vector3.new(0.2, 1.3, 1.3), HeadlightGlow, { shape = Enum.PartType.Cylinder, neon = true, collide = false }, ROT_Z_AXIS)
 		P(`Indicator_{s}`, Vector3.new(side * 3.7, 3.1, -13.06), Vector3.new(1.0, 0.4, 0.12), Color3.fromRGB(255, 170, 40), { neon = true, collide = false })
+		-- real headlights: an unrotated, invisible emitter behind the lens so the SpotLight's Front face
+		-- points down the road (the truck's front is -Z)
+		local beam = P(`HeadlightBeam_{s}`, Vector3.new(side * 3.7, 4.3, -13.3), Vector3.new(0.4, 0.4, 0.4), HeadlightGlow, { collide = false, transparency = 1 })
+		local spot = Instance.new("SpotLight")
+		spot.Name = "Headlight"
+		spot.Face = Enum.NormalId.Front
+		spot.Color = HeadlightGlow
+		spot.Brightness = 4
+		spot.Range = 60
+		spot.Angle = 55
+		spot.Shadows = false
+		spot.Parent = beam
 	end
 	P("FrontBumper", Vector3.new(0, 2.5, -13.4), Vector3.new(10.6, 1.0, 1.0), Chrome, { material = Enum.Material.Metal })
 	local siren = P("Siren", Vector3.new(-2.6, 2.5, -14.1), Vector3.new(0.8, 1.1, 1.1), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal }, ROT_Z_AXIS)

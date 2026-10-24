@@ -6,7 +6,7 @@
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
 return Config.define({
-	FirstPerson = true, -- lock the camera to first person (LocalPlayer.CameraMode)
+	FirstPerson = false, -- no camera lock: players zoom freely (scroll all the way in = first person, the FP effects follow the zoom)
 	FieldOfView = 80,
 	HeadBobAmplitude = 0.12, -- studs at walk speed
 	HeadBobHz = 1.8, -- steps per second at walk speed
