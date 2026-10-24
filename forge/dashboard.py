@@ -295,7 +295,33 @@ def game_view(settings: Settings, slug: str, runs: list[dict] | None = None) -> 
         "calls": dict(Counter(c.get("role") for c in calls if c.get("request_id"))),
         # forge orchestrate: state, budget, queue, rounds (before/after scores) and the latest gap list
         "orchestrator": _read_json(store.dir / "orchestrator" / "status.json", None),
+        # forge autopilot: rounds, evidence counts, anomalies, decisions + reasons, kept / rolled back, scores
+        "autopilot": autopilot_view(store.dir),
     }
+
+
+def autopilot_view(run_dir: Path) -> dict | None:
+    """The Autopilot lane (forge/autopilot.py): status.json plus per-round rows, newest last."""
+    st = _read_json(run_dir / "autopilot" / "status.json", None)
+    if not isinstance(st, dict):
+        return None
+    rows = []
+    for r in st.get("rounds") or []:
+        rows.append({"round": r.get("round"), "verdict": r.get("verdict"), "version": r.get("version"),
+                     "evidence": r.get("evidence") or {}, "evidence_items": r.get("evidence_items"),
+                     "prefilter": r.get("prefilter"), "anomalies": (r.get("anomalies") or [])[:6],
+                     "anomalies_n": len(r.get("anomalies") or []),
+                     "gaps": len(r.get("gaps") or []),
+                     "decisions": [{k: d.get(k) for k in ("title", "kind", "score", "picked", "reason", "outcome")}
+                                   for d in (r.get("decisions") or [])[:8]],
+                     "kept": r.get("kept", 0), "rolled_back": r.get("rolled_back", 0),
+                     "regressions": r.get("regressions") or [], "what_improved": r.get("what_improved"),
+                     "why": r.get("why"), "scores": r.get("scores") or {}})
+    return {"state": st.get("state"), "round": st.get("round"), "phase": st.get("phase"),
+            "budget": st.get("budget") or {}, "stop_reason": st.get("stop_reason"), "target": st.get("target"),
+            "idea": st.get("idea"), "rounds": rows, "trend": st.get("score_trend") or [],
+            "kept": sum(r["kept"] for r in rows), "rolled_back": sum(r["rolled_back"] for r in rows),
+            "anomalies": sum(r["anomalies_n"] for r in rows)}
 
 
 def mubit_view(settings: Settings) -> dict:

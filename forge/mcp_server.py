@@ -2,7 +2,8 @@
 
 Setup:   setup (guided first run: Mubit key, model, luau, Roblox Studio, MCP toggle)
 Build:   doctor, build_game, iterate, feature, correct, improve_game, fault_drill, tester_report
-Lead:    orchestrate, gaps, orchestrator (gap finder -> job queue -> workers with Studio/LLM leases)
+Lead:    orchestrate, gaps, orchestrator (gap finder -> job queue -> workers with Studio/LLM leases),
+         autopilot (idea -> ready, driven by the logs: anomaly detector + gap finder -> jobs -> verify/rollback)
 Ready?:  done (one readiness bar: checks, features, nothing open, critic)
 Jobs:    job, jobs, cancel_job
 Read:    games, game, read_file, scores, playbook, lessons, calls, versions, rollback, dashboard
@@ -523,6 +524,40 @@ def orchestrate(slug: str, goal: str = "", max_calls: int = 300, minutes: float 
 
 
 @mcp.tool()
+def autopilot(target: str | None = None, advise: bool = False, root: str | None = None, goal: str = "",
+              max_calls: int = 250, minutes: float = 120, rounds: int = 4, per_round: int = 3,
+              studio: str | None = None, use_studio: bool = True, swarm_players: int = 2, qa_steps: int = 4,
+              correct_id: str | None = None, note: str | None = None) -> str:
+    """Self-driving Forge (background job): `target` is an idea (a new game is built with forge new) or a
+    slug. Each round it measures the version (Studio playtest probe, checks headless first, a focused QA
+    run, a short swarm, ForgeBridge events, critic + fun), puts every signal in one evidence store, runs a
+    statistical pre-filter (z-scores, diffs vs the previous version, counters that never move, stuck
+    testers, time to first reward), asks the Mubit anomaly_detector and gap_finder tasks (both cite
+    evidence ids), ranks the candidates, runs the top ones as orchestrator jobs, re-measures and keeps the
+    version or rolls it back. Stops when `done` is green and the scores reach the target, or the budget
+    runs out; resumable. `advise=True` (+ `root`, default game/) is a read-only report on a human-built
+    game. `correct_id` + `note` corrects one decision (a Mubit correction in the task that made it)."""
+    if correct_id:
+        if not note:
+            raise ToolError("note: say what is wrong with that decision")
+        args = ["autopilot"] + ([target] if target else []) + ["--correct", correct_id, note]
+        return _job_reply(start_job("autopilot", args), f"a correction of autopilot decision {correct_id}")
+    if advise:
+        args = ["autopilot", "--advise", "--goal", goal] + (["--root", root] if root else [])
+        return _job_reply(start_job("autopilot", args), f"an advisory autopilot pass on {root or 'game/'}")
+    if not target:
+        raise ToolError("target: an idea for a new game or an existing slug (or advise=True)")
+    args = ["autopilot", target, "--goal", goal, "--max-calls", str(max(1, max_calls)), "--minutes",
+            str(max(1.0, minutes)), "--rounds", str(max(1, rounds)), "--per-round", str(max(1, per_round)),
+            "--swarm-players", str(max(0, swarm_players)), "--qa-steps", str(max(0, qa_steps))]
+    if not use_studio:
+        args.append("--no-studio")
+    elif studio:
+        args += ["--studio", studio]
+    return _job_reply(start_job("autopilot", args), f"the autopilot on {target[:60]}")
+
+
+@mcp.tool()
 def gaps(slug: str, find: bool = False, correct: str | None = None, reject: list[str] | None = None,
          goal: str = "") -> str:
     """The game's ranked gap list: what is missing or broken, each with evidence refs, an impact score
@@ -847,7 +882,7 @@ def sync(slug: str | None = None, studio: str | None = None) -> str:
 TOOL_NAMES = ("setup", "doctor", "build_game", "iterate", "correct", "fault_drill", "job", "jobs", "cancel_job",
               "improve_game", "done", "feature", "dashboard", "versions", "rollback", "tester_report", "tester_reports",
               "games", "game", "read_file", "scores", "playbook", "lessons", "calls",
-              "seed", "promote", "sync", "orchestrate", "gaps", "orchestrator")
+              "seed", "promote", "sync", "orchestrate", "gaps", "orchestrator", "autopilot")
 
 
 def main() -> None:

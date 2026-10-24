@@ -99,6 +99,16 @@ def ledger(settings: Settings) -> dict:
             if c.get("request_id"):
                 entries.append({"slug": game.name, "role": "gap_finder", "kind": "correction", "ts": c.get("ts"),
                                 "request_id": c["request_id"], "why": f"human: {str(c.get('note', ''))[:120]}"})
+        try:  # forge autopilot: human --correct notes and rolled-back outcomes fed back into the same tasks
+            ap_corr = [json.loads(ln) for ln in (game / "autopilot" / "corrections.jsonl").read_text(
+                encoding="utf-8").splitlines() if ln.strip()]
+        except (OSError, ValueError):
+            ap_corr = []
+        for c in ap_corr:
+            if c.get("request_id") and c.get("role"):
+                who = "human" if c.get("kind") == "correction" else "autopilot outcome"
+                entries.append({"slug": game.name, "role": c["role"], "kind": "correction", "ts": c.get("ts"),
+                                "request_id": c["request_id"], "why": f"{who}: {str(c.get('note', ''))[:120]}"})
     by_role = Counter(c.get("role") for c in calls)
     roles = []
     for role, n in by_role.most_common():
