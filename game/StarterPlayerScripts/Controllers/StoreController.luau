@@ -16,6 +16,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local StoreController = {}
@@ -223,7 +224,7 @@ local function build()
 
 	-- lobby button: the last section of the top-bar box (ClientLib/TopBox), after level + pass
 	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
-	local hasKeys = game:GetService("UserInputService").KeyboardEnabled
+	local hasKeys = InputHints.mode() == "keyboard"
 	local slot = TopBox.section("Store", 3, if hasKeys then 92 else 64) :: Frame
 	local b = Instance.new("TextButton")
 	b.Name = "StoreChip"
@@ -234,7 +235,7 @@ local function build()
 	b.Font = UiKit.Header
 	b.TextSize = 16
 	b.TextColor3 = Palette.UiCream
-	b.Text = if hasKeys then `[{Cfg.StoreKey.Name}] STORE` else "STORE"
+	InputHints.setChip(b, Cfg.StoreKey.Name, "STORE")
 	b.AutoButtonColor = true
 	b.Parent = slot
 	UiKit.corner(b, 8)

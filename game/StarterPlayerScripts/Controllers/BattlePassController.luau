@@ -26,6 +26,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BattlePassConfig") :: ModuleScript) :: any
 local PassRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassRules") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local BattlePassController = {}
@@ -419,7 +420,7 @@ local function paintTiles(s: { [string]: any }, pass: PassRules.Pass)
 	if dance then
 		local e = Cfg.Rewards[pass.equipped.emote or ""]
 		dance.Visible = e ~= nil and owned[pass.equipped.emote] == true
-		dance.Text = if UserInputService.KeyboardEnabled then `DANCE [{Cfg.EmoteKey.Name}]` else "DANCE"
+		dance.Text = InputHints.chip(Cfg.EmoteKey.Name, "DANCE", true)
 	end
 end
 
@@ -753,7 +754,7 @@ local function build()
 	chip.Font = UiKit.Header
 	chip.TextSize = 20
 	chip.TextColor3 = Palette.UiCream
-	chip.Text = if UserInputService.KeyboardEnabled then `[{Cfg.UiToggleKey.Name}] PASS` else "PASS"
+	InputHints.setChip(chip, Cfg.UiToggleKey.Name, "PASS")
 	chip.Visible = false
 	chip.Parent = g
 	UiKit.corner(chip, 10)
@@ -790,9 +791,9 @@ local function build()
 	pt.ZIndex = 4
 	ui.pipTier = pt
 	-- keyboard players see the hotkey ([P] PASS); touch players just tap the box
-	local passKey = if game:GetService("UserInputService").KeyboardEnabled then `[{Cfg.UiToggleKey.Name}] ` else ""
-	local cap = text(pip, "Cap", passKey .. "PASS", UDim2.fromOffset(62, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
+	local cap = text(pip, "Cap", "PASS", UDim2.fromOffset(62, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
 	cap.TextXAlignment = Enum.TextXAlignment.Left
+	InputHints.setChip(cap, Cfg.UiToggleKey.Name, "PASS")
 	local pxt = text(pip, "Xp", "", UDim2.new(1, -100, 0, 15), UDim2.new(0, 100, 0.5, -15), UiKit.Body, 12, Palette.UiInk, false)
 	pxt.TextXAlignment = Enum.TextXAlignment.Right
 	ui.pipText = pxt

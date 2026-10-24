@@ -12,6 +12,7 @@ local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -429,7 +430,8 @@ function RescueController:Start()
 		if on then
 			-- HudController's carry slot already says what and where; this panel is the controls
 			local kind = kindOf(id)
-			label.Text = if kind == "panda" then "[G] DROP   [hold Q] YEET (lol)" else "[G] DROP   [hold Q] YEET"
+			local lol = if kind == "panda" then " (lol)" else ""
+			InputHints.setPick(label, `[G] DROP   [hold Q] YEET{lol}`, `Tap DROP   ·   hold YEET{lol}`, `[B] DROP   [hold X] YEET{lol}`)
 			slot.Size = UDim2.fromOffset(330, 66)
 			TweenService:Create(slot, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 				Size = UDim2.fromOffset(360, 74),

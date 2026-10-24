@@ -48,9 +48,10 @@ return Config.define({
 	SupplyGeyserSeconds = 4, -- a ripped line leaves the hydrant geysering this long
 	SupplyColor = Color3.fromHex("#F2C230"),
 	-- hint strings for the guides (OnboardingController) and anyone else who explains the supply line
+	-- (key names are rewritten for phones / gamepads on the client by ClientLib/InputHints)
 	SupplyHints = {
-		Grab = "Hydrant [R]: grab the supply line",
-		Hook = "Truck side intake [R]: hook it up for infinite water",
+		Grab = "Hydrant: press R to grab the supply line",
+		Hook = "Truck side intake: press R to hook it up for infinite water",
 		Unhook = "Unhook it [R] before you drive off!",
 		Warn = "SUPPLY LINE STILL HOOKED UP! Unhook it first",
 		Empty = "Truck tank empty! Grab a hydrant's supply line [R] and hook it to the truck",

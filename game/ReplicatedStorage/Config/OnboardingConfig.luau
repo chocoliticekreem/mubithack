@@ -11,7 +11,9 @@ return Config.define({
 	Tagline = "Save the day. Blame your friends.",
 	TitleSeconds = 2.2, -- first join (returning players get a short 1.6 s version); short: the training fire is waiting
 	ReturningTitleSeconds = 1.6,
-	-- tutorial copy: head = header, sub = small line under it ({rack} {bay} {enter} {siren} {horn} are filled in)
+	-- tutorial copy: head = header, sub = small line under it ({rack} {bay} {enter} {siren} {horn} are filled in).
+	-- Key hints ("press E") are rewritten for touch / gamepad by ClientLib/InputHints; subTouch / subPad
+	-- replace a line whole where that rewrite isn't enough.
 	Steps = {
 		gear = { head = "GRAB YOUR GEAR", sub = "Your rack is #{rack} in the locker room. Walk up and press E." },
 		board = { head = "CHECK THE MISSION BOARD", sub = "Out front by the bays. Press E to pick a call." },
@@ -21,7 +23,13 @@ return Config.define({
 	Hints = {
 		door = { head = "RUN TO BAY {bay}", sub = "Open YOUR truck's door (E)" },
 		seat = { head = "HOP IN!", sub = "Driver's seat: press {enter}" },
-		drive = { head = "FOLLOW THE GPS", sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn" },
+		drive = {
+			head = "FOLLOW THE GPS",
+			sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn",
+			-- phones / gamepads (ClientLib/InputHints): the truck's own on-screen buttons
+			subTouch = "Stick to drive  -  SIREN and HONK buttons",
+			subPad = "Stick to drive  -  X siren  -  Y horn",
+		},
 	},
 	DriveHintSeconds = 8,
 	ArrivedStuds = 150, -- within this of the GPS waypoint = at the scene: the RUN TO BAY / HOP IN cards stop

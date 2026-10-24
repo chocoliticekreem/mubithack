@@ -17,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = ReplicatedStorage:WaitForChild("Config")
@@ -416,13 +417,16 @@ local function stepUi()
 		if isDown then
 			local untilT = LocalPlayer:GetAttribute(SquadConfig.AttrDownedUntil)
 			local left = if type(untilT) == "number" then math.max(0, math.ceil(untilT - workspace:GetServerTimeNow())) else 0
-			downedLabel.Text = `@_@  Crawl to a teammate! Oxygen (E) or SLAP (F)  {left}s`
+			downedLabel.Text = InputHints.pick(
+				`@_@  Crawl to a teammate! Oxygen (E) or SLAP (F)  {left}s`,
+				`@_@  Crawl to a teammate for Oxygen or a SLAP  {left}s`
+			)
 		end
 	end
 	if hintLabel then
 		hintLabel.Visible = inLobby() and LocalPlayer:GetAttribute(Names.Attr.Downed) ~= true
 			and LocalPlayer:GetAttribute("HelpOpen") ~= false -- OnboardingController: emotes live in Help (H)
-			and UserInputService.KeyboardEnabled -- key hints mean nothing on a touch-only phone
+			and InputHints.mode() == "keyboard" -- Z / X / C mean nothing on a phone or a gamepad
 	end
 end
 

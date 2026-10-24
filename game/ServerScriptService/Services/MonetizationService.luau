@@ -410,7 +410,11 @@ local function buildBoard(station: Model)
 		local l = label(gui, `Row{i}`, "", UDim2.fromScale(0.9, rowH * 0.86), UDim2.fromScale(0.05, 0.15 + (i - 1) * rowH), Enum.Font.FredokaOne, Palette.UiCream, Enum.TextXAlignment.Left)
 		table.insert(board.rows, l)
 	end
-	label(gui, "Hint", "Click a button below or press E to donate. Thank you!", UDim2.fromScale(0.92, 0.08), UDim2.fromScale(0.04, 0.89), Enum.Font.FredokaOne, Palette.UiShock)
+	local hint = label(gui, "Hint", "Click a button below or press E to donate. Thank you!", UDim2.fromScale(0.92, 0.08), UDim2.fromScale(0.04, 0.89), Enum.Font.FredokaOne, Palette.UiShock)
+	-- each client shows it for its own input (ClientLib/InputHints)
+	hint:SetAttribute("HintText", hint.Text)
+	hint:SetAttribute("HintTouch", "Tap a button below or the Donate button. Thank you!")
+	hint:AddTag("InputHint")
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "DonatePrompt"

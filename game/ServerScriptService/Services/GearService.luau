@@ -1129,6 +1129,11 @@ local function hookRack(inst: Instance)
 	label.TextScaled = true
 	label.TextColor3 = Color3.fromHex("#FFF1D6")
 	label.Text = "LOCKER [R]"
+	-- each client shows it for its own input (ClientLib/InputHints): phones tap the prompt, no [R]
+	label:SetAttribute("HintText", "LOCKER [R]")
+	label:SetAttribute("HintTouch", "LOCKER")
+	label:SetAttribute("HintGamepad", "LOCKER")
+	label:AddTag("InputHint")
 	label.Parent = sign
 	sign.Parent = board
 	refreshRack(rack)

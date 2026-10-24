@@ -34,6 +34,7 @@ local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChil
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local HudController = {}
 HudController.Priority = 50
@@ -492,6 +493,7 @@ local function toast(text: string, kind: string)
 	if not u then
 		return
 	end
+	text = InputHints.format(text) -- server text names keys; touch / gamepad see their own buttons
 	local secs = tonumber(FeedbackConfig.ToastSeconds) or 2.5
 	if not toastState then
 		local n = tonumber(FeedbackConfig.ToastMax) or 2

@@ -42,6 +42,7 @@ local FirstFire = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("On
 local FireCfg = require(ConfigDir:WaitForChild("FirstFireConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 
 local OnboardingController = {}
 OnboardingController.Priority = 120
@@ -60,7 +61,7 @@ local CREAM = Palette.UiCream
 local WARN = Palette.UiWarn
 local RED = Palette.UiRed
 
-type Guide = { kind: string, part: BasePart?, model: Instance?, head: string, sub: string, chip: string }
+type Guide = { kind: string, part: BasePart?, model: Instance?, head: string, sub: string, chip: string, subTouch: string?, subPad: string? }
 
 local state = {
 	flow = Flow.new(),
@@ -249,9 +250,10 @@ local function keycap(parent: Instance, label: string, order: number)
 	t.Text = label
 	t.ZIndex = 8
 	t.Parent = cap
+	return cap, t
 end
 
-local function helpRow(list: Instance, order: number, keys: { string }, body: string)
+local function helpRow(list: Instance, order: number, keys: { string }, body: string, ctx: any?, touchBody: string?)
 	local row = Instance.new("Frame")
 	row.Name = `Row{order}`
 	row.LayoutOrder = order
@@ -272,8 +274,10 @@ local function helpRow(list: Instance, order: number, keys: { string }, body: st
 	cl.Padding = UDim.new(0, 4)
 	cl.SortOrder = Enum.SortOrder.LayoutOrder
 	cl.Parent = caps
+	local made = {}
 	for i, k in keys do
-		keycap(caps, k, i)
+		local cap, label = keycap(caps, k, i)
+		table.insert(made, { cap = cap, label = label, key = k })
 	end
 	local t = Instance.new("TextLabel")
 	t.Name = "Text"
@@ -287,9 +291,26 @@ local function helpRow(list: Instance, order: number, keys: { string }, body: st
 	t.TextWrapped = true
 	t.TextXAlignment = Enum.TextXAlignment.Left
 	t.TextYAlignment = Enum.TextYAlignment.Top
-	t.Text = body
+	if touchBody then
+		InputHints.setPick(t, body, touchBody)
+	else
+		InputHints.set(t, body, ctx)
+	end
 	t.ZIndex = 7
 	t.Parent = row
+	-- keycaps per input: "E" -> TAP on a phone; rows with no way to do it on this input hide
+	InputHints.watch(row, function()
+		local any, last = false, nil
+		for _, m in made do
+			local l = InputHints.key(m.key, ctx)
+			local show = l ~= nil and l ~= last
+			m.cap.Visible = show
+			m.label.Text = l or m.key
+			any = any or show
+			last = l or last
+		end
+		row.Visible = any or #made == 0
+	end)
 end
 
 local function helpHeader(list: Instance, order: number, title: string)
@@ -327,7 +348,7 @@ local function slotPicture(list: Instance, order: number)
 	local tiles = {
 		{ "HAND", "AXE", "What you hold. CLICK to use it: spray, chop, stand a ladder." },
 		{ "1/2 SWAP", "TANK", "Your back. Press 1 or 2 to swap it with your hand." },
-		{ "CARRY", "CAT", "Both arms: a person, a pet or a prop. G puts it down." },
+		{ "CARRY", "CAT", "Both arms: a person, a pet or a prop. Press G to put it down." },
 	}
 	for i, d in tiles do
 		local col = Instance.new("Frame")
@@ -344,7 +365,7 @@ local function slotPicture(list: Instance, order: number)
 		tag.Font = Enum.Font.LuckiestGuy
 		tag.TextSize = 14
 		tag.TextColor3 = INK
-		tag.Text = d[1]
+		InputHints.setPick(tag, d[1], (string.gsub(d[1], "^1/2 ", "")))
 		tag.ZIndex = 8
 		tag.Parent = col
 		corner(tag, 6)
@@ -374,7 +395,7 @@ local function slotPicture(list: Instance, order: number)
 		cap.TextWrapped = true
 		cap.TextYAlignment = Enum.TextYAlignment.Top
 		cap.TextColor3 = CREAM
-		cap.Text = d[3]
+		InputHints.set(cap, d[3])
 		cap.ZIndex = 7
 		cap.Parent = col
 	end
@@ -439,7 +460,7 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { "E" }, '"Pick up" a person, a pet or a prop. They ride in your CARRY slot.')
 	helpRow(list, nx(), { "WALK" }, "Walk them into the glowing drop zone at the truck: that's a rescue!")
 	helpRow(list, nx(), { "G" }, "Put them down. Gently. They remember.")
-	helpRow(list, nx(), { "hold Q" }, "YEET them. Landing in the drop zone still counts. Probably.")
+	helpRow(list, nx(), { "hold Q" }, "YEET them. Landing in the drop zone still counts. Probably.", { Q = { touch = "YEET", pad = "X" } })
 	helpRow(list, nx(), { "E", "E" }, "The panda needs TWO: both of you press E on it, then waddle.")
 	helpHeader(list, nx(), "WATER")
 	helpRow(list, nx(), { hoseKey }, "Next to ANY side of a truck: grab the hose (again to stow it).")
@@ -452,11 +473,14 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { kick }, "Kick a locked door (or chop it with the axe). Broken windows: climb through.")
 	helpHeader(list, nx(), "TRUCK")
 	helpRow(list, nx(), { keyName(VehicleConfig.KeyDoor, "E") }, "Open the door.")
-	helpRow(list, nx(), { enter }, "Get in / out. Driver: W/S drive, A/D steer, SPACE drift.")
-	helpRow(list, nx(), { keyName(VehicleConfig.KeySiren, "G"), keyName(VehicleConfig.KeyHorn, "H") }, "Siren and horn.")
-	helpRow(list, nx(), { keyName(VehicleConfig.KeyRespawn, "R"), keyName(VehicleConfig.KeyCam, "V") }, "Unflip the truck, switch camera.")
+	helpRow(list, nx(), { enter }, "Get in / out. Driver: W/S drive, A/D steer, SPACE drift.", nil,
+		"Get in. Driver: the stick drives and steers, DRIFT drifts, OUT gets you out.")
+	local truckKeys = { G = { touch = "SIREN", pad = "X" }, H = { touch = "HONK", pad = "Y" }, R = { touch = "RESPAWN", pad = "" }, V = { pad = "R3" } }
+	helpRow(list, nx(), { keyName(VehicleConfig.KeySiren, "G"), keyName(VehicleConfig.KeyHorn, "H") }, "Siren and horn.", truckKeys)
+	helpRow(list, nx(), { keyName(VehicleConfig.KeyRespawn, "R"), keyName(VehicleConfig.KeyCam, "V") }, "Unflip the truck, switch camera.", truckKeys,
+		"Stuck or flipped? RESPAWN TRUCK puts it back on the road.")
 	helpHeader(list, nx(), "EVERYWHERE ELSE")
-	helpRow(list, nx(), { "M" }, "Big map.")
+	helpRow(list, nx(), { "M" }, "Big map.", nil, "Big map (the M button on the minimap).")
 	helpRow(list, nx(), { "Z", "X", "C" }, "Emotes at the station: wave, facepalm, BLAME!")
 	helpRow(list, nx(), { MissionGuideKey }, "Skip a mission guide.")
 	helpRow(list, nx(), { "H" }, "This panel. Graphics + pop-up settings are top left while it's open.")
@@ -613,7 +637,6 @@ local function buildHud()
 		-- phones: the bottom-left corner is the touch thumbstick; sit on the left edge above it instead
 		help.AnchorPoint = Vector2.new(0, 0.5)
 		help.Position = UDim2.new(0, 16, 0.4, 0)
-		help.Text = "HELP"
 	end
 	help.Size = UDim2.fromOffset(118, 36)
 	help.BackgroundColor3 = Palette.UiPanelDark
@@ -621,7 +644,7 @@ local function buildHud()
 	help.Font = Enum.Font.LuckiestGuy
 	help.TextColor3 = CREAM
 	help.TextSize = 20
-	help.Text = `[{Cfg.HelpKey}]  HELP`
+	InputHints.setChip(help, Cfg.HelpKey, "HELP")
 	help.AutoButtonColor = true
 	help.Parent = gui
 	corner(help, 10)
@@ -893,6 +916,8 @@ local function currentGuide(): Guide?
 			model = if hint == "drive" then nil else truck,
 			head = fill(h.head, vars),
 			sub = fill(h.sub, vars),
+			subTouch = h.subTouch and fill(h.subTouch, vars),
+			subPad = h.subPad and fill(h.subPad, vars),
 			chip = if hint == "drive" then "GO!" else "CALL!",
 		}
 	end
@@ -950,7 +975,7 @@ local function showCard(g: Guide?)
 	if key ~= state.guideKey then
 		state.guideKey = key
 		ui.head.Text = g.head
-		ui.sub.Text = g.sub
+		InputHints.setPick(ui.sub, g.sub, g.subTouch, g.subPad)
 		ui.chipText.Text = g.chip
 		card.Visible = true -- HudLayout's top-centre stack places it (under the timer on a mission)
 		ui.cardScale.Scale = 0.6
