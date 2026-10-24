@@ -40,7 +40,7 @@ return Config.define({
 	-- backdraft (a sealed room with heavy fire + smoke builds pressure)
 	PressureSmoke = 0.55, -- smoke needed to build pressure
 	PressureFire = 3, -- FireLevel points needed in the room
-	PressureRate = 0.022, -- pressure / s while sealed (0 -> ArmedAt in ~34 s)
+	PressureRate = 0.03, -- pressure / s while sealed (0 -> ArmedAt in 25 s)
 	PressureDecay = 0.02, -- pressure / s lost when the fire or smoke drops
 	VentRelief = 0.25, -- pressure / s lost while the room is vented
 	WarnAt = 0.4, -- stage 1: doors rattle, puffs from the gaps, creaks, "Something's building up in there..."

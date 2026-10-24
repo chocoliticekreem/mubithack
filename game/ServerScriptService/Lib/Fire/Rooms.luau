@@ -234,7 +234,7 @@ function Rooms.rects(g: Grid, labels: { [number]: number }, id: number, maxRects
 			end
 		end
 	end
-	table.sort(out, function(a, b)
+	table.sort(out, function(a: CellRect, b: CellRect): boolean
 		return (a.i1 - a.i0 + 1) * (a.k1 - a.k0 + 1) > (b.i1 - b.i0 + 1) * (b.k1 - b.k0 + 1)
 	end)
 	while #out > maxRects do
@@ -247,7 +247,7 @@ end
 -- height is its walls' tallest span, capped by the next storey's floor.
 function Rooms.levels(walls: { Wall }, tol: number, minCount: number): { Level }
 	local sorted = table.clone(walls)
-	table.sort(sorted, function(a, b)
+	table.sort(sorted, function(a: Wall, b: Wall): boolean
 		return a.bottom < b.bottom
 	end)
 	local clusters: { { Wall } } = {}

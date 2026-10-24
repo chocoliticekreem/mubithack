@@ -23,7 +23,7 @@ return Config.define({
 	SupportMin = 0.4, -- a chunk whose supports average below this falls
 	CharredFallChance = { wall = 0.015, partition = 0.05 }, -- per second, for charred walls (not in a shell)
 	WindowHeatRadius = 10,
-	ShatterHeat = 6, -- sum of FireLevel-seconds nearby before a window blows out
+	ShatterHeat = 40, -- sum of FireLevel-seconds nearby before a window blows out (was 6: rooms vented before smoke could build; SmokeService)
 	TotalLossAt = 15, -- integrity at/below this = TOTAL LOSS (snaps to 0, shell)
 	SavedAt = 50, -- integrity at/above this at mission end = "saved the building" star
 	-- collapse
