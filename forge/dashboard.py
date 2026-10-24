@@ -1174,11 +1174,12 @@ def _attach_progress(out: list[dict], progress: dict[str, dict], runs: list[dict
             row = row or (news[0] if len(news) == 1 and p["running"] else None)
             if row is not None:
                 row["slug"] = slug
-        if row is None:
-            if not live:
+        if row is None:  # a MuMake build has no job row: its own row, kept for PROGRESS_FRESH once it finishes
+            done = not live and p["phase"] in ("done", "failed")
+            if not live and not done:
                 continue
             row = {"name": "forge new", "kind": "build", "slug": slug, "title": "", "role": None, "step": "",
-                   "status": "running" if p["running"] else "stalled", "updated": p["updated"],
+                   "status": "running" if p["running"] else (p["phase"] if done else "stalled"), "updated": p["updated"],
                    "elapsed": round(now - p["started"]) if p["started"] else None}
             out.append(row)
         row["progress"] = p

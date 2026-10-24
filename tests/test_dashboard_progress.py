@@ -90,11 +90,18 @@ def test_now_view_rides_progress_on_the_job_building_it(settings):
 
 
 def test_now_view_drops_finished_and_long_stalled_builds_but_flags_a_fresh_stall(settings):
-    write(settings, "done", progress(running=False, phase="done", pct=100))
+    write(settings, "done", progress(running=False, phase="done", pct=100, updated=NOW - db.PROGRESS_FRESH - 1))
     write(settings, "dead", progress(updated=NOW - db.PROGRESS_SHOWN - 1))
     write(settings, "stuck", progress(updated=NOW - db.PROGRESS_STALE - 30))
     rows = db.now_view([], [], NOW, db.progress_all(settings, NOW))
     assert [(r["slug"], r["status"], r["progress"]["stalled"]) for r in rows] == [("stuck", "stalled", True)]
+
+
+def test_a_build_that_just_finished_stays_on_running_now_for_its_go_test_moment(settings):
+    # a MuMake build has no job row: without its own row the page never sees it finish (the "go test" pop-up)
+    write(settings, "fresh", progress(running=False, phase="done", pct=100, updated=NOW - 5))
+    rows = db.now_view([], [], NOW, db.progress_all(settings, NOW))
+    assert [(r["slug"], r["status"], r["progress"]["phase"]) for r in rows] == [("fresh", "done", "done")]
 
 
 def test_activity_view_carries_progress_and_lists_a_build_still_in_design(settings):
