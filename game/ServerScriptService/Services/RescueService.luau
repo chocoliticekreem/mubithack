@@ -3,8 +3,11 @@
 -- "Pick up" ProximityPrompt, the NPC dangles (wobbly AlignPosition) in front of the carrier, carrying
 -- slows you, G drops, hold-Q YEETs (arc, tumble, ragdoll on landing, KO on a hard landing), the panda
 -- needs TWO players (both trigger its prompt) and is heavy, walking (or yeeting!) into the truck's
--- RescueDropoff delivers it (cheer + confetti). NPCs near fire panic and run in circles; fire drains
--- their Health and at 0 they are "Toasted" (sooty, lost).
+-- RescueDropoff delivers it (cheer + confetti). NPCs near fire panic: they run away from it (steered,
+-- every step shapecast so they stop at walls/furniture/closed doors and never tunnel), cower when boxed
+-- in, run to a firefighter who comes in, shout "HELP! IN HERE!" when one is near but can't see them,
+-- cough in smoke and calm down when the fire is out; dogs get the zoomies, cats hide under tables.
+-- Fire drains their Health and at 0 they are "Toasted" (sooty, lost).
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10 + v1.5):
 --   RescueService:Spawn(locationOrInstanceId: string, count: number)   -- every RescueSpawn under it
@@ -23,9 +26,11 @@
 --          Rescue/Fx (S->C all, kind: "delivered"|"landed"|"yeet"|"toasted"|"picked", pos: Vector3, data: table?)
 -- Writes: workspace.Rescuables/<RescueId> Models (tag Rescuable; attrs RescueId, Kind, RescueState
 --   ("Trapped"|"Carried"|"Downed"|"Rescued"|"Toasted"), CarriedBy, InstanceId, Health, Panicking,
---   Flying, Toasted); Player attr Carrying. Counters npcs_spawned, npcs_picked, rescued,
---   rescued_<kind>, rescued_pet, npcs_dropped, npcs_thrown, npcs_downed, npcs_toasted,
---   npcs_panicked, rescue_pair_lifts.
+--   Flying, Toasted, Mood ("idle"|"wave"|"approach"|"flee"|"cower"|"hide"|"zoom"), Moving,
+--   Coughing/CallingHelp (server time of the last one)); Player attr Carrying. Counters npcs_spawned,
+--   npcs_picked, rescued, rescued_<kind>, rescued_pet, npcs_dropped, npcs_thrown, npcs_downed,
+--   npcs_toasted, npcs_panicked, npcs_calmed, npcs_unstuck, npcs_wall_bounce, rescue_pair_lifts.
+-- Reads (optional): a "Smoke" attribute (RescueConfig.SmokeAttr) on the floor/room/volume an NPC is in.
 -- Consumes (nil-guarded): MapService:GetInstance/GetLocation, SquadService.Downed/:GetHelmet, tags
 --   RescueDropoff, Burning (attr FireLevel), Shared/Ragdoll.isRagdolled.
 -- Test hooks (DevHook only): _spawnAt(kind, pos): string, _carry(player, id), _deliver(player),
@@ -80,8 +85,26 @@ type Npc = {
 	landedInFire: boolean,
 	panic: boolean,
 	panicT: number,
-	panicCentre: Vector3,
 	calmFor: number,
+	-- panic brain v2 (steered, wall-aware)
+	anchor: Vector3, -- leash centre (spawn spot, or where it last landed)
+	lastGood: CFrame, -- last validated feet (every step is cast before it's taken)
+	mood: string,
+	moveFrom: CFrame,
+	moveTo: CFrame,
+	moveT: number,
+	moveDur: number,
+	moving: boolean,
+	pivotDirty: boolean,
+	boxed: boolean,
+	hideSpot: Vector3?,
+	hidden: boolean,
+	nextHelp: number,
+	nextCough: number,
+	nextLine: number,
+	smokeAt: number,
+	smoke: number,
+	flyPrev: Vector3?,
 	thrower: Player?,
 	thrownAt: number?,
 	dropper: Player?,
@@ -203,6 +226,73 @@ local function groundFeet(pos: Vector3, look: Vector3): CFrame
 	return CFrame.lookAt(feet, feet + flat.Unit)
 end
 
+-- Walls, floors, furniture and closed doors: only CanCollide parts (fire volumes, open doors and
+-- triggers don't block). Rebuilt at most once per tick.
+local solidCache: RaycastParams? = nil
+local solidAt = -1
+local function solidParams(): RaycastParams
+	local now = os.clock()
+	if solidCache and now - solidAt < 0.1 then
+		return solidCache
+	end
+	local rp = rayParams()
+	rp.RespectCanCollide = true
+	solidCache, solidAt = rp, now
+	return rp
+end
+
+local function radiusOf(kind: string): number
+	return if kind == "Dog" or kind == "Cat" then RescueConfig.PetRadius else RescueConfig.BodyRadius
+end
+
+-- Height above the feet the body cast runs at (above kerbs/rugs, below table tops for pets).
+local function waistOf(kind: string): number
+	return if kind == "Dog" or kind == "Cat" then 1.0 elseif kind == "Panda" then 1.8 else 2.0
+end
+
+-- Floor under `pos` for a walker whose feet are at feetY: (groundY?, part?).
+local function floorAt(pos: Vector3, feetY: number): (number?, BasePart?)
+	local top = feetY + RescueConfig.StepUp + 0.5
+	local hit = workspace:Raycast(Vector3.new(pos.X, top, pos.Z), Vector3.new(0, -(RescueConfig.StepUp + RescueConfig.StepDown + 0.5), 0), solidParams())
+	if not hit then
+		return nil, nil
+	end
+	return hit.Position.Y, hit.Instance :: BasePart
+end
+
+-- Studs the body can travel from `feet` along unit `dir` (up to `dist`) before touching something.
+local function clearance(kind: string, feet: Vector3, dir: Vector3, dist: number): number
+	local o = feet + Vector3.new(0, waistOf(kind), 0)
+	local hit = workspace:Spherecast(o, radiusOf(kind), dir * dist, solidParams())
+	return if hit then hit.Distance else dist
+end
+
+-- Is this feet spot a legal place to stand: floor under it, not buried in a wall?
+local function standable(kind: string, feet: Vector3): boolean
+	local g = floorAt(feet, feet.Y)
+	if g == nil then
+		return false
+	end
+	local op = OverlapParams.new()
+	op.FilterType = Enum.RaycastFilterType.Exclude
+	op.FilterDescendantsInstances = solidParams().FilterDescendantsInstances
+	op.RespectCanCollide = true
+	local r = radiusOf(kind) * 0.6
+	local inside = workspace:GetPartBoundsInBox(CFrame.new(feet + Vector3.new(0, waistOf(kind), 0)), Vector3.new(r, r, r) * 2, op)
+	local centre = feet + Vector3.new(0, waistOf(kind), 0)
+	for _, p in inside do
+		-- bounds are only boxes: for block parts confirm the body centre really is inside
+		if p:IsA("Part") and (p :: Part).Shape == Enum.PartType.Block then
+			local lp = p.CFrame:PointToObjectSpace(centre)
+			local h = p.Size / 2
+			if math.abs(lp.X) < h.X and math.abs(lp.Y) < h.Y and math.abs(lp.Z) < h.Z then
+				return false
+			end
+		end
+	end
+	return true
+end
+
 local function burningFires(): { Fire }
 	local out: { Fire } = {}
 	for _, p in CollectionService:GetTagged(Names.Tag.Burning) do
@@ -218,15 +308,15 @@ local function burningFires(): { Fire }
 	return out
 end
 
-local function nearestFire(fires: { Fire }, pos: Vector3): (number, number)
-	local best, level = math.huge, 0
+local function nearestFire(fires: { Fire }, pos: Vector3): (number, number, Vector3?)
+	local best, level, at = math.huge, 0, nil
 	for _, f in fires do
 		local d = math.max(0, (f.pos - pos).Magnitude - f.reach)
 		if d < best then
-			best, level = d, f.level
+			best, level, at = d, f.level, f.pos
 		end
 	end
-	return best, level
+	return best, level, at
 end
 
 local function dropoffAt(pos: Vector3): BasePart?
@@ -308,6 +398,42 @@ local function plant(npc: Npc, feet: CFrame, pose: string)
 		npc.model:PivotTo(feet)
 	end
 	npc.home = feet
+	npc.lastGood = feet
+	npc.moveFrom, npc.moveTo, npc.moveT, npc.moveDur = feet, feet, 0, 0
+	npc.moving = false
+	npc.mood = "idle"
+	npc.hidden = false
+	npc.hideSpot = nil
+	npc.model:SetAttribute("Moving", false)
+	npc.model:SetAttribute("Mood", "idle")
+end
+
+-- plant() at `feet` if it's a legal spot (floor under it, not inside a wall), else at the last good
+-- spot (no NPC ends up buried in a wall or under the floor after a landing).
+local function plantSafe(npc: Npc, feet: CFrame, pose: string): boolean
+	if standable(npc.kind, feet.Position) then
+		plant(npc, feet, pose)
+		return true
+	end
+	plant(npc, CFrame.new(npc.lastGood.Position) * feet.Rotation, pose)
+	Telemetry.count("npcs_unstuck")
+	return false
+end
+
+-- Before a drop/throw: a carried NPC dangles in front of you and can poke through a wall. Pull it back
+-- to your side so it can't be launched out of the far side.
+local function pullToCarrier(npc: Npc, hrp: BasePart?)
+	if not hrp then
+		return
+	end
+	local from = hrp.Position
+	local to = npc.root.Position
+	local hit = workspace:Raycast(from, to - from, solidParams())
+	if hit then
+		local dir = (to - from).Unit
+		local safe = hit.Position - dir * (radiusOf(npc.kind) + 0.4)
+		npc.model:TranslateBy(safe - to)
+	end
 end
 
 -- Let physics have it (drop / throw): unanchored, collidable, server-owned.
@@ -324,6 +450,7 @@ local function launch(npc: Npc, velocity: Vector3, spin: Vector3)
 	npc.stillFor = 0
 	npc.settleAt = nil
 	npc.landedInFire = false
+	npc.flyPrev = npc.root.Position
 	npc.model:SetAttribute("Flying", true)
 	npc.prompt.Enabled = true -- catch it mid-air if you can
 end
@@ -360,6 +487,12 @@ local function carry(list: { Player }, npc: Npc, skipReach: boolean?): boolean
 	local hrp = rootOf(first) :: BasePart
 	npc.panic = false
 	npc.model:SetAttribute("Panicking", false)
+	npc.moving = false
+	npc.mood = "idle"
+	npc.hidden = false
+	npc.hideSpot = nil
+	npc.model:SetAttribute("Moving", false)
+	npc.model:SetAttribute("Mood", "idle")
 	npc.flying = false
 	npc.settleAt = nil
 	npc.model:SetAttribute("Flying", false)
@@ -476,6 +609,7 @@ local function drop(player: Player, forced: boolean?): boolean
 	end
 	local hrp = rootOf(player)
 	releaseCarry(npc)
+	pullToCarrier(npc, hrp)
 	setState(npc, if npc.pose == "lying" then "Downed" else "Trapped")
 	local look = if hrp then hrp.CFrame.LookVector else Vector3.zero
 	launch(npc, look * 6 + Vector3.new(0, 6, 0), Vector3.new(math.random() - 0.5, 0, math.random() - 0.5) * 4)
@@ -496,6 +630,7 @@ local function throw(player: Player, aim: Vector3, charge: number): boolean
 		return false
 	end
 	releaseCarry(npc)
+	pullToCarrier(npc, rootOf(player))
 	setState(npc, if npc.pose == "lying" then "Downed" else "Trapped")
 	local forward, up = Rules.throwSpeed(charge, npc.kind, RescueConfig)
 	local flat = Vector3.new(aim.X, math.max(aim.Y, -0.2), aim.Z)
@@ -575,7 +710,7 @@ local function toast(npc: Npc, culprit: Player?)
 	end
 	local carriers = releaseCarry(npc)
 	local guilty = culprit or Rules.culprit(npc, os.clock(), RescueConfig.BlameWindow) or carriers[1]
-	plant(npc, groundFeet(npc.root.Position, npc.root.CFrame.LookVector), "lying")
+	plantSafe(npc, groundFeet(npc.root.Position, npc.root.CFrame.LookVector), "lying")
 	Builder.toast(npc.model)
 	npc.prompt.Enabled = false
 	npc.panic = false
@@ -666,8 +801,25 @@ local function spawnOne(kind: string, feet: CFrame, pose: string, scope: string)
 		landedInFire = false,
 		panic = false,
 		panicT = 0,
-		panicCentre = feet.Position,
 		calmFor = 0,
+		anchor = feet.Position,
+		lastGood = feet,
+		mood = "idle",
+		moveFrom = feet,
+		moveTo = feet,
+		moveT = 0,
+		moveDur = 0,
+		moving = false,
+		pivotDirty = false,
+		boxed = false,
+		hideSpot = nil,
+		hidden = false,
+		nextHelp = 0,
+		nextCough = 0,
+		nextLine = 0,
+		smokeAt = 0,
+		smoke = 0,
+		flyPrev = nil,
 		thrower = nil,
 		thrownAt = nil,
 		dropper = nil,
@@ -754,10 +906,30 @@ local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
 	if npc.settleAt == nil and math.random() < dt / RescueConfig.VoiceInterval then
 		say(npc, "flying")
 	end
-	if npc.root.Position.Y < workspace.FallenPartsDestroyHeight + 30 then
-		plant(npc, npc.home, npc.pose) -- fell out of the world: pop back home
+	if npc.root.Position.Y < workspace.FallenPartsDestroyHeight + 30 or npc.root.Position.Y < npc.lastGood.Position.Y - 150 then
+		plant(npc, npc.lastGood, npc.pose) -- fell out of the world / through the floor: pop back
+		setState(npc, if npc.pose == "lying" then "Downed" else "Trapped")
 		return
 	end
+	-- no tunnelling: a fast throw can skip through a thin wall between physics steps; if the path
+	-- since the last tick crosses a solid part, put it back on the near side and kill the speed into it
+	local cur = npc.root.Position
+	local prev = npc.flyPrev
+	if prev and (cur - prev).Magnitude > 0.2 then
+		local hit = workspace:Raycast(prev, cur - prev, solidParams())
+		if hit then
+			local back = hit.Position + hit.Normal * (radiusOf(npc.kind) + 0.3)
+			npc.model:TranslateBy(back - cur)
+			local v = npc.root.AssemblyLinearVelocity
+			local into = v:Dot(hit.Normal)
+			if into < 0 then
+				npc.root.AssemblyLinearVelocity = (v - hit.Normal * into * 1.4) * 0.5
+			end
+			cur = npc.root.Position
+			Telemetry.count("npcs_wall_bounce")
+		end
+	end
+	npc.flyPrev = cur
 	local spot = dropoffAt(npc.root.Position)
 	if spot then
 		deliverNpc(npc, npc.thrower or npc.dropper, spot) -- YEETED into the truck!
@@ -789,7 +961,10 @@ local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
 	elseif now >= npc.settleAt then
 		local hard = Rules.landing(npc.peakSpeed, RescueConfig) == "Downed"
 		local pose = if hard or npc.pose == "lying" then "lying" else (if npc.kind == "Civilian" then "stand" else npc.pose)
-		plant(npc, groundFeet(npc.root.Position, npc.root.CFrame.LookVector), pose)
+		if plantSafe(npc, groundFeet(npc.root.Position, npc.root.CFrame.LookVector), pose) then
+			npc.anchor = npc.lastGood.Position -- it lives here now (it may have been yeeted outside)
+		end
+		npc.flyPrev = nil
 		setState(npc, if pose == "lying" then "Downed" else "Trapped")
 		if hard then
 			Telemetry.count("npcs_downed")
@@ -800,33 +975,323 @@ local function tickFlying(npc: Npc, fires: { Fire }, dt: number)
 	hurt(npc, if onScene(npc) then Rules.fireDamage(dist, level, dt, RescueConfig) else 0, Rules.culprit(npc, now, RescueConfig.BlameWindow))
 end
 
-local function tickIdle(npc: Npc, fires: { Fire }, dt: number)
-	local pos = npc.root.Position
-	local dist, level = nearestFire(fires, pos)
-	if npc.state == "Trapped" then
-		if dist <= RescueConfig.PanicRadius then
-			npc.calmFor = 0
-			if not npc.panic then
-				npc.panic = true
-				npc.panicT = 0
-				-- circle centre one radius off to the side, so the NPC starts on the circle
-				npc.panicCentre = npc.home.Position - npc.home.RightVector * RescueConfig.PanicCircle
-				npc.model:SetAttribute("Panicking", true)
-				Telemetry.count("npcs_panicked")
-				say(npc, "panic")
-			elseif math.random() < 0.08 then
-				say(npc, "panic")
-			end
-		elseif npc.panic then
-			npc.calmFor += dt
-			if npc.calmFor >= RescueConfig.PanicCalm then
-				npc.panic = false
-				npc.model:SetAttribute("Panicking", false)
-				plant(npc, groundFeet(npc.root.Position, npc.root.CFrame.LookVector), npc.pose)
-				say(npc, "idle")
+-- panic brain v2 ---------------------------------------------------------------------------------
+-- NPCs stay anchored (so carry/drop/throw are untouched), but every step they take is shapecast
+-- first: a Spherecast at waist height for walls/furniture/closed doors/other solids and a ray down for
+-- the floor. The Heartbeat only slides them along segments the tick already validated, so they can't
+-- tunnel. Cost per moving NPC per 8 Hz tick: usually 1 spherecast + 1 floor ray + 1 line-of-sight ray.
+
+local function flat(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+-- A line, rate-limited so bubbles stay readable (force = always, e.g. "HELP! IN HERE!").
+local function voice(npc: Npc, mood: string, force: boolean?)
+	local now = os.clock()
+	if force or now >= npc.nextLine then
+		npc.nextLine = now + 1.3
+		say(npc, mood)
+	end
+end
+
+local function setMood(npc: Npc, mood: string)
+	if npc.mood == mood then
+		return
+	end
+	npc.mood = mood
+	npc.pivotDirty = true -- e.g. stand back up out of a crouch
+	npc.model:SetAttribute("Mood", mood)
+	local line = if mood == "approach" or mood == "wave" then "wave"
+		elseif mood == "cower" then "cower"
+		elseif mood == "hide" then "hide"
+		elseif mood == "zoom" then (if npc.kind == "Dog" or npc.kind == "Cat" then "zoom" else "panic")
+		elseif mood == "flee" then "panic"
+		else nil
+	if line then
+		voice(npc, line, true)
+	end
+end
+
+local function setMoving(npc: Npc, on: boolean)
+	if npc.moving ~= on then
+		npc.moving = on
+		npc.pivotDirty = true -- one more pivot to drop the running hop
+		npc.model:SetAttribute("Moving", on)
+	end
+end
+
+-- Turn on the spot to face `target` (flat).
+local function face(npc: Npc, target: Vector3)
+	local feet = npc.lastGood.Position
+	local d = flat(target - feet)
+	if d.Magnitude < 0.2 then
+		return
+	end
+	local cf = CFrame.lookAt(feet, feet + d.Unit)
+	npc.moveFrom, npc.moveTo, npc.moveT, npc.moveDur = cf, cf, 0, 0
+	npc.lastGood, npc.home = cf, cf
+	npc.pivotDirty = true
+end
+
+-- Nearest firefighter: (distance, can see them (walls/floors block), where they are).
+local function lookForFirefighter(npc: Npc): (number, boolean, Vector3?)
+	local eye = npc.lastGood.Position + Vector3.new(0, waistOf(npc.kind) + 0.6, 0)
+	local best, at = math.huge, nil
+	for _, p in squadOf(npc) do
+		local hrp = rootOf(p)
+		if hrp and p:GetAttribute(Names.Attr.Downed) ~= true then
+			local d = (hrp.Position - eye).Magnitude
+			if d < best then
+				best, at = d, hrp.Position
 			end
 		end
 	end
+	if at == nil or best > RescueConfig.HearRadius then
+		return best, false, nil
+	end
+	if best > RescueConfig.SeeRadius then
+		return best, false, at
+	end
+	return best, workspace:Raycast(eye, at - eye, solidParams()) == nil, at
+end
+
+-- 0..1 smoke where the NPC stands: a "Smoke" attribute on the floor it stands on (or its room/model
+-- ancestors), on any volume around its head, or a big fire right next to it. Re-read once a second.
+local function smokeAt(npc: Npc, fireDist: number, fireLevel: number): number
+	local now = os.clock()
+	if now - npc.smokeAt < 1 then
+		return npc.smoke
+	end
+	npc.smokeAt = now
+	local attr = RescueConfig.SmokeAttr
+	local level = 0
+	local feet = npc.lastGood.Position
+	local _, floor = floorAt(feet, feet.Y)
+	local inst: Instance? = floor
+	local hops = 0
+	while inst and inst ~= workspace and hops < 6 do
+		level = math.max(level, Rules.smokeLevel(inst:GetAttribute(attr)))
+		inst = inst.Parent
+		hops += 1
+	end
+	local op = OverlapParams.new()
+	op.FilterType = Enum.RaycastFilterType.Exclude
+	op.FilterDescendantsInstances = solidParams().FilterDescendantsInstances
+	op.MaxParts = 8
+	for _, p in workspace:GetPartBoundsInRadius(feet + Vector3.new(0, waistOf(npc.kind) + 0.5, 0), 0.5, op) do
+		level = math.max(level, Rules.smokeLevel(p:GetAttribute(attr)))
+	end
+	if fireLevel >= 2 and fireDist <= RescueConfig.SmokeFireRadius then
+		level = math.max(level, 0.4 + 0.6 * (1 - fireDist / RescueConfig.SmokeFireRadius))
+	end
+	npc.smoke = level
+	return level
+end
+
+-- A spot within HideReach the cat can get to that has something low over it (table, bed, desk).
+local function findHideSpot(npc: Npc): Vector3?
+	local feet = npc.lastGood.Position
+	for _, h in Rules.headings(math.random() - 0.5, math.random() - 0.5) do
+		local dir = Vector3.new(h.x, 0, h.z)
+		for _, d in { 2.5, RescueConfig.HideReach } do
+			if clearance(npc.kind, feet, dir, d) < d - 0.05 then
+				break
+			end
+			local spot = feet + dir * d
+			local gy = floorAt(spot, feet.Y)
+			if gy and Rules.stepOk(feet.Y, gy, 0.6, 1) then
+				local ground = Vector3.new(spot.X, gy, spot.Z)
+				local roof = workspace:Raycast(ground + Vector3.new(0, 0.3, 0), Vector3.new(0, 4, 0), solidParams())
+				if roof and roof.Distance > 1.4 then
+					return ground
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function moveSpeed(npc: Npc, mood: string): number
+	if npc.kind == "Panda" then
+		return RescueConfig.PanicSpeedPanda
+	end
+	if mood == "zoom" or mood == "hide" then
+		return if npc.kind == "Dog" then RescueConfig.PanicSpeedDog else RescueConfig.PanicSpeedCat
+	end
+	if mood == "approach" then
+		return RescueConfig.PanicSpeed * 0.8
+	end
+	return RescueConfig.PanicSpeed
+end
+
+-- Take one validated step toward (dx, dz). Tries the wanted heading first (usually the only cast),
+-- then the others; refuses walls, furniture, other solids and drops it can't step down. False = boxed in.
+local function tryStep(npc: Npc, dx: number, dz: number, speed: number, interval: number): boolean
+	local feet = npc.lastGood.Position
+	local stepLen = speed * interval
+	local gap = RescueConfig.WallGap
+	type Cand = { x: number, z: number, clear: number, gy: number }
+	local cands: { Cand } = {}
+	local chosen: number? = nil
+	for i, h in Rules.headings(dx, dz) do
+		local dir = Vector3.new(h.x, 0, h.z)
+		local allowed = clearance(npc.kind, feet, dir, stepLen + gap + 0.5) - gap
+		local c: Cand = { x = h.x, z = h.z, clear = 0, gy = feet.Y }
+		if allowed >= stepLen * 0.5 then
+			local to = feet + dir * math.min(stepLen, allowed)
+			local gy = floorAt(to, feet.Y)
+			if gy and Rules.stepOk(feet.Y, gy, RescueConfig.StepUp, RescueConfig.StepDown) then
+				c.clear, c.gy = allowed, gy
+			end
+		end
+		cands[i] = c
+		if c.clear > 0 and i <= 3 then
+			chosen = i -- within 45 degrees of what it wants: good enough, stop casting
+			break
+		end
+	end
+	if chosen == nil then
+		for i = #cands + 1, 8 do
+			cands[i] = { x = 0, z = 0, clear = 0, gy = feet.Y }
+		end
+		chosen = Rules.pickHeading(cands, dx, dz, 1e-3)
+	end
+	if chosen == nil then
+		return false
+	end
+	local c = cands[chosen]
+	local dir = Vector3.new(c.x, 0, c.z)
+	local to = feet + dir * math.min(stepLen, c.clear)
+	local newFeet = Vector3.new(to.X, c.gy, to.Z)
+	local cf = CFrame.lookAt(newFeet, newFeet + dir)
+	npc.moveFrom = npc.lastGood
+	npc.moveTo = cf
+	npc.moveT = 0
+	npc.moveDur = interval
+	npc.lastGood, npc.home = cf, cf
+	return true
+end
+
+local function brain(npc: Npc, fires: { Fire }, dt: number)
+	local now = os.clock()
+	local dist, level, firePos = nearestFire(fires, npc.root.Position)
+	if npc.state ~= "Trapped" then
+		return dist, level
+	end
+	local standing = npc.pose ~= "lying"
+	if dist <= RescueConfig.PanicRadius then
+		npc.calmFor = 0
+		if not npc.panic then
+			npc.panic = true
+			npc.panicT = 0
+			npc.boxed = false
+			npc.model:SetAttribute("Panicking", true)
+			Telemetry.count("npcs_panicked")
+			voice(npc, "panic", true)
+			if npc.kind == "Cat" then
+				npc.hideSpot = findHideSpot(npc)
+			end
+		end
+	elseif npc.panic then
+		npc.calmFor += dt
+		if npc.calmFor >= RescueConfig.PanicCalm then
+			-- the fire near it is out: stop where it is (a validated spot) and catch its breath
+			npc.panic = false
+			npc.model:SetAttribute("Panicking", false)
+			plant(npc, npc.lastGood, npc.pose)
+			voice(npc, "calm", true)
+			Telemetry.count("npcs_calmed")
+		end
+	end
+	npc.panicT += dt
+
+	local pDist, sees, pPos = lookForFirefighter(npc)
+	local seen = sees and pDist <= RescueConfig.SeeRadius
+	if npc.mood == "cower" and math.random() < dt / 1.5 then
+		npc.boxed = false -- every so often a cowering NPC tries to make a break for it again
+	end
+	local mood = Rules.mood({
+		kind = npc.kind,
+		fireDist = if npc.panic then 0 else math.huge,
+		panicRadius = RescueConfig.PanicRadius,
+		sees = seen,
+		playerDist = pDist,
+		boxedIn = npc.boxed,
+		hideSpot = npc.hideSpot ~= nil,
+		hidden = npc.hidden,
+		standing = standing,
+	})
+	setMood(npc, mood)
+
+	-- move (or don't)
+	local feet = npc.lastGood.Position
+	local moved = false
+	if mood == "approach" and pPos and flat(pPos - feet).Magnitude <= RescueConfig.ApproachStop then
+		face(npc, pPos) -- made it: stand there waving
+	elseif mood == "wave" and pPos then
+		face(npc, pPos)
+	elseif mood == "hide" and npc.hideSpot and not npc.hidden and flat(npc.hideSpot - feet).Magnitude <= 0.8 then
+		npc.hidden = true
+		voice(npc, "hide", true)
+	elseif mood == "flee" or mood == "zoom" or mood == "approach" or (mood == "hide" and not npc.hidden) then
+		local target = if mood == "approach" then pPos elseif mood == "hide" then npc.hideSpot else nil
+		local fp = firePos or feet
+		local dx, dz = Rules.desire({
+			x = feet.X,
+			z = feet.Z,
+			fx = fp.X,
+			fz = fp.Z,
+			hx = npc.anchor.X,
+			hz = npc.anchor.Z,
+			leash = RescueConfig.PanicLeash,
+			t = npc.panicT,
+			tx = if target then target.X else nil,
+			tz = if target then target.Z else nil,
+			mood = mood,
+		})
+		-- personal space: don't run through each other
+		for _, o in npcs do
+			if o ~= npc and o.model.Parent and #o.carriers == 0 and not o.flying then
+				local off = flat(feet - o.lastGood.Position)
+				local d = off.Magnitude
+				if d > 0.01 and d < 2.6 then
+					local push = (2.6 - d) / 2.6 * 2
+					dx += off.X / d * push
+					dz += off.Z / d * push
+				end
+			end
+		end
+		if dx * dx + dz * dz > 1e-4 then
+			moved = tryStep(npc, dx, dz, moveSpeed(npc, mood), 1 / RescueConfig.TickHz)
+			if not moved then
+				npc.boxed = true -- walls on every side: next tick it cowers
+				if mood == "hide" then
+					npc.hideSpot = nil
+				end
+			end
+		end
+	end
+	setMoving(npc, moved)
+
+	-- reactions
+	if standing and Rules.callForHelp(pDist, sees, RescueConfig.HearRadius) and now >= npc.nextHelp then
+		npc.nextHelp = now + RescueConfig.HelpEvery * (0.8 + math.random() * 0.4)
+		voice(npc, "trapped", true)
+		npc.model:SetAttribute("CallingHelp", workspace:GetServerTimeNow())
+	elseif npc.panic and math.random() < 0.05 then
+		voice(npc, if mood == "cower" then "cower" else "panic")
+	end
+	local smoke = smokeAt(npc, dist, level)
+	if smoke >= 0.25 and now >= npc.nextCough then
+		npc.nextCough = now + RescueConfig.CoughEvery / (0.5 + smoke) * (0.7 + math.random() * 0.6)
+		voice(npc, "cough", true)
+		npc.model:SetAttribute("Coughing", workspace:GetServerTimeNow())
+	end
+	return dist, level
+end
+
+local function tickIdle(npc: Npc, fires: { Fire }, dt: number)
+	local dist, level = brain(npc, fires, dt)
 	hurt(npc, if onScene(npc) then Rules.fireDamage(dist, level, dt, RescueConfig) else 0, Rules.culprit(npc, os.clock(), RescueConfig.BlameWindow))
 end
 
@@ -846,18 +1311,29 @@ local function tick(dt: number)
 	end
 end
 
--- every frame: panic circles and the two-carrier panda hold point
+-- every frame: slide along the tick's validated segment (+ a panicky hop, or a cowering crouch) and
+-- the two-carrier panda hold point
 local function step(dt: number)
+	local clock = os.clock()
 	for _, npc in npcs do
-		if npc.panic and #npc.carriers == 0 and not npc.flying and npc.state == "Trapped" then
-			npc.panicT += dt
-			local speed = if npc.kind == "Panda" then RescueConfig.PanicSpeed * 0.4 else RescueConfig.PanicSpeed
-			local x, z, yaw = Rules.panicPoint(npc.panicT, RescueConfig.PanicCircle, speed)
-			local hop = math.abs(math.sin(npc.panicT * 11)) * 0.6
-			local c = npc.panicCentre
-			local cf = CFrame.new(c.X + x, c.Y + hop, c.Z + z) * CFrame.Angles(0, yaw, 0)
-			npc.model:PivotTo(cf)
-			npc.home = CFrame.new(c.X + x, c.Y, c.Z + z) * CFrame.Angles(0, yaw, 0)
+		if #npc.carriers == 0 and not npc.flying and npc.state == "Trapped" then
+			local cower = npc.mood == "cower" or (npc.mood == "hide" and npc.hidden)
+			if npc.moving or npc.pivotDirty or cower then
+				npc.moveT += dt
+				local a = if npc.moveDur > 0 then math.clamp(npc.moveT / npc.moveDur, 0, 1) else 1
+				local cf = npc.moveFrom:Lerp(npc.moveTo, a)
+				if npc.moving then
+					local hopH = if npc.kind == "Dog" or npc.kind == "Cat" then 0.35 else 0.5
+					cf += Vector3.new(0, math.abs(math.sin(clock * 11 + #npc.id)) * hopH, 0)
+				elseif cower then
+					local shiver = math.sin(clock * 40) * 0.04
+					cf = cf * CFrame.new(shiver, -RescueConfig.CowerDrop, 0)
+				end
+				npc.model:PivotTo(cf)
+				if not npc.moving and not cower and a >= 1 then
+					npc.pivotDirty = false
+				end
+			end
 		elseif #npc.carriers >= 2 and npc.align and npc.orient then
 			local a, b = rootOf(npc.carriers[1]), rootOf(npc.carriers[2])
 			if a and b then

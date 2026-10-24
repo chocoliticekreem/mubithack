@@ -3,7 +3,8 @@
 --   * While carrying (Player attr Carrying ~= ""): hint panel "[G] drop  [hold Q] YEET", a charge bar,
 --     and the Truck highlighted. G sends Rescue/Drop; holding Q charges a throw, releasing sends
 --     Rescue/Throw(cameraLook, charge). Touch / gamepad buttons via ContextActionService.
---   * Flailing: the Motor6D "Flail" joints of carried / flying NPCs wave wildly; panicking NPCs run.
+--   * Flailing: the Motor6D "Flail" joints of carried / flying NPCs wave wildly; NPCs with Moving run;
+--     Mood "cower" flaps its arms over its head, "wave"/"approach" waves you over, Coughing jerks.
 --   * Voices: screams / woofs / meows / panda grunts while carried or flying (RescueConfig.Sound*).
 --   * Rescue/Fx: confetti + cheer on delivery, dust + thud + shake on landing, whoosh on a yeet,
 --     black smoke + sizzle on a toasting. Shake goes through FirstPersonController:Shake (nil-guarded).
@@ -180,7 +181,7 @@ end
 
 -- Flail animation --------------------------------------------------------------------------------
 
-type Rig = { motors: { Motor6D }, phase: { number }, at: number, voiceAt: number, animated: boolean }
+type Rig = { motors: { Motor6D }, phase: { number }, arm: { boolean }, at: number, voiceAt: number, animated: boolean }
 local rigs: { [Model]: Rig } = {}
 
 local function rigOf(model: Model, now: number): Rig
@@ -197,20 +198,24 @@ local function rigOf(model: Model, now: number): Rig
 	if stale then
 		local motors: { Motor6D } = {}
 		local phase: { number } = {}
+		local arm: { boolean } = {}
 		for _, d in model:GetDescendants() do
 			if d:IsA("Motor6D") and d.Name == "Flail" then
 				table.insert(motors, d)
 				local limb = d.Part1
 				local name = if limb then limb.Name else ""
 				local idx = tonumber(string.match(name, "%d") or "") or 0
+				local isArm = string.find(name, "Arm") ~= nil or string.find(name, "Sleeve") ~= nil or string.find(name, "FrontLeg") ~= nil
 				-- left/right limbs swing in opposite phase; arms a quarter turn from the legs
-				local p = (idx % 2) * math.pi + (if string.find(name, "Arm") or string.find(name, "Sleeve") then math.pi / 2 else 0)
+				local p = (idx % 2) * math.pi + (if isArm then math.pi / 2 else 0)
 				table.insert(phase, p)
+				table.insert(arm, isArm)
 			end
 		end
 		rig = {
 			motors = motors,
 			phase = phase,
+			arm = arm,
 			at = now,
 			voiceAt = if rig then rig.voiceAt else now + math.random(),
 			animated = if rig then rig.animated else false,
@@ -231,16 +236,37 @@ local function animate(_t: number, _dt: number)
 		seen[model] = true
 		local state = model:GetAttribute(Names.Attr.RescueState)
 		local flying = model:GetAttribute("Flying") == true
-		local panicking = model:GetAttribute("Panicking") == true
 		local wild = state == "Carried" or flying
+		local trapped = state == "Trapped"
+		local mood = if trapped then model:GetAttribute("Mood") else nil
+		local moving = trapped and model:GetAttribute("Moving") == true
+		local coughAt = model:GetAttribute("Coughing")
+		local coughing = trapped and type(coughAt) == "number" and workspace:GetServerTimeNow() - coughAt < 0.9
 		local rig = rigOf(model, now)
-		if wild or panicking then
-			local speed = if wild then 22 else 13
-			local amp = if wild then math.rad(70) else math.rad(40)
+		if wild or moving then
+			-- carried/flying: flail everything; running: legs and arms pump (zoomies faster)
+			local zoom = mood == "zoom"
+			local speed = if wild then 22 elseif zoom then 20 else 13
+			local amp = if wild then math.rad(70) elseif zoom then math.rad(55) else math.rad(40)
 			for i, m in rig.motors do
 				local a = math.sin(now * speed + rig.phase[i]) * amp
 				local b = if wild then math.cos(now * speed * 0.7 + rig.phase[i]) * amp * 0.5 else 0
 				m.Transform = CFrame.Angles(a, 0, b)
+			end
+			rig.animated = true
+		elseif mood == "cower" or mood == "wave" or mood == "approach" or coughing then
+			-- cower: arms flap wildly over the head, legs tucked; wave: arms swing "over here!";
+			-- cough: everything jerks
+			for i, m in rig.motors do
+				if coughing then
+					m.Transform = CFrame.Angles(math.sin(now * 35 + rig.phase[i]) * math.rad(14), 0, 0)
+				elseif rig.arm[i] then
+					local fast = mood == "cower"
+					local s = if fast then 16 else 9
+					m.Transform = CFrame.Angles(math.rad(if fast then 150 else 120) + math.sin(now * s + rig.phase[i]) * math.rad(35), 0, math.cos(now * s + rig.phase[i]) * math.rad(25))
+				else
+					m.Transform = if mood == "cower" then CFrame.Angles(math.rad(-25), 0, 0) else CFrame.identity
+				end
 			end
 			rig.animated = true
 			if wild and now >= rig.voiceAt then

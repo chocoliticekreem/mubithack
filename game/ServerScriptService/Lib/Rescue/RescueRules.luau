@@ -10,6 +10,13 @@
 --   RescueRules.landing(peakSpeed, cfg): "Downed" | "Trapped"
 --   RescueRules.fireDamage(dist, level, dt, cfg): number      -- HP lost this tick
 --   RescueRules.panicPoint(t, radius, speed): (number, number, number)  -- x, z offset, facing angle
+--   RescueRules.mood(s): string                               -- idle|wave|approach|flee|cower|hide|zoom
+--   RescueRules.desire(p): (number, number)                   -- wanted run direction (x, z)
+--   RescueRules.pickHeading(cands, dx, dz, need): number?     -- best unblocked heading, nil = boxed in
+--   RescueRules.headings(dx, dz): { {x, z} }                  -- 8 headings, nearest to (dx, dz) first
+--   RescueRules.stepOk(feetY, groundY?, up, down): boolean    -- floor under the next step?
+--   RescueRules.smokeLevel(raw): number                       -- room "Smoke" attribute -> 0..1
+--   RescueRules.callForHelp(dist, sees, hearRadius): boolean  -- "HELP! IN HERE!"
 --   RescueRules.pair(pending, now, window, need): { any }     -- the first `need` recent grabbers
 --   RescueRules.inBox(px, py, pz, hx, hy, hz, pad): boolean   -- point in a box's local space
 --   RescueRules.culprit(rec, now, window): any?               -- who to blame for a toasting
@@ -98,6 +105,138 @@ function RescueRules.panicPoint(t: number, radius: number, speed: number): (numb
 	return x, z, yaw
 end
 
+-- Panic brain (v2: geometry-aware panic; RescueService does the casting, these decide) ----------
+
+-- What an NPC that is free to move (Trapped, not carried/flying) does this tick.
+-- s: { kind, fireDist, panicRadius, sees: boolean (a firefighter in line of sight within SeeRadius),
+--      playerDist, boxedIn: boolean (no clear heading last tick), hideSpot: boolean (cat found cover),
+--      hidden: boolean (cat is already under it), standing: boolean (pose ~= "lying") }
+-- Returns "idle" | "wave" | "approach" | "flee" | "cower" | "hide" | "zoom".
+function RescueRules.mood(s: any): string
+	if not s.standing then
+		return "idle"
+	end
+	local panicking = s.fireDist <= s.panicRadius
+	if not panicking then
+		return if s.sees then (if s.kind == "Civilian" or s.kind == "Dog" then "approach" else "wave") else "idle"
+	end
+	if s.kind == "Cat" then
+		if s.hidden or s.hideSpot then
+			return "hide"
+		end
+		return if s.boxedIn then "cower" else "zoom"
+	end
+	if s.kind == "Panda" then
+		return if s.boxedIn then "cower" else "flee" -- slow waddle away; sits and flails when stuck
+	end
+	if s.sees and (s.kind == "Civilian" or s.kind == "Dog") then
+		return "approach" -- a firefighter came in: run to them
+	end
+	if s.boxedIn then
+		return "cower"
+	end
+	return if s.kind == "Dog" then "zoom" else "flee"
+end
+
+-- Desired run direction (unnormalised x, z) for a mood. All positions are flat (x, z).
+-- p: { x, z, fx, fz (nearest fire), hx, hz (home/leash anchor), leash, t, tx?, tz? (target: player or
+--      hide spot), mood }
+function RescueRules.desire(p: any): (number, number)
+	local dx, dz = 0, 0
+	if (p.mood == "approach" or p.mood == "hide") and p.tx then
+		dx, dz = p.tx - p.x, p.tz - p.z
+	elseif p.mood == "zoom" then
+		-- zoomies: loop around home (the old circle, but steered, so walls bend it)
+		local ox, oz = p.x - p.hx, p.z - p.hz
+		local r = math.sqrt(ox * ox + oz * oz)
+		if r < 0.5 then
+			ox, oz, r = 1, 0, 1
+		end
+		dx, dz = -oz / r, ox / r -- tangent
+		local pull = (r - p.leash * 0.35) / math.max(p.leash, 1) -- drift back onto a loop of ~1/3 leash
+		dx -= ox / r * pull * 2
+		dz -= oz / r * pull * 2
+	elseif p.mood == "flee" then
+		local ax, az = p.x - p.fx, p.z - p.fz
+		local m = math.sqrt(ax * ax + az * az)
+		if m > 0.01 then
+			dx, dz = ax / m, az / m
+		end
+		-- a little side-to-side wobble so it reads as panicked, not a robot
+		local w = math.sin(p.t * 2.3) * 0.45
+		dx, dz = dx - dz * w, dz + dx * w
+	end
+	-- leash: past 70% of the leash the pull home grows until it wins at the edge
+	local hx, hz = p.hx - p.x, p.hz - p.z
+	local hd = math.sqrt(hx * hx + hz * hz)
+	if hd > p.leash * 0.7 and hd > 0.01 then
+		local k = (hd - p.leash * 0.7) / math.max(p.leash * 0.3, 0.5) * 1.5
+		dx += hx / hd * k
+		dz += hz / hd * k
+	end
+	return dx, dz
+end
+
+-- Pick a heading. cands: list of { x, z (unit), clear (studs free that way) }; need: studs that must be
+-- free. Prefers the direction closest to (dx, dz), slightly prefers open space, never picks a blocked one.
+-- Returns the index or nil when every candidate is blocked (= boxed in).
+function RescueRules.pickHeading(cands: { any }, dx: number, dz: number, need: number): number?
+	local m = math.sqrt(dx * dx + dz * dz)
+	local ux, uz = if m > 1e-3 then dx / m else 0, if m > 1e-3 then dz / m else 0
+	local best, bestScore = nil, -math.huge
+	for i, c in cands do
+		if c.clear >= need then
+			local score = c.x * ux + c.z * uz + 0.2 * math.min(c.clear, 8) / 8
+			if score > bestScore then
+				best, bestScore = i, score
+			end
+		end
+	end
+	return best
+end
+
+-- The 8 compass headings (unit x, z), starting at +X and going counter-clockwise; `first` rotates the
+-- list so the direction nearest (dx, dz) is tried first (cheap: most ticks need only one cast).
+function RescueRules.headings(dx: number, dz: number): { { x: number, z: number } }
+	local base = math.atan2(dz, dx)
+	local out = {}
+	local order = { 0, 1, -1, 2, -2, 3, -3, 4 }
+	for i, k in order do
+		local a = base + k * math.pi / 4
+		out[i] = { x = math.cos(a), z = math.sin(a) }
+	end
+	return out
+end
+
+-- Can a walker step from feetY onto groundY? (stairs/kerbs up to `up`, small drops up to `down`)
+function RescueRules.stepOk(feetY: number, groundY: number?, up: number, down: number): boolean
+	if groundY == nil then
+		return false -- no floor: a hole, a balcony edge, or the floor is missing
+	end
+	local d = groundY - feetY
+	return d <= up and d >= -down
+end
+
+-- Smoke on a room/part attribute: true/false, a number 0..1 (or 0..100), or a string level.
+function RescueRules.smokeLevel(raw: any): number
+	if raw == true then
+		return 1
+	end
+	if type(raw) == "number" and raw == raw then
+		return math.clamp(if raw > 1 then raw / 100 else raw, 0, 1)
+	end
+	if type(raw) == "string" then
+		local s = string.lower(raw)
+		return if s == "heavy" or s == "thick" then 1 elseif s == "light" or s == "thin" then 0.4 elseif s == "" or s == "none" then 0 else 0.7
+	end
+	return 0
+end
+
+-- Should a trapped NPC shout for help? Somebody is close enough to hear but can't see it.
+function RescueRules.callForHelp(playerDist: number, sees: boolean, hearRadius: number): boolean
+	return not sees and playerDist <= hearRadius
+end
+
 -- pending: { [key]: timestamp } of recent "Pick up" triggers. Returns up to `need` keys whose
 -- trigger is within `window` of now (oldest first) when at least `need` qualify; else {}.
 function RescueRules.pair(pending: { [any]: number }, now: number, window: number, need: number): { any }
@@ -144,6 +283,11 @@ local LINES: { [string]: { [string]: { string } } } = {
 		downed = { "zzz...", "@_@" },
 		rescued = { "MY HERO!", "THANK YOU!", "...again!" },
 		toasted = { "...crispy", "well done." },
+		trapped = { "HELP! IN HERE!", "IN HERE! HELP!", "ANYBODY?! IN HERE!" },
+		wave = { "OVER HERE!", "HEY! HERE!", "ME! PICK ME!" },
+		cower = { "I'M TRAPPED!", "MOMMY!", "NOT THE FACE!" },
+		cough = { "*cough cough*", "*HACK*", "*wheeze*" },
+		calm = { "phew...", "is it out?", "...nice." },
 	},
 	Dog = {
 		idle = { "WOOF?", "bork" },
@@ -153,6 +297,12 @@ local LINES: { [string]: { [string]: { string } } } = {
 		downed = { "*whimper*" },
 		rescued = { "*happy bork*", "WOOF!" },
 		toasted = { "*sad bork*" },
+		trapped = { "WOOF! WOOF! (in here!)", "AWOO? (help)" },
+		wave = { "BORK! BORK!", "*tail wag*" },
+		cower = { "*whimper*", "*hides face*" },
+		cough = { "*sneeze*", "*hrk*" },
+		calm = { "*pant pant*", "bork." },
+		zoom = { "ZOOMIES!", "BORKBORKBORK" },
 	},
 	Cat = {
 		idle = { "mrrp", "meow?" },
@@ -162,6 +312,13 @@ local LINES: { [string]: { [string]: { string } } } = {
 		downed = { "...mew" },
 		rescued = { "purrrr", "mrrp :3" },
 		toasted = { "...hiss" },
+		trapped = { "MEOW! (in here)", "mrrrOW?!" },
+		wave = { "mrrp!", "meow." },
+		cower = { "HSSSS!", "*puffed up*" },
+		cough = { "*hairball noises*", "*hck*" },
+		calm = { "...purr", "mrrp" },
+		hide = { "*hides*", "...", "(not here)" },
+		zoom = { "NYOOOM", "MRAOW!" },
 	},
 	Panda = {
 		idle = { "???", "*chews bamboo*" },
@@ -171,6 +328,11 @@ local LINES: { [string]: { [string]: { string } } } = {
 		downed = { "zzz" },
 		rescued = { "*happy panda*", "bamboo!" },
 		toasted = { "*sad panda*" },
+		trapped = { "??? (help)", "*panda SOS*" },
+		wave = { "*waves bamboo*", "???" },
+		cower = { "*sits. refuses.*", "*panda panic*" },
+		cough = { "*panda cough*", "*sneeze*" },
+		calm = { "*chews bamboo*", "bamboo." },
 	},
 }
 
