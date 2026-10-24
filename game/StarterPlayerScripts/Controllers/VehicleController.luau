@@ -503,6 +503,20 @@ local function exitCF(truck: Model, seat: BasePart): CFrame?
 	return CFrame.lookAt(pos, pos - c.LookVector)
 end
 
+-- Turn the default camera to look along `look` (flattened, a little down), keeping its zoom. Used on
+-- getting in (look down the truck, not wherever you happened to face) and out (look the way you step).
+local function aimCamera(look: Vector3)
+	local cam = workspace.CurrentCamera
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if not cam or cam.CameraType == Enum.CameraType.Scriptable or flat.Magnitude < 0.05 then
+		return
+	end
+	local focus = cam.Focus.Position
+	local dist = math.max(0.5, (cam.CFrame.Position - focus).Magnitude)
+	local dir = (flat.Unit + Vector3.new(0, -0.2, 0)).Unit
+	cam.CFrame = CFrame.lookAt(focus - dir * dist, focus)
+end
+
 local function hopOut()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -525,6 +539,7 @@ local function hopOut()
 			if root then
 				root.AssemblyLinearVelocity = Vector3.zero
 			end
+			aimCamera(target.LookVector)
 		end
 	end)
 end
@@ -955,6 +970,17 @@ local function seatedTruck(): (Model?, BasePart?)
 	return nil, nil
 end
 
+local seatedIn: BasePart? = nil -- truck seat the local player sat in last frame
+
+-- Getting in: the camera looks down the truck (seat forward), not the way you faced on foot. In first
+-- person the default camera keeps its world yaw, so a passenger who boarded facing backwards rode along
+-- staring out the back. (The driver's chase / cab cams follow the truck anyway.)
+local function onSeatChanged(seat: BasePart?)
+	if seat then
+		aimCamera(seat.CFrame.LookVector)
+	end
+end
+
 local hintTruck: Model? = nil
 local hintSince = 0
 local HINT_CALM_SECONDS = 5
@@ -962,6 +988,10 @@ local HINT_CALM_SECONDS = 5
 local function updateSeated()
 	local truck, seat = seatedTruck()
 	local isDriver = seat ~= nil and seat.Name == "DriveSeat"
+	if seat ~= seatedIn then
+		seatedIn = seat
+		onSeatChanged(seat)
+	end
 	if ProximityPromptService.Enabled ~= (truck == nil) then
 		ProximityPromptService.Enabled = truck == nil
 	end
