@@ -374,7 +374,9 @@ def test_every_bar_has_a_hover_card_with_its_outcome(settings):
         f.write(json.dumps({**call("auditor", 90, 3_000, "mreq_a1"), "error": "APITimeoutError: read timed out"}) + "\n")
         f.write(json.dumps({**call("auditor", 99, 4_000, "mreq_a2"), "aborted": True, "model": "claude-sonnet-5-5",
                             "input_tokens": 8700, "output_tokens": 2100}) + "\n")
-    t, _ = team(settings)
+    t, d = team(settings)
+    auditor_card = next(a for a in d["games"][0]["agents"] if a["role"] == "auditor")
+    assert [c["ok"] for c in auditor_card["recent"]] == [None, False]  # newest first: cut short, then failed
     for ln in t["lanes"]["lanes"]:
         assert len(ln["tips"]) == len(ln["spans"]), ln["label"]
     aud = next(ln for ln in t["lanes"]["lanes"] if ln["role"] == "auditor")

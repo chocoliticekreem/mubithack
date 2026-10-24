@@ -406,7 +406,7 @@
   .aprow .dec .r { color: var(--muted); grid-column: 2 / -1; font-size: 11.5px; }
   .aprow .ev { font-size: 11.5px; color: var(--muted); }
   .empty { padding: 18px; border: 3px dashed var(--line); border-radius: 16px; font-weight: 800; color: var(--muted); text-align: center; }
-  .credits { margin-top: 26px; color: #cfc6f5; font-size: 12px; font-weight: 700; text-align: center; }
+  .credits { margin-top: 26px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
 
   @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) {
@@ -496,6 +496,20 @@
   .tip-checks li { display: grid; grid-template-columns: 16px 1fr; gap: 4px; }
   .tip-checks li b { font-weight: 900; } .tip-checks li.ok b { color: var(--green); } .tip-checks li.bad b { color: var(--red); } .tip-checks li.pend b { color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .card, .shot { transform: none !important; } }
+
+  /* riso: the condensed view (running now, result, agent stickers, drawer) */
+  .nowrow, .agent { border: 2px solid var(--ink); border-radius: 8px; background: var(--panel); box-shadow: 3px 3px 0 var(--teal); }
+  .agent:nth-child(3n+1) { transform: rotate(-.5deg); } .agent:nth-child(3n+2) { transform: rotate(.4deg); }
+  .agent:hover, .agent:focus-visible { transform: translate(-1px, -2px) rotate(0); box-shadow: 4px 5px 0 var(--red); }
+  .agent.sel { box-shadow: 3px 3px 0 var(--pink), 0 0 0 2px var(--pink); }
+  .agent.running { background: var(--yellow) radial-gradient(color-mix(in srgb, var(--orange) 45%, transparent) 22%, transparent 24%) 0 0 / 7px 7px; color: #26221d; }
+  .agent.running .st, .agent.running .thought { color: #4a4235; }
+  .result .pic, .lb .pic { background: var(--ink); color: var(--paper); border-width: 2px; border-radius: 6px; }
+  .shot { background: #26221d; } .shot .n { background: #26221dcc; } .shot .cap { background: linear-gradient(transparent, #26221dee); }
+  .drawer { border-left: 2px solid var(--ink); box-shadow: -6px 0 0 var(--teal); }
+  .crow code, .orow code { font-family: var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; }
+  .scrim, .lightbox { background: #26221dcc; }
+  .tip-calls li span small { display: block; color: var(--muted); font-weight: 600; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -776,7 +790,7 @@ function renderGame(g) {
 function renderAgents(g) {
   if (!g) { put("agentsBox", ""); return; }
   const list = g.agents || [];
-  const cards = list.map(a => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" aria-label="${esc(roleName(a.role))}: see what it did">
+  const cards = list.map((a, ai) => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" data-tipa="${ai}" aria-label="${esc(roleName(a.role))}: see what it did">
       ${botSvg(member(a.role))}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
       <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
   put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
@@ -1072,8 +1086,22 @@ function placeTip(e, tip) {
   tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
 }
 
+function agentTipHtml(a) {
+  const rows = (a.recent || []).map(c => { const st = tipState(c);
+    return `<li class="${st}"><b>${st === "ok" ? "✓" : st === "bad" ? "✗" : "…"}</b><span>${esc(c.step || {ok: "answered", bad: "failed", pend: "cut short"}[st])}<small>${esc(ago(c.ts))}${c.latency_ms ? ` · ${ms(c.latency_ms)}` : ""}</small></span></li>`; }).join("");
+  const st = a.running ? "pend" : a.failed ? "bad" : "ok";
+  return `<div class="tip-head"><span class="tip-who">${esc(roleName(a.role))}</span><span class="stamp ${st}">${a.running ? "… working" : a.failed ? `✗ ${a.failed} failed` : "✓ all answered"}</span></div>
+    <div class="tip-title">${a.calls} call${a.calls === 1 ? "" : "s"} · latest first</div>
+    ${rows ? `<ul class="tip-checks tip-calls">${rows}</ul>` : ""}<div class="tip-line" style="margin-top:6px">click for what it did</div>`;
+}
+
 function showTip(e) {
-  const tip = $("tip"), l = e.target.closest("[data-tipl]");
+  const tip = $("tip"), l = e.target.closest("[data-tipl]"), ag = e.target.closest("[data-tipa]");
+  if (ag) {
+    const a = (game()?.agents || [])[+ag.dataset.tipa];
+    if (!a) { tip.style.display = "none"; return; }
+    tip.className = "tip call"; tip.innerHTML = agentTipHtml(a); placeTip(e, tip); return;
+  }
   if (l) {
     const [li, si] = l.dataset.tipl.split(":").map(Number);
     const ln = game()?.team?.lanes?.lanes?.[li], t = ln?.tips?.[si];
@@ -1232,7 +1260,7 @@ $("drawer").addEventListener("click", e => {
 $("team").addEventListener("click", e => {
   const sh = e.target.closest("[data-shot]"); if (sh) { LB = sh.dataset.shot; renderLightbox(); }
 });
-$("team").addEventListener("mousemove", showTip);
+document.addEventListener("mousemove", showTip);
 $("team").addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
 $("lightbox").addEventListener("click", e => {
   if (e.target === $("lightbox") || e.target.closest("#lbClose")) { LB = null; return renderLightbox(); }

@@ -983,6 +983,9 @@ def _gist(path: Path | None) -> dict:
     return _GIST[key]
 
 
+AGENT_TIP_CALLS = 8  # newest calls listed in an agent card's hover card
+
+
 def agents_view(calls: list[dict], live_role: str | None = None, now: float | None = None) -> list[dict]:
     """One row per agent (Mubit role) of a game: calls, failures, where it ran, its latest step and thought.
     The one at work right now first (the role of a call made in the last FRESH_CALL seconds, else the
@@ -995,7 +998,11 @@ def agents_view(calls: list[dict], live_role: str | None = None, now: float | No
     for role, cs in by_role.items():
         last = cs[-1]
         g = _gist(idx.get(str(last.get("request_id"))))
-        out.append({"role": role, "calls": len(cs), "failed": sum(1 for c in cs if c.get("error")),
+        recent = [{"ok": False if c.get("error") else (None if c.get("aborted") else True),
+                   "step": _gist(idx.get(str(c.get("request_id"))))["step"] or ROLE_STEP.get(role, ""),
+                   "ts": _epoch(c.get("ts")), "latency_ms": int(_num(c.get("latency_ms")) or 0)}
+                  for c in reversed(cs[-AGENT_TIP_CALLS:])]
+        out.append({"role": role, "calls": len(cs), "failed": sum(1 for c in cs if c.get("error")), "recent": recent,
                     "sources": list(dict.fromkeys(c["source"] for c in cs)), "last_ts": _epoch(last.get("ts")),
                     "latency_ms": int(_num(last.get("latency_ms")) or 0),
                     "step": g["step"] or ROLE_STEP.get(role, ""), "thought": g["thought"], "running": False})
