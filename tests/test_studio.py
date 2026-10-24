@@ -25,7 +25,7 @@ async def test_studio_mcp_lists_tools():
         try:
             sid = await s.select()
         except st.StudioError as e:
-            assert "Manage MCP Servers" in str(e)
+            assert "Manage MCP Servers" in str(e) or "Pin one by id" in str(e)  # several open: never guess
         else:
             assert sid
 
@@ -164,7 +164,23 @@ async def test_select_by_id_when_two_studios_share_a_name():
     studios = '{"studios":[{"id":"a1","name":"Forge.rbxlx"},{"id":"b2","name":"Forge.rbxlx"}]}'
     s = _fake_studio({"list_roblox_studios": FakeResult([TextContent(text=studios)])})
     assert await s.select("b2") == "b2"
-    assert await s.select("Forge.rbxlx") == "a1"
+    with pytest.raises(st.StudioError, match="2 Studios match 'Forge.rbxlx'.*a1.*b2"):
+        await s.select("Forge.rbxlx")  # ambiguous: never pick the first one
+
+
+async def test_select_never_guesses_between_several_studios(monkeypatch):
+    monkeypatch.setattr(st, "SELECT_RETRY_SECONDS", 0)
+    monkeypatch.delenv("FORGE_STUDIO", raising=False)
+    studios = '{"studios":[{"id":"a1","name":"Forge.rbxlx"},{"id":"t9","name":"tiny-tycoon.rbxlx"}]}'
+    s = _fake_studio({"list_roblox_studios": FakeResult([TextContent(text=studios)])})
+    with pytest.raises(st.StudioError, match="2 Studios are connected and none is pinned.*FORGE_STUDIO"):
+        await s.select()
+    assert await s.select("tiny") == "t9" and await s.select("forge.rbxlx") == "a1"
+    monkeypatch.setenv("FORGE_STUDIO", "a1")
+    assert await s.select() == "a1"
+    monkeypatch.setenv("FORGE_STUDIO", "gone")
+    with pytest.raises(st.StudioError, match="No connected Studio matches 'gone'"):
+        await s.select()
 
 
 async def test_select_retries_when_the_first_list_is_empty(monkeypatch):

@@ -34,6 +34,37 @@ NOT_RUNNING_HINT = ("Is a playtest running (play_start / multiplayer_start) and 
 UNSUPPORTED = "unsupported:"
 PRESS_WAIT = 0.8      # seconds between the click and reading what changed (tweens, server replies)
 PRESS_TIMEOUT = 20.0
+MACRO_ACTIONS = ("go_touch", "go_use", "chase")
+MACRO_TIMEOUT = 20.0  # in-game default per macro (clamped 2-60 there, too)
+REPEAT_MAX = 5
+MCP_CALL_LIMIT = 115.0  # one execute_luau must answer inside forge.studio's 120s MCP call timeout
+
+
+def repeat_times(v: Any) -> int:
+    try:
+        return max(1, min(int(v), REPEAT_MAX))
+    except (TypeError, ValueError):
+        return 2
+
+
+def act_budget(action: str, args: dict) -> float:
+    """Seconds to wait for one `act` call: macros walk and retry inside the game, repeat runs N of them."""
+    def num(key: str, default: float) -> float:
+        try:
+            return float(args.get(key))
+        except (TypeError, ValueError):
+            return default
+    if action in MACRO_ACTIONS:
+        return max(2.0, min(num("timeout", MACRO_TIMEOUT), 60.0)) + 15
+    if action == "repeat":
+        inner = str(args.get("action") or "")
+        one = act_budget(inner, args.get("args") if isinstance(args.get("args"), dict) else {}) if inner else 20
+        return min(MCP_CALL_LIMIT, repeat_times(args.get("times")) * one + 5)
+    if action == "walk_to":
+        return num("timeout", 20) + 10
+    if action == "use":
+        return num("seconds", 1) + 10
+    return 0.0
 # Run in a window's Client datamodel: which player it drives, in which ForgeTest session.
 WHO_LUAU = (
     'local lp = game:GetService("Players").LocalPlayer\n'
@@ -124,18 +155,20 @@ class Harness:
         self.client_windows = list(client_windows or [])  # Client windows of a multiplayer test
         self._ui_windows: tuple[Any, dict[str, str]] | None = None  # (session, {userId: studio_id})
 
-    async def _once(self, cmd: str, args: dict) -> Any:
+    async def _once(self, cmd: str, args: dict, timeout: float) -> Any:
         if self.mode == "client":
             code, dm = build_relay_luau(cmd, args), "Client"
         else:
             code, dm = build_call_luau(cmd, args), "Server"
-        text = await asyncio.wait_for(self.studio.execute_luau(code, dm), self.timeout)
+        text = await asyncio.wait_for(self.studio.execute_luau(code, dm), timeout)
         return parse_reply(text, cmd)
 
-    async def call(self, cmd: str, **args: Any) -> Any:
+    async def call(self, cmd: str, *, _timeout: float | None = None, **args: Any) -> Any:
+        """`_timeout` (not sent to the game) raises the wait for long actions such as macros."""
+        limit = max(self.timeout, _timeout or 0)
         try:
             try:
-                return await self._once(cmd, args)
+                return await self._once(cmd, args, limit)
             except StudioError:
                 if self.relocate is None:
                     raise
@@ -143,9 +176,9 @@ class Harness:
                 if not mode:
                     raise
                 self.mode = mode
-                return await self._once(cmd, args)
+                return await self._once(cmd, args, limit)
         except asyncio.TimeoutError as e:
-            raise HarnessError(f"{cmd}: timed out after {self.timeout:.0f}s") from e
+            raise HarnessError(f"{cmd}: timed out after {limit:.0f}s") from e
         except StudioError as e:
             raise HarnessError(f"{cmd}: {e}. {NOT_RUNNING_HINT}") from e
 
@@ -189,10 +222,22 @@ class Harness:
             args["instanceId"] = instance_id
         return await self.call("observe", **args)
 
-    async def act(self, user_id: Any, action: str, **args: Any) -> dict:
+    async def act(self, user_id: Any, action: str, /, **args: Any) -> dict:
         if action == "press":
             return await self.press(user_id, path=args.get("path"), text=args.get("text"))
-        return await self.call("act", userId=user_id, action=action, args=args)
+        if action == "repeat" and args.get("action") == "press":
+            return await self._repeat_press(user_id, args)
+        return await self.call("act", userId=user_id, action=action, args=args, _timeout=act_budget(action, args))
+
+    async def _repeat_press(self, user_id: Any, args: dict) -> dict:
+        """repeat of a GUI press: every click is a real one, so the loop runs here, not in the game."""
+        inner = args.get("args") or {}
+        times = repeat_times(args.get("times"))
+        results = [await self.press(user_id, path=inner.get("path"), text=inner.get("text")) for _ in range(times)]
+        fired = sum(1 for r in results if r.get("fired"))
+        notes = " | ".join(f"{i + 1}: {str(r.get('detail', ''))[:120]}" for i, r in enumerate(results))
+        return {"done": fired == times, "times": times, "succeeded": fired,
+                "detail": f"press x{times}, {fired} fired | {notes}"}
 
     # ---- on-screen UI: a real mouse click through Studio MCP
 
@@ -286,7 +331,7 @@ class Harness:
             pass
         return who
 
-    async def act_all(self, action: str, **args: Any) -> dict[str, Any]:
+    async def act_all(self, action: str, /, **args: Any) -> dict[str, Any]:
         """Run one action on every connected player concurrently -> {name: result | {"error"}}."""
         players = await self.players()
 

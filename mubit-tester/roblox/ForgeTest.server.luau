@@ -78,7 +78,12 @@ local WORLD_ATTRS = { "RoundState", "RoundEndsAt", "MissionId" }
 local ACTIONS = {
 	walk_to = true, jump = true, interact = true, equip = true, unequip = true,
 	use = true, look_at = true, say = true, wait = true,
+	go_touch = true, go_use = true, chase = true, ["repeat"] = true,
 }
+-- Macros: one tester decision runs a whole interaction and returns an `effect` diff.
+local MACROS = { go_touch = true, go_use = true, chase = true, ["repeat"] = true }
+local REPEAT_MAX = 5
+local AMBIENT_WINDOW = 15 -- seconds: a counter that ticked this recently before a macro is background noise
 
 local started = os.clock()
 local function now(): number
@@ -1696,7 +1701,145 @@ local function agentCmd(name: string)
 	end
 end
 
+-------------------------------------------------------------------- effect diff (macros)
+
+local function statsOf(p: Player): { [string]: any }
+	local out = {}
+	local ls = p:FindFirstChild("leaderstats")
+	if ls then
+		for _, v in ls:GetChildren() do
+			if v:IsA("ValueBase") then
+				out[v.Name] = val((v :: any).Value)
+			end
+		end
+	end
+	return out
+end
+
+local function playerAttrs(p: Player): { [string]: any }
+	local out = {}
+	for k, v in p:GetAttributes() do
+		out[k] = val(v)
+	end
+	local char = p.Character
+	if char then
+		for k, v in char:GetAttributes() do
+			if out[k] == nil then
+				out[k] = val(v)
+			end
+		end
+	end
+	return out
+end
+
+-- {key: [old, new]} for keys whose value changed (missing = "nil"), at most `max`
+local function changes(a: { [string]: any }, b: { [string]: any }, max: number)
+	local out, n = obj({}), 0
+	local keys = {}
+	for k in a do
+		keys[k] = true
+	end
+	for k in b do
+		keys[k] = true
+	end
+	local sorted = {}
+	for k in keys do
+		table.insert(sorted, k)
+	end
+	table.sort(sorted)
+	for _, k in sorted do
+		local old, new = a[k], b[k]
+		if old ~= new and type(old) ~= "table" and n < max then
+			out[k] = { if old == nil then "nil" else old, if new == nil then "nil" else new }
+			n += 1
+		end
+	end
+	return out, n
+end
+
+local function newEvents(p: Player, t0: number, max: number): { any }
+	local out = {}
+	for _, e in events do
+		if e.t >= t0 and e.kind ~= "count" and (e.data.userId == nil or e.data.userId == p.UserId) then
+			local brief = obj({ kind = e.kind })
+			for k, v in e.data do
+				if k ~= "userId" and k ~= "name" and k ~= "helmet" and k ~= "instanceId" and k ~= "squadId"
+					and (type(v) ~= "table" or k == "args") then
+					brief[k] = v
+				end
+			end
+			table.insert(out, brief)
+		end
+	end
+	while #out > max do
+		table.remove(out, 1)
+	end
+	return out
+end
+
+-- Run fn and attach `effect`: what the action changed for this player and the game (leaderstats,
+-- player/character attributes, ForgeTelemetry counters, HUD text from the agent, new events).
+local function withEffect(p: Player, fn: () -> any)
+	local s0, a0, c0, t0 = statsOf(p), playerAttrs(p), counters(), now()
+	local res = fn()
+	task.wait(0.2)
+	local eff = obj({})
+	local d, n = changes(s0, statsOf(p), 8)
+	if n > 0 then
+		eff.leaderstats = d
+	end
+	d, n = changes(a0, playerAttrs(p), 10)
+	if n > 0 then
+		eff.attrs = d
+	end
+	-- counters that were already ticking before the action (traffic, ambient props) are not its effect
+	local ambient = {}
+	for _, e in events do
+		if e.kind == "count" and e.t >= t0 - AMBIENT_WINDOW and e.t < t0 then
+			ambient[tostring(e.data.name)] = true
+		end
+	end
+	local c1 = counters()
+	for k in ambient do
+		c0[k], c1[k] = nil, nil
+	end
+	d, n = changes(c0, c1, 10)
+	if n > 0 then
+		eff.counters = d
+	end
+	if type(res) == "table" then
+		if type(res.hud_new) == "table" and #res.hud_new > 0 then
+			eff.hud_new = res.hud_new
+		end
+		if type(res.hud_gone) == "table" and #res.hud_gone > 0 then
+			eff.hud_gone = res.hud_gone
+		end
+		res.hud_new, res.hud_gone = nil, nil
+	end
+	local ev = newEvents(p, t0, 8)
+	if #ev > 0 then
+		eff.events = ev
+	end
+	if type(res) ~= "table" then
+		res = { done = true, detail = tostring(res) }
+	end
+	res.effect = eff
+	return res
+end
+
+local actRaw: (args: any) -> any
+
 local function act(args)
+	local p = playerArg(args)
+	if MACROS[tostring(args.action or "")] then
+		return withEffect(p, function()
+			return actRaw(args)
+		end)
+	end
+	return actRaw(args)
+end
+
+actRaw = function(args)
 	local p = playerArg(args)
 	local action = tostring(args.action or "")
 	local a = args.args
@@ -1732,9 +1875,33 @@ local function act(args)
 		task.wait(s)
 		return { done = true, detail = string.format("waited %.1fs", s) }
 	end
+	if action == "repeat" then
+		-- edge cases: double buys, spammed claims; one effect diff covers all the tries
+		local inner = tostring(a.action or "")
+		if inner == "repeat" or not ACTIONS[inner] then
+			error("repeat: args.action must be another action (e.g. go_use, interact), got '" .. inner .. "'")
+		end
+		local times = math.clamp(math.floor(tonumber(a.times) or 2), 1, REPEAT_MAX)
+		local innerArgs = if type(a.args) == "table" then a.args else {}
+		local notes, ok = {}, 0
+		for i = 1, times do
+			local good, res = pcall(actRaw, { userId = args.userId, player = args.player, action = inner, args = innerArgs })
+			if good and type(res) == "table" and res.done ~= false then
+				ok += 1
+			end
+			local note = if good and type(res) == "table" then tostring(res.detail or "") else "error: " .. tostring(res)
+			table.insert(notes, string.format("%d: %s", i, string.sub(note, 1, 160)))
+		end
+		return obj({
+			done = ok == times, times = times, succeeded = ok,
+			detail = string.format("%s x%d, %d done | %s", inner, times, ok, table.concat(notes, " | ")),
+		})
+	end
 	-- Paths are resolved on the client, but an Instance can't be passed from JSON, so send strings.
 	local timeout = DEFAULT_ACT_TIMEOUT
-	if action == "walk_to" then
+	if MACROS[action] then
+		timeout = math.clamp(tonumber(a.timeout) or 20, 2, 60) + 10
+	elseif action == "walk_to" then
 		timeout = (tonumber(a.timeout) or WALK_TIMEOUT) + 5
 	elseif action == "use" then
 		timeout = math.clamp(tonumber(a.seconds) or 1, 0, 30) + 5

@@ -15,6 +15,7 @@ import asyncio
 
 import base64
 import json
+import os
 import re
 import shutil
 import sys
@@ -49,6 +50,17 @@ SELECT_RETRY_SECONDS = 1.5
 
 class StudioError(RuntimeError):
     pass
+
+
+def _matching(studios: list[dict], hint: str) -> list[dict]:
+    """An exact id wins, then an exact name, then a name containing the hint."""
+    h = hint.lower()
+    for test in (lambda s: str(s.get("id", "")).lower() == h, lambda s: str(s.get("name", "")).lower() == h,
+                 lambda s: h in str(s.get("name", "")).lower()):
+        hits = [s for s in studios if test(s)]
+        if hits:
+            return hits
+    return []
 
 
 # --------------------------------------------------------------------------- result parsing
@@ -305,24 +317,29 @@ class Studio:
         return parse_studios(await self.call("list_roblox_studios"))
 
     async def select(self, name_hint: str | None = None) -> str:
-        studios = await self.list_studios()
-        for _ in range(SELECT_RETRIES):  # the first list after StudioMCP starts is often empty
-            if studios:
-                break
-            await asyncio.sleep(SELECT_RETRY_SECONDS)
+        """Pick the Studio `name_hint` (an id, or a name or part of one; default $FORGE_STUDIO) names.
+        Several Studios are often open at once (other agents' playtests), so this never guesses: an
+        ambiguous hint, or several windows and no hint, is an error that lists the ids to pin."""
+        name_hint = name_hint or os.environ.get("FORGE_STUDIO") or None
+        studios: list[dict] = []
+        matches: list[dict] = []
+        for attempt in range(SELECT_RETRIES + 1):  # the first lists after StudioMCP starts are often short
+            if attempt:
+                await asyncio.sleep(SELECT_RETRY_SECONDS)
             studios = await self.list_studios()
+            matches = _matching(studios, name_hint) if name_hint else studios
+            if matches:
+                break
         if not studios:
             raise StudioError(f"No Roblox Studio is connected to MCP. {OPEN_STUDIO_HINT}")
-        chosen = studios[0]
-        if name_hint:
-            hint = name_hint.lower()
-            matches = [s for s in studios if hint == str(s.get("id", "")).lower()
-                       or hint in str(s.get("name", "")).lower()]
-            if not matches:
-                names = ", ".join(repr(s.get("name")) for s in studios)
-                raise StudioError(f"No connected Studio matches {name_hint!r}; open: {names}")
-            chosen = matches[0]
-        self.studio_id = chosen["id"]
+        listing = ", ".join(f"{s.get('id')} ({s.get('name')})" for s in studios)
+        if not matches:
+            raise StudioError(f"No connected Studio matches {name_hint!r}; open: {listing}")
+        if len(matches) > 1:
+            what = f"{len(matches)} Studios match {name_hint!r}" if name_hint else \
+                f"{len(matches)} Studios are connected and none is pinned"
+            raise StudioError(f"{what}: {listing}. Pin one by id: FORGE_STUDIO=<id> (or --studio <id>).")
+        self.studio_id = matches[0]["id"]
         return self.studio_id
 
     # ---- luau / state

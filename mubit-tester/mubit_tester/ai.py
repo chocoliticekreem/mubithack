@@ -72,7 +72,26 @@ UI_GUIDE = (
     "panel, press its action buttons (Claim, Buy, Equip, ...), then check the result and the next observation "
     "for the effect. A button that does not fire, or fires and changes nothing, is a bug to report."
 )
+MACROS = ("go_touch", "go_use", "chase")
+REPEAT_MACRO_TIMEOUT = 15.0
+EFFECT_CHARS = 600
+# Macro guidance, in the USER message (player.md / explorer.md are frozen Mubit prompts).
+MACRO_GUIDE = (
+    "Every step is ONE decision, so make each one finish a whole interaction. Prefer these macros:\n"
+    "- go_use {\"path\": \"<prompt path>\", \"action\": \"<its action text>\"}: walk into range of the ProximityPrompt "
+    "on that part (copy `path` and `action` from `prompts`, or a path from `things`) and use it, holding if needed.\n"
+    "- go_touch {\"path\": \"<part path>\"}: walk to a part from `touchables` or `things` and stand on it until it "
+    "registers a touch (buy pads, buttons, checkpoints, zones).\n"
+    "- chase {\"path\": \"<moving part or model>\", \"touches\": 1-5}: follow a moving thing (enemy, drone, NPC, "
+    "ball) and touch it that many times.\n"
+    "- repeat {\"action\": \"go_use\", \"args\": {...}, \"times\": 2-5}: the same action several times in a row, to "
+    "test spam and double use (double buys, spammed claims, double-tapped prompts).\n"
+    "Each macro returns `effect`: what changed (leaderstats, your attributes, counters, HUD text, game events). "
+    "Judge the feature by that effect; \"nothing changed\" after a buy, claim or touch is a bug to report. Keep "
+    "move_to / interact / key / spray for fine positioning and fighting."
+)
 HISTORY = 4
+HISTORY_RESULT_CHARS = 400  # room for a macro's effect
 PROBE_EVERY = 5
 EVENTS_MAX = 12
 TEAM_CHARS = 1200
@@ -206,6 +225,20 @@ def map_action(action: dict) -> tuple[str, dict] | str:
     if name in ("press", "click"):
         out = {k: str(args[k]) for k in ("path", "text") if args.get(k)}
         return ("press", out) if out else f"error: {name} needs path or text (from the observation's `ui`)"
+    if name in MACROS:
+        path = args.get("path") or args.get("instance_path") or args.get("target")
+        if not path:
+            return f"error: {name} needs path (copy it from touchables, things or prompts)"
+        out = {"path": str(path)}
+        if args.get("timeout") is not None:
+            out["timeout"] = max(2.0, min(_num(args.get("timeout"), 20), 60.0))
+        if name == "chase":
+            out["touches"] = int(max(1, min(_num(args.get("touches"), 3), 5)))
+        if name == "go_use" and args.get("action"):
+            out["action"] = str(args["action"])  # which prompt on the part: its `action` text from `prompts`
+        return name, out
+    if name == "repeat":
+        return _map_repeat(args)
     if name == "wait":
         return "wait", {"seconds": max(0.0, min(_num(args.get("seconds"), 2.0), 10.0))}
     if name == "done":
@@ -213,7 +246,25 @@ def map_action(action: dict) -> tuple[str, dict] | str:
     return f"error: unknown action {name!r}"
 
 
+def _map_repeat(args: dict) -> tuple[str, dict] | str:
+    inner = args.get("action")
+    if not inner:
+        return "error: repeat needs args.action (the action to repeat), args.args and times (2-5)"
+    mapped = map_action({"action": inner, "args": args.get("args") if isinstance(args.get("args"), dict) else {}})
+    if isinstance(mapped, str):
+        return f"error: repeat of {inner!r}: {mapped}"
+    name, inner_args = mapped
+    if name in ("wait", "repeat"):
+        return f"error: repeat can't repeat {name}"
+    if name in MACROS:  # N walks have to fit in one Studio call
+        inner_args["timeout"] = min(inner_args.get("timeout", REPEAT_MACRO_TIMEOUT), REPEAT_MACRO_TIMEOUT)
+    times = int(max(1, min(_num(args.get("times"), 2), 5)))
+    return "repeat", {"action": name, "args": inner_args, "times": times}
+
+
 async def dispatch(harness, user_id: Any, action: dict) -> str:
+    from mubit_tester.harness import act_budget
+
     mapped = map_action(action)
     if isinstance(mapped, str):
         return mapped
@@ -221,7 +272,7 @@ async def dispatch(harness, user_id: Any, action: dict) -> str:
     if name == "wait":
         await asyncio.sleep(args["seconds"])
         return f"waited {args['seconds']:.1f}s"
-    timeout = ACT_TIMEOUT + float(args.get("seconds", 0) or 0)
+    timeout = max(ACT_TIMEOUT + float(args.get("seconds", 0) or 0), act_budget(name, args) + 10)
     try:
         res = await asyncio.wait_for(harness.act(user_id, name, **args), timeout)
     except Exception as e:  # noqa: BLE001
@@ -229,7 +280,10 @@ async def dispatch(harness, user_id: Any, action: dict) -> str:
     if isinstance(res, dict):
         detail = res.get("detail")
         ok = res.get("done")
-        return f"{name} {_dumps(args)} -> done={ok} {_clip(detail if detail is not None else '', play.RESULT_CHARS)}".rstrip()
+        text = f"{name} {_dumps(args)} -> done={ok} {_clip(detail if detail is not None else '', play.RESULT_CHARS)}".rstrip()
+        if "effect" in res:  # macros: what the one decision changed, so the tester (and judge) can tell
+            text += " | effect: " + (_clip(_dumps(res["effect"]), EFFECT_CHARS) if res["effect"] else "nothing changed")
+        return text
     return f"{name} {_dumps(args)} -> {_clip(res, play.RESULT_CHARS)}"
 
 
@@ -292,7 +346,8 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
                       "presses to them (say what you see if it helps).")
         lines += ["## On-screen UI", guide, ""]
     lines += [
-        "## Step", f"{n} of {total}" if total else str(n), "",
+        "## Macro actions", MACRO_GUIDE, "",
+        "## Step", (f"{n} of {total}" if total else str(n)) + " (decisions)", "",
         "## Team", team_text, "",
         "## Observation", _dumps(observation), "",
         "## Recent actions (oldest first)",
@@ -301,7 +356,7 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
         for h in history:
             a = h.get("action") or {}
             lines.append(f"- step {h['n']}: {a.get('action', '?')} {_dumps(a.get('args') or {})} -> "
-                         f"{_clip(h.get('result', ''), 200)}")
+                         f"{_clip(h.get('result', ''), HISTORY_RESULT_CHARS)}")
     else:
         lines.append("- none yet")
     lines += ["", "## New game events", _clip(_dumps(events), EVENTS_CHARS) if events else "none"]
@@ -761,6 +816,9 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
             report["errors"].append(f"{type(e).__name__}: {_clip(str(e), 500)}")
     report["events"] = _compact_events(all_events)[-50:]
     report["ui_presses"] = ui_presses(all_events)
+    decided = [s["action"].get("action") for s in report["steps"] if s.get("action")]
+    report["decisions"] = len(decided)  # one LLM call each
+    report["macro_decisions"] = sum(1 for a in decided if a in MACROS or a == "repeat")
 
     squads_info = None
     if squads_mode:
