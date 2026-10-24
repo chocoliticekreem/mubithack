@@ -116,10 +116,12 @@
  "totals": {
   "ideas": 1,
   "built": 1,
+  "modules": 4,
   "wall_s": 410.9,
   "llm_calls": 13,
   "input_tokens": 88882,
   "output_tokens": 51249,
+  "reply_chars": 0,
   "first_try_pass_rate": 1.0,
   "fixes": 3,
   "compile_errors_left": 0,
@@ -129,6 +131,7 @@
   "checks": 8,
   "done_parts": 2,
   "done_of": 4,
+  "done_share": 0.5,
   "ready": 0,
   "corrections": 0
  }

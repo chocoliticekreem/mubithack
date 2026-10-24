@@ -41,6 +41,7 @@
     "calls": 32,
     "input_tokens": 289206,
     "output_tokens": 204308,
+    "reply_chars": 323818,
     "latency_s": 1196.7,
     "by_role": {
      "coder": 10,
@@ -167,6 +168,7 @@
     "calls": 32,
     "input_tokens": 273719,
     "output_tokens": 171908,
+    "reply_chars": 272106,
     "latency_s": 1043.9,
     "by_role": {
      "coder": 10,
@@ -271,10 +273,12 @@
  "totals": {
   "ideas": 2,
   "built": 2,
+  "modules": 22,
   "wall_s": 2243.3,
   "llm_calls": 64,
   "input_tokens": 562925,
   "output_tokens": 376216,
+  "reply_chars": 595924,
   "first_try_pass_rate": 0.909,
   "fixes": 28,
   "compile_errors_left": 0,
@@ -284,6 +288,7 @@
   "checks": 0,
   "done_parts": 8,
   "done_of": 18,
+  "done_share": 0.444,
   "ready": 0,
   "corrections": 0
  }

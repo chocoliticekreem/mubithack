@@ -1,0 +1,292 @@
+{
+ "schema": 1,
+ "stamp": "20261024T034237Z",
+ "label": "after #1 #2 #7 (main cd2063d)",
+ "mode": "real",
+ "studio": null,
+ "model": "claude-sonnet-5-5",
+ "iterations": 2,
+ "improve": 0,
+ "checks": 0,
+ "lessons": "starter",
+ "git": {
+  "sha": "cd2063d",
+  "branch": "bench/after-all",
+  "subject": "Swarm testing: 10 persona testers at once (bots + real players), mux harness, per-tester cameras; walk_to arrives within 1 stud (#128)"
+ },
+ "ideas": [
+  {
+   "id": "tycoon",
+   "idea": "A tiny tycoon: a dropper spawns cubes, a conveyor carries them to a collector that pays cash, and players buy a second dropper and a faster conveyor with that cash.",
+   "slug": "a-tiny-tycoon-a-dropper-spawns",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 343.45,
+    "compile_fix": 0.65,
+    "iterate": 154.88,
+    "design": 121.67
+   },
+   "compile_first": {
+    "modules": 10,
+    "written": 10,
+    "failing": [],
+    "pass_rate": 1.0
+   },
+   "overhead_s": 0.07,
+   "wall_s": 620.01,
+   "llm": {
+    "calls": 30,
+    "input_tokens": 250852,
+    "output_tokens": 30611,
+    "reply_chars": 304175,
+    "latency_s": 1190.2,
+    "by_role": {
+     "coder": 9,
+     "critic": 2,
+     "designer": 1,
+     "director": 1,
+     "fixer": 13,
+     "fun_critic": 2,
+     "reflector": 2
+    },
+    "request_ids": [
+     "mreq_01a16c00dc447032bad3b92fdd0c3c46",
+     "mreq_01a16c01bde77b3387c9adba1aad082f",
+     "mreq_01a16c02b4a17ff3883c2770d64b8ac4",
+     "mreq_01a16c02f4507c02ae93a6aefcba552f",
+     "mreq_01a16c02f43775a3bd1f623aa974ad3e",
+     "mreq_01a16c02f4247e70be8588660d26e3e2",
+     "mreq_01a16c04ab9e7800bdf347ff9881857d",
+     "mreq_01a16c04ab8670f0a8ab545ac67ccb49",
+     "mreq_01a16c05887b706284613b29e1eb9556",
+     "mreq_01a16c06779c72b1b49d37ae3ab86f33",
+     "mreq_01a16c07162478c0b3db81e63bbb175c",
+     "mreq_01a16c07f36c72e1bd9505b31e0e6588",
+     "mreq_01a16c07f3817621be1d9ac9bb623243",
+     "mreq_01a16c085bc77663beddb6f950811e2a",
+     "mreq_01a16c085c1070e39d5b2e0d740fe447",
+     "mreq_01a16c085c287ae3a3ec798881bb4c66",
+     "mreq_01a16c085be575239b5a9142e61903a9",
+     "mreq_01a16c085c587bb18355304b75673404",
+     "mreq_01a16c085c3e7203bb40883e16912462",
+     "mreq_01a16c085bf87c72a10cebb85b0bfae0",
+     "mreq_01a16c08fbbf7b80a7df46660e342d9b",
+     "mreq_01a16c08fb0d7382b2ed153091e74a80",
+     "mreq_01a16c08fbd47d53ad48ec58c52485b4",
+     "mreq_01a16c0943fb7cb08aecfa5691b752d6",
+     "mreq_01a16c0943fb7cb08aecfa4ac2a00130",
+     "mreq_01a16c0944437c328393f1470dde3410",
+     "mreq_01a16c09442570c098d6628e3befd3f7",
+     "mreq_01a16c0943f67631901a40f48149a023",
+     "mreq_01a16c0944587ab3a072f1a0d8e90f8c",
+     "mreq_01a16c0a1db37e23859d589db460d99d"
+    ]
+   },
+   "title": "Cube Factory Boss",
+   "modules": 10,
+   "iterations": 2,
+   "fixes": {
+    "compile": 0,
+    "critic": 13,
+    "total": 13
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 8,
+    "checks": 0,
+    "passed": 0
+   },
+   "critic": {
+    "scores": [
+     5.0,
+     5.0
+    ],
+    "first": 5.0,
+    "final": 5.0,
+    "best": 5.0
+   },
+   "fun": {
+    "scores": [
+     5.5,
+     5.8
+    ],
+    "final": 5.8
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 4,
+    "of": 9,
+    "pct": 0.444,
+    "parts": {
+     "checks": false,
+     "features": true,
+     "open": false,
+     "critic": false,
+     "fun": false,
+     "visuals": true,
+     "hud": true,
+     "sounds": true,
+     "first60": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T034237Z/tycoon/a-tiny-tycoon-a-dropper-spawns"
+  },
+  {
+   "id": "obby",
+   "idea": "A short obby: eight platforms with gaps, two lava strips and one moving platform, checkpoints that respawn you, and a finish pad that shows your time.",
+   "slug": "a-short-obby-eight-platforms-with",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 126.91,
+    "compile_fix": 0.43,
+    "iterate": 146.43,
+    "design": 249.01
+   },
+   "compile_first": {
+    "modules": 11,
+    "written": 11,
+    "failing": [
+     "StarterPlayerScripts/TrailShop.client.luau"
+    ],
+    "pass_rate": 0.909
+   },
+   "overhead_s": 0.1,
+   "wall_s": 522.36,
+   "llm": {
+    "calls": 33,
+    "input_tokens": 262250,
+    "output_tokens": 47651,
+    "reply_chars": 277312,
+    "latency_s": 1172.0,
+    "by_role": {
+     "coder": 10,
+     "critic": 2,
+     "designer": 2,
+     "director": 1,
+     "fixer": 14,
+     "fun_critic": 2,
+     "reflector": 2
+    },
+    "request_ids": [
+     "mreq_01a16c0a4faa79c0a79b234afd156c1c",
+     "mreq_01a16c0b1ab871d2a0877c3bf98e884c",
+     "mreq_01a16c0d078773408b8ac46fd8cdf44e",
+     "mreq_01a16c0e1c4079f0867987ba6c25c8c8",
+     "mreq_01a16c0e58c77cb39ea0972fe3161235",
+     "mreq_01a16c0e58b27c61810baebf66184afa",
+     "mreq_01a16c0e58d7769389568fffedd1876e",
+     "mreq_01a16c0e5917704190e7fd8cbba86191",
+     "mreq_01a16c0e59287ef284277c0c9106fcf9",
+     "mreq_01a16c0ece0e7c72b7576a194920487d",
+     "mreq_01a16c0e58ee70b09c64daf851c036cd",
+     "mreq_01a16c0f09fb7a72a1be25e300629acf",
+     "mreq_01a16c0e59017cf3b7f69e95fa7b44ed",
+     "mreq_01a16c0fbb7f7ef29fe281ee27c4f698",
+     "mreq_01a16c100d637ec2af6af48305366dfe",
+     "mreq_01a16c100d767480bbc2f4374ec5fcd5",
+     "mreq_01a16c1058237181bf039f49780b2985",
+     "mreq_01a16c1057e871118921fa32fd5c4b4e",
+     "mreq_01a16c1058377ff09e6cae0a100b39ab",
+     "mreq_01a16c1057eb7cc0bb7305c546d61429",
+     "mreq_01a16c1058637ec385dd6579becd35a8",
+     "mreq_01a16c10580e7473a8363fe9cbb815aa",
+     "mreq_01a16c10584d7f41bf1c0df67d2b50a3",
+     "mreq_01a16c10f6d27a00a766e68670fc3f4b",
+     "mreq_01a16c10f7ba71438130d3843a656c93",
+     "mreq_01a16c10f7aa7552b13423c2911776d6",
+     "mreq_01a16c1158fc7c4190741c204d6ec151",
+     "mreq_01a16c11592c73d2a397be82b166dc90",
+     "mreq_01a16c1158cb70f1b87951d4a422e6e4",
+     "mreq_01a16c1158ec77618d3b57a6f81e1a14",
+     "mreq_01a16c1159147eb095e9222f40704bde",
+     "mreq_01a16c1159437831a5b8f7df0dd50088",
+     "mreq_01a16c1200627d31b83abaa0a703a4f3"
+    ]
+   },
+   "title": "Candy Sky Dash",
+   "modules": 11,
+   "iterations": 2,
+   "fixes": {
+    "compile": 1,
+    "critic": 13,
+    "total": 14
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 8,
+    "checks": 0,
+    "passed": 0
+   },
+   "critic": {
+    "scores": [
+     4.0,
+     5.0
+    ],
+    "first": 4.0,
+    "final": 5.0,
+    "best": 5.0
+   },
+   "fun": {
+    "scores": [
+     6.2,
+     5.8
+    ],
+    "final": 5.8
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 4,
+    "of": 9,
+    "pct": 0.444,
+    "parts": {
+     "checks": false,
+     "features": true,
+     "open": false,
+     "critic": false,
+     "fun": false,
+     "visuals": true,
+     "hud": true,
+     "sounds": true,
+     "first60": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T034237Z/obby/a-short-obby-eight-platforms-with"
+  }
+ ],
+ "totals": {
+  "ideas": 2,
+  "built": 2,
+  "modules": 21,
+  "wall_s": 1142.4,
+  "llm_calls": 63,
+  "input_tokens": 513102,
+  "output_tokens": 78262,
+  "reply_chars": 581487,
+  "first_try_pass_rate": 0.955,
+  "fixes": 27,
+  "compile_errors_left": 0,
+  "critic_final": 5.0,
+  "fun_final": 5.8,
+  "checks_passed": 0,
+  "checks": 0,
+  "done_parts": 8,
+  "done_of": 18,
+  "done_share": 0.444,
+  "ready": 0,
+  "corrections": 0
+ }
+}

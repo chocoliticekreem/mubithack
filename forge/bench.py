@@ -191,6 +191,8 @@ def llm_stats(run_dir: Path) -> dict:
         "calls": len(calls),
         "input_tokens": sum(int(c.get("input_tokens") or 0) for c in calls),
         "output_tokens": sum(int(c.get("output_tokens") or 0) for c in calls),
+        # reply size in chars: robust where a streamed reply that stopped early logs too few output tokens
+        "reply_chars": sum(int(c.get("reply_chars") or 0) for c in calls),
         "latency_s": round(sum(int(c.get("latency_ms") or 0) for c in calls) / 1000, 1),
         "by_role": dict(sorted(by_role.items())),
         "request_ids": [c.get("request_id") for c in calls if c.get("request_id")],
@@ -383,6 +385,7 @@ def totals(ideas: list[dict]) -> dict:
         "llm_calls": sum((i.get("llm") or {}).get("calls", 0) for i in ideas),
         "input_tokens": sum((i.get("llm") or {}).get("input_tokens", 0) for i in ideas),
         "output_tokens": sum((i.get("llm") or {}).get("output_tokens", 0) for i in ideas),
+        "reply_chars": sum((i.get("llm") or {}).get("reply_chars", 0) for i in ideas),
         "first_try_pass_rate": mean([(i.get("compile_first") or {}).get("pass_rate") for i in ideas]),
         "fixes": sum((i.get("fixes") or {}).get("total", 0) for i in ideas),
         "compile_errors_left": sum(i.get("compile_errors_left") or 0 for i in ideas),
@@ -516,6 +519,7 @@ METRICS: list[tuple[str, Callable[[dict], Any], bool | None, str]] = [
      if (i.get("llm") or {}).get("latency_s") and i.get("wall_s") else None, True, ".2f"),
     ("tokens", lambda i: ((i.get("llm") or {}).get("input_tokens", 0) + (i.get("llm") or {}).get("output_tokens", 0))
      if i.get("llm") else None, False, "g"),
+    ("reply chars", lambda i: (i.get("llm") or {}).get("reply_chars"), False, "g"),
     ("1st-try compile", lambda i: (i.get("compile_first") or {}).get("pass_rate"), True, ".2f"),
     ("fixes", lambda i: (i.get("fixes") or {}).get("total"), False, "g"),
     ("compile left", lambda i: i.get("compile_errors_left"), False, "g"),
@@ -577,6 +581,7 @@ def compare(a: dict, b: dict) -> str:
         for label, key, hib, fmt in [("modules (game size)", "modules", None, "g"), ("wall s", "wall_s", False, ".1f"), ("LLM calls", "llm_calls", False, "g"),
                                      ("input tokens", "input_tokens", False, "g"),
                                      ("output tokens", "output_tokens", False, "g"),
+                                     ("reply chars", "reply_chars", False, "g"),
                                      ("1st-try compile", "first_try_pass_rate", True, ".2f"),
                                      ("fixes", "fixes", False, "g"), ("compile left", "compile_errors_left", False, "g"),
                                      ("critic final", "critic_final", True, ".2f"), ("fun", "fun_final", True, ".2f"),

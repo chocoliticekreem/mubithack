@@ -106,3 +106,61 @@ What this shows about where we started:
   to be check bugs (cube payouts landing during the check), rewrote them, and all 3 passed on the re-run.
 - Checks are the slowest stage (169 s), mostly play sessions starting and stopping.
 - (This run tested checks against the pre-fix code. Bench now resyncs before running checks.)
+
+### After #113 (quality brain) alone: main `39f0209`, compile-only, tycoon + obby, 2 iterations (`evidence/bench/20261024T030449Z.*`)
+
+The director now designs much bigger games, with 11 modules instead of 4, plus a fun critic. Calls
+still ran one at a time (overlap 1.00), so wall time grew with the game: **2243 s** (tycoon 1198, obby
+1045), 64 LLM calls, 563k input tokens, 1st-try compile 91%, 28 fixes, fun 5.9, done 8/18 parts (0.44).
+
+### After #1 (#120 speed), #2 (#122 Studio I/O) and #7 (#113, #126 quality): main `cd2063d` (`evidence/bench/20261024T034237Z.*`, `20261024T040253Z.*`)
+
+**Compile-only, tycoon + obby, 2 iterations: same game size, half the time.**
+
+| totals | after #113 alone | after #1 + #2 + #7 | delta |
+|---|---:|---:|---|
+| modules (game size) | 22 | 21 | same |
+| wall s | 2243 | **1142** | **-49% (2.0x faster)** |
+| iterate s (tycoon / obby) | 571 / 511 | **155 / 146** | **3.5x faster** |
+| compile/fix s (tycoon) | 54 | **0.7** | incremental check |
+| LLM overlap (sum of call latency / wall) | 1.00 | **1.92 / 2.24** | calls now run concurrently |
+| LLM calls | 64 | 63 | same work |
+| input tokens | 563k | 513k | -9% |
+| 1st-try compile | 91% | 95% | +5 pts |
+| fixes | 28 | 27 | |
+| critic / fun | 5 / 5.9 | 5 / 5.8 | compile-only caps the critic at 5 |
+| done share | 0.44 | 0.44 | |
+
+**Compared with the very first baseline** (4-module games, 607 s), the games are 2.6x bigger (21
+modules against 8) and take 1.9x the wall time, so it costs 54 s per module, down from 76 s. The done
+bar also passes more of itself: 0.25 then, 0.44 now.
+
+**With Studio, tycoon, 1 iteration, `--checks 8`** (`20261024T025420Z` -> `20261024T040253Z`):
+
+| | before (main a1b0fef) | after (main cd2063d) | delta |
+|---|---:|---:|---|
+| modules | 4 | 11 | 2.75x bigger game |
+| wall s | 411 | 576 | +40% for 2.75x the game |
+| build s per module | 26.2 | 25.5 | same per module, with 2.5x more modules |
+| iterate s (playtest, critic, fun critic, fixes) | 121 | **94** | -22%, even with a fun critic added |
+| playtest s | 16.6 | **9.0** | -46% |
+| checks s (plan, resync, run 8, review) | 169 | **46** | **3.7x faster** |
+| LLM overlap | 0.75 | **1.54** | |
+| critic | 7 | 7 | |
+| fun | - | 6.2 | |
+| checks passed | 8/8 (3 after reviewer rewrites) | 8/8 (1 after a rewrite) | |
+| done | 2/4 (0.50) | 5/9 (0.56) | stricter bar, more parts passing |
+
+Screenshots: `evidence/bench/20261024T025420Z-tycoon.png` shows a grey baseplate, two yellow pads and
+plain labels. `evidence/bench/20261024T040253Z-tycoon.png` shows a cash HUD, an achievement toast, a
+leaderboard, upgrade and gift buttons, a progress bar to the next dropper, and a themed factory and
+conveyor.
+
+**Known measurement issue:** since #120, coder and fixer replies are streamed and stop once the code
+block closes. Those calls log about 5 output tokens each, so "output tokens" after #120 undercounts
+(78k against 376k). Compare `reply chars` instead: 596k before and 581k after, the same output. The
+runs from before the rebase don't have reply chars.
+
+Still open, and not measured as wins: `forge done` is not READY for any bench game (critic < 8,
+fun < 8, fix cycle not run, first-60-seconds beats not proved). The next bench step is
+`--improve 1` with Studio, once a slot is free for longer.

@@ -210,10 +210,12 @@
  "totals": {
   "ideas": 2,
   "built": 2,
+  "modules": 8,
   "wall_s": 607.1,
   "llm_calls": 30,
   "input_tokens": 178310,
   "output_tokens": 101346,
+  "reply_chars": 0,
   "first_try_pass_rate": 1.0,
   "fixes": 12,
   "compile_errors_left": 0,
@@ -223,6 +225,7 @@
   "checks": 0,
   "done_parts": 2,
   "done_of": 8,
+  "done_share": 0.25,
   "ready": 0,
   "corrections": 0
  }
