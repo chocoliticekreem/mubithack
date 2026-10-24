@@ -69,9 +69,9 @@ Spec.test("no raw key token survives in the shipped hint copy", function()
 end)
 
 Spec.test("first-fire card: LEFT CLICK is the screen on a phone, R2 on a gamepad", function()
-	Spec.eq(touch("Hold LEFT CLICK to spray your extinguisher at it"), "Hold the screen to spray your extinguisher at it")
+	Spec.eq(touch("Hold LEFT CLICK to spray your extinguisher at it"), "Hold SPRAY to spray your extinguisher at it")
 	Spec.eq(H.format("Hold LEFT CLICK to spray", "gamepad"), "Hold R2 to spray")
-	Spec.eq(touch("Hold left click to spray"), "Hold the screen to spray")
+	Spec.eq(touch("Hold left click to spray"), "Hold SPRAY to spray")
 end)
 
 Spec.test("keycaps and chips", function()
