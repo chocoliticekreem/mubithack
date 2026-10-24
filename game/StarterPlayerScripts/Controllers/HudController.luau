@@ -527,7 +527,8 @@ local function showBanner(locationName: string)
 	bannerShows += 1
 	local mine = bannerShows
 	u.banner.Visible = true
-	UiKit.tween(u.banner, 0.35, { Position = UDim2.new(0.5, 0, 0, 90) }, Enum.EasingStyle.Back)
+	-- below the objective / CALL! card (top centre), so the two never print over each other
+	UiKit.tween(u.banner, 0.35, { Position = UDim2.new(0.5, 0, 0.27, 0) }, Enum.EasingStyle.Back)
 	task.spawn(function()
 		for i = 1, 6 do
 			u.banner.BackgroundColor3 = if i % 2 == 0 then Palette.UiRed else Palette.AlarmRed
@@ -884,7 +885,9 @@ local function refresh(t: number)
 	end
 
 	-- downed
-	local downedNow = player:GetAttribute(Names.Attr.Downed) == true
+	-- only while the call is live: after a squad wipe the round goes to Results with everyone still
+	-- Downed, and "a teammate can revive you" sat on top of the results card
+	local downedNow = player:GetAttribute(Names.Attr.Downed) == true and state ~= "Results" and state ~= "Done"
 	u.downed.Visible = downedNow
 	if downedNow and not wasDowned then
 		UiKit.pop(u.downed:FindFirstChild("Text") :: GuiObject, 0.3)

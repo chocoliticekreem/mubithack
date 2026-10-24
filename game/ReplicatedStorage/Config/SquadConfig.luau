@@ -51,8 +51,8 @@ return Config.define({
 	HeadOffset = Vector3.new(0, 0.35, 0), -- where the NPC head blob centre sits relative to Head
 	BodyOffset = Vector3.new(0, -0.55, 0.05), -- where the NPC body blob centre sits relative to UpperTorso
 	-- sounds (unverified asset ids stay blank; "" = silent)
-	SlapSoundId = "",
-	DownSoundId = "",
+	SlapSoundId = "rbxassetid://511340819",
+	DownSoundId = "rbxassetid://9113479635", -- (PSE) body fall
 	ReviveSoundId = "",
 	EmoteSoundId = "",
 	-- attribute names this lane adds (not in Shared/Names; see PR)

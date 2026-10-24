@@ -113,6 +113,6 @@ return Config.define({
 	-- EngineSoundId: no vetted engine loop in AudioConfig yet; "" = no engine hum.
 	HornSoundId = "rbxassetid://107056835646946",
 	SirenSoundId = "rbxassetid://530137633",
-	EngineSoundId = "",
+	EngineSoundId = "rbxassetid://71482635231754", -- diesel idle loop
 	BoingSoundId = "rbxasset://sounds/action_jump.mp3", -- built-in, pitched for the landing squash
 })

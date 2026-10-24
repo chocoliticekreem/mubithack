@@ -24,12 +24,12 @@ return Config.define({
 	PoleSlideSeconds = 1.3,
 	BoardPixelsPerStud = 50,
 	-- sounds (SoundService-style ids; "" = silent)
-	TickSoundId = "",
-	GoSoundId = "",
+	TickSoundId = "rbxassetid://134410911353980",
+	GoSoundId = "rbxassetid://9117265660", -- (PSE) referee whistle
 	SirenSoundId = "rbxassetid://530137633",
 	AlarmSoundId = "",
-	BellSoundId = "",
+	BellSoundId = "rbxassetid://6786936397",
 	HonkSoundId = "rbxassetid://107056835646946",
-	WhooshSoundId = "",
+	WhooshSoundId = "rbxassetid://9120972321", -- (PSE) wood whoosh
 	WelcomeText = "Welcome back, heroes (mostly)",
 })

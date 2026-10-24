@@ -61,6 +61,7 @@ local Sounds: { [string]: SoundDef } = {
 	Ding = { id = id(79138466370636), group = "UI", volume = 0.6 }, -- (3p) rescue / room cleared, pitch rises per streak
 	Sting = { id = id(1841391669), group = "UI", volume = 0.6 }, -- (APM) Wipsy La La Sting: blame award reveal
 	Click = { id = id(88442833509532), group = "UI", volume = 0.5, pitchVar = 0.05 }, -- (3p) UI click
+	LevelUp = { id = id(112485797063762), group = "UI", volume = 0.7 }, -- (3p) "UI - Level Up" jingle, 1.5 s
 
 	-- Music (2D) ---------------------------------------------------------------------------------
 	LobbyMusic = { id = id(1839296911), group = "Music", volume = 0.5, looped = true }, -- (APM) Funk Master
@@ -125,5 +126,6 @@ return Config.define({
 		Rescue = "Ding",
 		Award = "Sting",
 		Honk = "Horn",
+		LevelUp = "LevelUp",
 	} :: { [string]: string },
 })

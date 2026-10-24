@@ -142,9 +142,10 @@ local function card(parent: Instance, payload: Types.ResultsPayload, award: Type
 	})
 
 	if award.blame then
-		local stamp = UiKit.label(face, "Stamp", "BLAME!", UDim2.fromOffset(170, 56), UDim2.new(0.5, 0, 0, 150), {
+		-- slammed across the card's bottom edge: mid-card it covered the blamed player's name
+		local stamp = UiKit.label(face, "Stamp", "BLAME!", UDim2.fromOffset(150, 50), UDim2.new(0.5, 0, 0, h - 6), {
 			font = UiKit.Header,
-			textSize = 46,
+			textSize = 40,
 			color = Palette.UiRed,
 		})
 		stamp.AnchorPoint = Vector2.new(0.5, 0.5)

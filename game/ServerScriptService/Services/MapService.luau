@@ -22,7 +22,8 @@
 --       InstanceId = runId, Busy = true; GetInstance(runId) returns it; announced as InstanceBuilt(site,
 --       runId, LocationId) so FireService scopes its fires to the run (FireService:ClearInstance(runId))
 --   MapService:RebuildSite(siteId: string): Model?         -- site back as first seen (Busy false, unbound)
---   Reset = swap in a clone of the site taken the first time it was bound/rebuilt (cheap, no builder rerun).
+--   Reset = swap in a clone of the site snapshotted in the background after the build (or on first
+--   bind/rebuild); a site no run has touched since it was built/swapped is reused in place (no swap).
 --   DestroyInstance(runId) on a bound site rebuilds the site instead of destroying it.
 -- Signals: LocationBuilt(model: Model, locationId: string)
 --          InstanceBuilt(model: Model, instanceId: string, locationId: string)   -- v1.5 (+ v2 BindSite)
@@ -69,8 +70,12 @@ local instances: { [string]: Model } = {}
 local slotOwner: { [number]: string } = {} -- instance slot -> instanceId
 -- v2 incident sites (names not in the frozen Names module yet; docs/game/08 is the contract)
 local SITE_TAG = "IncidentSite"
-local pristine: { [string]: Model } = {} -- siteId -> unparented clone taken on first bind/rebuild
+local pristine: { [string]: Model } = {} -- siteId -> unparented clone (background after build, else first bind)
 local siteRuns: { [string]: Model } = {} -- runId -> bound site Model
+-- Live site Models a run has been bound to since they were built/swapped in. An untouched site is reused
+-- in place on bind: swapping a 2,400-part district (destroy + clone + parent) re-replicates every part to
+-- every client, which was the multi-second hitch on the first Farm/Town mission.
+local usedSites: { [Model]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 local function hash(s: string): number
 	local h = 0
@@ -372,28 +377,37 @@ end
 
 -- Replace the site with a fresh clone of its first-seen state. Returns the live model (the old one if it
 -- can't be cloned, e.g. Archivable = false).
+local function snapshot(siteId: string, cur: Model): boolean
+	local copy = cur:Clone()
+	if not copy then
+		return false
+	end
+	copy:SetAttribute("Busy", false)
+	copy:SetAttribute(Names.Attr.InstanceId, nil)
+	settleCopy(copy)
+	pristine[siteId] = copy
+	return true
+end
+
 local function swapSite(siteId: string): Model?
 	local cur = MapService:GetSite(siteId)
 	if not cur then
 		return nil
 	end
-	if not pristine[siteId] then
-		local copy = cur:Clone()
-		if not copy then
-			return cur
-		end
-		copy:SetAttribute("Busy", false)
-		copy:SetAttribute(Names.Attr.InstanceId, nil)
-		settleCopy(copy)
-		pristine[siteId] = copy
+	if not pristine[siteId] and not snapshot(siteId, cur) then
+		return cur
 	end
-	local fresh = pristine[siteId]:Clone()
-	local parent = cur.Parent
 	for runId, m in siteRuns do
 		if m == cur then
 			siteRuns[runId] = nil
 		end
 	end
+	if not usedSites[cur] then
+		return cur -- untouched since it was built / swapped in: reuse it, no re-replication
+	end
+	local fresh = pristine[siteId]:Clone()
+	local parent = cur.Parent
+	usedSites[cur] = nil
 	cur:Destroy()
 	fresh.Parent = parent
 	count("map_sites_rebuilt")
@@ -414,6 +428,7 @@ function MapService:BindSite(siteId: string, runId: string): Model?
 	if not site then
 		return nil
 	end
+	usedSites[site] = true
 	site:SetAttribute(Names.Attr.InstanceId, runId)
 	site:SetAttribute("Busy", true)
 	siteRuns[runId] = site
@@ -437,6 +452,18 @@ function MapService:Start()
 		require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count("map_build_ms", ms)
 	end)
 	print(`[MapService] built {#mapFolder():GetChildren()} locations in {ms} ms`)
+	-- Snapshot every incident site in the background while it is still as built, one site per frame,
+	-- so the first mission at a big district doesn't pay for the clone + settle pass.
+	task.spawn(function()
+		task.wait(2)
+		for _, site in MapService:GetSites() do
+			local sid = siteIdOf(site)
+			if not pristine[sid] and not usedSites[site] and site.Parent then
+				pcall(snapshot, sid, site)
+			end
+			task.wait()
+		end
+	end)
 end
 
 function MapService:_selftest(): (boolean, string)

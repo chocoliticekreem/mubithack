@@ -169,7 +169,7 @@ end
 
 local popupCount = 0
 
-local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number)
+local function popup(text: string, sub: string?, color: Color3, size: number, seconds: number, y: number?)
 	if not popupLayer then
 		return
 	end
@@ -178,7 +178,7 @@ local function popup(text: string, sub: string?, color: Color3, size: number, se
 	local holder = Instance.new("Frame")
 	holder.BackgroundTransparency = 1
 	holder.AnchorPoint = Vector2.new(0.5, 0.5)
-	holder.Position = UDim2.new(0.5, 0, 0.38, slot * 18)
+	holder.Position = UDim2.new(0.5, 0, y or 0.38, slot * 18)
 	holder.Size = UDim2.fromOffset(420, size + 26)
 	holder.Parent = popupLayer
 	local scale = Instance.new("UIScale")
@@ -212,7 +212,75 @@ local function popup(text: string, sub: string?, color: Color3, size: number, se
 	end)
 end
 
-function ProfileController:Init(_controllers: { [string]: any }) end
+-- LEVEL UP celebration: confetti burst from behind the banner, a gold screen-edge flash, the level badge
+-- bounces, and the LevelUp stinger (AudioController ducks the music). Cheap: ~28 frames for ~1.6 s.
+local CONFETTI = { Palette.HelmetRed, Palette.HelmetShield, Palette.UiCream, Palette.WaterSpray, Color3.fromRGB(255, 211, 90) }
+local controllers: { [string]: any } = {}
+
+local function celebrate()
+	local audio = controllers.AudioController
+	if audio and type(audio.Stinger) == "function" then
+		pcall(audio.Stinger, audio, "LevelUp")
+	end
+	if not popupLayer then
+		return
+	end
+	local layer = popupLayer :: Frame
+	local glow = Instance.new("Frame")
+	glow.BackgroundColor3 = Color3.fromRGB(255, 211, 90)
+	glow.BackgroundTransparency = 0.55
+	glow.BorderSizePixel = 0
+	glow.Size = UDim2.fromScale(1, 1)
+	glow.ZIndex = 0
+	glow.Parent = layer
+	TweenService:Create(glow, TweenInfo.new(0.6, Enum.EasingStyle.Quad), { BackgroundTransparency = 1 }):Play()
+	task.delay(0.7, function()
+		glow:Destroy()
+	end)
+	local rng = Random.new()
+	for i = 1, 28 do
+		local c = Instance.new("Frame")
+		c.BorderSizePixel = 0
+		c.AnchorPoint = Vector2.new(0.5, 0.5)
+		c.BackgroundColor3 = CONFETTI[(i - 1) % #CONFETTI + 1]
+		c.Size = UDim2.fromOffset(rng:NextInteger(8, 14), rng:NextInteger(5, 9))
+		c.Position = UDim2.fromScale(0.5, 0.62)
+		c.Rotation = rng:NextNumber(0, 360)
+		c.Parent = layer
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local dist = rng:NextNumber(0.12, 0.32)
+		local up = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(c, up, {
+			Position = UDim2.fromScale(0.5 + math.cos(angle) * dist, 0.62 + math.sin(angle) * dist * 0.7 - 0.08),
+			Rotation = c.Rotation + rng:NextNumber(-220, 220),
+		}):Play()
+		task.delay(0.45, function()
+			local fall = TweenInfo.new(1.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			TweenService:Create(c, fall, {
+				Position = c.Position + UDim2.fromScale(rng:NextNumber(-0.04, 0.04), 0.35),
+				BackgroundTransparency = 1,
+				Rotation = c.Rotation + rng:NextNumber(-180, 180),
+			}):Play()
+			task.delay(1.15, function()
+				c:Destroy()
+			end)
+		end)
+	end
+	if panel and levelLabel then
+		local s = (levelLabel :: TextLabel).Parent and (levelLabel :: TextLabel).Parent:FindFirstChildOfClass("UIScale")
+		if not s then
+			s = Instance.new("UIScale")
+			s.Parent = (levelLabel :: TextLabel).Parent
+		end
+		local us = s :: UIScale
+		us.Scale = 1.5
+		TweenService:Create(us, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+end
+
+function ProfileController:Init(all: { [string]: any })
+	controllers = all
+end
 
 function ProfileController:Start()
 	build()
@@ -231,7 +299,9 @@ function ProfileController:Start()
 		popup(`+{math.floor(amount)} XP`, if type(reason) == "string" then reason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
 		if type(levelsGained) == "number" and levelsGained > 0 then
 			task.delay(0.5, function()
-				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds)
+				-- low centre: GearController's "LEVEL n: NEW GEAR!" card owns the middle of the screen
+				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
+				celebrate()
 			end)
 		end
 	end)

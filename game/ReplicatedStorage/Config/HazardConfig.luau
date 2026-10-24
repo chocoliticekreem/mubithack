@@ -71,9 +71,9 @@ return Config.define({
 	CatTreeHeight = 18, -- cat_tree: trunk height (GearConfig.LadderMaxHeight 34 reaches the branch)
 	CatPunEvery = 9, -- s between cat puns
 	-- sounds ("" = silent; asset ids can't be verified offline)
-	ZapSoundId = "",
-	ExplosionSoundId = "",
-	TornadoSoundId = "",
-	WaveSoundId = "",
-	CreakSoundId = "",
+	ZapSoundId = "rbxassetid://9114277757", -- (PSE) electric zap
+	ExplosionSoundId = "rbxasset://sounds/impact_explosion_03.mp3", -- built-in
+	TornadoSoundId = "rbxassetid://9125742262", -- (PSE) airy whooshing wind loop
+	WaveSoundId = "rbxassetid://9120619377", -- (PSE) wave crashing
+	CreakSoundId = "rbxassetid://9126282061", -- (PSE) wood strain creak
 })

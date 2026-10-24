@@ -739,9 +739,17 @@ local function onFx(kind: any, position: any, extra: any)
 	if kind == "chop" then
 		soundAt(ToolConfig.SoundAxeThunk, pos, 0.9)
 		shake(0.25 * nearMe(pos, 14), 0.2)
+		if mine then
+			fovKick += 2.5 -- impact punch: snap out, eases back with the spray kick
+			flash(Color3.new(1, 1, 1), 0.88, 0.02, 0.08) -- one-frame impact flash
+		end
 	elseif kind == "crack" then
 		soundAt(ToolConfig.SoundDoorCrash, pos, 1)
 		shake(0.55 * nearMe(pos, 30), 0.45)
+		if mine then
+			fovKick += 4
+			flash(Color3.fromRGB(255, 236, 200), 0.8, 0.03, 0.12)
+		end
 	elseif kind == "bonk" then
 		soundAt(ToolConfig.SoundBonk, pos, 1, Random.new():NextNumber(0.9, 1.3))
 	elseif kind == "sploosh" then
