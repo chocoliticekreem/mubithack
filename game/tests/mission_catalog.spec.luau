@@ -15,8 +15,23 @@ local TRAILER_IDS = {
 	"panda_zoo",
 	"nightclub_fire", -- v2 city-only calls
 	"skyscraper_fire",
+	"diner_grease", -- v3 crazy calls (HazardService twists)
+	"gas_leak",
+	"highway_pileup",
+	"cat_tree",
 }
-local HAZARDS = { electrocution = true, fire_tornado = true, explosion = true, tidal_wave = true, cigarette = true }
+local TWISTS = { diner_grease = "grease_fire", gas_leak = "gas_leak", highway_pileup = "pileup", cat_tree = "cat_tree" }
+local HAZARDS = {
+	electrocution = true,
+	fire_tornado = true,
+	explosion = true,
+	tidal_wave = true,
+	cigarette = true,
+	grease_fire = true, -- v3 twists (Lib/Hazard/Twists)
+	gas_leak = true,
+	pileup = true,
+	cat_tree = true,
+}
 local KINDS = { Civilian = true, Dog = true, Cat = true, Panda = true }
 local OBJECTIVES = { extinguish = true, rescue = true, survive = true, custom = true }
 local STARTS = { FireStart = true, Random = true, Scripted = true }
@@ -70,6 +85,26 @@ Spec.test("every entry has the MissionDef shape", function()
 		Spec.eq(#m.stars, 3, `{id} star count`)
 		for _, s in m.stars do
 			Spec.truthy(STARS[s.id], `{id} star {s.id}`)
+		end
+	end
+end)
+
+Spec.test("v3 crazy calls: twist hazard, 1-8 players, a guide with steps", function()
+	for id, hazard in TWISTS do
+		local m = byId[id]
+		Spec.truthy(m, id)
+		Spec.truthy(table.find(m.hazards, hazard) ~= nil, `{id} arms {hazard}`)
+		Spec.eq(m.players.max, 8, `{id}.players.max`)
+		local custom = false
+		for _, o in m.objectives do
+			custom = custom or o.kind == "custom" or o.kind == "rescue"
+		end
+		Spec.truthy(custom, `{id} has a twist objective`)
+		Spec.eq(type(m.guide), "table", `{id}.guide`)
+		Spec.eq(type(m.guide.headline), "string", `{id}.guide.headline`)
+		Spec.truthy(#m.guide.steps >= 3, `{id}.guide.steps`)
+		for _, step in m.guide.steps do
+			Spec.eq(type(step), "string", `{id} guide step`)
 		end
 	end
 end)

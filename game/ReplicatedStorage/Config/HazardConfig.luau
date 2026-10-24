@@ -54,6 +54,22 @@ return Config.define({
 	-- cigarette (farm)
 	CigaretteRelightSeconds = 12,
 	CigaretteRadius = 16,
+	-- v3 mission twists (Lib/Hazard/Twists). Scripted fires (the fryer) carry the Burning tag + FireLevel
+	-- like FireService fires, so the HUD, heat, FX and the mission's "all out" count see them.
+	TwistSprayRange = 30, -- studs: a hose/extinguisher Tool/Spray event reaches a twist target this far
+	TwistSprayCos = 0.82, -- aim cone (~35 degrees; a little wider than FireConfig.HoseConeCos)
+	TwistHoseHit = 0.12, -- scripted-fire "hp" removed per hose spray event (~10/s)
+	TwistFoamHit = 0.22, -- ...per extinguisher spray event
+	GreaseHp = 4, -- the deep fryer: ~2 s of extinguisher
+	GreaseFlareCooldown = 2.5, -- s between grease fireballs (water on grease)
+	GreaseFlareRadius = 12, -- explosion radius of a grease flare
+	GreaseLidHold = 1.5, -- s to hold E on the fryer to slam the lid on
+	LeakSeconds = 75, -- gas_leak: countdown from arrival until the tanker blows
+	ValveHoldSeconds = 2.5, -- hold E on a pump valve wheel to shut it
+	TankerBlastRadius = 26,
+	PryHoldSeconds = 1.6, -- pileup: hold E on a jammed car door (with a pry tool or axe in hand)
+	CatTreeHeight = 18, -- cat_tree: trunk height (GearConfig.LadderMaxHeight 34 reaches the branch)
+	CatPunEvery = 9, -- s between cat puns
 	-- sounds ("" = silent; asset ids can't be verified offline)
 	ZapSoundId = "",
 	ExplosionSoundId = "",

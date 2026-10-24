@@ -314,6 +314,155 @@ local Missions = {
 			{ id = "noDowns", text = "Nobody fell" },
 		},
 	},
+	-- v3 "crazy calls" (HazardService twists, Lib/Hazard/Twists): each has a twist mechanic and a `guide`
+	-- ({ headline, steps }) the MissionGuide lane can show. City-only: their locationId has no standalone
+	-- builder; they run at the IncidentSites in CityConfig.KindMissions (diner, gas, reststop, house).
+	{
+		id = "diner_grease",
+		title = "Greasy Spoon",
+		call = "Grease fire",
+		blurb = "The deep fryer at the diner is on fire. Whatever you do, do NOT hose it.",
+		locationId = "Diner",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 180,
+		atmosphere = "NightStreet",
+		objectives = {
+			{ kind = "custom", text = "Smother the deep fryer (extinguisher or the lid, NOT water)" },
+			{ kind = "extinguish", text = "Put out every fire" },
+			{ kind = "rescue", count = 3, text = "Get the cook and the customers out" },
+		},
+		fires = { count = 3, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 1, variant = "Cook" },
+			{ kind = "Civilian", count = 2, variant = "Customer" },
+		},
+		hazards = { "grease_fire" },
+		tools = { "Extinguisher" },
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allOut", text = "Kitchen saved" },
+			{ id = "noDowns", text = "Nobody got deep-fried" },
+		},
+		guide = {
+			headline = "Water on a grease fire EXPLODES. Smother it instead.",
+			steps = {
+				"Grab the extinguisher from the truck compartment.",
+				"Spray the burning deep fryer with the extinguisher, or walk up and hold E to slam the lid on it.",
+				"Hose the fryer and it flares up in a fireball that lights the kitchen.",
+				"Then hose the rest of the diner and carry the cook and the customers out.",
+			},
+		},
+	},
+	{
+		id = "gas_leak",
+		title = "Pump Panic",
+		call = "Gas leak",
+		blurb = "The pumps are spraying fuel and a tanker is parked right next to them. Shut the valves before it blows.",
+		locationId = "GasStation",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 200,
+		atmosphere = "DuskSuburb",
+		objectives = {
+			{ kind = "custom", text = "Shut every leaking pump valve before the tanker blows" },
+			{ kind = "extinguish", text = "Put out every fire" },
+			{ kind = "rescue", count = 3, text = "Get the clerk and the drivers clear" },
+		},
+		fires = { count = 3, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 1, variant = "Clerk" },
+			{ kind = "Civilian", count = 1, variant = "Driver" },
+			{ kind = "Dog", count = 1 },
+		},
+		hazards = { "gas_leak" },
+		tools = {},
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allOut", text = "Station saved" },
+			{ id = "noDowns", text = "Nobody went up with the tanker" },
+		},
+		guide = {
+			headline = "Leaking pumps plus a tanker equals a countdown. Shut the valves!",
+			steps = {
+				"When you arrive a countdown starts over the tanker.",
+				"Stand at each leaking pump and hold E on its red valve wheel to shut it. Split up: one pump each.",
+				"Every valve shut before zero means the tanker is safe. Miss one and it explodes and lights the forecourt.",
+				"Then put out the fires and get the clerk, the driver and the dog out.",
+			},
+		},
+	},
+	{
+		id = "highway_pileup",
+		title = "Pile-up on 67",
+		call = "Highway pile-up",
+		blurb = "A pile-up at the Highway 67 rest stop. Cars are burning, and the drivers are stuck behind crumpled doors.",
+		locationId = "Highway",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 210,
+		atmosphere = "DuskSuburb",
+		objectives = {
+			{ kind = "custom", text = "Pry the jammed doors open (Halligan, crowbar or axe)" },
+			{ kind = "rescue", count = 3, text = "Carry the drivers to the truck" },
+			{ kind = "extinguish", text = "Put out the burning cars" },
+		},
+		fires = { count = 4, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 3, variant = "Driver" },
+		},
+		hazards = { "pileup" },
+		tools = { "Halligan" },
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Every driver out" },
+			{ id = "underTime", text = "Cleared before rush hour", seconds = 150 },
+		},
+		guide = {
+			headline = "The drivers are pinned. Pry the doors, then carry them out.",
+			steps = {
+				"Hold a pry tool in your hand: the Halligan or crowbar from the station rack, or your axe.",
+				"Walk up to a crumpled car's door and hold E to pry it off.",
+				"With the door gone you can pick the driver up and carry them to the truck.",
+				"Hose down the burning cars at the other end of the lay-by.",
+			},
+		},
+	},
+	{
+		id = "cat_tree",
+		title = "Purr-ty Big Problem",
+		call = "Cat up a tree",
+		blurb = "A candle fire inside, and the cat that knocked it over is up the tree out front, making puns.",
+		locationId = "Town",
+		enabled = true,
+		players = { min = 1, max = 8 },
+		seconds = 180,
+		atmosphere = "DuskSuburb",
+		objectives = {
+			{ kind = "rescue", count = 2, text = "Ladder the tree, get the cat down, get the owner out" },
+			{ kind = "extinguish", text = "Put out the candle fire" },
+		},
+		fires = { count = 2, starts = "FireStart" },
+		rescues = {
+			{ kind = "Civilian", count = 1, variant = "Owner" },
+		},
+		hazards = { "cat_tree" },
+		tools = { "Ladder" },
+		stars = {
+			{ id = "finish", text = "Finish the shift" },
+			{ id = "allRescued", text = "Cat and owner safe" },
+			{ id = "noDowns", text = "Nobody fell out of the tree" },
+		},
+		guide = {
+			headline = "The cat is up the tree. Ladder up, grab it, come down (or yeet it gently).",
+			steps = {
+				"Equip the Ladder, walk up to the tree trunk and click to stand it against the trunk.",
+				"Climb up to the branch, pick up the cat, then climb down or throw it to a teammate.",
+				"Do not hose the cat. Cats hate water, and it will tell you so.",
+				"Put out the candle fire inside and carry the owner out.",
+			},
+		},
+	},
 }
 
 return Missions

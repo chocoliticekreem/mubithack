@@ -17,6 +17,10 @@
 --   cigarette      { npc: Model? }                           -- farmer relights hay until carried/rescued
 --   EXTRA ids (not in Types.HazardId yet; Trigger accepts them): "backdraft" { door: BasePart, culprit: Player? },
 --                  "ceiling_collapse" { parts: { BasePart }?, position: Vector3?, radius: number?, culprit: Player? }
+--   v3 MISSION TWISTS (catalog `hazards`, armed only, not Trigger ids; Lib/Hazard/Twists has the details):
+--                  "grease_fire" (diner fryer: water = fireball, extinguisher/lid = out), "gas_leak" (pump
+--                  valves vs a tanker countdown), "pileup" (pinned drivers, pry the doors), "cat_tree" (a
+--                  cat up a tree, ladder it down)
 -- MissionCatalog hook: on MissionService.MissionStarted(instanceId, missionId) the def's `hazards` are armed
 --   (fuse box lever prompts, gas tanks that blow when fire reaches them, a scripted tornado after
 --   TornadoDelay, a detonator prompt for the wave). Every armed instance also watches for backdrafts
@@ -33,7 +37,9 @@
 --   parts named "WaveVolume", "TornadoField", "Ceiling*"/"Roof*" (attr BuildingId groups a building)
 -- Writes: FuseBox attr Power; counters hazards_triggered, electrocutions, electrocutions_teammate, power_cut,
 --   explosions, tornadoes, tornado_flings, tidal_waves, backdrafts, collapses
--- Test hooks (DevHook only): _trigger(instanceId, hazardId), _arm(instanceId, missionId), _selftest()
+-- Test hooks (DevHook only): _trigger(instanceId, hazardId), _arm(instanceId, missionId),
+--   _twist(instanceId, kind) (arm one v3 twist on a live run), _twists(instanceId) (live twist targets),
+--   _twistPrompt(instanceId, actionText, userId?) / _twistSpray(instanceId, "hose"|"foam", userId?), _selftest()
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
@@ -52,6 +58,7 @@ local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local HazardConfig = require(ConfigFolder:WaitForChild("HazardConfig") :: ModuleScript)
 local HazardMath = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Hazard"):WaitForChild("HazardMath") :: ModuleScript)
 local Rubble = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Physics"):WaitForChild("Rubble") :: ModuleScript)
+local Twists = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Hazard"):WaitForChild("Twists") :: ModuleScript) :: any
 
 local HazardService = {}
 HazardService.Priority = 70
@@ -1379,6 +1386,33 @@ local function catalogDef(missionId: string): any
 	return nil
 end
 
+-- v3 twist context (Lib/Hazard/Twists): cleanup goes through the Armed record, so Clear undoes it.
+local function twistCtx(instanceId: string, root: Instance, a: Armed): any
+	return {
+		instanceId = instanceId,
+		root = root,
+		services = services,
+		conn = function(c: RBXScriptConnection)
+			table.insert(a.conns, c)
+		end,
+		thread = function(t: thread)
+			table.insert(a.threads, t)
+		end,
+		prompt = function(p: Instance)
+			table.insert(a.prompts, p)
+		end,
+		alive = function(): boolean
+			return armed[instanceId] == a and root.Parent ~= nil
+		end,
+		explode = function(pos: Vector3, radius: number?, culprit: Player?)
+			HazardService:Trigger(instanceId, "explosion", { position = pos, radius = radius, culprit = culprit })
+		end,
+		players = function(): { Player }
+			return playersIn(instanceId, root)
+		end,
+	}
+end
+
 function HazardService:_arm(instanceId: string, missionId: string?): boolean
 	-- the instance may still be building: give it a moment
 	local root: Instance? = nil
@@ -1405,6 +1439,10 @@ function HazardService:_arm(instanceId: string, missionId: string?): boolean
 			armTornado(instanceId, root, a)
 		elseif h == "tidal_wave" then
 			armDetonator(instanceId, root, a)
+		elseif table.find(Twists.Kinds, h) then
+			if Twists.arm(h, twistCtx(instanceId, root, a)) then
+				count("twists_armed")
+			end
 		elseif h == "cigarette" then
 			table.insert(
 				a.threads,
@@ -1453,6 +1491,7 @@ function HazardService:Start()
 		end
 	end
 	-- the Finale lane's detonator calls Trigger(tidal_wave) directly; nothing to wire here
+	Twists.start() -- v3 twists: a second Tool/Spray listener (hose vs extinguisher on twist targets)
 	Players.PlayerRemoving:Connect(function(p: Player)
 		zapCooldown[p] = nil
 	end)
@@ -1484,6 +1523,7 @@ function HazardService:Clear(instanceId: string)
 			pcall(h.stop)
 		end
 	end
+	Twists.clear(instanceId)
 	local a = armed[instanceId]
 	armed[instanceId] = nil
 	if a then
@@ -1528,6 +1568,33 @@ function HazardService:_trigger(instanceId: string, hazardId: Types.HazardId): b
 	return self:Trigger(instanceId, hazardId, params)
 end
 
+function HazardService:_twist(instanceId: string, kind: string): boolean
+	local root = rootOf(instanceId)
+	if not root then
+		return false
+	end
+	return Twists.arm(kind, twistCtx(instanceId, root, getArmed(instanceId)))
+end
+
+function HazardService:_twistPrompt(instanceId: string, action: string, userId: number?): boolean
+	local root = rootOf(instanceId)
+	local player = if userId then Players:GetPlayerByUserId(userId) else Players:GetPlayers()[1]
+	return root ~= nil and player ~= nil and Twists.testPrompt(root, action, player)
+end
+
+function HazardService:_twistSpray(instanceId: string, kind: string, userId: number?): number
+	local player = if userId then Players:GetPlayerByUserId(userId) else Players:GetPlayers()[1]
+	return if player then Twists.testSpray(instanceId, player, kind) else 0
+end
+
+function HazardService:_twists(instanceId: string): { any }
+	local out = {}
+	for _, t in Twists.targets(instanceId) do
+		table.insert(out, { part = t.part:GetFullName(), fire = t.fire, hp = t.hp, out = t.out, water = t.water })
+	end
+	return out
+end
+
 function HazardService:_selftest(): (boolean, string)
 	if not zapRemote or not fxRemote then
 		return false, "remotes not declared"
@@ -1540,7 +1607,10 @@ function HazardService:_selftest(): (boolean, string)
 	if HazardService:Trigger("__nowhere__", "explosion", { position = Vector3.zero }) then
 		return false, "Trigger on a missing instance returned true"
 	end
-	return true, "7 hazards wired"
+	if #Twists.Kinds ~= 4 then
+		return false, "Lib/Hazard/Twists lost a twist"
+	end
+	return true, `7 hazards + {#Twists.Kinds} twists wired`
 end
 
 return HazardService

@@ -7,7 +7,7 @@
 --   BlockFiller.fillBlock(ctx, parent, block) -> Model        -- ctx: { cfg, rng: Random, siteFor(block, lot) -> Site?, onSite(model, site) }
 --   BlockFiller.buildSiteLot(ctx, parent, site, lotFrame, lot) -> Model   -- (re)builds one incident site
 --   BlockFiller.tree(parent, cf, rng) / car(parent, cf, color, eyes?)
--- Lot kinds: house (site or LOD shell), apartment, shop, diner, gas, storage, school, zoo, nightclub, skyscraper (sites);
+-- Lot kinds: house (site or LOD shell), apartment, shop, diner, gas, storage, school, zoo, nightclub, skyscraper, reststop (sites);
 -- tower, warehouse, tanks, parking, plaza, park, field (scenery). Only site buildings carry
 -- Flammable chunks; scenery is a few big anchored parts (LOD-friendly).
 -- Lot frame: centre of the lot on the ground, -Z = toward its street. Building frame F: the middle of
@@ -1606,6 +1606,57 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	SK.rescue(site, "R7", "Cat", F * CF(w * 0.3, ys[6], 1.5) * FLIP, "sitting", "Windowsill")
 	-- a lobby desk downstairs
 	box(site, "LobbyDesk", F * CF(w * 0.2, fy, d * 0.5), V(8, 3.4, 3), C.Trim)
+end
+
+-- v3: Highway 67 rest stop (CityConfig.HighwaySites, call highway_pileup). A paved lay-by: the WEST half
+-- holds what burns (two parked cars, picnic tables, the restroom hut: Flammable, FireStart markers), the
+-- EAST half holds four driver RescueSpawn markers >= 30 studs from anything flammable (RescueService
+-- panics NPCs within 20 studs of fire). HazardService's "pileup" twist builds a crumpled car round each
+-- spawned driver at dispatch time and pins them until a pry tool pops the door. ~35 parts.
+local function burnCar(site: Instance, cf: CFrame, color: Color3, id: string)
+	local body = SK.part(site, "WreckBody", cf * CF(0, 1.7, 0), V(6.2, 2.2, 11), color, { flammable = true, fuel = 45 })
+	SK.part(site, "WreckCabin", cf * CF(0, 3.6, 0.6), V(5.4, 1.8, 5.8), C.GlassDark, { flammable = true, fuel = 30, material = Enum.Material.Glass })
+	for _, w in { { -3.1, -3.4 }, { 3.1, -3.4 }, { -3.1, 3.4 }, { 3.1, 3.4 } } do
+		SK.part(site, "Wheel", cf * CF(w[1], 1.15, w[2]), V(1.2, 2.3, 2.3), C.MetalDark, { shape = Enum.PartType.Cylinder })
+	end
+	SK.fireStart(site, id, body.CFrame * CF(0, 1.4, -2))
+end
+
+function Build.reststop(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
+	local rng: Random = ctx.rng
+	local w, d = math.min(maxW, 100), math.min(maxD, 60)
+	SK.part(site, "LayBy", F * CF(0, GY + 0.03, d * 0.4), V(w, 0.1, d * 0.8), C.Asphalt)
+	for k = 0, 3 do
+		SK.part(site, "BayLine", F * CF(10 + k * 12, GY + 0.1, d * 0.3), V(0.4, 0.05, d * 0.5), C.LineWhite, { collide = false })
+	end
+	-- sign at the entrance
+	SK.part(site, "SignPost", F * CF(-4, GY + 4, 1.5), V(0.6, 8, 0.6), C.MetalDark)
+	local board = SK.part(site, "RestStopSign", F * CF(-4, GY + 8.5, 1.5), V(16, 3.4, 0.4), Color3.fromHex("#2E6B3F"))
+	SK.sign(board, "HWY 67 REST STOP · SCENIC VIEW · DRIVE SAFE (PLEASE)", Enum.NormalId.Front, C.Trim)
+	-- west half: what burns
+	burnCar(site, F * CF(-w * 0.4, GY, d * 0.25) * ANG(0, math.rad(15), 0), pick(rng, C.Awnings), "F1")
+	burnCar(site, F * CF(-w * 0.24, GY, d * 0.3) * ANG(0, math.rad(-20), 0), pick(rng, C.Walls), "F2")
+	for k, x in { -w * 0.38, -w * 0.2 } do
+		local tf = F * CF(x, GY, d * 0.72)
+		local top = box(site, "PicnicTable", tf * CF(0, 2.4, 0), V(7, 0.5, 3), C.Wood, true)
+		box(site, "PicnicBench", tf * CF(0, 1.3, -2.6), V(7, 0.4, 1.2), C.Wood, true)
+		box(site, "PicnicBench", tf * CF(0, 1.3, 2.6), V(7, 0.4, 1.2), C.Wood, true)
+		SK.fireStart(site, `F{2 + k}`, top.CFrame * CF(0, 1, 0))
+	end
+	local hut = box(site, "Restrooms", F * CF(-w * 0.44, GY, d * 0.92 - 5), V(10, 9, 8), Color3.fromHex("#C9B79C"), true)
+	SK.wedge(site, "RestroomRoof", hut.CFrame * CF(0, 5.2, 0), V(11, 1.6, 9), C.RoofBrown)
+	SK.fireStart(site, "F5", hut.CFrame * CF(0, 0, -4.5))
+	BlockFiller.trashCan(site, F * CF(-w * 0.1, GY, d * 0.55))
+	-- east half: the pile-up lane (drivers; the twist adds the wrecks)
+	local n = 0
+	for _, z in { d * 0.2, d * 0.55 } do
+		for _, x in { w * 0.2, w * 0.36 } do
+			n += 1
+			SK.rescue(site, `R{n}`, "Civilian", F * CF(x, GY, z), "sitting", "Driver")
+		end
+	end
+	-- the view the stop is named for
+	SK.part(site, "Viewpoint", F * CF(w * 0.3, GY + 1.2, d * 0.95), V(24, 2.4, 1), C.Wood)
 end
 
 ---------------------------------------------------------------------------------------------------
