@@ -191,6 +191,8 @@ def llm_stats(run_dir: Path) -> dict:
         "calls": len(calls),
         "input_tokens": sum(int(c.get("input_tokens") or 0) for c in calls),
         "output_tokens": sum(int(c.get("output_tokens") or 0) for c in calls),
+        # reply size in chars: robust where a streamed reply that stopped early logs too few output tokens
+        "reply_chars": sum(int(c.get("reply_chars") or 0) for c in calls),
         "latency_s": round(sum(int(c.get("latency_ms") or 0) for c in calls) / 1000, 1),
         "by_role": dict(sorted(by_role.items())),
         "request_ids": [c.get("request_id") for c in calls if c.get("request_id")],
@@ -378,10 +380,12 @@ def totals(ideas: list[dict]) -> dict:
     return {
         "ideas": len(ideas),
         "built": sum(1 for i in ideas if i.get("ok")),
+        "modules": sum(i.get("modules") or 0 for i in ideas),
         "wall_s": round(sum(i.get("wall_s") or 0 for i in ideas), 1),
         "llm_calls": sum((i.get("llm") or {}).get("calls", 0) for i in ideas),
         "input_tokens": sum((i.get("llm") or {}).get("input_tokens", 0) for i in ideas),
         "output_tokens": sum((i.get("llm") or {}).get("output_tokens", 0) for i in ideas),
+        "reply_chars": sum((i.get("llm") or {}).get("reply_chars", 0) for i in ideas),
         "first_try_pass_rate": mean([(i.get("compile_first") or {}).get("pass_rate") for i in ideas]),
         "fixes": sum((i.get("fixes") or {}).get("total", 0) for i in ideas),
         "compile_errors_left": sum(i.get("compile_errors_left") or 0 for i in ideas),
@@ -391,6 +395,9 @@ def totals(ideas: list[dict]) -> dict:
         "checks": sum((i.get("acceptance") or {}).get("checks", 0) for i in ideas),
         "done_parts": sum((i.get("done") or {}).get("ok", 0) for i in ideas),
         "done_of": sum((i.get("done") or {}).get("of", 0) for i in ideas),
+        "done_share": round(sum((i.get("done") or {}).get("ok", 0) for i in ideas)
+                            / sum((i.get("done") or {}).get("of", 0) for i in ideas), 3)
+        if sum((i.get("done") or {}).get("of", 0) for i in ideas) else None,
         "ready": sum(1 for i in ideas if (i.get("done") or {}).get("ready")),
         "corrections": sum(i.get("corrections") or 0 for i in ideas),
     }
@@ -495,8 +502,11 @@ def render(result: dict) -> str:
 
 
 # (label, getter, higher_is_better, format)
-METRICS: list[tuple[str, Callable[[dict], Any], bool, str]] = [
+METRICS: list[tuple[str, Callable[[dict], Any], bool | None, str]] = [
+    ("modules (game size)", lambda i: i.get("modules"), None, "g"),
     ("wall s", lambda i: i.get("wall_s"), False, ".1f"),
+    ("build s per module", lambda i: round(i["stages"]["build"] / i["modules"], 1)
+     if (i.get("stages") or {}).get("build") and i.get("modules") else None, False, ".1f"),
     ("design s", lambda i: (i.get("stages") or {}).get("design"), False, ".1f"),
     ("build s", lambda i: (i.get("stages") or {}).get("build"), False, ".1f"),
     ("iterate s", lambda i: (i.get("stages") or {}).get("iterate"), False, ".1f"),
@@ -509,6 +519,7 @@ METRICS: list[tuple[str, Callable[[dict], Any], bool, str]] = [
      if (i.get("llm") or {}).get("latency_s") and i.get("wall_s") else None, True, ".2f"),
     ("tokens", lambda i: ((i.get("llm") or {}).get("input_tokens", 0) + (i.get("llm") or {}).get("output_tokens", 0))
      if i.get("llm") else None, False, "g"),
+    ("reply chars", lambda i: (i.get("llm") or {}).get("reply_chars"), False, "g"),
     ("1st-try compile", lambda i: (i.get("compile_first") or {}).get("pass_rate"), True, ".2f"),
     ("fixes", lambda i: (i.get("fixes") or {}).get("total"), False, "g"),
     ("compile left", lambda i: i.get("compile_errors_left"), False, "g"),
@@ -545,7 +556,7 @@ def compare(a: dict, b: dict) -> str:
             return None
         d = "" if va is None or vb is None else vb - va
         verdict = ""
-        if isinstance(d, (int, float)) and d != 0:
+        if isinstance(d, (int, float)) and d != 0 and hib is not None:
             verdict = "better" if (d > 0) == hib else "worse"
         ds = "-" if d == "" else (f"+{d:{fmt}}" if d > 0 else f"{d:{fmt}}")
         return f"| {label} | {_f(va, fmt) if isinstance(va, float) else _f(va)} " \
@@ -567,14 +578,16 @@ def compare(a: dict, b: dict) -> str:
         ta = totals([ia[k] for k in common])
         tb = totals([ib[k] for k in common])
         out += [f"\n## totals over {', '.join(common)}\n", "| metric | A | B | B-A | |", "|---|---:|---:|---:|---|"]
-        for label, key, hib, fmt in [("wall s", "wall_s", False, ".1f"), ("LLM calls", "llm_calls", False, "g"),
+        for label, key, hib, fmt in [("modules (game size)", "modules", None, "g"), ("wall s", "wall_s", False, ".1f"), ("LLM calls", "llm_calls", False, "g"),
                                      ("input tokens", "input_tokens", False, "g"),
                                      ("output tokens", "output_tokens", False, "g"),
+                                     ("reply chars", "reply_chars", False, "g"),
                                      ("1st-try compile", "first_try_pass_rate", True, ".2f"),
                                      ("fixes", "fixes", False, "g"), ("compile left", "compile_errors_left", False, "g"),
                                      ("critic final", "critic_final", True, ".2f"), ("fun", "fun_final", True, ".2f"),
                                      ("checks passed", "checks_passed", True, "g"),
-                                     ("done parts", "done_parts", True, "g"), ("ready", "ready", True, "g"),
+                                     ("done parts", "done_parts", True, "g"), ("done share", "done_share", True, ".2f"),
+                                     ("ready", "ready", True, "g"),
                                      ("corrections", "corrections", False, "g")]:
             r = row(label, ta.get(key), tb.get(key), hib, fmt)
             if r:

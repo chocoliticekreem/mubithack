@@ -1,0 +1,159 @@
+{
+ "schema": 1,
+ "stamp": "20261024T040253Z",
+ "label": "studio after #1 #2 #7 (main cd2063d)",
+ "mode": "real",
+ "studio": "Forge-agents-29",
+ "model": "claude-sonnet-5-5",
+ "iterations": 1,
+ "improve": 0,
+ "checks": 8,
+ "lessons": "starter",
+ "git": {
+  "sha": "1c48365",
+  "branch": "bench/after-all",
+  "subject": "bench: game size + build s/module + done share in compare; post-#113 run evidence"
+ },
+ "ideas": [
+  {
+   "id": "tycoon",
+   "idea": "A tiny tycoon: a dropper spawns cubes, a conveyor carries them to a collector that pays cash, and players buy a second dropper and a faster conveyor with that cash.",
+   "slug": "a-tiny-tycoon-a-dropper-spawns",
+   "ok": true,
+   "error": null,
+   "stages": {
+    "build": 280.5,
+    "compile_fix": 0.21,
+    "playtest": 8.99,
+    "iterate": 94.07,
+    "checks": 46.29,
+    "design": 155.01
+   },
+   "compile_first": {
+    "modules": 11,
+    "written": 11,
+    "failing": [],
+    "pass_rate": 1.0
+   },
+   "overhead_s": 0.16,
+   "wall_s": 575.88,
+   "llm": {
+    "calls": 23,
+    "input_tokens": 187880,
+    "output_tokens": 30465,
+    "reply_chars": 210854,
+    "latency_s": 884.0,
+    "by_role": {
+     "check_reviewer": 1,
+     "coder": 10,
+     "critic": 1,
+     "designer": 1,
+     "director": 1,
+     "fixer": 6,
+     "fun_critic": 1,
+     "reflector": 1,
+     "scenarist": 1
+    },
+    "request_ids": [
+     "mreq_01a16c138d127e82925722a6d622a60e",
+     "mreq_01a16c14afa27272b536b6eac2a53bca",
+     "mreq_01a16c15c61873428d80584388c127c1",
+     "mreq_01a16c160c177ac1896505e5ed799b42",
+     "mreq_01a16c160c347620868035c12b09642f",
+     "mreq_01a16c160c047182b775763e4aee1eb8",
+     "mreq_01a16c1814417bc0bf5bfeef91711a2f",
+     "mreq_01a16c1868cf74d28354ddaade13687b",
+     "mreq_01a16c1868e17c12b7a72c2385197525",
+     "mreq_01a16c1868f374b28c10558f321e4d7b",
+     "mreq_01a16c19445374d3954bd5081ea0b57d",
+     "mreq_01a16c19b5c27a51ba2b7020a34fee39",
+     "mreq_01a16c1a330975f3b26ed74e9f7a9c0f",
+     "mreq_01a16c1a331e79b29249ccd6db4cd916",
+     "mreq_01a16c1a761a79e287ca1377cd6a4009",
+     "mreq_01a16c1a75c97aa28f96275f1fa5a106",
+     "mreq_01a16c1a75947ae3a79cb24405fff083",
+     "mreq_01a16c1a75b075119865ec52c75e4b01",
+     "mreq_01a16c1a759373728f0f3924407f8725",
+     "mreq_01a16c1a75df7f70b32932671bad1c9c",
+     "mreq_01a16c1b50cb72019d8fbf6956b2e887",
+     "mreq_01a16c1b7e237e7382271f4a6080f5f1",
+     "mreq_01a16c1c05777421bb7f332ce147293a"
+    ]
+   },
+   "title": "Cube Factory Boss",
+   "modules": 11,
+   "iterations": 1,
+   "fixes": {
+    "compile": 0,
+    "critic": 6,
+    "total": 6
+   },
+   "compile_errors_left": 0,
+   "runtime_errors": 0,
+   "acceptance": {
+    "criteria": 8,
+    "checks": 8,
+    "passed": 8
+   },
+   "critic": {
+    "scores": [
+     7.0
+    ],
+    "first": 7.0,
+    "final": 7.0,
+    "best": 7.0
+   },
+   "fun": {
+    "scores": [
+     6.2
+    ],
+    "final": 6.2
+   },
+   "improve": {
+    "cycles": 0,
+    "open": null
+   },
+   "done": {
+    "ready": false,
+    "ok": 5,
+    "of": 9,
+    "pct": 0.556,
+    "parts": {
+     "checks": true,
+     "features": true,
+     "open": false,
+     "critic": false,
+     "fun": false,
+     "visuals": true,
+     "hud": true,
+     "sounds": true,
+     "first60": false
+    }
+   },
+   "corrections": 0,
+   "dir": "/Users/arvin/orca/mubithack/.claude/worktrees/agent-acce60cdbc558192e/runs/bench/20261024T040253Z/tycoon/a-tiny-tycoon-a-dropper-spawns"
+  }
+ ],
+ "totals": {
+  "ideas": 1,
+  "built": 1,
+  "modules": 11,
+  "wall_s": 575.9,
+  "llm_calls": 23,
+  "input_tokens": 187880,
+  "output_tokens": 30465,
+  "reply_chars": 210854,
+  "first_try_pass_rate": 1.0,
+  "fixes": 6,
+  "compile_errors_left": 0,
+  "critic_final": 7.0,
+  "fun_final": 6.2,
+  "checks_passed": 8,
+  "checks": 8,
+  "done_parts": 5,
+  "done_of": 9,
+  "done_share": 0.556,
+  "ready": 0,
+  "corrections": 0
+ }
+}
