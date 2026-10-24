@@ -893,12 +893,12 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 
 	------------------------------------------------------------ locker room
-	-- gear racks 1..4 on the west wall, spawn pads in front of them
-	for i = 1, 4 do
-		local z = -24 + (i - 1) * 8
+	-- gear racks 1..8 on the west wall (squads of up to 8), spawn pads in front of them
+	for i = 1, 8 do
+		local z = -37 + (i - 1) * 5.3
 		local rack = folder(lockerRoom, `GearRack{i}`)
 		rack:SetAttribute(ATTR_SLOT, i)
-		local board = part(rack, "GearRack", facing(-58.7, FLOOR + 4.6, z, 1, 0), V(6, 7.6, 0.6), C.TruckRed)
+		local board = part(rack, "GearRack", facing(-58.7, FLOOR + 4.6, z, 1, 0), V(4.8, 7.6, 0.6), C.TruckRed)
 		CollectionService:AddTag(board, TAG_GEAR_RACK)
 		board:SetAttribute(ATTR_SLOT, i)
 		board:SetAttribute(Names.Attr.Helmet, i)
@@ -915,13 +915,13 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		end
 		local np = plate(rack, "RackNumber", -58.3, FLOOR + 9.4, z, 1, 0, 3, 1.6, C.Trim, string.format("%02d", i), C.TruckRed, Enum.Font.LuckiestGuy)
 		np.CanCollide = false
-		box(rack, "Shelf", -57.6, FLOOR + 7.0, z, 2.2, 0.4, 6, C.WoodLight)
+		box(rack, "Shelf", -57.6, FLOOR + 7.0, z, 2.2, 0.4, 4.8, C.WoodLight)
 		helmet(rack, -57.6, FLOOR + 7.2, z, 1, 0)
-		for _, dz in { -1.6, 0, 1.6 } do
+		for _, dz in { -1.4, 0, 1.4 } do
 			cyl(rack, "Hook", CFrame.new(-57.8, FLOOR + 5.4, z + dz), "x", 1.2, 0.3, C.Chrome)
 		end
-		box(rack, "Coat", -57.9, FLOOR + 3.6, z + 1.6, 0.8, 3.4, 2.2, C.Coat, { collide = false })
-		box(rack, "CoatBand", -57.85, FLOOR + 2.7, z + 1.6, 0.9, 0.5, 2.3, C.Lime, { collide = false })
+		box(rack, "Coat", -57.9, FLOOR + 3.6, z + 1.3, 0.8, 3.4, 1.8, C.Coat, { collide = false })
+		box(rack, "CoatBand", -57.85, FLOOR + 2.7, z + 1.3, 0.9, 0.5, 1.9, C.Lime, { collide = false })
 		box(rack, "BootL", -57.2, FLOOR + 0.8, z - 1, 1.6, 1.6, 1, C.Ink)
 		box(rack, "BootR", -57.2, FLOOR + 0.8, z + 0.2, 1.6, 1.6, 1, C.Ink)
 		-- spawn pad (StationSpawn)
@@ -932,7 +932,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		local inner = box(spawns, `SpawnPadInner{i}`, -51, FLOOR, z, 3.4, 0.4, 3.4, C.TruckRed)
 		label(inner, Enum.NormalId.Top, string.format("%02d", i), C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	end
-	plate(lockerRoom, "SuitUp", -59, FLOOR + 10, -12, 1, 0, 12, 1.4, C.TruckRed, "SUIT UP - GRAB YOUR GEAR", C.Trim, Enum.Font.LuckiestGuy)
+	plate(lockerRoom, "SuitUp", -59, FLOOR + 10.8, -18, 1, 0, 14, 1.4, C.TruckRed, "SUIT UP - GRAB YOUR GEAR", C.Trim, Enum.Font.LuckiestGuy)
 	-- spare lockers on the front wall (between the doors), facing into the room
 	for k, x in { -45.5, -42.5, -39.5, -36.5, -33.5 } do
 		prop("locker", lockerRoom, facing(x, FLOOR, 4.6, 0, -1), { door = true, helmet = k }, function()

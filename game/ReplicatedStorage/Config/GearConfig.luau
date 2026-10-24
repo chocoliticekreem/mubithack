@@ -60,6 +60,6 @@ return Config.define({
 	MuffleHighGain = -18, -- dB on the world's highs while masked (EqualizerSoundEffect)
 
 	-- locker / rack pegs
-	PegRestockSeconds = 6,
+	PegRestockSeconds = 0.3, -- infinite stock
 	LockerDistance = 9,
 })

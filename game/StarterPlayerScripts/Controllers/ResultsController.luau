@@ -234,7 +234,7 @@ local function show(payload: Types.ResultsPayload)
 	root.Size = UDim2.fromOffset(1280, 720)
 	root.Parent = screen
 
-	local title = UiKit.label(root, "Title", "FLAME AND BLAME", UDim2.new(1, 0, 0, 90), UDim2.fromOffset(0, 10), {
+	local title = UiKit.label(root, "Title", "STATION 67", UDim2.new(1, 0, 0, 90), UDim2.fromOffset(0, 10), {
 		font = UiKit.Header,
 		textSize = 82,
 		color = Color3.new(1, 1, 1),

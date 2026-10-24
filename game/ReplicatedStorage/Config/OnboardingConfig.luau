@@ -6,8 +6,8 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	Enabled = true,
-	Title = "FLAME AND BLAME",
-	Subtitle = "Station 67",
+	Title = "STATION 67",
+	Subtitle = "Flame and Blame",
 	Tagline = "Save the day. Blame your friends.",
 	TitleSeconds = 3.2, -- first join (returning players get a short 1.6 s version)
 	ReturningTitleSeconds = 1.6,
