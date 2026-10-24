@@ -15,7 +15,7 @@ lobby plus "+XP" popups.
 | `ReplicatedStorage/Config/DataConfig.luau` | both | every number: store names, timings, XP rewards, blame weights, cosmetics, board placement |
 | `game/tests/data.spec.luau` | CI | 18 specs over ProfileSchema |
 
-## Profile (schema v2)
+## Profile (schema v4)
 
 ```
 version, xp (lifetime), level (derived from xp, stored for readers)
@@ -25,7 +25,9 @@ rescued = { Civilian, Dog, Cat, Panda }                          -- from RescueS
 awards[awardId] = times earned
 blamePoints                                                      -- see "Blame points"
 cosmetics = { owned[id] = true, equipped = { helmet, hose } }    -- ids from DataConfig.Cosmetics
-settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups }  -- whitelisted
+settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups, ... }  -- whitelisted
+gear = { unlocked[id] = true, loadout = { id } }                  -- v3: locker (GearService)
+guides = { seen[missionId] = true }                              -- v4: first-time mission guide done (MissionGuideService)
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
 meta = { created, lastSeen, sessions }
 ```
@@ -37,7 +39,9 @@ is at `Version`, then runs `reconcile`, which fills missing keys, fixes wrong ty
 settings. A save from a **newer** schema is refused, and the player gets a temporary profile, so an
 old server never overwrites it. To bump the schema, add `MIGRATIONS[Version]`, increment `Version`,
 add a spec, and never edit an old migration. v1 was the draft shape: `petsRescued` was a single
-number, cosmetics were a flat list, and there were no settings or weekly counters.
+number, cosmetics were a flat list, and there were no settings or weekly counters. v3 added `gear`.
+v4 added `guides.seen`; the v3 -> v4 migration marks every mission you've already played as seen, so
+veterans get the one-line tip instead of the full first-time guide.
 
 ## Session locking and saving
 
