@@ -415,7 +415,7 @@ class HeadlessStudio:
 
 
 async def playtest(game_dir: Path, *, play: float = 20.0, players: int = 2, clients: bool = True, slug: str = "",
-                   start_round: bool = False, log: Any = None) -> dict:
+                   start_round: bool = False, log: Any = None, during: Any = None) -> dict:
     """The build loop's playtest without Studio: boot the server with `players` simulated clients, start a
     round through the ForgeTest harness when `start_round`, run `play` simulated seconds, then take the
     probe report and the scene census (server and client halves). -> a ForgeProbe-shaped report plus
@@ -434,8 +434,11 @@ async def playtest(game_dir: Path, *, play: float = 20.0, players: int = 2, clie
             except StudioError as e:
                 if log:
                     log(f"[headless] round start failed: {e}")
+        smoke = await during(hs) if during is not None else None  # e.g. Run.smoke: scripted play, no LLM
         await hs.run(play)
         rep = dict(await hs.probe_report())
+        if smoke is not None:
+            rep["smoke"] = smoke
         rep["census"] = await fun.census(hs)
         rep["census"]["source"] = "headless playtest"
     except StudioError as e:

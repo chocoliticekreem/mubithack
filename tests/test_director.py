@@ -196,7 +196,9 @@ async def test_new_game_with_director_builds_kit_and_skips_it_in_the_coder(setti
     assert [i["problem"] for i in rec["issues"]] == ["silent HUD"]
     assert any(f["path"] == "StarterPlayerScripts/Hud.client.luau" for f in rec["fixes"])
     latest = fun.FunStore(settings, slug).latest()
-    assert latest["score"] == 5.5 and latest["census"]["source"] == "static"
+    # --no-studio still playtests headless, so the census comes from that run (static without luau)
+    want = "headless playtest" if shutil.which("luau") else "static"
+    assert latest["score"] == 5.5 and latest["census"]["source"] == want
 
 
 # ---------------------------------------------------------------- fun critic
