@@ -331,3 +331,10 @@ Inside this repo both plugins are enabled by `.claude/settings.json`.
 - `docs/TEAM.md`: how the team works in parallel (lanes, branches, PRs). The repo's Stop hook
   (`scripts/git-sync.sh`) pushes local commits on your current branch after every Claude turn, so
   keep work on branches.
+
+## Hall of fame
+
+**Christopher White** was here.
+
+> Why is the game called *Flame and Blame*? Because that's every codebase: something's on fire, and
+> `git blame` says it was you.
