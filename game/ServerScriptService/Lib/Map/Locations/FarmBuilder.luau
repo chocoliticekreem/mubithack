@@ -1259,6 +1259,7 @@ end
 
 function FarmBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	model:SetAttribute("DisplayName", "Sunny Acres Farm")
+	model:SetAttribute("InteriorOrigin", origin) -- Lib/Map/Interiors/Districts dresses the interiors per run
 	model:SetAttribute("AtmospherePreset", "DuskSuburb") -- closest preset to 02's "Golden Farm"
 	ground(model, origin, rng)
 	entrance(model, origin)
