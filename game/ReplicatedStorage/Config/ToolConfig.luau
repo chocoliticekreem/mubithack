@@ -26,6 +26,11 @@ return Config.define({
 	SprayFovKick = 5, -- degrees added on spray start, scaled by pressure
 	SprayShakeBase = 0.08, -- continuous camera trauma while spraying ...
 	SprayShakeExtra = 0.22, -- ... plus this much at pressure 1
+	-- first person: keep the centre of the screen and the fire visible while spraying
+	FpSprayStart = 2.4, -- stream particles are born this many studs out along the aim, not at the lens
+	FpSprayStartCalm = 3.4, -- ... further out on phones / EFFECTS: CALM (ClientLib/Calm)
+	SprayLensNear = 3, -- impact splash / douse steam shrink to nothing this close to the camera ...
+	SprayLensFar = 12, -- ... and are full size from here on (ToolMath.lensFade)
 	-- extinguisher (G1 extra)
 	FoamSize = 20, -- charges per extinguisher
 	FoamPerSpray = 0.4, -- charges per Tool/Spray event (4/s -> 5 s of foam)

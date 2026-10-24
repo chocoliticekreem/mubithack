@@ -108,4 +108,14 @@ function ToolMath.shake(pressure: number, base: number, extra: number): number
 	return ToolMath.clamp01(base + extra * ToolMath.clamp01(pressure))
 end
 
+-- 0 when `dist` <= near, 1 when >= far, smooth in between: how much of a spray / steam effect may
+-- show this close to the camera (first-person stream, impact splash, douse steam).
+function ToolMath.lensFade(dist: number, near: number, far: number): number
+	if far <= near then
+		return if dist >= far then 1 else 0
+	end
+	local t = ToolMath.clamp01((dist - near) / (far - near))
+	return t * t * (3 - 2 * t)
+end
+
 return ToolMath

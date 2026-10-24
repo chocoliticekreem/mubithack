@@ -13,6 +13,11 @@
 --     tank x HoseLine's HosePressure attr); you walk slower while bracing it. On a WetFloor puddle you
 --     keep your momentum like ice, and spraying there launches you across the room. Aim straight down
 --     long enough and you hose-rocket upwards.
+--   First person (your own stream): the particles are born ToolConfig.FpSprayStart studs out along the
+--     aim, start small and see-through and grow as they fly; the nozzle burst is a small spark and the
+--     beam fades in from the nozzle; the impact splash shrinks near the lens (ToolMath.lensFade), so the
+--     crosshair and the fire stay visible. Phones / EFFECTS: CALM (ClientLib/Calm) get it lighter still,
+--     and no full-screen flash ever goes off while you spray.
 --   Feel: FOV kick on spray start (scaled by pressure), continuous camera shake scaled by pressure,
 --     shakes on axe swings / door hits / getting soaked (FirstPersonController:Shake, nil-guarded),
 --     splash / foam white-out / BONK overlays when Tool/Pushed hits you, world text pops from Tool/Fx.
@@ -35,6 +40,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
@@ -202,6 +208,11 @@ local function screen(): ScreenGui
 end
 
 local function flash(color: Color3, from: number, hold: number, fade: number)
+	-- never a full-screen flash while you spray: the fire you aim at has to stay visible
+	if heldKind() ~= nil then
+		return
+	end
+	from = Calm.alpha(from) -- phones / EFFECTS: CALM: a fainter flash
 	local f = Instance.new("Frame")
 	f.Size = UDim2.fromScale(1, 1)
 	f.BackgroundColor3 = color
@@ -215,6 +226,9 @@ local function flash(color: Color3, from: number, hold: number, fade: number)
 end
 
 local function droplets(count: number)
+	if Calm.on() then
+		count = math.min(count, 2)
+	end
 	local g = screen()
 	local rng = Random.new()
 	for _ = 1, count do
@@ -459,7 +473,13 @@ local function renderStream(player: Player, kind: string, tool: Tool, aim: Vecto
 	s.beam.CurveSize1 = (p3 - p2).Magnitude
 	s.core.CurveSize0 = s.beam.CurveSize0
 	s.core.CurveSize1 = s.beam.CurveSize1
-	s.emitAt.WorldCFrame = CFrame.lookAt(origin, origin + aim)
+	-- first person (your own stream): keep the lens clear. Particles are born further out along the
+	-- aim, small and see-through, and grow once they are away from the camera.
+	local lens = player == LocalPlayer and isFirstPerson()
+	local calm = lens and Calm.on()
+	local start = if lens then (if calm then ToolConfig.FpSprayStartCalm else ToolConfig.FpSprayStart) else 0
+	start = math.min(start, math.max(0, (p3 - origin).Magnitude - 0.5)) -- never past the impact point
+	s.emitAt.WorldCFrame = CFrame.lookAt(origin + aim * start, origin + aim * (start + 1))
 
 	local color = if foam then FOAM_COLOR else Palette.WaterSpray
 	s.emitter.Color = ColorSequence.new(color)
@@ -468,15 +488,70 @@ local function renderStream(player: Player, kind: string, tool: Tool, aim: Vecto
 	s.splash.Color = ColorSequence.new(color)
 	s.emitter.Speed = NumberRange.new(speed * 0.93, speed * 1.07)
 	s.emitter.Acceleration = Vector3.new(0, -g, 0)
-	s.emitter.Size = if foam then NumberSequence.new(0.8, 2.4) else NumberSequence.new(0.5, 1.4)
+	local big = if foam then 2.4 else 1.4
+	if lens then
+		local k = if calm then 0.6 else 0.8
+		s.emitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.15),
+			NumberSequenceKeypoint.new(0.3, big * 0.45 * k),
+			NumberSequenceKeypoint.new(1, big * k),
+		})
+		s.emitter.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, if calm then 0.85 else 0.7),
+			NumberSequenceKeypoint.new(0.3, if calm then 0.5 else 0.3),
+			NumberSequenceKeypoint.new(1, 0.85),
+		})
+		-- the beam starts thin and fades in from the nozzle
+		local bt = if calm then 0.55 else 0.35
+		s.beam.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.85),
+			NumberSequenceKeypoint.new(0.18, bt),
+			NumberSequenceKeypoint.new(1, math.min(1, bt + 0.3)),
+		})
+		s.core.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.8),
+			NumberSequenceKeypoint.new(0.18, if calm then 0.4 else 0.1),
+			NumberSequenceKeypoint.new(1, if calm then 0.7 else 0.4),
+		})
+		s.beam.Width0 = 0.15
+		s.core.Width0 = 0.06
+		-- the nozzle "splash star" is a small spark, not a white-out (off when calm, below)
+		s.burst.Size = NumberSequence.new(0.12, 0.02)
+		s.burst.Transparency = NumberSequence.new(0.55, 1)
+		s.burst.SpreadAngle = Vector2.new(30, 30)
+	else
+		s.emitter.Size = NumberSequence.new(if foam then 0.8 else 0.5, big)
+		s.emitter.Transparency = NumberSequence.new(0.15, 0.7)
+		s.beam.Transparency = NumberSequence.new(0.35, 0.65)
+		s.core.Transparency = NumberSequence.new(0.1, 0.4)
+		s.beam.Width0 = 0.35
+		s.core.Width0 = 0.15
+		s.burst.Size = NumberSequence.new(0.3, 0.05)
+		s.burst.Transparency = NumberSequence.new(0.1, 1)
+		s.burst.SpreadAngle = Vector2.new(60, 60)
+	end
 	s.beam.Width1 = if foam then 2.2 else 0.6 + 0.8 * pressure
 	s.burst.Rate = 20 + 60 * pressure
+
+	-- the impact splash shrinks when it lands close to your face (spraying a fire at arm's length)
+	local cam = workspace.CurrentCamera
+	local splashK = 1
+	if lens and cam then
+		local fade = ToolMath.lensFade((p3 - cam.CFrame.Position).Magnitude, ToolConfig.SprayLensNear, ToolConfig.SprayLensFar)
+		splashK = math.max(0.15, fade) * (if calm then 0.6 else 1)
+	end
+	s.splash.Size = NumberSequence.new(0.35 * splashK, 0.1 * splashK)
+	s.splash.Rate = 70 * math.max(splashK, 0.3)
 
 	-- low tank: the stream sputters in pulses
 	local left, size = resource(player, kind)
 	local sputter = left < size * ToolConfig.LowWaterFraction and math.sin(now * 22) > 0.2
-	s.emitter.Rate = if sputter then 15 else if foam then 90 else 60 + 80 * pressure
+	local rate = if sputter then 15 else if foam then 90 else 60 + 80 * pressure
+	s.emitter.Rate = if calm then rate * 0.6 else rate
 	setStreamOn(s, true)
+	if calm then
+		s.burst.Enabled = false
+	end
 	if sputter then
 		s.beam.Enabled = false
 		s.core.Enabled = false
@@ -623,7 +698,8 @@ local function fovStep(dt: number)
 	end
 	local active = heldKind() ~= nil and toolOf(LocalPlayer) ~= nil and not blocked(LocalPlayer)
 	local _, kind = toolOf(LocalPlayer)
-	local target = if active and kind then ToolConfig.SprayFovKick * pressureOf(LocalPlayer, kind) else 0
+	-- phones / EFFECTS: CALM: a third of the kick (ClientLib/Calm)
+	local target = if active and kind then Calm.fx(ToolConfig.SprayFovKick) * pressureOf(LocalPlayer, kind) else 0
 	-- snap in (punch), ease out
 	local rate = if target > fovKick then 30 else 5
 	fovKick += (target - fovKick) * math.min(1, dt * rate)
@@ -732,7 +808,7 @@ local function hookTool(inst: Instance)
 			if handle then
 				playSound(ToolConfig.SoundAxeWhoosh, handle, 0.9, Random.new():NextNumber(0.9, 1.15))
 			end
-			fovKick -= 3 -- a quick inward punch on the swing
+			fovKick -= Calm.fx(3) -- a quick inward punch on the swing
 		end)
 		return
 	end
@@ -829,14 +905,14 @@ local function onFx(kind: any, position: any, extra: any)
 		soundAt(ToolConfig.SoundAxeThunk, pos, 0.9)
 		shake(0.25 * nearMe(pos, 14), 0.2)
 		if mine then
-			fovKick += 2.5 -- impact punch: snap out, eases back with the spray kick
+			fovKick += Calm.fx(2.5) -- impact punch: snap out, eases back with the spray kick
 			flash(Color3.new(1, 1, 1), 0.88, 0.02, 0.08) -- one-frame impact flash
 		end
 	elseif kind == "crack" then
 		soundAt(ToolConfig.SoundDoorCrash, pos, 1)
 		shake(0.55 * nearMe(pos, 30), 0.45)
 		if mine then
-			fovKick += 4
+			fovKick += Calm.fx(4)
 			flash(Color3.fromRGB(255, 236, 200), 0.8, 0.03, 0.12)
 		end
 	elseif kind == "bonk" then

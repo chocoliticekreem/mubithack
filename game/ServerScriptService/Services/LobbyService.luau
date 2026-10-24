@@ -795,12 +795,15 @@ local function setAfkTag(player: Player, on: boolean)
 	end
 	local tag = head:FindFirstChild("CoffeeBreak")
 	if on and not tag then
+		-- a name-tag-sized label in pixels (the old 7 x 1.4 stud tag filled an iPad screen up close),
+		-- and never on your own screen: you know you're idle
 		local bb = Instance.new("BillboardGui")
 		bb.Name = "CoffeeBreak"
-		bb.Size = UDim2.new(7, 0, 1.4, 0)
-		bb.StudsOffset = Vector3.new(0, 2.6, 0)
-		bb.MaxDistance = 80
+		bb.Size = UDim2.fromOffset(120, 22)
+		bb.StudsOffset = Vector3.new(0, 2.2, 0)
+		bb.MaxDistance = 60
 		bb.LightInfluence = 0
+		bb.PlayerToHideFrom = player
 		local t = Instance.new("TextLabel")
 		t.BackgroundTransparency = 1
 		t.Size = UDim2.fromScale(1, 1)
@@ -809,7 +812,7 @@ local function setAfkTag(player: Player, on: boolean)
 		t.Font = Enum.Font.FredokaOne
 		t.TextColor3 = Color3.fromHex("F2E3C6")
 		local s = Instance.new("UIStroke")
-		s.Thickness = 2
+		s.Thickness = 1.5
 		s.Color = Color3.fromHex("5A3A22")
 		s.Parent = t
 		t.Parent = bb
