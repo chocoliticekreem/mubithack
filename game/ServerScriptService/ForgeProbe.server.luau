@@ -7,6 +7,12 @@
 --   :Invoke("reset")  -> clears errors/warnings, returns "ok"
 --   :Invoke("hotreload", liveModule, cloneWithNewSource) -> "reloaded N" | "error: ..."
 --     copies the clone's functions into the live module table (forge Studio.hot_reload)
+--   :Invoke("physics") -> JSON {"flagged": [...], "watched", "loudest": [...]} (also "physics" in "report")
+--
+-- Physics sampler: every 0.5 s it samples the root parts of unanchored assemblies that should be at
+-- rest (no Humanoid in their model, no occupied Seat/VehicleSeat) and flags the ones that keep moving
+-- over a 4 s window: "jitter" (speed or spin keeps going but it stays in place) or "drift" (slow steady
+-- creep). Each newly flagged assembly bumps the physics_jitter / physics_drift counter.
 --
 -- ServerStorage.DevHook (BindableFunction)
 --   :Invoke(moduleName, method, ...) -> (true, results...) | (false, err)
@@ -146,6 +152,217 @@ local function counters(): { [string]: number }
 	return out
 end
 
+-- ------------------------------------------------------------------ physics sampler
+
+local SAMPLE_EVERY = 0.5
+local RESCAN_EVERY = 5
+local WINDOW = 8
+local MAX_ROOTS = 150
+local MIN_MASS = 2
+local SETTLE_SECONDS = 3
+local ACTIVE_SPEED, ACTIVE_ANGVEL = 1.0, 1.0
+local JITTER_ACTIVE, JITTER_MAX_NET = 4, 3
+local DRIFT_ACTIVE, DRIFT_MIN_NET, DRIFT_MAX_SPEED = 6, 3, 12
+local MAX_FLAGGED = 30
+
+type Watch = { root: BasePart, seats: { Instance }, since: number, samples: { { p: Vector3, v: number, w: number } } }
+type Flag = { path: string, model: string, kind: string, max_speed: number, max_angvel: number, moved_studs: number, windows: number, last: number }
+
+local watched: { [BasePart]: Watch } = {}
+local watchedCount = 0
+local flagged: { [string]: Flag } = {}
+local flaggedCount = 0
+local loudest: { [BasePart]: { path: string, max_speed: number, max_angvel: number } } = {}
+
+local telemetry: any = nil
+pcall(function()
+	telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry", 5) :: ModuleScript)
+end)
+
+local function r2(x: number): number
+	return math.floor(x * 100 + 0.5) / 100
+end
+
+local function controlled(part: BasePart): boolean
+	local m = part:FindFirstAncestorOfClass("Model")
+	local depth = 0
+	while m and depth < 4 do
+		if m:FindFirstChildOfClass("Humanoid") then
+			return true
+		end
+		m = m:FindFirstAncestorOfClass("Model")
+		depth += 1
+	end
+	return false
+end
+
+local function seatsOf(part: BasePart): { Instance }
+	local seats = {}
+	local m = part:FindFirstAncestorOfClass("Model")
+	if m then
+		for _, d in m:GetDescendants() do
+			if d:IsA("Seat") or d:IsA("VehicleSeat") then
+				table.insert(seats, d)
+			end
+		end
+	end
+	return seats
+end
+
+local function occupied(w: Watch): boolean
+	for _, s in w.seats do
+		if (s :: any).Occupant ~= nil then
+			return true
+		end
+	end
+	return false
+end
+
+local function rescan()
+	local found: { BasePart } = {}
+	for _, d in workspace:GetDescendants() do
+		if d:IsA("BasePart") and not d.Anchored and d.AssemblyRootPart == d and d.AssemblyMass >= MIN_MASS then
+			table.insert(found, d)
+		end
+	end
+	table.sort(found, function(a, b)
+		return a.AssemblyMass > b.AssemblyMass
+	end)
+	local keep: { [BasePart]: boolean } = {}
+	local now = os.clock()
+	local n = 0
+	for _, part in found do
+		if n >= MAX_ROOTS then
+			break
+		end
+		if not controlled(part) then
+			n += 1
+			keep[part] = true
+			if not watched[part] then
+				watched[part] = { root = part, seats = seatsOf(part), since = now, samples = {} }
+				watchedCount += 1
+			end
+		end
+	end
+	for part in watched do
+		if not keep[part] then
+			watched[part] = nil
+			loudest[part] = nil
+			watchedCount -= 1
+		end
+	end
+end
+
+local function classify(w: Watch): (string?, number, number, number)
+	local s = w.samples
+	local maxV, maxW, active = 0, 0, 0
+	for _, x in s do
+		maxV = math.max(maxV, x.v)
+		maxW = math.max(maxW, x.w)
+		if x.v > ACTIVE_SPEED or x.w > ACTIVE_ANGVEL then
+			active += 1
+		end
+	end
+	local net = (s[#s].p - s[1].p).Magnitude
+	if active >= JITTER_ACTIVE and net < JITTER_MAX_NET then
+		return "jitter", maxV, maxW, net
+	end
+	if active >= DRIFT_ACTIVE and net >= DRIFT_MIN_NET and maxV < DRIFT_MAX_SPEED then
+		return "drift", maxV, maxW, net
+	end
+	return nil, maxV, maxW, net
+end
+
+local function sample()
+	local now = os.clock()
+	for part, w in watched do
+		if not part.Parent or part.Anchored or part.AssemblyRootPart ~= part then
+			watched[part] = nil
+			loudest[part] = nil
+			watchedCount -= 1
+			continue
+		end
+		if occupied(w) or now - w.since < SETTLE_SECONDS then
+			table.clear(w.samples)
+			continue
+		end
+		table.insert(w.samples, { p = part.Position, v = part.AssemblyLinearVelocity.Magnitude, w = part.AssemblyAngularVelocity.Magnitude })
+		if #w.samples > WINDOW then
+			table.remove(w.samples, 1)
+		end
+		if #w.samples < WINDOW then
+			continue
+		end
+		local kind, maxV, maxW, net = classify(w)
+		local l = loudest[part]
+		if not l then
+			l = { path = part:GetFullName(), max_speed = 0, max_angvel = 0 }
+			loudest[part] = l
+		end
+		l.max_speed = math.max(l.max_speed, r2(maxV))
+		l.max_angvel = math.max(l.max_angvel, r2(maxW))
+		if kind then
+			local path = l.path
+			local key = path .. "|" .. kind
+			local f = flagged[key]
+			if not f then
+				if flaggedCount >= MAX_FLAGGED then
+					continue
+				end
+				local m = part:FindFirstAncestorOfClass("Model")
+				f = { path = path, model = if m then m:GetFullName() else "", kind = kind, max_speed = 0, max_angvel = 0, moved_studs = 0, windows = 0, last = 0 }
+				flagged[key] = f
+				flaggedCount += 1
+				if telemetry then
+					pcall(telemetry.count, "physics_" .. kind)
+				end
+			end
+			f.max_speed = math.max(f.max_speed, r2(maxV))
+			f.max_angvel = math.max(f.max_angvel, r2(maxW))
+			f.moved_studs = math.max(f.moved_studs, r2(net))
+			f.windows += 1
+			f.last = r2(now - started)
+			table.clear(w.samples) -- next window starts fresh, so `windows` counts distinct 4 s spans
+		end
+	end
+end
+
+local function physics()
+	local list = {}
+	for _, f in flagged do
+		table.insert(list, f)
+	end
+	table.sort(list, function(a, b)
+		return a.max_speed + a.max_angvel > b.max_speed + b.max_angvel
+	end)
+	local top = {}
+	for _, l in loudest do
+		table.insert(top, l)
+	end
+	table.sort(top, function(a, b)
+		return a.max_speed + a.max_angvel > b.max_speed + b.max_angvel
+	end)
+	return {
+		flagged = { table.unpack(list, 1, math.min(#list, 10)) },
+		watched = watchedCount,
+		loudest = { table.unpack(top, 1, math.min(#top, 3)) },
+	}
+end
+
+task.spawn(function()
+	local lastScan = -math.huge
+	while true do
+		task.wait(SAMPLE_EVERY)
+		pcall(function()
+			if os.clock() - lastScan >= RESCAN_EVERY then
+				lastScan = os.clock()
+				rescan()
+			end
+			sample()
+		end)
+	end
+end)
+
 local function report(): string
 	local errs = {}
 	for i, e in errors do
@@ -171,6 +388,7 @@ local function report(): string
 		joins = joins,
 		counters = c,
 		instances = #workspace:GetDescendants(),
+		physics = physics(),
 	}
 	local json = HttpService:JSONEncode(data)
 	if next(c) == nil then
@@ -200,6 +418,9 @@ probe.OnInvoke = function(cmd: string?, ...)
 			return res
 		end
 		return HttpService:JSONEncode({ error = "report failed: " .. tostring(res) })
+	elseif cmd == "physics" then
+		local ok, res = pcall(physics)
+		return HttpService:JSONEncode(if ok then res else { error = tostring(res) })
 	elseif cmd == "reset" then
 		table.clear(errors)
 		table.clear(errorIndex)

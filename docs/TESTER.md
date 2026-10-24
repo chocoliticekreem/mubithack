@@ -101,15 +101,48 @@ async def run_scenario(harness, scenario: dict) -> dict   # {"name", "steps": [{
     # returns {name, passed, steps: [{n, ok, detail, ms}], events}
 
 # forge/tester/ai.py   (every LLM call through forge.llm via Mubit)
-async def multi_playtest(settings, goal: str, players: int | None = None, steps: int = 20, roles: list[str] | None = None, *, llm=None, studio=None) -> dict
+async def multi_playtest(settings, goal: str, players: int | None = None, steps: int = 20, roles: list[str] | None = None, *, llm=None, studio=None, game_dir=None) -> dict
     # one `player` agent per connected player, acting concurrently each tick; shared goal plus a per-player role
     # (e.g. "nozzle", "rescuer", "chaos"); judge at the end. Report saved to runs/playtests/<run_id>/report.json
     # (same shape as forge.play reports, plus players: [...] and per-step player ids)
 async def explore(settings, minutes: float = 3, players=None, *, llm=None, studio=None) -> dict   # bug hunt: role `explorer`
+# mubit_tester/surfaces.py   (no LLM)
+def derive_surfaces(spec, game_dir, observations, limit=5) -> list[dict]   # [{name, gui, actions, source}]
+def coverage(surfaces, presses) -> dict   # {surfaces: [{name, gui, assigned, presses, fired, changed, actions_pressed}], pressed, total, gaps}
 async def suggest_fix(settings, run_id: str, bug_index: int, *, llm=None) -> dict   # critic+fixer roles → {path, problem, patch_preview}
 ```
 
 New fixed prompts (Mubit tasks): `forge/prompts/explorer.md`. `player` and `judge` are reused.
+
+## UI coverage (every UI feature gets a press)
+
+A round goal rarely names the menus, so testers skipped them (Flame and Blame run 1: 0 presses, the
+battle pass Claim never exercised). Each playtest now derives up to 5 **UI surfaces** at tick 1
+(`mubit_tester/surfaces.py`, generic for any game):
+- client scripts under `game_dir` (`StarterPlayerScripts`, `StarterGui`): per script, the first
+  TextButton/ImageButton text is the surface (`Pass`), the other texts its actions (`Get Premium
+  Pass`, `Claim`; state labels ending in -ed and `X`/`Close` are skipped), the ScreenGui name its `gui`;
+- the live `ui` of the first observations (buttons a player can press now);
+- the spec (title, pitch, core loop, acceptance, features) to rank design-named surfaces first.
+A script surface is kept only when the live UI or the spec confirms it, so a foreign or stale script
+never adds work. Surfaces are assigned round-robin to players who can press (`can_press`); each
+presser's user message gets `## UI features assigned to you` (never the frozen prompts). The report
+gets `ui_surfaces` and `ui_coverage` (`pressed`/`total`, per surface presses, fired, actions pressed,
+and `gaps` such as `"Pass (BattlePassGui): never pressed, its panel was never opened"` or
+`"... opened, but Claim never pressed"`). The judge sees the gaps and `round_digest` carries
+`ui_coverage`, so the auditor sees an unproven menu. `forge fix` passes the run's own `game_dir`.
+
+## Physics probe (jitter and drift)
+
+ForgeProbe samples, every 0.5 s, the root parts of unanchored assemblies that should be at rest: mass
+>= 2, no Humanoid in their models (characters, NPCs), no occupied Seat/VehicleSeat in their model
+(being driven); at most 150 roots, rescanned every 5 s, a new root is ignored for 3 s while it settles.
+Over a window of 8 samples (4 s): **jitter** = speed > 1 stud/s or spin > 1 rad/s in >= 4 samples
+while it stays within 3 studs; **drift** = moving in >= 6 samples, >= 3 studs net, under 12 stud/s.
+Each newly flagged assembly bumps counter `physics_jitter` / `physics_drift`. It shows up in the
+ForgeProbe report (`physics`), in testers' observations (`probe.physics`), the report's `physics`, the
+judge's ForgeProbe section and `round_digest.physics`. Anchored parts moved by script (`PivotTo`) are
+not sampled.
 
 ## QA protocol (`forge qa`, `mubit_tester.protocol`)
 
