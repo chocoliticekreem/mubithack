@@ -1,7 +1,6 @@
 --!strict
--- StoreController [owner: Monetization]. The Robux store: a lobby-only "[B] STORE" chip on the left edge
--- (under the battle pass's PASS button, clear of the level panel, objective, minimap, hotbar and HELP)
--- that opens a sticker-style panel listing MonetizationConfig.Passes (icon, name, blurb, "R$ 149",
+-- StoreController [owner: Monetization]. The Robux store: a lobby-only STORE button in the top-bar box
+-- (ClientLib/TopBox, after level + pass; or [B]) that opens a sticker-style panel listing MonetizationConfig.Passes (icon, name, blurb, "R$ 149",
 -- BUY / OWNED / GIFTED / COMING SOON) and a donate row (R$ 10 / 50 / 100 / 500).
 -- Prices come from MarketplaceService:GetProductInfo (config price until it answers). Ownership is the
 -- server's Player attr Pass_<Key>. Purchases go through Monetization/Buy (the server validates and
@@ -17,6 +16,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local StoreController = {}
 StoreController.Priority = 120
@@ -27,7 +27,7 @@ type Card = { key: string, id: number, button: TextButton, price: TextLabel, ico
 
 local gui: ScreenGui? = nil
 local panel: Frame? = nil
-local chip: TextButton? = nil
+local chip: GuiObject? = nil -- the Store section of the top-bar box
 local donateRow: Frame? = nil
 local donatedLabel: TextLabel? = nil
 local cards: { Card } = {}
@@ -221,28 +221,30 @@ local function build()
 	local g = UiKit.screen("StoreGui", 7)
 	gui = g
 
-	-- lobby chip, left edge under the PASS button
+	-- lobby button: the last section of the top-bar box (ClientLib/TopBox), after level + pass
+	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
+	local slot = TopBox.section("Store", 3, 64) :: Frame
 	local b = Instance.new("TextButton")
 	b.Name = "StoreChip"
-	b.AnchorPoint = Vector2.new(0, 0)
-	b.Position = UDim2.new(0, 13, 0.53, 0)
-	b.Size = UDim2.fromOffset(118, 40)
+	b.AnchorPoint = Vector2.new(0, 0.5)
+	b.Position = UDim2.fromScale(0, 0.5)
+	b.Size = UDim2.new(1, 0, 0, 28)
 	b.BackgroundColor3 = Palette.UiGood
 	b.Font = UiKit.Header
-	b.TextSize = 20
+	b.TextSize = 16
 	b.TextColor3 = Palette.UiCream
-	b.Text = if UserInputService.KeyboardEnabled then `[{Cfg.StoreKey.Name}] STORE` else "STORE"
+	b.Text = "STORE"
 	b.AutoButtonColor = true
-	b.Parent = g
-	UiKit.corner(b, 10)
-	UiKit.stroke(b, 3, Palette.UiInk)
+	b.Parent = slot
+	UiKit.corner(b, 8)
+	UiKit.stroke(b, 2, Palette.UiInk)
 	local ts = Instance.new("UIStroke")
-	ts.Thickness = 2
+	ts.Thickness = 1.5
 	ts.Color = Palette.UiInk
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
 	b.Activated:Connect(toggle)
-	chip = b
+	chip = slot -- syncChip shows / hides the whole section (lobby only)
 
 	-- panel
 	local p = UiKit.panel(g, "StorePanel", UDim2.fromOffset(720, 470), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
@@ -250,6 +252,12 @@ local function build()
 	p:SetAttribute("Menu", true)
 	p.ZIndex = 5
 	panel = p
+	-- a modal: dims the HUD under it and sits above every HUD gui while open; click outside closes
+	HudLayout.modal(p, {
+		onDismiss = function()
+			setOpen(false)
+		end,
+	})
 
 	local head = Instance.new("Frame")
 	head.Name = "Header"

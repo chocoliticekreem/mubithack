@@ -31,8 +31,15 @@ local function sfx(name: string, volume: number?, pitch: number?)
 	UiKit.sound(if type(sounds) == "table" then sounds[name] else nil, volume, pitch)
 end
 
+local function setBusy(on: boolean)
+	-- level-up / new-gear / tier-up cards wait until this screen is gone (ClientLib/HudLayout)
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.setBusy("Results", on)
+end
+
 local function hide()
 	showToken += 1
+	setBusy(false)
 	if gui then
 		local g = gui
 		gui = nil
@@ -234,6 +241,12 @@ local function show(payload: Types.ResultsPayload)
 	local token = showToken
 	local screen = UiKit.screen("Results", 10, true)
 	gui = screen
+	setBusy(true)
+	screen.Destroying:Connect(function()
+		if gui == nil or gui == screen then
+			setBusy(false)
+		end
+	end)
 
 	local bg = Instance.new("Frame")
 	bg.Name = "Backdrop"

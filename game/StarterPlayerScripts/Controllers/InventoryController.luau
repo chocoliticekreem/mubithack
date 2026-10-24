@@ -184,6 +184,9 @@ local function buildHotbar()
 	slots.back = makeSlot(row, "Back", "1/2 SWAP", 2)
 	slots.carry = makeSlot(row, "Carry", "CARRY", 3)
 	hotbarRow = row
+	-- world markers / edge arrows stay off it (ClientLib/HudLayout)
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.reserve(row)
 	-- throw charge meter, above the hotbar
 	local charge = Instance.new("Frame")
 	charge.Name = "Charge"
@@ -558,6 +561,10 @@ local function supplyWarn(text: string)
 	end
 	local panel = UiKit.panel(g, "Banner", UDim2.fromOffset(760, 96), UDim2.new(0.5, 0, 0, 120), Vector2.new(0.5, 0))
 	panel.BackgroundColor3 = Palette.UiRed
+	-- top-centre stack (ClientLib/HudLayout): under the timer / CALL! card / toasts, never on them
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.add("TopCentre", panel, 50)
+	HudLayout.flush() -- placed before UiKit.shake records its home position
 	UiKit.label(panel, "Text", text, UDim2.new(1, -24, 1, -12), UDim2.fromOffset(12, 6), {
 		font = UiKit.Header,
 		textSize = 40,

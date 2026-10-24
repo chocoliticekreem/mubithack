@@ -31,6 +31,7 @@ local Cfg = require(ConfigDir:WaitForChild("MissionGuides") :: ModuleScript) :: 
 local Catalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: any
 local Flow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("GuideFlow") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local MissionGuideController = {}
 MissionGuideController.Priority = 125
@@ -468,13 +469,18 @@ local function build()
 	ui.gui = gui
 	local card = Instance.new("Frame")
 	card.Name = "Card"
-	card.Position = UDim2.fromOffset(14, 196) -- left, under the objectives / level panel (clear of the dispatch hint card)
-	card.Size = UDim2.fromOffset(400, 96)
+	-- left column, under the objectives and the building bar (ClientLib/HudLayout owns Position.Y)
+	-- 350 wide: the top-centre CALL! card starts at x >= 380 on any screen (half of >= 1280 design units
+	-- minus its 260 half-width), so the left column must end before that
+	card.Position = UDim2.fromOffset(14, 196)
+	card.Size = UDim2.fromOffset(350, 96)
 	card.BackgroundColor3 = Palette.UiPanelDark
 	card.BackgroundTransparency = 0.08
 	card.Active = false
 	card.Visible = false
 	card.Parent = gui
+	HudLayout.add("Left", card, 30)
+	HudLayout.reserve(card)
 	UiKit.corner(card, 14)
 	local cs = UiKit.stroke(card, 3, GUIDE)
 	local chip = Instance.new("Frame")
@@ -712,7 +718,8 @@ local function placeArrow(part: BasePart?, model: Instance?, label: string, t: n
 	local rel = cam.CFrame:PointToObjectSpace(part.Position)
 	local side = if rel.X >= 0 then 1 else -1
 	-- left: under the guide card, above the Pass button; right: under the minimap / GPS panel
-	ui.edge.Position = UDim2.fromOffset(if side > 0 then vp.X - 56 else 56, vp.Y * (if side > 0 then 0.66 else 0.42))
+	local ex, ey = HudLayout.clear(if side > 0 then vp.X - 56 else 56, vp.Y * (if side > 0 then 0.66 else 0.42), 30, "GuideEdge", HudLayout.Prio.Guide)
+	ui.edge.Position = UDim2.fromOffset(ex, ey)
 	ui.pointer.Position = UDim2.fromOffset(23 + side * 27, 23)
 	ui.edge.Visible = true
 end

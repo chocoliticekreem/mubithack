@@ -187,6 +187,36 @@ def cmd_sync(args) -> int:
     return 0
 
 
+def cmd_ui_audit(args) -> int:
+    """Run game/tools/ui_audit.luau in the Client of the running playtest; print its JSON report."""
+    from forge.studio import Studio
+    s = load_settings()
+    src = (Path(args.root) if args.root else s.base_game_dir) / "tools" / "ui_audit.luau"
+    code = src.read_text()
+    opts = f"local OPTS = {{ tol = {args.tol}, flickerSeconds = {args.flicker}, minSize = 6, list = {str(args.list).lower()} }}"
+    code = "\n".join(opts if ln.startswith("local OPTS = ") else ln for ln in code.splitlines())
+
+    async def go() -> str:
+        async with Studio(s) as st:
+            await st.select(args.studio)
+            return await st.execute_luau(code, "Client")
+
+    out = asyncio.run(go())
+    rep = extract_json_report(out)
+    if rep is None:
+        print(out)
+        return 1
+    print(json.dumps(rep, indent=1))
+    c = rep.get("counts", {})
+    return 1 if args.strict and any(c.values()) else 0
+
+
+def extract_json_report(text: str):
+    from forge.studio import extract_json
+    rep = extract_json(text)
+    return rep if isinstance(rep, dict) else None
+
+
 def _game_root(args) -> Path:
     s = load_settings()
     root = Path(args.root) if args.root else s.base_game_dir
@@ -962,6 +992,14 @@ def build_parser() -> argparse.ArgumentParser:
     sy.add_argument("--studio", help="pick the Studio whose name contains this")
     sy.add_argument("--prune", action="store_true", help="also delete synced scripts that no longer exist on disk")
 
+    ua = sub.add_parser("ui-audit", help="HUD overlap/clipping/text-fit/flicker audit of the running playtest (Client)")
+    ua.add_argument("--root", help="game folder whose tools/ui_audit.luau to run (default game/)")
+    ua.add_argument("--studio", help="pick the Studio whose name contains this (use your own window)")
+    ua.add_argument("--tol", type=int, default=4, help="ignore intersections this many px or smaller")
+    ua.add_argument("--flicker", type=float, default=1.5, help="seconds to watch Visible toggles (0: off)")
+    ua.add_argument("--list", action="store_true", help="also list every widget rect")
+    ua.add_argument("--strict", action="store_true", help="exit 1 when anything is reported")
+
     bi = sub.add_parser("bench-io", help="time Studio round trips (sync, play, stop, edits, checks): before vs after")
     bi.add_argument("slug", nargs="?")
     bi.add_argument("--root", help="game folder (default game/); benchmarked on a temp copy")
@@ -1240,7 +1278,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "bench": cmd_bench, "compare": cmd_compare, "consolidate": cmd_consolidate,
                "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
-               "bench-io": cmd_bench_io, "headless": cmd_headless,
+               "ui-audit": cmd_ui_audit, "bench-io": cmd_bench_io, "headless": cmd_headless,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
                "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "reflect": cmd_reflect, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,

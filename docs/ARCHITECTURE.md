@@ -434,6 +434,11 @@ Critique: `{"score": 0-10, "summary": "...", "issues": [{"path": "...", "problem
   deletes scripts under the synced roots tagged `ForgeManaged` but no longer in the manifest. Returns
   `OK n files, changed: a, b[; pruned: …]; skipped k, fetched m` or `ERROR ...`.
 - `tools/headless.luau`: a fake Roblox engine for the plain `luau` CLI (see checks.py, headless).
+- `tools/ui_audit.luau`: HUD audit run in the Client of a live playtest (`forge ui-audit [--studio S]
+  [--tol px] [--flicker s] [--list] [--strict]`, or paste into execute_luau). Returns JSON: every pair of
+  visible HUD widgets from different panels that overlap, widgets off-screen or under the Roblox top-bar
+  buttons, text that doesn't fit, and Visible toggles >= 4 in the flicker window. `--strict` exits 1 on
+  any finding. The layout it checks is owned by `StarterPlayerScripts/ClientLib/HudLayout.luau`.
 - Mapping: `X.server.luau` → Script, `X.client.luau` → LocalScript, `X.luau` → ModuleScript;
   roots ServerScriptService, ReplicatedStorage, StarterPlayerScripts (→ StarterPlayer.StarterPlayerScripts),
   also ServerStorage, StarterGui, Workspace if present.
