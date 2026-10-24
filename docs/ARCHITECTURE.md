@@ -136,6 +136,8 @@ forge/                 Python package (uv), entry point `forge`
                        fix verification, tester-report triage (improve.file_report)
   play.py              AI playtester (observe → act → report)           [owner: play]
   mcp_server.py        stdio MCP server "forge" (`forge server`): build/iterate/correct/improve as jobs [owner: GF]
+  bridge.py            ForgeBridge: local bridge to the Studio plugin (studio-plugin/ForgeBridge.plugin.luau),
+                       events + fast commands; docs/STUDIO_PLUGIN.md        [owner: plugin bridge]
 game/                  the Roblox place, file-mapped like Script Sync
   ServerScriptService/ X.server.luau → Script, X.luau → ModuleScript, dirs → Folders
   ReplicatedStorage/
@@ -353,6 +355,9 @@ class Studio:  # async context manager; one StudioMCP session (reconnects once i
                                                           # call; long-lived file server (free port if taken)
     async def hot_reload(self, root: Path) -> dict        # during play: changed server ModuleScripts swapped in
                                                           # place -> {reloaded, restart: [(path, why)], changed}
+    async def bridge(self, datamodel: str | None = None) -> BridgeClient | None  # ForgeBridge plugin of THIS
+                                                          # window connected? execute_luau / play / stop then
+                                                          # go through it (no MCP round trip); FORGE_BRIDGE=0 off
 def hot_reload_plan(entries, changed, sources, added=()) -> {"reload": [...], "restart": [(path, why)]}
 ```
 
@@ -364,6 +369,21 @@ def run_checks_offline(game_dir, checks, timeout=30.0, workers=8) -> list[dict]
 def triage(game_dir, checks) -> (offline_passes, checks_needing_studio)  # only passes are trusted offline
 def run_specs(spec_dir) -> list[dict]                                # *.spec.luau with the luau CLI
 # a check file may say `-- needs: studio` (physics, rendering, replication): never run offline
+```
+
+### bridge.py (docs/STUDIO_PLUGIN.md)
+```python
+class Bridge(token, places, ...)        # thread-safe state: sessions per datamodel, command queue, event ring
+    hello/poll/result/add_events/bye    # plugin side          run(op, args, dm, timeout) -> {ok, result|error, ms}
+    get_events(since, types, limit, wait) -> {events, next, latest}; status() -> dict; set_forge(**fields)
+class BridgeClient(port, token)         # status() events() run() luau(code, dm) set_status(job=, role=, last_test=)
+def connected_client(place, dm, port) -> BridgeClient | None
+def register(mcp) -> ["studio_status", "studio_events", "studio_run"]   # via the mubit_tester.studio_bridge extension
+def build_plugin(repo_root, token, port, places) -> str; install_plugin(repo_root, places, plugins_dir, port) -> Path
+```
+```
+forge plugin install --place NAME [--plugins-dir D]   forge plugin serve --place NAME   forge plugin status|events [--follow]
+forge plugin load --studio NAME          forge plugin bench --studio NAME [-n 20]
 ```
 
 ### assets.py (docs/game/07-assets.md)

@@ -524,13 +524,45 @@ class Studio:
         if matches[0]["id"] != self.studio_id:
             self._playing = None
         self.studio_id = matches[0]["id"]
+        self.studio_name = str(matches[0].get("name") or "")
         return self.studio_id
+
+    # ---- ForgeBridge fast path (forge/bridge.py, docs/STUDIO_PLUGIN.md)
+
+    async def bridge(self, datamodel: str | None = None) -> Any:
+        """A BridgeClient when the ForgeBridge plugin of THIS Studio window is connected (in
+        `datamodel`), else None. Commands then skip the MCP round trip. FORGE_BRIDGE=0 disables."""
+        from forge import bridge as fb
+        if os.environ.get("FORGE_BRIDGE", "1") == "0" or self._session is None:
+            return None
+        if await asyncio.to_thread(fb.connected_client, None, datamodel) is None:
+            return None  # no bridge or no plugin at all: skip the name lookup below
+        name = getattr(self, "studio_name", None)
+        if name is None:
+            try:
+                sid = self.studio_id or await self.select()
+                name = next((s["name"] for s in await self.list_studios() if s["id"] == sid), "")
+            except StudioError:
+                return None
+            self.studio_name = name
+        if not name:
+            return None
+        return await asyncio.to_thread(fb.connected_client, name, datamodel)
 
     # ---- luau / state
 
     async def execute_luau(self, code: str, datamodel: str = "Edit", timeout: float | None = None) -> str:
         if datamodel not in DATAMODELS:
             raise ValueError(f"datamodel must be one of {DATAMODELS}, got {datamodel!r}")
+        client = await self.bridge(datamodel)
+        if client is not None:
+            from forge.bridge import BridgeError, LuauError
+            try:
+                return await asyncio.to_thread(client.luau, code, datamodel, timeout or self.call_timeout)
+            except LuauError as e:
+                raise StudioError(f"execute_luau error: {e}") from e
+            except BridgeError as e:  # bridge hiccup: fall back to StudioMCP
+                print(f"[studio] bridge failed, using StudioMCP: {e}", file=self._errlog)
         return await self.call("execute_luau", code=code, datamodel_type=datamodel, timeout=timeout)
 
     async def state(self) -> dict:
@@ -568,6 +600,20 @@ class Studio:
         st = await self.state()
         if st.get("playing") is start:
             return
+        client = await self.bridge("Edit" if start else "Server")
+        if client is not None:
+            from forge.bridge import BridgeError
+            try:
+                res = await asyncio.to_thread(client.run, "play", {"start": start}, "Edit", PLAY_TIMEOUT)
+                if res.get("ok"):
+                    await self._wait_for(start, PLAY_TIMEOUT)
+                    self._playing = start
+                    return
+            except (BridgeError, StudioError) as e:
+                print(f"[studio] bridge play failed, using StudioMCP: {e}", file=self._errlog)
+                if (await self.state()).get("playing") is start:  # it did switch, the plugin just
+                    self._playing = start                          # isn't in the new datamodel
+                    return
         last: Exception | None = None
         for _ in range(2):  # start/stop is known to fail sometimes after the first run: retry once
             try:
