@@ -553,6 +553,13 @@ local function lightFires(run: Live, limit: number?, force: string?): number
 			local j = rng:NextInteger(1, i)
 			markers[i], markers[j] = markers[j], markers[i]
 		end
+		-- markers with attr Priority (the Sky Tower's roof) always burn first
+		local first, rest = {}, {}
+		for _, m in markers do
+			table.insert(if m:GetAttribute("Priority") == true then first else rest, m)
+		end
+		table.move(rest, 1, #rest, #first + 1, first)
+		markers = first
 		for _, m in markers do
 			if lit >= want then
 				break
