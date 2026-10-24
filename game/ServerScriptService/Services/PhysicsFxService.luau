@@ -653,6 +653,9 @@ local function hookCharacter(player: Player, char: Model)
 	end
 end
 
+-- bumped to cancel a broken leg's heal timer (respawn, splint)
+local brokenToken: { [Player]: number } = {}
+
 local function hookPlayer(player: Player)
 	player.CharacterAdded:Connect(function(c)
 		brokenToken[player] = (brokenToken[player] or 0) + 1
@@ -667,7 +670,6 @@ end
 -- player events ---------------------------------------------------------------------------------------
 -- Broken legs: a hard enough landing goes CRUNCH. Limp (slow, no jumping) and a white cast until it
 -- heals on its own or a teammate holds "Splint leg" on you.
-local brokenToken: { [Player]: number } = {}
 
 local function healLeg(player: Player, by: Player?)
 	if player:GetAttribute("BrokenLeg") ~= true then

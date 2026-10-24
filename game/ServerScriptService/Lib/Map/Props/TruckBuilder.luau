@@ -4,7 +4,7 @@
 --   cf = ground point under the truck centre; the truck faces -Z of cf. About 10 W x 9.6 H x 27 L studs.
 --   Static, fully anchored model (VehicleService makes it drivable later). PrimaryPart = "Chassis".
 --   Tags: model -> Names.Tag.Truck; "Reel" (hose reel, ProximityPrompt "Refill") -> TruckRefill;
---   "RescueDropoff" (invisible, non-collide, CanTouch box at the open back) -> RescueDropoff.
+--   "RescueDropoff" (invisible, non-collide box around the whole truck) -> RescueDropoff.
 --   Named parts for VehicleService/VehicleController: Chassis, Wheel_<axle>_<L|R>, LightRed, LightBlue,
 --   LightWhite, Siren, Headlight_L/R, TailLight_L/R, Bench_L/R (crew seats), Deck.
 -- v2 mount points (docs/game/08 "Vehicles" / "Inventory"):
@@ -567,7 +567,8 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	end
 
 	---------------------------------------------------------------- gameplay volumes
-	P("RescueDropoff", Vector3.new(0, 3.5, 15.0), Vector3.new(12, 7, 6), White, {
+	-- the whole truck (bumper to tailgate, plus a margin): walk a rescue into any part of it to deliver
+	P("RescueDropoff", Vector3.new(0, 4.5, 1.7), Vector3.new(14, 12, 34), White, {
 		transparency = 1,
 		collide = false,
 		tags = { Names.Tag.RescueDropoff },
