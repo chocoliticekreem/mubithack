@@ -216,7 +216,7 @@ async def test_creation_requires_key_and_nonempty_idea(service):
 async def test_create_draft_does_not_start_or_change_studio(service, monkeypatch):
     from mubit_tester import studio_builder
     service.settings = replace(service.settings, mubit_api_key='test-only')
-    async def build(settings, idea, emit):
+    async def build(settings, idea, emit, **kwargs):
         assert idea == 'an obby'
         emit('Writing your game code…')
         return {'slug': 'obby', 'title': 'Obby', 'ready': True, 'errors': [], 'files': ['Game.server.luau']}
@@ -234,7 +234,7 @@ async def test_create_draft_does_not_start_or_change_studio(service, monkeypatch
 async def test_incomplete_draft_is_not_ready_to_load(service, monkeypatch):
     from mubit_tester import studio_builder
     service.settings = replace(service.settings, mubit_api_key='test-only')
-    async def build(*args):
+    async def build(*args, **kwargs):
         return {'slug': 'broken', 'ready': False, 'errors': ['Missing game script']}
     monkeypatch.setattr(studio_builder, 'build_draft', build)
     job = submit(service, 'make_game', idea='an obby')
@@ -311,3 +311,29 @@ def test_fix_uses_the_report_game_even_after_switching_drafts(service):
     service.jobs['play'] = {'studio_id': 'chosen', 'result': {'run_id': 'play-1', 'game_slug': store.slug}}
     assert service.report_settings('play-1', 'chosen').base_game_dir == store.game_dir
     assert service.report_settings('play-1', 'other').base_game_dir == service.settings.base_game_dir
+
+
+async def test_make_game_progress_reaches_the_plugin_state(service, monkeypatch):
+    from mubit_tester import studio_builder
+    service.settings = replace(service.settings, mubit_api_key='test-only')
+    async def build(settings, idea, emit, *, on_progress=None, **kwargs):
+        emit('Game plan ready: Funfair Frenzy, 10 zones x 10 stages')
+        emit('Zone 3 failed to compile', False)
+        on_progress({'pct': 42, 'phase': 'levels', 'step': 'Designing zones 3, 4, 5 of 10',
+                     'items': {'label': 'zones', 'done': 2, 'total': 10}, 'eta_s': 180})
+        state = service.snapshot('test-marker')
+        assert state['active']['progress']['pct'] == 42
+        assert state['active']['progress']['items'] == {'label': 'zones', 'done': 2, 'total': 10}
+        assert [e.get('ok') for e in state['active']['events'][-2:]] == [None, False]
+        assert 'ok' not in state['active']['events'][-2]
+        return {'slug': 'obby', 'title': 'Obby', 'ready': True, 'errors': [], 'files': ['Game.server.luau']}
+    monkeypatch.setattr(studio_builder, 'build_draft', build)
+    job = submit(service, 'make_game', idea='an obby')
+    await service.task
+    assert job['state'] == 'passed'
+    saved = json.loads((service.store / f"job-{job['id']}.json").read_text())
+    assert saved['progress']['step'] == 'Designing zones 3, 4, 5 of 10'
+    view = service.snapshot('test-marker')['history'][0]
+    assert view['progress']['pct'] == 42 and view['presentation']['status'] == 'Your first draft is ready'
+    service.set_progress(job, {'pct': 99})
+    assert job['progress']['pct'] == 42

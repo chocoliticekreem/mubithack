@@ -137,11 +137,20 @@ class Companion:
         temp.write_text(json.dumps(job, ensure_ascii=False, default=str))
         temp.replace(path)
 
-    def emit(self, job: dict, message: str):
+    def emit(self, job: dict, message: str, ok: bool | None = None):
         if job["state"] in TERMINAL:
             return
-        job["events"].append({"n": len(job["events"]) + 1, "time": time.time(), "message": message[:1200]})
+        event = {"n": len(job["events"]) + 1, "time": time.time(), "message": message[:1200]}
+        if ok is not None:
+            event["ok"] = ok
+        job["events"].append(event)
         job["events"] = job["events"][-200:]
+        self.save(job)
+
+    def set_progress(self, job: dict, progress: dict):
+        if job["state"] in TERMINAL:
+            return
+        job["progress"] = progress
         self.save(job)
 
     async def bind(self, marker: str):
@@ -321,15 +330,15 @@ class Companion:
                         raise ValueError("A playtest is already running. Stop it in Studio first.")
                     from mubit_tester.studio_builder import build_draft, describe_draft, revise_draft, draft_install_code
                     if operation == "make_game":
-                        self.emit(job, "Planning your game…")
-                        job["result"] = await build_draft(self.settings, args["idea"], lambda m: self.emit(job, m))
+                        job["result"] = await build_draft(self.settings, args["idea"], lambda m, ok=None: self.emit(job, m, ok),
+                                                          on_progress=lambda p: self.set_progress(job, p))
                     elif operation == 'open_game':
                         job['result'] = await describe_draft(self.settings, args['slug'])
                     elif operation in {'iterate_game', 'correct_game'}:
                         source = self.jobs[args['source_job']]['result']['slug']
                         self.emit(job, 'Making a separate revision. Your saved game and Studio stay unchanged.')
                         kwargs = {'path': args['path'], 'note': args['note']} if operation == 'correct_game' else {}
-                        job['result'] = await revise_draft(self.settings, source, lambda m: self.emit(job, m), **kwargs)
+                        job['result'] = await revise_draft(self.settings, source, lambda m, ok=None: self.emit(job, m, ok), **kwargs)
                     elif operation == 'read_game_file':
                         from mubit_tester.studio_builder import draft_store
                         source = self.jobs[args['source_job']]['result']['slug']

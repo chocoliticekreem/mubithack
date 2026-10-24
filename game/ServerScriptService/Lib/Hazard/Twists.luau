@@ -125,10 +125,12 @@ local function billboard(parent: BasePart, text: string, color: Color3, offset: 
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "TwistLabel"
 	local s = size or Vector2.new(220, 50)
-	gui.Size = UDim2.fromOffset(s.X, s.Y)
+	-- sized in studs (a sign on the object, shrinking with distance) instead of a fixed pixel banner that
+	-- stayed huge and on top of everything from across the map: it distracted new players on phones
+	gui.Size = UDim2.new(s.X / 60, 0, s.Y / 60, 0)
 	gui.StudsOffset = V(0, offset, 0)
-	gui.AlwaysOnTop = true
-	gui.MaxDistance = 350
+	gui.AlwaysOnTop = false
+	gui.MaxDistance = 90
 	gui.LightInfluence = 0
 	local t = Instance.new("TextLabel")
 	t.Size = UDim2.fromScale(1, 1)
@@ -961,7 +963,7 @@ local function gasLeak(ctx: any): boolean
 
 	onArrive(ctx, function()
 		local seconds = HazardConfig.LeakSeconds
-		tell(ctx, `GAS LEAK! {leaking} pumps spraying fuel. Hold E on every red valve before the tanker blows ({seconds}s)!`, "bad")
+		tell(ctx, "GAS LEAK! Turn off the red valves on the pumps!", "bad")
 		local startAt = os.clock()
 		local endsAt = startAt + seconds
 		local secondAt = startAt + HazardConfig.LeakSecondAt

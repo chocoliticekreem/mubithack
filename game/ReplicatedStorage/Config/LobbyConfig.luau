@@ -16,9 +16,21 @@ return Config.define({
 	BigCountdownFrom = 5, -- the client shows the big centre number from here down
 	ReturnSeconds = 20, -- safety net: after MissionEnded, bring home anyone MissionService didn't (its results take 15 s)
 	PadRadius = 7.5, -- studs (horizontal) from the pad centre that count as "on the pad" (14-stud pads)
-	PadHeight = 7, -- studs above the pad top that still count (jumping)
+	PadHeight = 40, -- studs above the pad that still count: membership is really horizontal-only (kids jump
+	--                 constantly; the old 7 dropped anyone at the top of a jump off their squad)
+	PadGraceSeconds = 1.5, -- off the pad this briefly (a stumble, a knockback, a ragdoll) doesn't leave the squad
+	-- LOCK IN + BOARD (LobbyService): at LockSeconds left the squad can't walk off its pad any more (an
+	-- invisible fence goes up and anyone outside LockRadius is pulled back in); at 0 everyone is put
+	-- straight into a seat of the squad's truck (leader drives) behind a quick fade, no running to a bay.
+	LockSeconds = 5,
+	LockRadius = 7, -- studs: a locked member's root further than this from the pad centre is pulled back (the fence stops walkers at ~6.3)
+	LockText = "LOCKED IN!",
+	BoardIntoTruck = true, -- false = the old "run to your bay and get in" launch
+	BoardFadeSeconds = 0.25, -- client fade to black before the seat teleport (then it fades back in)
+	TruckWaitSeconds = 8, -- wait this long for a squad truck to exist before giving up (old run-to-bay)
 	PollHz = 10,
 	AfkSeconds = 45, -- standing still this long in the lobby -> "on coffee break"
+	AliveEvery = 5, -- s: the client's Lobby/Alive input ping (any key, tap, camera drag) at most this often
 	BellCooldown = 1.5,
 	HonkCooldown = 1.2,
 	PoleSlideSeconds = 1.3,

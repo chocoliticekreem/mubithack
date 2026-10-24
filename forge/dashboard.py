@@ -1120,8 +1120,77 @@ def _working(game: dict) -> str | None:
     return next((a["role"] for a in game.get("agents") or [] if a["running"]), None)
 
 
-def now_view(runs: list[dict], games: list[dict], now: float) -> list[dict]:
-    """What is running right now, across every game: forge jobs, logs being written, playtests, autopilots."""
+PROGRESS_STALE = 120  # seconds: a progress.json saying running but older than this is stalled, not live
+PROGRESS_SHOWN = 600  # seconds: a stalled build with no job left stays on "Running now" this long
+PROGRESS_FRESH = 60  # seconds: a finished build's progress still rides on its job row this long, then the row is its own
+PROGRESS_EVENTS = 6
+
+
+def progress_view(run_dir: Path, now: float) -> dict | None:
+    """runs/<slug>/progress.json (written by forge/progress.py) cleaned for the page; None when absent or corrupt."""
+    p = _read_json(run_dir / "progress.json", None)
+    if not isinstance(p, dict):
+        return None
+    pct, eta, updated = _num(p.get("pct")), _num(p.get("eta_s")), _num(p.get("updated"))
+    it = p.get("items")
+    items = None
+    if isinstance(it, dict) and _num(it.get("total")):
+        items = {"label": str(it.get("label") or "items"), "done": int(_num(it.get("done")) or 0),
+                 "total": int(_num(it.get("total")))}
+    stalled = bool(p.get("running")) and (updated is None or now - updated > PROGRESS_STALE)
+    events = [{"t": _num(e.get("t")), "text": _clip(e.get("text"), 140),
+               "ok": e.get("ok") if isinstance(e.get("ok"), bool) else None}
+              for e in p.get("events") or [] if isinstance(e, dict) and e.get("text")]
+    return {"pct": max(0, min(100, int(pct or 0))), "phase": str(p.get("phase") or ""),
+            "step": _clip(p.get("step") or "", 160), "items": items,
+            "eta_s": max(0, int(eta)) if eta is not None and not stalled else None,
+            "running": bool(p.get("running")) and not stalled, "stalled": stalled, "updated": updated,
+            "started": _num(p.get("started")), "events": events[-PROGRESS_EVENTS:][::-1]}
+
+
+def progress_all(settings: Settings, now: float) -> dict[str, dict]:
+    out = {}
+    for path in settings.runs_dir.glob("*/progress.json"):
+        view = progress_view(path.parent, now)
+        if view:
+            out[path.parent.name] = view
+    return out
+
+
+def _attach_progress(out: list[dict], progress: dict[str, dict], runs: list[dict], now: float) -> None:
+    src = {r["name"]: r for r in runs}
+    for slug, p in progress.items():
+        live = p["running"] or bool(p["stalled"] and p["updated"] and now - p["updated"] < PROGRESS_SHOWN)
+        if not live and not (p["updated"] and now - p["updated"] < PROGRESS_FRESH):
+            continue  # an old build's file must not take over a later `forge run` or autopilot row of the same game
+        row = next((r for r in out if r["slug"] == slug), None)
+        if row is None:
+            # a build still in design has no spec.json, so its job row never matched a game
+            pat = re.compile(re.escape(slug) + r"(?![\w-])")
+            free = [r for r in out if r["slug"] is None and r["name"] in src]
+            row = next((r for r in free if pat.search(src[r["name"]].get("command", ""))
+                        or any(pat.search(ln) for ln in src[r["name"]].get("tail", []))), None)
+            news = [r for r in free if "forge new" in src[r["name"]].get("command", "")]
+            row = row or (news[0] if len(news) == 1 and p["running"] else None)
+            if row is not None:
+                row["slug"] = slug
+        if row is None:
+            if not live:
+                continue
+            row = {"name": "forge new", "kind": "build", "slug": slug, "title": "", "role": None, "step": "",
+                   "status": "running" if p["running"] else "stalled", "updated": p["updated"],
+                   "elapsed": round(now - p["started"]) if p["started"] else None}
+            out.append(row)
+        row["progress"] = p
+        row["title"] = row["title"] or slug
+        if p["step"]:
+            row["step"] = p["step"]
+
+
+def now_view(runs: list[dict], games: list[dict], now: float,
+             progress: dict[str, dict] | None = None) -> list[dict]:
+    """What is running right now, across every game: forge jobs, logs being written, playtests, autopilots.
+    `progress` is progress_all(): a build's progress.json rides on its job's row, or gets its own row."""
     live = {g["live"]["name"]: g for g in games if g.get("live")}
     out = []
     for r in runs:
@@ -1141,6 +1210,7 @@ def now_view(runs: list[dict], games: list[dict], now: float) -> list[dict]:
             out.append({"name": "autopilot", "kind": "autopilot", "slug": g["slug"], "title": g["title"],
                         "role": busy["role"] if busy else "autopilot", "step": _clip(step, 160),
                         "status": "running", "updated": a.get("updated"), "elapsed": None})
+    _attach_progress(out, progress or {}, runs, now)
     return out
 
 
@@ -1148,7 +1218,7 @@ def now_view(runs: list[dict], games: list[dict], now: float) -> list[dict]:
 
 ACTIVE_FOR = 300  # seconds: a run whose files moved this recently counts as running
 _FEED_FILES = ("calls.jsonl", "timings.json", "state.json", "levels/log.jsonl", "autopilot/status.json",
-               "improve/calls.jsonl")
+               "improve/calls.jsonl", "progress.json")
 
 
 def _event(ts: float | None, role: str, text: str, status: str, detail: str = "",
@@ -1280,7 +1350,8 @@ def run_activity(settings: Settings, slug: str, now: float, n: int = 6, jobs: li
             if e["status"] == "running":
                 e["status"] = "stopped"
     return {"slug": slug, "title": spec.get("title") or slug, "status": "running" if running_ else "idle",
-            "updated": updated, "age_s": max(0, int(now - updated)), "events": events}
+            "updated": updated, "age_s": max(0, int(now - updated)), "events": events,
+            "progress": progress_view(store.dir, now)}
 
 
 def _feed_mtime(run_dir: Path) -> float:
@@ -1296,7 +1367,9 @@ def _feed_mtime(run_dir: Path) -> float:
 def activity_view(settings: Settings, runs: int = 3, events: int = 6, now: float | None = None) -> dict:
     """The newest `runs` Forge runs (by when their files last moved) with their latest actions."""
     now = now or time.time()
-    slugs = sorted(RunStore.list_games(settings), key=lambda s: -_feed_mtime(settings.runs_dir / s))
+    # a build still in design has progress.json before spec.json, so list_games misses it
+    found = set(RunStore.list_games(settings)) | {p.parent.name for p in settings.runs_dir.glob("*/progress.json")}
+    slugs = sorted(found, key=lambda s: -_feed_mtime(settings.runs_dir / s))
     jobs = running(settings, now)
     return {"now": now, "runs": [run_activity(settings, s, now, events, jobs) for s in slugs[:max(0, runs)]]}
 
@@ -1312,7 +1385,7 @@ def collect(settings: Settings | None = None) -> dict:
         g["agents"] = agents_view(game_calls(run_dir), (g.get("live") or {}).get("role"), now)
         g["result"] = result_view(run_dir, g, g["team"])
     games.sort(key=lambda g: (g["live"] is None and not (g.get("autopilot") or {}).get("alive"), -g["updated"]))
-    return {"now": now, "running": runs, "active": now_view(runs, games, now), "games": games,
+    return {"now": now, "running": runs, "active": now_view(runs, games, now, progress_all(s, now)), "games": games,
             "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}
 
 
@@ -1326,9 +1399,10 @@ def state_bytes(settings: Settings) -> tuple[bytes, bytes]:
     a build is running waits for that build instead of starting another: each build shells out to git
     hundreds of times, and overlapping polls used to pile up until one response took ~40 s."""
     with _STATE_LOCK:
-        if time.time() - _STATE["at"] >= STATE_TTL or not _STATE["raw"]:
+        key = str(settings.runs_dir)
+        if time.time() - _STATE["at"] >= STATE_TTL or not _STATE["raw"] or _STATE.get("key") != key:
             raw = json.dumps(collect(settings), default=str).encode()
-            _STATE.update(at=time.time(), raw=raw, gz=gzip.compress(raw, compresslevel=5))
+            _STATE.update(at=time.time(), raw=raw, gz=gzip.compress(raw, compresslevel=5), key=key)
         return _STATE["raw"], _STATE["gz"]
 
 

@@ -7,7 +7,12 @@
 --   * Countdown: Lobby/Countdown(padId, seconds, title). Above BigCountdownFrom a banner; from 5..1 a
 --     huge centre number with a tick sound and a screen pulse (red + shake at 3..2..1); 0 = "GO GO GO!",
 --     the alarm hook (AlarmController:Blare/Play/Trigger if present) and a quick fade.
---   * Lobby/Fx: "slide" (fire pole), "welcome" / "toast" (compact centre toast).
+--   * LOCKED IN (last LobbyConfig.LockSeconds, server Player attr PadLocked): banner "LOCKED IN! ROLLING OUT
+--     IN n", a LOCKED IN! pop when it starts, GO NOW hidden (nothing left to hurry).
+--   * Lobby/Fx: "slide" (fire pole), "welcome" / "toast" (compact centre toast), "board" (true = fade
+--     to black: the server is putting you in your truck seat; false = fade back in; 4 s safety fade-in).
+--   * Lobby/Alive: any input (keys, taps, camera drags) pings the server at most every AliveEvery s, so
+--     a kid jumping around or spinning the camera is never tagged "on coffee break".
 -- Everything hides while the local Player's InstanceId ~= "" (in a mission).
 local CollectionService = game:GetService("CollectionService")
 local GuiService = game:GetService("GuiService")
@@ -17,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
@@ -442,7 +448,7 @@ local function renderStrip()
 	local cap = math.min(LobbyConfig.MaxSquadSize, def and def.players and def.players.max or LobbyConfig.MaxSquadSize)
 	local lead = mySquad.leader == player.UserId
 	ui.stripText.Text = `PAD {mySquad.padId}  |  {def and def.title or "No call"}  |  {LobbyQueue.readyText(#mySquad.members, cap)}{if lead then "  |  you lead" else ""}`
-	ui.go.Visible = lead
+	ui.go.Visible = lead and player:GetAttribute("PadLocked") ~= true -- locked in: nothing left to hurry
 	ui.strip.Visible = true
 end
 
@@ -489,7 +495,29 @@ local function showToast(text: string, seconds: number)
 	end)
 end
 
+local lockShown = false
+local boardToken = 0
+-- the seat teleport (Lobby/Fx "board"): black while the server moves you, then back in
+local function boardFade(on: boolean)
+	local f: Frame = ui.fade
+	boardToken += 1
+	local token = boardToken
+	if on then
+		TweenService:Create(f, TweenInfo.new(LobbyConfig.BoardFadeSeconds or 0.25), { BackgroundTransparency = 0 }):Play()
+		task.delay(4, function() -- never leave anyone staring at black
+			if boardToken == token then
+				TweenService:Create(f, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+			end
+		end)
+	else
+		TweenService:Create(f, TweenInfo.new(0.5), { BackgroundTransparency = 1 }):Play()
+	end
+end
+
 local function onCountdown(padId: number, seconds: number, title: string)
+	if seconds ~= 0 and (seconds < 0 or seconds > (LobbyConfig.LockSeconds or 0)) then
+		lockShown = false
+	end
 	if seconds < 0 then
 		ui.big.Visible = false
 		ui.banner.Visible = false
@@ -502,7 +530,7 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		shake(0.8, 0.5)
 		playLocal(LobbyConfig.GoSoundId)
 		alarmHook()
-		-- v2 dispatch: you stay in the station and run to your truck, so no fade-to-black blink here
+		-- v2 dispatch: the server boards you into your truck behind a Lobby/Fx "board" fade (boardFade)
 		task.delay(1.1, function()
 			if ui.big.Text == "GO GO GO!" then
 				TweenService:Create(ui.big, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
@@ -514,7 +542,19 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		return
 	end
 	-- calm: the squad strip already names the pad and the call
-	ui.banner.Text = if Calm.on() then `ROLLING OUT IN {seconds}` else `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
+	local locked = seconds <= (LobbyConfig.LockSeconds or 0)
+	if locked then
+		ui.banner.Text = `{LobbyConfig.LockText}  ROLLING OUT IN {seconds}`
+		ui.banner.TextColor3 = C.Hot
+		if not lockShown then
+			lockShown = true
+			showToast(LobbyConfig.LockText, 1.6)
+		end
+	else
+		lockShown = false
+		ui.banner.TextColor3 = C.Yellow
+		ui.banner.Text = if Calm.on() then `ROLLING OUT IN {seconds}` else `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
+	end
 	ui.banner.Visible = true
 	if seconds <= LobbyConfig.BigCountdownFrom then
 		local hot = seconds <= LobbyConfig.AlarmFromSeconds
@@ -634,11 +674,26 @@ function LobbyController:Start()
 			TweenService:Create(ui.fade, TweenInfo.new(0.8), { BackgroundTransparency = 1 }):Play()
 		elseif kind == "toast" then
 			showToast(tostring(a or ""), 3)
+		elseif kind == "board" then
+			boardFade(a == true)
 		end
 	end)
 	ui.go.Activated:Connect(function()
 		Launch:FireServer()
 	end)
+	player:GetAttributeChangedSignal("PadLocked"):Connect(renderStrip)
+	-- any input = you're here (the server only sees your body: a camera drag or jumping in place counts too)
+	local Alive = Net.event("Lobby", "Alive")
+	local lastAlive = 0
+	local function alive()
+		local now = os.clock()
+		if now - lastAlive >= (LobbyConfig.AliveEvery or 5) and not inMission() then
+			lastAlive = now
+			Alive:FireServer()
+		end
+	end
+	UserInputService.InputBegan:Connect(alive)
+	UserInputService.InputChanged:Connect(alive)
 
 	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, who: Player)
 		-- the board, or "Change call" on a queue pad, opens the mission picker

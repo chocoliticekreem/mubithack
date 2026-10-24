@@ -47,6 +47,17 @@ equal(rows[2].text,"· coder wrote A.luau") equal(rows[2].aside,"now") equal(row
 equal(rows[4].kind,"run") equal(rows[4].status,nil,"an idle run header uses the dimmed theme colour")
 equal(rows[4].aside,"idle · 15m")
 equal(rows[5].kind,"note") equal(rows[5].aside,nil)
+-- Build progress: one "<pct>% <step>" line under the run header; none without progress.json.
+equal(A.progress({pct=42,step="Designing zones 3, 4, 5 of 10",running=true}),"42% Designing zones 3, 4, 5 of 10")
+equal(A.progress({pct=180,step="x"}),"100% x") equal(A.progress({pct="?"}),"0% ")
+equal(A.progress({pct=60,step="Zone 6",stalled=true}),"60% stalled")
+equal(A.progress(nil),nil)
+local prows=A.rows({runs={{slug="f",status="running",age_s=1,events={},
+    progress={pct=42,step="Building zone 4",running=true,phase="levels"}}}})
+equal(prows[2].kind,"progress") equal(prows[2].text,"  42% Building zone 4") equal(prows[2].status,"running")
+equal(prows[3].kind,"note")
+equal(A.rows({runs={{slug="f",events={},progress={pct=30,phase="failed"}}}})[2].status,"fail")
+equal(A.rows({runs={{slug="f",events={},progress={pct=30,stalled=true}}}})[2].status,"stopped")
 equal(A.rows({runs={}})[1].text,"no Forge runs yet")
 equal(A.rows(nil)[1].kind,"note")
 print("ForgeBridge Runs panel: all checks passed")
