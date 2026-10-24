@@ -1016,6 +1016,9 @@ class Autopilot:
                 r += 1
         except BudgetSpent as e:
             self.state["stop_reason"] = str(e)
+        except BaseException as e:  # a crash or Ctrl-C/SIGTERM: say so; a rerun resumes from the saved phases
+            self.state["stop_reason"] = f"interrupted ({type(e).__name__}: {_clip(e, 120)}); rerun to resume"
+            raise
         finally:
             if self.slug:
                 if self.keeper is not None:
