@@ -300,8 +300,8 @@ local function flop(velocity: Vector3, seconds: number, shake: number, sound: st
 	local char = LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not root or not hum or hum.Health <= 0 or typeof(velocity) ~= "Vector3" then
-		return
+	if not root or not hum or hum.Health <= 0 or hum.SeatPart or typeof(velocity) ~= "Vector3" then
+		return -- seated: the root's assembly is the truck, don't fling that
 	end
 	if velocity.Magnitude > 120 then
 		velocity = velocity.Unit * 120
@@ -326,7 +326,8 @@ end
 local function tug(velocity: Vector3)
 	local char = LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not root or typeof(velocity) ~= "Vector3" then
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or typeof(velocity) ~= "Vector3" or (hum and hum.SeatPart) then
 		return
 	end
 	local v = root.AssemblyLinearVelocity

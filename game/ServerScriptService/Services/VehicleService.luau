@@ -37,10 +37,11 @@
 --   (true = handled; otherwise this service ragdolls players itself). Loose props are launched here only
 --   when PhysicsFxService is absent (it ploughs its own registered props in front of moving trucks).
 -- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns,
---   truck_door_bonks, truck_doors_lost
+--   truck_door_bonks, truck_doors_lost, truck_door_rehinged, truck_rescued (fished out from under the map)
 -- Test hooks (DevHook only): _selftest(), _seat(player)
 local CollectionService = game:GetService("CollectionService")
 local Debris = game:GetService("Debris")
+local HttpService = game:GetService("HttpService")
 local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -544,6 +545,45 @@ local function breakDoor(t: Truck, d: Door)
 	refreshPrompts(t)
 end
 
+-- A door wedged against the ground, a curb or a character while the truck moves can be dragged off
+-- its hinge; the violated hinge then yanks the cab down/over (trucks flipping or sinking into the
+-- road). So while a truck is driven its doors don't collide (they still swing, slam and bonk: bonks
+-- are distance checks), and parked doors collide again for people and physics hands.
+local function setDoorsSolid(t: Truck, solid: boolean)
+	for _, d in t.doors do
+		if d.gone then
+			continue
+		end
+		for _, part in d.model:GetDescendants() do
+			if part:IsA("BasePart") then
+				local was = part:GetAttribute("DoorCollide")
+				if was == nil then
+					was = part.CanCollide
+					part:SetAttribute("DoorCollide", was)
+				end
+				part.CanCollide = solid and was == true
+			end
+		end
+	end
+end
+
+-- Put a door that was pulled off its hinge back on it (closed pose, moving with the cab).
+local function fixHinge(t: Truck, d: Door): boolean
+	local h = d.hinge
+	local a0, a1 = h and h.Attachment0, h and h.Attachment1
+	if not h or not a0 or not a1 or d.gone then
+		return false
+	end
+	if (a0.WorldPosition - a1.WorldPosition).Magnitude <= VehicleConfig.DoorHingeSnap then
+		return false
+	end
+	d.panel.CFrame = a0.WorldCFrame * a1.CFrame:Inverse()
+	d.panel.AssemblyLinearVelocity = t.chassis.AssemblyLinearVelocity
+	d.panel.AssemblyAngularVelocity = Vector3.zero
+	count("truck_door_rehinged")
+	return true
+end
+
 -- 10 Hz: open doors swing free when the truck drives off and SLAM shut; pulled-open doors latch open.
 local function doorTick(t: Truck, now: number)
 	local c = t.chassis
@@ -557,6 +597,9 @@ local function doorTick(t: Truck, now: number)
 			d.gone = true
 			refreshPrompts(t)
 			continue
+		end
+		if not t.driver then
+			fixHinge(t, d) -- the driver's client does this while it owns the doors
 		end
 		local angle = h.CurrentAngle * VehicleConfig.DoorDir
 		if d.open and not d.free and t.driver and not c.Anchored and speed > VehicleConfig.DoorSwingSpeed then
@@ -639,14 +682,17 @@ local function onDriverChanged(t: Truck)
 		end)
 		for _, d in t.doors do
 			if not d.gone then
+				fixHinge(t, d)
 				pcall(function()
 					d.panel:SetNetworkOwner(player)
 				end)
 			end
 		end
+		setDoorsSolid(t, false)
 		count("truck_drives")
 	else
 		t.model:SetAttribute("Driver", 0)
+		setDoorsSolid(t, true)
 		task.delay(0.4, function()
 			if not t.driver and t.chassis.Parent then
 				settle(t)
@@ -810,7 +856,7 @@ local function rig(t: Truck)
 	end
 	root.Anchored = true
 	root.CollisionGroup = BODY_GROUP
-	root.CustomPhysicalProperties = PhysicalProperties.new(1.2, 0.3, 0.6)
+	root.CustomPhysicalProperties = PhysicalProperties.new(tonumber(VehicleConfig.ChassisDensity) or 5, 0.3, 0.6)
 	rigDoor(t, "L")
 	rigDoor(t, "R")
 
@@ -1183,17 +1229,125 @@ local function collisionTick(dt: number)
 	end
 end
 
--- Trucks that fell out of the world come back to their bay.
-local function lostTick()
-	while true do
-		task.wait(1)
-		local lost: { Player } = {}
-		for owner, t in byOwner do
-			if t.chassis.Parent and t.chassis.Position.Y < VehicleConfig.LostBelowY then
-				table.insert(lost, owner)
+-- Road nodes (Workspace.Map.City.RoadGraphJson: nodes = { [id] = { x, y, z } }, edges = { { a, b } }),
+-- cached per JSON value. Used to put a truck that fell under the map back on the nearest road.
+local roadCache: { key: string, nodes: { Vector3 }, heads: { Vector3 } } = { key = "", nodes = {}, heads = {} }
+local function roadNodes(): ({ Vector3 }, { Vector3 })
+	local map = workspace:FindFirstChild("Map")
+	local city = map and map:FindFirstChild("City")
+	local js = city and city:FindFirstChild("RoadGraphJson")
+	if not (js and js:IsA("StringValue") and js.Value ~= "") then
+		return {}, {}
+	end
+	local key = `{#js.Value}:{string.sub(js.Value, 1, 32)}:{string.sub(js.Value, -32)}`
+	if key == roadCache.key then
+		return roadCache.nodes, roadCache.heads
+	end
+	local ok, data = pcall(HttpService.JSONDecode, HttpService, js.Value)
+	local pos: { [string]: Vector3 } = {}
+	local nbr: { [string]: string } = {}
+	if ok and type(data) == "table" and type(data.nodes) == "table" then
+		for id, v in data.nodes do
+			if type(v) == "table" then
+				local x = tonumber(v[1] or v.x or v.X)
+				local y = tonumber(v[2] or v.y or v.Y) or 0
+				local z = tonumber(v[3] or v.z or v.Z)
+				if x and z then
+					pos[tostring(id)] = Vector3.new(x, y, z)
+				end
 			end
 		end
-		for _, owner in lost do
+		for _, e in (if type(data.edges) == "table" then data.edges else {}) do
+			if type(e) == "table" then
+				local a, b = tostring(e.a or e[1]), tostring(e.b or e[2])
+				nbr[a] = nbr[a] or b
+				nbr[b] = nbr[b] or a
+			end
+		end
+	end
+	local nodes, heads = {}, {}
+	for id, p in pos do
+		local other = nbr[id] and pos[nbr[id]]
+		table.insert(nodes, p)
+		table.insert(heads, if other and (other - p).Magnitude > 0.1 then other - p else Vector3.new(0, 0, -1))
+	end
+	roadCache = { key = key, nodes = nodes, heads = heads }
+	return nodes, heads
+end
+
+-- Ground cframe on the road node nearest `pos` (XZ), facing along the road; nil without a road graph.
+local function nearestRoadCF(pos: Vector3): CFrame?
+	local nodes, heads = roadNodes()
+	local best, bestD = 0, math.huge
+	for i, p in nodes do
+		local d = (Vector3.new(p.X - pos.X, 0, p.Z - pos.Z)).Magnitude
+		if d < bestD then
+			best, bestD = i, d
+		end
+	end
+	if best == 0 then
+		return nil
+	end
+	local p = nodes[best]
+	return groundCF(Vector3.new(p.X, p.Y + 4, p.Z), heads[best]) -- ray starts under any tunnel roof
+end
+
+local function occupied(t: Truck): boolean
+	return next(t.occupants) ~= nil or t.driver ~= nil
+end
+
+-- Under the map: below RescueBelowY, or nothing under the chassis for RescueNoGroundSeconds.
+local noGroundSince: { [Truck]: number } = {}
+local function underMap(t: Truck, now: number): boolean
+	local c = t.chassis
+	if c.Anchored then
+		noGroundSince[t] = nil
+		return false
+	end
+	if c.Position.Y < VehicleConfig.RescueBelowY then
+		return true
+	end
+	local hit = workspace:Raycast(c.Position, Vector3.new(0, -VehicleConfig.RescueRayDepth, 0), groundParams())
+	if hit then
+		noGroundSince[t] = nil
+		return false
+	end
+	local since = noGroundSince[t] or now
+	noGroundSince[t] = since
+	return now - since >= VehicleConfig.RescueNoGroundSeconds
+end
+
+-- Safety net, 4 Hz. A truck under the map is put back upright on the nearest road node with whoever
+-- rides it still inside (they're welded to their seats, so the pivot carries them); an empty one goes
+-- home to its bay. Only a truck that is gone entirely (or lost and the rescue failed) is rebuilt.
+local function lostTick()
+	while true do
+		task.wait(0.25)
+		local now = os.clock()
+		local rebuild: { Player } = {}
+		for owner, t in byOwner do
+			local c = t.chassis
+			if not c.Parent then
+				continue
+			end
+			if underMap(t, now) then
+				noGroundSince[t] = nil
+				count("truck_rescued")
+				local cf = if occupied(t) then nearestRoadCF(c.Position) else nil
+				local ok = pcall(place, t, cf or homeCF(t))
+				if not ok or c.Position.Y < VehicleConfig.LostBelowY then
+					table.insert(rebuild, owner)
+				elseif t.driver then
+					Popup.show(t.driver, "Truck fished out from under the road!", "info", t.driver)
+				end
+			end
+		end
+		for t in noGroundSince do
+			if not t.chassis.Parent then
+				noGroundSince[t] = nil
+			end
+		end
+		for _, owner in rebuild do
 			local t = byOwner[owner]
 			if t then
 				t.removing = true

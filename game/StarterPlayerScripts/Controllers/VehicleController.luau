@@ -125,12 +125,36 @@ end
 
 ---------------------------------------------------------------------------- driving physics
 
+-- A door dragged off its hinge (wedged on a curb or a body) would yank the whole cab over or down
+-- into the road; the driver's client owns the doors, so it puts such a door straight back on.
+local function rehingeDoors(truck: Model, chassis: BasePart)
+	local snap = tonumber((VehicleConfig :: any).DoorHingeSnap) or 1.5
+	for _, side in { "L", "R" } do
+		local door = truck:FindFirstChild(`Door_{side}`)
+		local panel = door and door:FindFirstChild(`DoorPanel_{side}`)
+		local h = panel and panel:FindFirstChild("DoorHinge")
+		if h and h:IsA("HingeConstraint") and panel:IsA("BasePart") then
+			local a0, a1 = h.Attachment0, h.Attachment1
+			if a0 and a1 and (a0.WorldPosition - a1.WorldPosition).Magnitude > snap then
+				panel.CFrame = a0.WorldCFrame * a1.CFrame:Inverse()
+				panel.AssemblyLinearVelocity = chassis.AssemblyLinearVelocity
+				panel.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
+end
+
 local function step(truck: Model, dt: number)
 	local seat = truck:FindFirstChild("DriveSeat") :: VehicleSeat?
 	local chassis = truck.PrimaryPart
 	if not seat or not chassis or chassis.Anchored then
 		return
 	end
+	rehingeDoors(truck, chassis)
+	-- velocities set here hold for the whole frame: at low fps use a clamped dt for kicks and cap the
+	-- per-frame turn (TruckDrive.stepDt / servoGain / capRate), or one slow frame flings the truck
+	local h = TruckDrive.stepDt(dt, tonumber((VehicleConfig :: any).MaxStepDt) or 1 / 30)
+	local tiltCap = tonumber((VehicleConfig :: any).MaxTiltPerFrame) or 0.12
 	local cf = chassis.CFrame
 	local up = cf.UpVector
 	local mass = chassis.AssemblyMass
@@ -156,7 +180,7 @@ local function step(truck: Model, dt: number)
 		local vel = chassis:GetVelocityAtPosition(origin):Dot(up)
 		local a = TruckDrive.spring(dist, rest, vel, springK, VehicleConfig.Damping)
 		if a > 0 then
-			chassis:ApplyImpulseAtPosition(up * a * mass * 0.25 * dt, origin)
+			chassis:ApplyImpulseAtPosition(up * a * mass * 0.25 * h, origin)
 		end
 	end
 	local grounded = hits >= 2
@@ -191,12 +215,12 @@ local function step(truck: Model, dt: number)
 
 	-- drive + grip (handbrake = drift)
 	local acc = TruckDrive.drive(throttle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.Accel, VehicleConfig.Brake)
-	local dv = fwd * acc * dt * ctrl
+	local dv = fwd * acc * h * ctrl
 	if grounded then
 		local grip = if handbrake then VehicleConfig.DriftGrip else VehicleConfig.Grip
-		dv += right * TruckDrive.grip(lat, grip) * dt
+		dv += right * TruckDrive.grip(lat, grip) * h
 		if handbrake and math.abs(fwdSpeed) > 1 then
-			dv -= fwd * math.sign(fwdSpeed) * math.min(math.abs(fwdSpeed), VehicleConfig.HandbrakeDrag * dt)
+			dv -= fwd * math.sign(fwdSpeed) * math.min(math.abs(fwdSpeed), VehicleConfig.HandbrakeDrag * h)
 		end
 	end
 	chassis.AssemblyLinearVelocity = v + dv
@@ -210,14 +234,14 @@ local function step(truck: Model, dt: number)
 	if handbrake and grounded then
 		yawTarget *= VehicleConfig.DriftTurn
 	end
-	yaw += (yawTarget - yaw) * math.min(1, dt * 6)
+	yaw += (yawTarget - yaw) * math.min(1, h * 6)
 
 	if grounded then
 		-- body roll: lean out of the turn
 		local rollNow = -R.Y
 		local want = TruckDrive.rollTarget(steer, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.BodyRoll)
-		local rollRate = (want - rollNow) * VehicleConfig.RollStiffness
-		roll += (rollRate - roll) * math.min(1, dt * 8)
+		local rollRate = (want - rollNow) * TruckDrive.servoGain(VehicleConfig.RollStiffness, dt, 0.5)
+		roll += (rollRate - roll) * math.min(1, h * 8)
 		-- wheelies: flooring it from a stop, and slamming the front wheels into a bump
 		pitch += TruckDrive.wheelie(throttle, prevThrottle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.WheelieKick)
 		local compRate = (frontComp - prevFrontComp) / math.max(dt, 1e-3)
@@ -226,6 +250,8 @@ local function step(truck: Model, dt: number)
 	end
 	prevThrottle = throttle
 	prevFrontComp = frontComp
+	pitch = TruckDrive.capRate(pitch, dt, tiltCap)
+	roll = TruckDrive.capRate(roll, dt, tiltCap)
 	chassis.AssemblyAngularVelocity = U * yaw + R * pitch + L * roll
 
 	-- flipped? pop back upright after a beat (goofy, keeps the round going)

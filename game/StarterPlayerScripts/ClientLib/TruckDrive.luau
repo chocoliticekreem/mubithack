@@ -13,6 +13,9 @@
 --   TruckDrive.squashSpring(t, seconds, soften): number                 -- spring multiplier t s after landing
 --   TruckDrive.sirenPitch(speed, maxSpeed, t, wailHz, base, perSpeed, wail): number
 --   TruckDrive.fov(speed, maxSpeed, base, add): number
+--   TruckDrive.stepDt(dt, maxDt): number                 -- frame dt clamped for impulses/accels (low FPS)
+--   TruckDrive.servoGain(gain, dt, maxFraction): number  -- P gain that can't overshoot within one frame
+--   TruckDrive.capRate(rate, dt, maxAnglePerFrame): number -- angular rate limited to an angle per frame
 local TruckDrive = {}
 
 -- Spring-damper on one suspension ray. hitDist = nil means the wheel is in the air.
@@ -113,6 +116,33 @@ end
 function TruckDrive.fov(speed: number, maxSpeed: number, base: number, add: number): number
 	local f = math.clamp(math.abs(speed) / math.max(maxSpeed, 1), 0, 1)
 	return base + add * f * f
+end
+
+-- Low frame rates. The driver's client sets the truck's velocities once per FRAME, and they then
+-- hold for the whole frame. At 60 fps that is smooth; at 2-10 fps (a laggy client, a busy Studio)
+-- a whole frame of spring impulse, wheelie kick or roll correction flung or flipped the truck.
+
+-- dt for per-frame impulses and accelerations, clamped so one slow frame can't deliver a huge kick.
+function TruckDrive.stepDt(dt: number, maxDt: number): number
+	return math.clamp(dt, 0, maxDt)
+end
+
+-- A proportional gain (rate = gain * error) held for dt overshoots once gain * dt > 1 and oscillates
+-- divergently past 2. Cap it so one frame closes at most maxFraction of the error.
+function TruckDrive.servoGain(gain: number, dt: number, maxFraction: number): number
+	if dt <= 0 then
+		return gain
+	end
+	return math.min(gain, maxFraction / dt)
+end
+
+-- Limit an angular rate so that, held for one frame, it turns the body by at most maxAngle radians.
+function TruckDrive.capRate(rate: number, dt: number, maxAngle: number): number
+	if dt <= 0 then
+		return rate
+	end
+	local cap = maxAngle / dt
+	return math.clamp(rate, -cap, cap)
 end
 
 return TruckDrive

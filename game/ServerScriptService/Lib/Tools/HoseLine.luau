@@ -606,9 +606,15 @@ tick = function(dt: number)
 			HoseLine.detach(owner)
 			continue
 		end
-		local root = rootOf(owner)
+		local root, hum = rootOf(owner)
 		local endAtt = endAttachment(owner)
 		if not root or not endAtt then
+			HoseLine.detach(owner)
+			continue
+		end
+		if hum and hum.SeatPart then
+			-- got in a vehicle: the line goes back on the reel. A chain from the reel to a hand inside
+			-- the cab dragged on (and shoved) the truck it was hooked to.
 			HoseLine.detach(owner)
 			continue
 		end
