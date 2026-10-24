@@ -47,6 +47,7 @@ local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local Viewmodel = require(ClientLib:WaitForChild("Viewmodel") :: ModuleScript)
 local PhysicsHands = require(ClientLib:WaitForChild("PhysicsHands") :: ModuleScript)
 local AxeArm = require(ClientLib:WaitForChild("AxeArm") :: ModuleScript)
+local Calm = require(ClientLib:WaitForChild("Calm") :: ModuleScript)
 
 local FirstPersonController = {}
 FirstPersonController.Priority = 50
@@ -570,7 +571,7 @@ local function step(dt: number)
 
 	-- sprint FOV
 	local baseFov = tonumber(PhysicsConfig.FieldOfView) or 80
-	local wantFov = if speed > CAM.SprintSpeed then baseFov + CAM.SprintFovAdd else baseFov
+	local wantFov = if speed > CAM.SprintSpeed then baseFov + Calm.fx(CAM.SprintFovAdd) else baseFov
 	state.fov += (wantFov - state.fov) * math.min(1, dt * CAM.FovLerp)
 	if not scripted then
 		cam.FieldOfView = state.fov
@@ -806,7 +807,8 @@ function FirstPersonController:SetEnabled(on: boolean)
 end
 
 function FirstPersonController:Shake(magnitude: number, seconds: number)
-	local m = math.clamp(tonumber(magnitude) or 0, 0, 1)
+	-- phones / "EFFECTS: CALM" (ClientLib/Calm): every shake is a third as strong
+	local m = math.clamp(Calm.fx(tonumber(magnitude) or 0), 0, 1)
 	if m <= 0 then
 		return
 	end

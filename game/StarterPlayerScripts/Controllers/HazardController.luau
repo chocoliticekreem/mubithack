@@ -18,6 +18,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local HazardConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HazardConfig") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local HazardController = {}
 HazardController.Priority = 100
@@ -67,7 +68,7 @@ local function screenFlash(color: Color3, from: number, seconds: number)
 	end
 	local f = overlay :: Frame
 	f.BackgroundColor3 = color
-	f.BackgroundTransparency = 1 - from
+	f.BackgroundTransparency = Calm.alpha(1 - from) -- phones / EFFECTS: CALM: a fainter flash
 	TweenService:Create(f, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
 end
 

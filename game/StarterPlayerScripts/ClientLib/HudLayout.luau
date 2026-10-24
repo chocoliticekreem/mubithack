@@ -23,8 +23,10 @@
 --   HudLayout.modal(panel, opts?)             opts.onDismiss (backdrop click), opts.companions = {gui names}
 --   HudLayout.modalOpen() -> boolean, HudLayout.ModalChanged (BindableEvent, fires (open: boolean))
 --   HudLayout.celebrate(fn)                   queue a centre card (level up / new gear / tier up); fn shows
---                                             it and returns its seconds. One at a time, never over a
---                                             modal or a HudLayout.setBusy(name, true) screen (results)
+--                                             it and returns its seconds (+ optional hide()). One at a
+--                                             time, never over a modal or a HudLayout.setBusy(name, true)
+--                                             screen (results). A tap / click anywhere calls hide() and
+--                                             moves on; calm screens (ClientLib/Calm) cap it at 2.5 s
 --   HudLayout.reserve(obj)                    a HUD widget that edge arrows must stay off
 --   HudLayout.clear(x, y, radius, key?, prio?) -> (x, y)
 --                                             pull a full-bleed screen point toward the centre until a
@@ -37,6 +39,7 @@
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local HudLayout = {}
 
@@ -349,7 +352,7 @@ end
 -- LEVEL UP, NEW GEAR and TIER UP cards all land at the end of a call. They take turns in the centre
 -- of the screen, and wait while a modal or the results screen (HudLayout.setBusy) is up.
 local busy: { [string]: boolean } = {}
-local queue: { { fn: () -> number?, at: number } } = {}
+local queue: { { fn: () -> (number?, (() -> ())?), at: number } } = {}
 local celebrating = false
 -- XP / level-up events land a moment before the results screen; give it this long to claim the screen
 local GRACE = 1.2
@@ -364,20 +367,48 @@ local function pump()
 		return
 	end
 	celebrating = true
-	local fn = (table.remove(queue, 1) :: any).fn :: () -> number?
+	local fn = (table.remove(queue, 1) :: any).fn :: () -> (number?, (() -> ())?)
 	task.spawn(function()
-		local ok, secs = pcall(fn)
+		local ok, secs, hide = pcall(fn)
 		if not ok then
 			warn(`[HudLayout] celebration: {secs}`)
 		end
-		task.wait(if ok and type(secs) == "number" then secs else 3)
+		local t = if ok and type(secs) == "number" then secs else 3
+		local calm = false
+		pcall(function()
+			calm = (require(script.Parent:WaitForChild("Calm") :: ModuleScript) :: any).on()
+		end)
+		if calm then
+			t = math.min(t, 2.5)
+		end
+		-- a tap / click anywhere (after a short beat, so the tap that earned it doesn't eat it) dismisses it
+		local done = false
+		local shownAt = os.clock()
+		local conn = UserInputService.InputBegan:Connect(function(input: InputObject)
+			local ty = input.UserInputType
+			if not done and os.clock() - shownAt > 0.4
+				and (ty == Enum.UserInputType.Touch or ty == Enum.UserInputType.MouseButton1) then
+				done = true
+			end
+		end)
+		local t0 = os.clock()
+		while not done and os.clock() - t0 < t do
+			task.wait(0.05)
+		end
+		conn:Disconnect()
+		-- tapped away, or cut short on a calm screen: take the card down now (it may run its own longer timer)
+		if (done or calm) and type(hide) == "function" then
+			pcall(hide)
+			task.wait(0.15)
+		end
 		celebrating = false
 		pump()
 	end)
 end
 
--- fn shows the card and returns how many seconds it stays up (the next one waits that long)
-function HudLayout.celebrate(fn: () -> number?)
+-- fn shows the card and returns how many seconds it stays up (the next one waits that long) and, optionally,
+-- a hide() that takes it down early (tap to dismiss)
+function HudLayout.celebrate(fn: () -> (number?, (() -> ())?))
 	table.insert(queue, { fn = fn, at = os.clock() })
 	pump()
 end

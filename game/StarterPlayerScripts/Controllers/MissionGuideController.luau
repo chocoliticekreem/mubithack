@@ -1011,8 +1011,36 @@ end
 
 function MissionGuideController:Init(_all: { [string]: any }) end
 
+-- One "what to do now" card at a time: while the tutorial card (OnboardingController, ScreenGui
+-- "Onboarding" > "Card") is up, this guide's card and edge badge step aside instead of stacking under it.
+local function yieldToTutorial()
+	local pg = player:WaitForChild("PlayerGui")
+	local hooked: Instance? = nil
+	local function apply()
+		local ob = pg:FindFirstChild("Onboarding")
+		local card = ob and ob:FindFirstChild("Card")
+		local busy = card ~= nil and card:IsA("GuiObject") and card.Visible and (ob :: ScreenGui).Enabled
+		if ui.gui and ui.gui.Enabled == busy then
+			ui.gui.Enabled = not busy
+		end
+		if card and card ~= hooked and card:IsA("GuiObject") then
+			hooked = card
+			card:GetPropertyChangedSignal("Visible"):Connect(apply)
+			;(ob :: ScreenGui):GetPropertyChangedSignal("Enabled"):Connect(apply)
+		end
+	end
+	pg.ChildAdded:Connect(function(c)
+		if c.Name == "Onboarding" then
+			task.defer(apply)
+		end
+	end)
+	apply()
+	task.delay(3, apply) -- the tutorial builds its card a moment after join
+end
+
 function MissionGuideController:Start()
 	build()
+	task.spawn(yieldToTutorial)
 	ui.skip.Activated:Connect(function()
 		MissionGuideController:Skip()
 	end)

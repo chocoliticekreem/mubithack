@@ -36,6 +36,7 @@ local TOUCH = UserInputService.TouchEnabled and not UserInputService.MouseEnable
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
 local HudController = {}
 HudController.Priority = 50
@@ -478,7 +479,7 @@ end
 -- toasts -----------------------------------------------------------------------------------
 
 local toastOrder = 0
-local toastState: PopupLogic.State? = nil
+local toastStates: { [boolean]: PopupLogic.State } = {} -- [calm]: phones show one toast at a time
 local toastFrames: { [number]: Frame } = {}
 
 local function dropToast(id: number)
@@ -494,18 +495,22 @@ local function toast(text: string, kind: string)
 	if not u then
 		return
 	end
+	WorldPopup.screenShown(text) -- the same line as a world popup too would say it twice
 	text = InputHints.format(text) -- server text names keys; touch / gamepad see their own buttons
-	local secs = tonumber(FeedbackConfig.ToastSeconds) or 2.5
+	local calm = Calm.on()
+	local secs = tonumber(if calm then FeedbackConfig.CalmToastSeconds else FeedbackConfig.ToastSeconds) or 2.5
+	local toastState = toastStates[calm]
 	if not toastState then
-		local n = tonumber(FeedbackConfig.ToastMax) or 2
+		local n = tonumber(if calm then FeedbackConfig.CalmToastMax else FeedbackConfig.ToastMax) or 2
 		toastState = PopupLogic.new({
 			cap = n,
 			perSubject = n,
 			dedupeSeconds = tonumber(FeedbackConfig.ToastDedupeSeconds) or 2,
 			lifeSeconds = secs,
 		})
+		toastStates[calm] = toastState
 	end
-	local d = PopupLogic.admit(toastState :: PopupLogic.State, os.clock(), "screen", text)
+	local d = PopupLogic.admit(toastState, os.clock(), "screen", text)
 	if not d.show then
 		return
 	end
@@ -513,7 +518,7 @@ local function toast(text: string, kind: string)
 		dropToast(id)
 	end
 	toastOrder += 1
-	local size = tonumber(FeedbackConfig.ToastTextSize) or 17
+	local size = (tonumber(FeedbackConfig.ToastTextSize) or 17) - (if calm then 1 else 0)
 	local frame = Instance.new("Frame")
 	frame.Name = `Toast{toastOrder}`
 	frame.LayoutOrder = toastOrder
@@ -540,7 +545,7 @@ local function toast(text: string, kind: string)
 	frame.Parent = u.toasts
 	toastFrames[d.id] = frame
 	UiKit.pop(frame, 0.15)
-	sfx("Toast", 0.3)
+	sfx("Toast", if calm then 0.18 else 0.3)
 	local id = d.id
 	task.delay(secs, function()
 		if toastFrames[id] == frame then
@@ -548,7 +553,7 @@ local function toast(text: string, kind: string)
 			UiKit.tween(label, 0.2, { TextTransparency = 1 })
 			task.wait(0.2)
 			dropToast(id)
-			PopupLogic.release(toastState :: PopupLogic.State, id)
+			PopupLogic.release(toastState, id)
 		end
 	end)
 end
@@ -743,7 +748,13 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	-- metres (3.5 studs each); the marker hides once you're right there (it only clutters the view)
 	local metres = math.floor((target - from).Magnitude / 3.5 + 0.5)
 	m.dist.Text = `{metres}m`
-	m.root.Visible = metres > 20
+	-- calm (phones): far away the GPS route + its marker already lead to the call; F / R join once you're
+	-- close (three arrows to one spot is noise on a small screen)
+	local far = Calm.on() and metres > 60 and m.root.Name ~= "TruckMarker" and player:GetAttribute("WaypointPos") ~= nil
+	m.root.Visible = metres > 20 and not far
+	if far then
+		return
+	end
 	local margin = 40
 	-- keep markers out from under the Roblox top bar (HudMarkers is full-bleed: y = 0 is the screen top)
 	local topClear = GuiService:GetGuiInset().Y + 28

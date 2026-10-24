@@ -28,10 +28,18 @@ return Config.define({
 	PerSubject = 1, -- newest replaces the old one over the same subject
 	DedupeSeconds = 2, -- same text over the same subject within this is dropped
 	OutlineTransparency = 0.45, -- soft text stroke
+	-- calm (ClientLib/Calm: phones / touch / "EFFECTS: CALM"): fewer, smaller, closer
+	CalmCap = 3, -- max world popups on screen
+	CalmTextSize = 14,
+	CalmMaxDistance = 35, -- popups about someone else farther than this are skipped
+	WordCooldown = 1.5, -- s: the same word anywhere (SPLASH!, CRASH!) shows at most once per this
+	CalmWordCooldown = 5,
 
 	-- screen toasts (HudController)
 	ToastMax = 2,
 	ToastSeconds = 2.5,
+	CalmToastMax = 1, -- calm: one toast at a time (a newer one replaces it)
+	CalmToastSeconds = 2,
 	ToastDedupeSeconds = 2,
 	ToastTextSize = 17,
 	ToastTop = 74, -- px from the top: just under the timer pill

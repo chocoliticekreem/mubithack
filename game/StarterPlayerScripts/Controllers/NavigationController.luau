@@ -529,6 +529,15 @@ local function updateEdge(pos: Vector3?, distance: number)
 		e.root.Visible = false
 		return
 	end
+	-- one "!" arrow at a time: while the tutorial points at something (OnboardingEdge, e.g. "run to your
+	-- truck"), the GPS arrow waits; the minimap route still shows the way
+	local pgui = player:FindFirstChildOfClass("PlayerGui")
+	local ob = pgui and pgui:FindFirstChild("OnboardingEdge")
+	local obArrow = ob and ob:FindFirstChild("EdgeArrow", true)
+	if ob and (ob :: ScreenGui).Enabled and obArrow and obArrow:IsA("GuiObject") and obArrow.Visible then
+		e.root.Visible = false
+		return
+	end
 	local vp = cam.ViewportSize
 	local v, onScreen = cam:WorldToViewportPoint(pos + Vector3.new(0, 14, 0))
 	local margin = tonumber(NavigationConfig.EdgeArrowMargin) or 70
