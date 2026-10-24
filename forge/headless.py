@@ -69,9 +69,23 @@ local function shown(g)
 	end
 	return cur == pg
 end
-local function rel(g)
+local function rel(g) -- same-named siblings get an index ("HUD.TextButton[2]"), as ForgeTestAgent's ui paths
 	local parts, cur = {}, g
-	while cur and cur ~= pg do table.insert(parts, 1, cur.Name) cur = cur.Parent end
+	while cur and cur ~= pg do
+		local name, parent = cur.Name, cur.Parent
+		if parent then
+			local n, idx = 0, 0
+			for _, c in parent:GetChildren() do
+				if c.Name == cur.Name then
+					n += 1
+					if c == cur then idx = n end
+				end
+			end
+			if n > 1 then name ..= "[" .. idx .. "]" end
+		end
+		table.insert(parts, 1, name)
+		cur = parent
+	end
 	return table.concat(parts, ".")
 end
 local function label(b)
@@ -116,6 +130,7 @@ if not found then
 		detail = "no visible button matches " .. (wantPath ~= "" and wantPath or wantText) .. "; visible: [" .. table.concat(names, ", ") .. "]" })
 end
 local before = snapshot()
+local text, path = label(found), rel(found) -- before the press: a toggle's label changes with it
 for _, ev in { "MouseButton1Down", "MouseButton1Up", "MouseButton1Click", "Activated" } do
 	found[ev]:Fire()
 end
@@ -128,8 +143,8 @@ for k, v in after.stats do if before.stats[k] ~= v then stats[k] = { before.stat
 local changed = #appeared > 0 or #gone > 0 or next(stats) ~= nil or after.n ~= before.n
 local effect = { appeared = appeared, gone = gone, stats = stats, gui_objects = { before.n, after.n } }
 return HttpService:JSONEncode({
-	done = true, fired = true, changed = changed, path = rel(found), text = label(found), effect = effect, headless = true,
-	detail = "pressed '" .. label(found) .. "' (" .. rel(found) .. ") headless: its events fired (no layout check)"
+	done = true, fired = true, changed = changed, path = path, text = text, effect = effect, headless = true,
+	detail = "pressed '" .. text .. "' (" .. path .. ") headless: its events fired (no layout check)"
 		.. "; changed: " .. (changed and HttpService:JSONEncode(effect) or "nothing on screen"),
 })
 """

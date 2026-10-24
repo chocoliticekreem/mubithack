@@ -14,6 +14,12 @@
   source) shows at most GREY_MAX default-grey parts, a ScreenGui HUD and at least one sound;
 - first60: every beat of the director's first-60-seconds script (spec["first_60s"]) happened: its
   counter reached its minimum in the latest playtest (a beat with no counter: the fun critic saw it).
+- interactions: the static audit (forge/interactions.py) finds no dead interaction: no ProximityPrompt,
+  ClickDetector or button without a handler, no remote fired that nothing listens to (high/medium findings);
+  the line says how many objects only a generic handler covers and which remote checks were switched off;
+- journey: the live journeys of the current code (forge/journey.py, runs/<slug>/journey/latest-<engine>.json,
+  Studio's verdict per step where it has one, headless for the rest) passed every step (an older version's
+  journey, or one run with --no-sync, is stale).
 Seeded games (human code) have no fun critique or director script; for them fun/first60 are n/a.
 
 A part with no record yet is not met: unknown is never "ready".
@@ -194,13 +200,28 @@ def _first60(run: Path, spec: dict, seeded: bool) -> dict:
                       + (": missing " + ", ".join(failed[:5]) if failed else "")}
 
 
+def _interactions(game_dir: Path) -> dict:
+    from forge import interactions
+
+    res = interactions.audit(game_dir)
+    return {"part": "interactions", "ok": res.get("ok") is True, "detail": interactions.summary(res)}
+
+
+def _journey(run: Path, game_dir: Path) -> dict:
+    from forge import journey
+
+    ok, detail = journey.summary(journey.for_done(run, game_dir), game_dir)
+    return {"part": "journey", "ok": ok, "detail": detail}
+
+
 def readiness(settings: Settings, slug: str, *, compare: bool = False) -> dict:
     store = RunStore(settings, slug)
     spec = _read(store.spec_path) or {}
     state = _read(store.state_path) or {}
     seeded = bool(spec.get("base_files"))
     parts = [_checks(store.dir), _features(store.dir, spec), _open(store.dir), _critic(state, seeded),
-             _fun(store.dir, seeded), *_polish(store.dir, store.game_dir), _first60(store.dir, spec, seeded)]
+             _fun(store.dir, seeded), *_polish(store.dir, store.game_dir), _first60(store.dir, spec, seeded),
+             _interactions(store.game_dir), _journey(store.dir, store.game_dir)]
     r = {"slug": slug, "ready": all(p["ok"] for p in parts), "parts": parts}
     if compare:
         from forge.compare import done_summary
@@ -210,7 +231,7 @@ def readiness(settings: Settings, slug: str, *, compare: bool = False) -> dict:
 
 def render(r: dict) -> str:
     head = f"{r['slug']}: " + ("READY" if r["ready"] else "not ready yet")
-    lines = [head] + [f"  [{'x' if p['ok'] else ' '}] {p['part']:<9} {p['detail']}" for p in r["parts"]]
+    lines = [head] + [f"  [{'x' if p['ok'] else ' '}] {p['part']:<12} {p['detail']}" for p in r["parts"]]
     if r.get("compare"):
         from forge.compare import done_line
         lines.append(done_line(r["compare"]))

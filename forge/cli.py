@@ -611,6 +611,48 @@ def cmd_done(args) -> int:
     return 0 if r["ready"] else 1
 
 
+def cmd_interactions(args) -> int:
+    from forge import interactions
+    res = interactions.audit(_game_root(args))
+    print(json.dumps(res, indent=1, default=str) if args.json else interactions.render(res))
+    return 0 if res.get("ok") else 1
+
+
+async def _journey(args) -> dict:
+    from forge import headless as hl
+    from forge import journey
+
+    s = load_settings()
+    store = RunStore(s, args.slug)
+    if not store.game_dir.is_dir():
+        raise FileNotFoundError(f"no game folder {store.game_dir}")
+    # headless by default; a named Studio window (or --studio always) runs it in Studio
+    async with hl.backend(s, store.game_dir, needs_ui=bool(args.studio), studio_name=args.studio, players=1,
+                          slug=args.slug, kind="journey") as st:
+        in_studio = not getattr(st, "headless", False)
+        if in_studio:
+            if not args.no_sync:
+                await sync_before_checks(st, store.game_dir, s.sync_port)
+            await st.play()
+        try:
+            rec = await journey.run_journey(st, clicks=args.clicks, shots=Path(args.shots) if args.shots else None)
+        finally:
+            if in_studio:
+                await st.stop()
+    # --no-sync ran whatever Studio held, not necessarily the files on disk: no game_hash, so it reads as stale
+    untested = in_studio and args.no_sync
+    print(f"[journey] saved {journey.save(store.dir, rec, None if untested else store.game_dir)}"
+          + (" (--no-sync: saved as stale, `forge done` will not count it)" if untested else ""))
+    return rec
+
+
+def cmd_journey(args) -> int:
+    from forge import journey
+    rec = asyncio.run(_journey(args))
+    print(json.dumps(rec, indent=1, default=str) if args.json else journey.render(rec))
+    return 0 if rec.get("ok") else 1
+
+
 async def _checks(args) -> None:
     from forge.llm import make_llm
     from forge.scenarios import plan_checks, run_plan
@@ -932,6 +974,24 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--compare", action="store_true", help="also run the plain designer and print before/after")
     di.add_argument("--json", action="store_true")
 
+    ia = sub.add_parser("interactions", help="static audit: prompts, buttons, click detectors and remotes that "
+                                             "cannot work (file:line); exit 1 on a high/medium finding")
+    ia.add_argument("slug", nargs="?")
+    ia.add_argument("--root", help="game folder (default game/)")
+    ia.add_argument("--json", action="store_true")
+
+    jo = sub.add_parser("journey", help="live player journey: join, lobby census, every lobby prompt has an effect, "
+                                        "costume, stage 1, respawn, on-screen buttons (layout + presses, RESET), "
+                                        "ride gate (headless unless --studio)")
+    jo.add_argument("slug")
+    jo.add_argument("--studio", help="Studio window (name part or id): run in Studio instead of headless")
+    jo.add_argument("--clicks", action="store_true",
+                    help="in Studio, press panel buttons with real mouse clicks (off: the panel's own remote)")
+    jo.add_argument("--no-sync", action="store_true",
+                    help="run against what is already in Studio (the record is saved as stale for forge done)")
+    jo.add_argument("--shots", help="save Studio screenshots of the steps into this folder")
+    jo.add_argument("--json", action="store_true")
+
     fu = sub.add_parser("fun", help="fun critic on a game's current code + latest playtest evidence")
     fu.add_argument("slug")
 
@@ -1247,7 +1307,8 @@ def main(argv: list[str] | None = None) -> int:
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,
                "orchestrate": cmd_orchestrate, "autopilot": cmd_autopilot, "gaps": cmd_gaps, "queue": cmd_queue,
-               "plugin": cmd_plugin, "levels": cmd_levels}[args.cmd]
+               "plugin": cmd_plugin, "levels": cmd_levels, "interactions": cmd_interactions,
+               "journey": cmd_journey}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

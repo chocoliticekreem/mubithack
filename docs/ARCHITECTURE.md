@@ -111,6 +111,10 @@ forge/                 Python package (uv), entry point `forge`
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
                        fun critic >= 8, visuals (<= 15% default-grey parts), hud (a ScreenGui), sounds (>= 1),
                        first60 (every director beat's counter reached its min); census from the playtest, else source;
+                       interactions (the static audit finds no dead interaction; its line says what only a generic
+                       handler covers and which remote checks were switched off) and journey (the fresh journeys of the
+                       current code, Studio's verdict per step where it has one, headless for the rest, passed every
+                       step) are hard parts too (see "Interaction gates");
                        readiness(..., compare=True) (what `forge done` prints) adds r["compare"] = compare.done_summary:
                        the compare categories vs game/, informational (an "[i] compare" line, never a part, never blocks)
   compare.py           `forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]`: is the code as good as our
@@ -220,6 +224,15 @@ forge/                 Python package (uv), entry point `forge`
                        jump envelope (a live R15 runner), movers carry, ride gates (wired, riding one lands on the next
                        zone's start, and that zone's ground entrance is shut one stage short and rides up at the zone's last
                        stage); each check's waits stay under the 30 s execute_luau limit
+  interactions.py      `forge interactions <slug>|--root DIR`: static audit (luau-ast) of interactions that cannot work,
+                       file:line per finding: prompts / click detectors / buttons with no handler, remotes fired that
+                       nothing listens to (and the reverse), bindables; an object it cannot follow is unknown, never
+                       reported (see "Interaction gates")
+  journey.py           `forge journey <slug> [--studio S] [--clicks] [--no-sync] [--shots DIR]`: live end-to-end journey of
+                       one new player through the ForgeTest harness, no LLM: join, lobby (census, no template baseplate,
+                       a WorldKit park in view), every lobby prompt must have an observable effect and what it opens is
+                       closed again, costume (worn and visible), stage 1, respawn, layout + buttons (every on-screen
+                       button on top and doing something, RESET back to the checkpoint), ride gate -> runs/<slug>/journey/
   fun.py               quality brain 2 (`forge fun <slug>`): census(studio) (server + client scene census during play,
                        stored as report["census"]), static_census(files), fun_critique(llm, spec, files, report, *,
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
@@ -716,7 +729,101 @@ forge reflect --all                                  # every game summed -> runs
 forge consolidate <slug> [--plan-only] [--max-merges 6] [--studio S]  # architect pass, gated, rolled back on failure
 forge compare <slug|dir> [--against game|slug|dir] [--llm] [--json]  # code vs the reference game: 0-10 per
                                                      # category, evidence, gaps with reference files to copy
+forge interactions [<slug>|--root DIR] [--json]      # static audit: dead prompts/buttons/detectors/remotes, exit 1 if any
+forge journey <slug> [--studio S] [--clicks] [--no-sync] [--shots DIR] [--json]  # live player journey (headless
+                                                     # unless --studio), saved to runs/<slug>/journey/, exit 1 on a fail
 ```
+
+### Interaction gates (forge/interactions.py, forge/journey.py)
+The overnight Funfair Frenzy obby made a "Try on costumes" prompt nothing handled, a RESET button whose remote
+nothing listened to, a GIFT button under the Skip Stage button, and a lobby on the grey template baseplate. Two hard
+parts of `forge done` catch that class of bug.
+```python
+# interactions.py (needs luau-ast, shipped with luau; without it the part is unknown, never a pass)
+def audit(game_dir) -> {ok, findings[{id, kind, severity, file, line, object, detail, fix, kit}], stats, errors}
+    # kinds: prompt_no_handler, click_no_handler (high), button_no_handler (medium), remote_no_listener,
+    # remote_no_answer (high), remote_never_fired (medium), bindable_no_answer (high), bindable_no_listener /
+    # bindable_never_fired (low). ok = no high/medium finding. Matching: the same value (locals, aliases, helper
+    # returns per call site, parameters of local functions with their call sites), the Name (FindFirstChild /
+    # WaitForChild / index lookups, Config module constants; a lookup T.k on a table filled as T[k] = r names k or
+    # any string a table record maps k to, e.g. Config.Remotes = {Reset = "ResetToCheckpoint"}), a PromptTriggered
+    # handler that tests for something the prompt carries. Remotes match by name, not by folder: a listener on a
+    # same-named remote in another folder reads as connected (the journey's buttons step catches it live). A generic handler (a class lookup, a loop over GetChildren / GetDescendants / GetTagged, a
+    # ChildAdded / DescendantAdded callback, a connection on a value it cannot follow, a catch-all PromptTriggered)
+    # reaches only its container (parent links followed up), its tag, or without one its own file; an unknown
+    # container reaches anything. Tool.Activated is not a button handler (IsA("Tool") / ClassName == "Tool" on the
+    # target, or a Backpack / StarterPack / character source). A zero-size button is not a control (stats.inert).
+    # An object whose flow it cannot see (stored in a table, returned to unseen callers, passed to an unknown
+    # function) is `unknown`. A remote site with an unknown alternative may be any remote: it suppresses findings
+    # (stats.suppressed[{at file:line, site, off, for}]) instead of making one.
+    # stats = {files, objects, handled (matched), generic, generic_at {file:line: n}, unknown, inert, senders,
+    # receivers, suppressed, tool_connections}. id = kind:file:object (+ #n for identical objects): no line.
+    # Skipped: gaps.RUNTIME_FILES, tools/, tests/, kit modules the game never names (kit findings: kit=True)
+def as_anomalies(res) -> [{kind dead_interaction, system interactions, severity, title, observed, expected, proof,
+                           finding{kind, file, object, count, in_file}, ref ref_of(x), path (not for kit)}]
+def ref_of(finding) -> "dead:<file>:<kind>:<object slug>[#n]"   # stable across edits that shift lines
+def still_dead(game_dir, finding) -> "" | why     # after a fix: is a finding of its kind, file and object left (or
+                                                  # as many of its kind in the file as before: a rename)?
+def coverage(stats) / summary(res) / render(res)  # what was matched, generic-only, not followed, suppressed
+# journey.py
+async def run_journey(studio, *, clicks=False, shots=None, log) -> {ok, engine, clicks, player,
+    steps[{step, ok (None = n/a or unknown), detail, evidence, secs, skipped?, shot?}], prompts[...], buttons[...],
+    secs}
+    # steps: join; lobby (census >= 40 parts, 5 colours, 5 tall parts within 200 studs; the biggest ground part is
+    # not the Baseplate nor default-grey plastic and default-grey ground shows on <= 25% of the square around the
+    # spawn (headless adds the place's template Baseplate back unless the game's code names it); with the WorldKit
+    # kit a Workspace.Park and a Landmark-tagged ride within 600 studs); prompts (each prompt within 150 studs of
+    # the spawn, after BOOT_SECONDS since the join and a settled client GUI: walk, settle, a QUIET ambient window,
+    # one press, up to EFFECT_LOOKS looks EFFECT_WAIT apart. Each look diffs a server snapshot (attributes,
+    # leaderstats, character children, Costume_* models and how they sit on the body, parts near the prompt,
+    # position) and a client snapshot (visible GUI objects, same-named siblings indexed) minus ambient change;
+    # observable = a panel opened, an attribute / leaderstat / costume / character / part changed, or a move >= 8
+    # studs. Then close(): the opened panel's X / Close / Back button (a press: headless or clicks=True), waiting for
+    # a toast to go by itself, the prompt again (a toggle), walking away; it must leave the screen before the next
+    # before-picture. Nothing closes it: the prompt fails ("cannot be closed"). Studio without clicks: left open, and
+    # a later prompt that only reopens it is unknown. A move is undone with a harness teleport); costume (a costume
+    # prompt puts a costume on itself, or opens a panel whose WEAR is pressed (Studio without clicks: the kit's
+    # CosmeticsRemotes.Request); the costume shows: visible parts within 3 studs of the body (the head for a head
+    # costume), an effect, or body colours; the costume shot is taken with the panel closed, or hidden for the shot);
+    # stage1 (walk to ObbyStart, obby_try 0 -> 1); respawn (KillPart); layout (every on-screen GuiButton outside
+    # the Core / Forge GUIs is the top-most input-sinking object at its centre: Studio PlayerGui:GetGuiObjectsAtPosition,
+    # headless rectangles from Size / Position / AnchorPoint / UIPadding / UISizeConstraint ordered by DisplayOrder and
+    # Sibling / Global ZIndex, unknown when a layout object, scroll, scale or rotation places it); buttons (each
+    # uncovered button pressed once: a panel, a text change, a GUI object gone, an attribute / leaderstat / counter,
+    # a move (not a sound: funfair's HUD clicks on every press); a button whose label counts down (GIFT 1:10) and
+    # does nothing is on cooldown, reported but not judged; a RESET / respawn button after stage1: the player is teleported off checkpoint N and must be back on
+    # it within RESPAWN_WAIT; Studio without clicks: unknown); ride (ObbyKit v2: the first RideGate's checkpoint via
+    # the kit fixture teleport_stage, its RidePrompt, then the player within 12 studs of the next zone's
+    # ObbyZoneStart with Stage >= the gate's). After every teleport fixture the leftover walk of obby_try is stopped.
+def save(run_dir, rec, game_dir=None) -> path  # <n>.json, latest.json, latest-<engine>.json; game_hash = sha1 of the
+                                               # .luau files, None without game_dir (forge journey --no-sync: stale)
+def latest(run_dir, engine=None) / fresh(rec, game_dir)
+def for_done(run_dir, game_dir) -> rec          # fresh latest of each engine merged step by step (merge(): Studio's
+                                               # verdict where it has one, else headless), else latest.json
+def summary(rec, game_dir) -> (ok, detail)      # stale when game_hash differs or is None
+def as_anomalies(rec, findings)                 # a failed step whose every failing prompt / button a static finding
+                                               # explains carries `static` and that file as `path`
+def still_failing(rec, anomaly, base) -> "" | why  # the fix loop's judge (see Wiring)
+def anomalies_for(game_dir, run_dir) / refresh(harness, game_dir, run_dir, force=False) / brief(rec) ->
+    {ok, failing, passing} / confirm(first, second) / enabled()  # FORGE_JOURNEY=0 (tests' default): loop off
+```
+Wiring: `forge done` parts `interactions` + `journey`. Fix loop (improve.run_cycle, fix=True): refresh() before
+anything else when the latest journey is missing or stale (always on a fresh server: headless a new session of the
+game, Studio a restarted playtest; the cycle's own player has been playtesting); anomalies_for() goes first in the cycle's anomalies (a
+journey failure a static finding explains is left out), ahead of the auditor's for the max_fixes budget; after kept
+fixes the journey runs again. Anomalies with `proof` skip the reproducer and the investigator's unproven gate
+(fix_code); one with `finding` is re-audited after each attempt (still_dead: rejected before any playtest). Then
+(fix_code(journey_judge=True), what run_cycle passes when the journey is on) every attempt at a dead interaction or
+a failed journey step is judged by the live journey on a fresh server (journey.still_failing(rec, anomaly, base)):
+its own evidence must pass (the step; for a prompts / buttons step every item it used before, so a button the fix
+uncovered is the next anomaly, not a veto; for a static finding the prompts / buttons it names: a clean audit
+while the game still does nothing is a rejection) and no step that passed before may fail; then it is kept unless
+the verifier says regression. Autopilot: measurements carry `dead` (count) and `journey` (brief;
+run headless in _headless_part, in Studio in _studio_part); the evidence store gets `dead:*` / `journey:*` items;
+detect() puts hard_anomaly() of each first (confidence 1, a fix job on the named file; id = slug + sha1 of the ref);
+gate() rolls back more dead interactions or a journey step that passed and now fails, but a rollback whose only
+reasons are lost journey steps (or dead counters) is confirmed first: a second journey (Autopilot(journeyer=...),
+default rerun_journey, headless) or a full re-measure, and a step counts as lost only when it failed both times.
 
 ### Consolidate (forge/consolidate.py, `forge consolidate`)
 Features built one at a time each add their own files; this pass gives a game the reference's shape. Never touched:

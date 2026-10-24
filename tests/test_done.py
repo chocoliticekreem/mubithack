@@ -36,16 +36,58 @@ def _game(tmp_path, *, spec=None, state=None, scores=None, results=None, feature
         (run / "features.jsonl").write_text("".join(json.dumps(f) + "\n" for f in features))
 
 
-def test_ready_when_every_part_is_proved(tmp_path):
+def _played(tmp_path, ok=True):
+    """A game folder and a journey of exactly this code (forge/journey.py)."""
+    from forge import journey
+
+    game = tmp_path / "runs" / "g" / "game" / "ServerScriptService"
+    game.mkdir(parents=True, exist_ok=True)
+    (game / "Main.server.luau").write_text('print("hi")\n')
+    steps = [{"step": "join", "ok": True, "detail": "Ana joined"},
+             {"step": "prompts", "ok": ok, "detail": "1/1 prompts did something" if ok else
+              "0/1 prompts did something: FAIL 'Try on costumes' was triggered, but nothing happened"}]
+    journey.save(tmp_path / "runs" / "g", {"ok": ok, "engine": "headless", "steps": steps}, game.parent)
+
+
+def test_ready_when_every_part_is_proved(tmp_path, monkeypatch):
+    from forge import interactions
+
+    # the audit itself is tested in test_interactions (it needs luau-ast); here: a clean audit counts
+    monkeypatch.setattr(interactions, "audit", lambda game_dir: {"ok": True, "findings": [], "stats": {"objects": 2}})
     _game(tmp_path, state={"iterations": [{"score": 6}, {"score": 8.5}]}, scores=[{"cycle": 3, "open": 0}],
           results=[{"id": "a", "ok": True}, {"id": "b", "ok": True}],
           features=[{"request": "pass", "verified": False}, {"request": "pass", "verified": True}],
           spec={"first_60s": BEATS}, fun=FUN, report={"counters": {"plot_claimed": 1, "item_bought": 2}})
+    _played(tmp_path)
     r = readiness(_settings(tmp_path), "g")
     assert r["ready"], r
     assert "READY" in render(r)
     parts = {p["part"]: p for p in r["parts"]}
     assert "2/2 beats" in parts["first60"]["detail"] and "4/120" in parts["visuals"]["detail"]
+    assert parts["journey"]["detail"] == "2/2 steps (headless, journey 1): join, prompts"
+
+
+def test_a_dead_interaction_or_a_failed_stale_or_missing_journey_blocks(tmp_path, monkeypatch):
+    from forge import interactions
+
+    _game(tmp_path)
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert not parts["journey"]["ok"] and parts["journey"]["detail"].startswith("no journey yet")
+    _played(tmp_path, ok=False)
+    monkeypatch.setattr(interactions, "audit", lambda game_dir: {"ok": False, "stats": {}, "findings": [
+        {"kind": "prompt_no_handler", "severity": "high", "file": "ServerScriptService/Shop.luau", "line": 196,
+         "object": 'ProximityPrompt "ChangingRoomPrompt"'}]})
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert not parts["interactions"]["ok"] and "Shop.luau:196" in parts["interactions"]["detail"]
+    assert not parts["journey"]["ok"] and "prompts FAILED" in parts["journey"]["detail"]
+    _played(tmp_path, ok=True)
+    (tmp_path / "runs" / "g" / "game" / "ServerScriptService" / "Main.server.luau").write_text('print("changed")\n')
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert not parts["journey"]["ok"] and parts["journey"]["detail"].startswith("stale")
+    monkeypatch.setattr(interactions, "audit", lambda game_dir: {"ok": None, "skipped": "luau-ast not on PATH",
+                                                                 "findings": [], "stats": {}})
+    parts = {p["part"]: p for p in readiness(_settings(tmp_path), "g")["parts"]}
+    assert not parts["interactions"]["ok"] and parts["interactions"]["detail"].startswith("unknown")
 
 
 def test_fun_bar_grey_hud_sounds_and_first60_each_block(tmp_path):
