@@ -2,6 +2,7 @@ import React from "react";
 import { Composition, Still } from "remotion";
 import { AdBackdraft, AdBoom, AdChief, AdCloseup, AdRooftop, AdSaveCat, AdSaveThem, AdSquad, AdWhoStarted } from "./Ads";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
+import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
 
 const I = { width: 512, height: 512 };
@@ -9,6 +10,12 @@ const A = { width: 1920, height: 1080 };
 
 export const Root: React.FC = () => (
   <>
+    <Still id="pass-unlimited-foam" component={PassFoam} {...I} />
+    <Still id="pass-premium" component={PassPremium} {...I} />
+    <Still id="donate-10" component={Donate10} {...I} />
+    <Still id="donate-50" component={Donate50} {...I} />
+    <Still id="donate-100" component={Donate100} {...I} />
+    <Still id="donate-500" component={Donate500} {...I} />
     <Still id="icon-v2-a" component={IconA} {...I} />
     <Still id="icon-v2-b" component={IconB} {...I} />
     <Still id="icon-v2-c" component={IconC} {...I} />
