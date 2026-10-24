@@ -2935,6 +2935,24 @@ function H.spawnCharacter(plr: any)
 		end
 	end
 	pd.props.Character = char
+	-- every spawn: the Backpack is emptied and refilled from StarterPack (and the player's StarterGear)
+	local bp = Methods.FindFirstChild(plr, "Backpack")
+	if bp then
+		for _, c in table.clone(d(bp).children) do
+			Methods.Destroy(c)
+		end
+		local gear = Methods.FindFirstChild(plr, "StarterGear")
+		for _, src in { StarterPack, gear } do
+			if src then
+				for _, c in d(src).children do
+					local cc = Methods.Clone(c)
+					if cc then
+						setParent(cc, bp)
+					end
+				end
+			end
+		end
+	end
 	if H.clients then
 		for _, c in d(d(StarterPlayer).props.StarterCharacterScripts).children do
 			local cc = Methods.Clone(c)

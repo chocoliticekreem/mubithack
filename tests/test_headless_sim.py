@@ -372,3 +372,19 @@ def test_luau_string_escapes_everything_onto_one_line():
     lit = hl.luau_string(s)
     assert "\n" not in lit and lit.startswith('"')
     assert json.loads(json.dumps(lit))  # plain text
+
+
+def test_value_changed_passes_the_new_value_and_timed_waits_do_not_warn(tmp_path):
+    root = _game(tmp_path)
+    _write(root, "ServerScriptService/Values.server.luau", r"""
+local v = Instance.new("IntValue")
+v.Parent = workspace
+v.Changed:Connect(function(new) workspace:SetAttribute("Got", new) end)
+v.Name = "Cash"    -- not the Value: IntValue.Changed stays quiet
+v.Value = 7
+workspace:WaitForChild("NeverThere", 8)
+""")
+    rep = checks.boot_offline(root, play=10)
+    res = checks.run_check_offline(root, _check('return { ok = workspace:GetAttribute("Got") == 7, detail = tostring(workspace:GetAttribute("Got")) }'))
+    assert res["ok"], res
+    assert not any("NeverThere" in w for w in rep["warnings"]), rep["warnings"]
