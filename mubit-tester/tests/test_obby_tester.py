@@ -93,3 +93,18 @@ def test_luau_harness_has_the_obby_contract():
     assert "out.obby = obby" in server
     for result in ('"reached"', '"fell"', '"stuck"'):
         assert result in server
+
+
+def test_luau_harness_runs_from_spawn_jumps_hazards_and_bots_move_like_players():
+    server = (ROBLOX / "ForgeTest.server.luau").read_text()
+    start = server[server.index("local function startPart"):server.index("local function stageOf")]
+    assert 'GetTagged("ObbyStart")' in start and '"SpawnLocation"' in start and "stage == 0" in start
+    assert "local part = stagePart(cps, stage)" in server  # teleport_stage 0 = the course start
+    run_try = server[server.index("local function obbyTry"):]
+    assert "local fromPart = stagePart(cps, from)" in run_try and "fromPart :: BasePart" in run_try
+    runner = server[server.index("local function obbyRun"):server.index("local function obbyTry")]
+    assert "HasTag(hit.Instance, OBBY_HAZARD)" in runner  # a lava strip is not floor: jump it
+    assert "solidFloor(under)" in runner and "not solidFloor(workspace:Raycast(" in runner
+    bot = server[server.index("local function buildBotModel"):server.index("local attachBot")]
+    for prop in ("UseJumpPower", "JumpPower", "JumpHeight", "WalkSpeed"):
+        assert f"hum.{prop} = StarterPlayer.Character{prop}" in bot

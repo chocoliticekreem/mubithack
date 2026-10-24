@@ -22,6 +22,7 @@ from forge import roles
 from forge.config import Settings
 from forge.llm import LLM
 from forge.memory import RunStore, now_iso
+from forge.smoke import headline
 
 FUN_KEYS = ["scores", "summary", "issues"]
 AXES = ("fun", "juice", "clarity", "visuals")
@@ -207,7 +208,9 @@ def fun_message(spec: dict, files: dict[str, str], report: dict, census_: dict, 
         "## Director's design doc\n" + _doc_for_critic(spec) + "\n\n"
         "## Playtest evidence\n"
         f"counters: {json.dumps(counters)[:1500]}\n"
-        f"errors ({len(errors)}): {json.dumps(errors[:5])[:1200]}\n"
+        + (f"{headline((report or {})['smoke'])[:600]} (a scripted player, forge smoke play, before these counters "
+           "were read)\n" if (report or {}).get("smoke") else "")
+        + f"errors ({len(errors)}): {json.dumps(errors[:5])[:1200]}\n"
         f"scene census: {json.dumps(census_ or {}, ensure_ascii=False)[:2000]}\n\n"
         "## Visual judge notes (screenshots)\n" + (roles._truncate(visual.strip(), 2000, label="visual")
                                                   if visual and visual.strip() else "(none)") + "\n\n"

@@ -54,7 +54,7 @@ Commands (args are a JSON object):
 | `events` | `{since?: number}` | `{now, events: [{t, kind, data}]}` from a ring buffer (500), see below |
 | `reset` | `{location?}` | `MapService:RebuildLocation` or all, plus clearing the event log |
 | `round` | `{state?, wait?=30}` | read or force `Workspace.RoundState` via MissionService if present. `state: "Active"` while the last round is still finishing (RoundState not Active and not Lobby/Waiting/Intermission/Idle, e.g. `Results`) first waits up to `wait` s for it to end, then 1 s (MissionService frees its players only back in the lobby; a start during Results did nothing, run 2); `waited` in the result. Without MissionService the attribute is set at once |
-| `teleport_stage` | `{userId, stage}` | stand the player on top of the checkpoint tagged `Checkpoint` with `Stage = stage` (waits out a respawn, re-teleports if the game's own spawn code moved the body) -> `{stage, path, pos, player_stage, stages, next}` |
+| `teleport_stage` | `{userId, stage}` | stand the player on top of the checkpoint tagged `Checkpoint` with `Stage = stage` (stage 0 = the course start: a part tagged `ObbyStart`, else a SpawnLocation; waits out a respawn, re-teleports if the game's own spawn code moved the body) -> `{stage, path, pos, player_stage, stages, next}` |
 | `obby_try` | `{userId, from_stage?, to_stage?, attempts?=1 (<=5), timeout?=20}` | a deterministic runner (no LLM): from checkpoint `from_stage` (default: the player's stage) toward the next one, up to `attempts` times -> `{done, reached, from_stage, to_stage, attempts: [{result: reached \| fell \| stuck, at, dist, secs, jumps, via, hazard?, last_floor?, detail}], detail}` |
 | `bot_spawn` | `{names: [..] \| n, colors?: [[r,g,b]], near?: pos \| player, radius?=10}` | swarm bot testers: server-driven R15 NPCs in `Workspace.ForgeTestBots`, in a ring around `near`; returns their `players` info (`bot: true`, UserIds -1001, -1002, ...) |
 | `bots` / `bot_clear` | `{}` | list the bots / destroy them all |
@@ -142,6 +142,9 @@ async def suggest_fix(settings, run_id: str, bug_index: int, *, llm=None) -> dic
 New fixed prompts (Mubit tasks): `forge/prompts/explorer.md`. `player` and `judge` are reused.
 Swarm: `mubit-tester/prompts/swarm_tester.md` (persona in the user message) and `swarm_triage.md`.
 
+Bot testers jump and run like the game's players: each one copies `StarterPlayer`'s character settings
+(UseJumpPower, JumpPower, JumpHeight, WalkSpeed) when it spawns, so an obby that sets its own jump height gets
+bots with the same reach (an `obby_try` by a bot says what a player can reach).
 Bot testers are bodies, not Players: the game's touch/physics/collision code sees them, but Player-keyed
 features (leaderstats, ownership, GUIs, ProximityPrompts, tools) don't, and their prompt says so. `act` for
 a bot runs on the server: `walk_to` (PathfindingService, else MoveTo), `go_touch`/`chase` (walk onto the
@@ -198,10 +201,15 @@ Contract, shared with the ObbyKit: a checkpoint is a part (or model) tagged `Che
 In games with checkpoints `observe` adds `obby: {stage, stages, max_stage, nearest: {stage, dist}, next: {stage,
 path, pos, dist}, hazards: [{name, path, dist, pos}]}` (hazards within 60 studs, at most 6).
 
+Stage 0 is the course start, which is often not a checkpoint (ObbyKit tags its start pad `ObbyStart`; other obbies
+start on a SpawnLocation): `teleport_stage {stage: 0}` and `obby_try {from_stage: 0}` (the default for a player whose
+Stage is 0) start there, so a run can begin where a new player does.
+
 `obby_try` runs on the server: it takes physics ownership of a real player's character for the run (restored
 after; a bot is server-owned anyway). Route: PathfindingService waypoints (AgentCanJump) followed with
-Humanoid:MoveTo, jumping at each Jump waypoint (its take-off point); a platform edge (no floor 1.5 studs ahead),
-a step up and a stall (1.2 s without getting closer) also jump. Outcomes: **reached** = standing on the next
+Humanoid:MoveTo, jumping at each Jump waypoint (its take-off point); a waypoint on a `KillPart` is dropped (a lava
+strip is floor to pathfinding, but a player jumps it); a platform edge (no floor 1.5 studs ahead, or a `KillPart` as
+the floor there), a step up and a stall (1.2 s without getting closer) also jump. Outcomes: **reached** = standing on the next
 checkpoint (grounded, over its top face), or the player's stage rose to it during this run (a stage reached
 earlier says nothing, obbies only count up); **fell** = died, touched a KillPart, or dropped 12 studs below the
 lower checkpoint (`hazard`, `at`, and `last_floor`: the last part it stood on); **stuck** = 4 s without getting
@@ -213,6 +221,23 @@ Testers get both as macros (`OBBY_GUIDE`, only when the observation has `obby`):
 (stage 1, about every tenth of `max_stage`, the last one) instead of walking it from stage 1, then look closer at
 the stages that fail. MCP: `act(player, "obby_try", {from_stage, attempts})`; Python: `Harness.teleport_stage`,
 `Harness.obby_try`.
+
+## Smoke play in the scoring playtest (forge/smoke.py)
+
+`forge run` / `forge new` used to score a game nobody played: the player stood idle during the playtest, so the
+counters the spec names stayed absent (funfair obby: scored 6, then 4 blind, and the drop rolled the iteration back).
+Now `Run.playtest` runs `smoke_play(studio, spec, game_dir, budget_s=FORGE_SMOKE_SECONDS)` (45 s, 0 = off) after the
+game is ready and before the ForgeProbe report, with this harness only (no LLM). Each step only when the game has it:
+`players` (one observation) -> `ui` (`ai.ui_pass` on up to 3 surfaces, real clicks; skipped with the reason when the
+game view is not rendering or no Studio window drives the player) -> `pickups` (walk to the 3 nearest Coin-tagged
+parts within 90 studs, by position inside `repeat` x1 for the effect diff, since same-named coins share a path; else
+`go_touch` touchables that are not hazards) -> `obby` (Checkpoint tags: the player's `obby_try` from stage 0 plus one
+bot tester per sampled stage, 1, every tenth of the course and the last but one, all in one `multi`, 2 attempts
+each; then the player is teleported onto the nearest KillPart: died, respawned at their checkpoint?) or, without
+checkpoints, `go_use` on the nearest prompt (else `go_touch` the nearest touchable). An old harness copy without
+stage 0 makes the player run 1 -> 2 instead. `report["smoke"]` = `{steps[{what, ok, detail, secs, skipped?}],
+obby{samples[{from, to, by, result, where, secs, attempts, zone?}], reached, total, player_stage, zones_sampled,
+zones_reached}, counters_delta, secs, error?}`; the critic gets it as "## Smoke play" (user message).
 
 ## Checks: a setup failure is unknown, not a pass or a bug
 
