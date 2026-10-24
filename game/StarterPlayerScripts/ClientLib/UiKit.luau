@@ -14,6 +14,9 @@
 --   UiKit.clock(seconds) -> "2:05", UiKit.helmetTag(n) -> "02", UiKit.kindColor(kind) -> Color3
 --   UiKit.corner(parent, r?), UiKit.stroke(parent, thickness?, color?), UiKit.Header, UiKit.Body
 --   UiKit.sound(id, volume?, pitch?)   -- 2D one-shot; no-op for "" (ids are configurable, default "")
+--   UiKit.onTap(button, fn) -> RBXScriptConnection   button.Activated:Connect(fn), and on touch a button
+--                                       smaller than UiKit.MinTouch px on screen gets an invisible "TouchPad"
+--                                       around it (centred, MinTouch x MinTouch) that taps it too
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
@@ -57,6 +60,84 @@ function UiKit.screen(name: string, displayOrder: number?, fullBleed: boolean?):
 	scale.Parent = gui
 	gui.Parent = playerGui
 	return gui
+end
+
+-- touch targets -------------------------------------------------------------------------------------
+UiKit.MinTouch = 44 -- px on screen: the smallest thing a thumb should have to hit
+
+local function totalScale(obj: Instance): number
+	local k = 1
+	local cur: Instance? = obj
+	while cur do
+		for _, c in cur:GetChildren() do
+			if c:IsA("UIScale") then
+				k *= c.Scale
+			end
+		end
+		if cur:IsA("LayerCollector") then
+			break
+		end
+		cur = cur.Parent
+	end
+	return k
+end
+
+local hintsMod: any = nil
+local function isTouch(): boolean
+	if hintsMod == nil then
+		local ok, m = pcall(function()
+			return require(script.Parent:WaitForChild("InputHints") :: ModuleScript)
+		end)
+		hintsMod = if ok then m else false
+	end
+	return hintsMod ~= false and hintsMod.isTouch()
+end
+
+function UiKit.onTap(button: GuiButton, fn: () -> ()): RBXScriptConnection
+	local conn = button.Activated:Connect(fn)
+	local pad = Instance.new("TextButton")
+	pad.Name = "TouchPad"
+	pad.Text = ""
+	pad.BackgroundTransparency = 1
+	pad.AutoButtonColor = false
+	pad.Selectable = false
+	pad.AnchorPoint = Vector2.new(0.5, 0.5)
+	pad.Position = UDim2.fromScale(0.5, 0.5)
+	pad.ZIndex = button.ZIndex + 1
+	pad.Visible = false
+	pad:SetAttribute("UiAuditIgnore", true)
+	pad.Parent = button
+	pad.Activated:Connect(fn)
+	local function fit()
+		local abs = button.AbsoluteSize
+		local want = UiKit.MinTouch
+		if not isTouch() or (abs.X >= want and abs.Y >= want) or abs.X <= 0 then
+			pad.Visible = false
+			return
+		end
+		-- px per local unit, measured (UIScales, pops and tweens included): a 100-unit probe
+		pad.Size = UDim2.new(1, 100, 1, 100)
+		local k = (pad.AbsoluteSize.X - abs.X) / 100
+		if k <= 0.01 then
+			k = math.max(totalScale(button), 0.05)
+		end
+		-- grow only the short sides, in the button's own (unscaled) units
+		local ex = math.max(0, want - abs.X) / k
+		local ey = math.max(0, want - abs.Y) / k
+		pad.Size = UDim2.new(1, math.ceil(ex), 1, math.ceil(ey))
+		pad.Visible = true
+	end
+	button:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	task.defer(fit)
+	task.spawn(function()
+		isTouch() -- loads InputHints
+		if hintsMod then
+			hintsMod.onChanged(function()
+				fit()
+			end)
+		end
+	end)
+	return conn
 end
 
 function UiKit.corner(parent: Instance, radius: number?)

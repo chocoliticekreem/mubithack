@@ -461,10 +461,10 @@ local function build()
 		hintText = hintText,
 	}
 
-	chip.Activated:Connect(function()
+	UiKit.onTap(chip, function()
 		setOpen(not panel.Visible)
 	end)
-	close.Activated:Connect(function()
+	UiKit.onTap(close, function()
 		setOpen(false)
 	end)
 	run.Activated:Connect(function()

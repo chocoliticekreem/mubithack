@@ -245,7 +245,7 @@ local function build()
 	ts.Color = Palette.UiInk
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
-	b.Activated:Connect(toggle)
+	UiKit.onTap(b, toggle) -- a 44 px touch pad around the small chip on phones
 	chip = slot -- syncChip shows / hides the whole section (lobby only)
 
 	-- panel
@@ -284,7 +284,7 @@ local function build()
 	})
 	local close = UiKit.button(head, "Close", "X", UDim2.fromOffset(44, 44), UDim2.new(1, -34, 0.5, 0), Palette.UiPanelDark)
 	close.TextSize = 26
-	close.Activated:Connect(function()
+	UiKit.onTap(close, function()
 		setOpen(false)
 	end)
 

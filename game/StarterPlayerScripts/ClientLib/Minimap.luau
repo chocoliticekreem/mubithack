@@ -452,7 +452,7 @@ function Minimap.new()
 	round(mapBtn)
 	UiKit.stroke(mapBtn, 3)
 	mapBtn.Parent = root
-	mapBtn.Activated:Connect(function()
+	UiKit.onTap(mapBtn, function()
 		self:toggleBig()
 	end)
 	-- the whole minimap is a button too: click / tap anywhere on it to open the big map

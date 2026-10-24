@@ -851,7 +851,7 @@ local function build()
 	pipHit.Size = UDim2.fromScale(1, 1)
 	pipHit.ZIndex = 10
 	pipHit.Parent = pip
-	pipHit.Activated:Connect(function()
+	UiKit.onTap(pipHit, function()
 		if inLobby() then
 			toggle()
 		end
@@ -898,7 +898,7 @@ local function build()
 	ui.tabLocker = tl
 	local close = UiKit.button(head, "Close", "X", UDim2.fromOffset(46, 46), UDim2.new(1, -36, 0.5, 0), Palette.UiPanelDark)
 	close.TextSize = 26
-	close.Activated:Connect(function()
+	UiKit.onTap(close, function()
 		setOpen(false)
 	end)
 
