@@ -274,8 +274,9 @@ def test_index_entries_have_the_schema_and_their_files():
 
 def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     names = lambda t: [e["name"] for e in director.match_kit_modules(t)]  # noqa: E731
-    assert names("An amusement-park obby with 200 stages") == ["ObbyKit"]
-    assert names("a parkour climb") == ["ObbyKit"] and names("checkpoints every few stages, then a finish") == ["ObbyKit"]
+    kits = ["ObbyKit", "ObbyThemes"]
+    assert names("An amusement-park obby with 200 stages") == kits
+    assert names("a parkour climb") == kits and names("checkpoints every few stages, then a finish") == kits
     assert names("A co-op tower defence: waves walk a path") == [] and names("a cube tycoon") == []
     extra = {"name": "Music", "path_in_game": "ReplicatedStorage/Kit/Music.luau", "genres": ["*"], "keywords": [],
              "describe": "music", "api": []}
@@ -284,7 +285,7 @@ def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     assert names("a cube tycoon") == ["Music"]
     monkeypatch.setattr(director, "kit_index", lambda: real)
     # music and costumes come only from the words for them, never from the genre alone
-    assert names("An obby with music and lobby costumes") == ["ObbyKit", "MusicPlayer", "Cosmetics", "CosmeticsClient"]
+    assert names("An obby with music and lobby costumes") == [*kits, "MusicPlayer", "Cosmetics", "CosmeticsClient"]
 
 
 OBBY_DOC = {"fantasy": "Run a giant amusement park obby", "core_loop": "jump -> checkpoint -> next zone",
