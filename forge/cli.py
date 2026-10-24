@@ -1011,6 +1011,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_bench_parser(sub)
     from forge.compare import add_cli_parser as _add_compare_parser
     _add_compare_parser(sub)
+    from forge.consolidate import add_cli_parser as _add_consolidate_parser
+    _add_consolidate_parser(sub)
     _add_test_parsers(sub)
     sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
 
@@ -1234,7 +1236,9 @@ def main(argv: list[str] | None = None) -> int:
     _apply_speed_args(args)
     from forge.bench import cmd_bench
     from forge.compare import cmd_compare
-    handler = {"doctor": cmd_doctor, "bench": cmd_bench, "compare": cmd_compare, "new": cmd_new, "run": cmd_run,
+    from forge.consolidate import cmd_consolidate
+    handler = {"doctor": cmd_doctor, "bench": cmd_bench, "compare": cmd_compare, "consolidate": cmd_consolidate,
+               "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "bench-io": cmd_bench_io, "headless": cmd_headless,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,

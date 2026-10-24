@@ -169,6 +169,26 @@ def test_code_module_includes_deps_and_lessons():
     assert len(user) < roles.MAX_USER_CHARS
 
 
+def test_coder_and_counter_fixes_hear_that_client_code_counts_directly():
+    # coder.md (frozen) still says ForgeTelemetry is a no-op on the client; the user message overrides it.
+    assert "no-op on the client" in load_prompt("coder")
+    llm = FakeLLM({"coder": ["```luau\nreturn {}\n```"], "fixer": ["```luau\nreturn {}\n```"] * 3,
+                   "patcher": ['{"edits": [{"find": "local v1 = 1", "replace": "local v1 = 2"}]}']})
+    roles.code_module(llm, SPEC, {"path": "StarterPlayerScripts/Hud.client.luau", "purpose": "hud"}, {}, "",
+                      session_id="g")
+    path = "StarterPlayerScripts/Hud.client.luau"
+    roles.fix_file(llm, path, "return {}\n", "counter hud_coin_pop never moved in the playtest", "", "", session_id="g")
+    roles.fix_file(llm, path, "return {}\n", "attempt to index nil with 'Character'", "", "", session_id="g")
+    roles.fix_file(llm, path, "return {}\n", "luau-compile failed (attempt 1/3): telemetry.luau:3: Expected 'end'",
+                   "", "", session_id="g")
+    src = "\n".join(f"local v{i} = {i}" for i in range(400))
+    roles.patch_file(llm, path, src, "ForgeTelemetry counter zone_banner is missing", "", "", session_id="g")
+    coder, counter_fix, runtime_fix, compile_fix, patch = (c.user for c in llm.calls)
+    for user in (coder, counter_fix, patch):
+        assert roles.CLIENT_TELEMETRY_NOTE in user and "*Ack" in user
+    assert roles.CLIENT_TELEMETRY_NOTE not in runtime_fix and roles.CLIENT_TELEMETRY_NOTE not in compile_fix
+
+
 def test_code_module_retries_missing_fence():
     llm = FakeLLM({"coder": ["oops no code", "```luau\nprint(1)\n```"]})
     assert roles.code_module(llm, SPEC, SPEC["modules"][0], {}, "", session_id="g") == "print(1)\n"

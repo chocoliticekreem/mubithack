@@ -78,3 +78,18 @@ async def test_empty_plan_builds_nothing(game):
 
 def test_planner_prompt_exists():
     assert "new_modules" in load_prompt("planner")
+
+
+async def test_planner_hears_client_code_counts_and_the_game_gets_the_runtime(game):
+    # planner.md (frozen) asks for counters "on the server"; overnight that became one *Ack script per client effect
+    from forge.roles import CLIENT_TELEMETRY_NOTE
+
+    s, store = game
+    llm = FakeLLM({"planner": [json.dumps({"summary": "s", "new_modules": [], "edits": []})]})
+    await add_feature(s, "fab", "pop the HUD on coins", llm=llm, ui=UI(io.StringIO()), iterations=0,
+                      log=lambda _: None)
+    user = llm.calls[0].user
+    assert CLIENT_TELEMETRY_NOTE.rstrip() in user and "*Ack module" in user
+    runtime = (store.game_dir / "ReplicatedStorage/ForgeTelemetry.luau").read_text()
+    assert runtime == (s.base_game_dir / "ReplicatedStorage/ForgeTelemetry.luau").read_text()
+    assert "ForgeTelemetryRemote" in runtime
