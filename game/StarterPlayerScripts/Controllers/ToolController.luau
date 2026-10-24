@@ -537,6 +537,15 @@ local function physicsStep(dt: number)
 	if not (char and hum and root) or hum.Health <= 0 then
 		return
 	end
+	if hum.SeatPart then
+		-- seated, the root's assembly is the whole vehicle: recoil / hose-rocket / wet-floor movers
+		-- on it would shove (and flip) the truck
+		if mover then
+			mover.Enabled = false
+		end
+		downSince = nil
+		return
+	end
 	local m = ensureMover(root)
 	local _, kind = toolOf(LocalPlayer)
 	local cam = workspace.CurrentCamera

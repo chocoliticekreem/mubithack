@@ -20,6 +20,17 @@ return Config.define({
 	RespawnCooldown = 4, -- seconds between RespawnTruck calls per player
 	UnflipRange = 150, -- R within this many studs of your truck = flip it upright in place; farther = back to bay
 	LostBelowY = -60, -- chassis below this = lost, rebuilt at the bay
+	-- Safety net: a truck that dropped under the map (chassis below RescueBelowY, or no ground under it
+	-- for RescueNoGroundSeconds) is put back upright on the nearest road node, riders still inside.
+	RescueBelowY = -20,
+	RescueNoGroundSeconds = 1.5,
+	RescueRayDepth = 150, -- studs: "no ground" = nothing this far below the chassis
+
+	-- Mass. The body parts are Massless, so the chassis carries the whole truck. Heavy enough that a
+	-- character (~14 mass) standing, landing or jumping on it barely moves it; the driving code works
+	-- in velocities and mass-scaled impulses, so this doesn't change how it drives.
+	ChassisDensity = 5, -- ~1260 mass (was 1.2 -> ~300: a jumping player rocked it)
+	DoorHingeSnap = 1.5, -- studs: a door pulled further than this off its hinge is put back on it
 
 	-- Driving (client-simulated by the driver, who owns the truck's physics). Units: studs, seconds.
 	MaxSpeed = 70, -- studs/s forward; reverse is half
@@ -44,6 +55,9 @@ return Config.define({
 	SquashSeconds = 0.3, -- spring goes soft this long after a hard landing (cartoon squash + rebound)
 	SquashSoften = 0.55, -- spring multiplier at the bottom of the squash
 	SelfRightAfter = 2.5, -- seconds upside-down before the truck pops back upright on its own
+	-- Low frame rates: the client sets velocities once per frame and they hold all frame long.
+	MaxStepDt = 1 / 30, -- kicks/accelerations never use a longer frame than this
+	MaxTiltPerFrame = 0.12, -- radians of pitch/roll the body may turn in one frame (7 rad/s at 60 fps)
 
 	-- Doors (physical, HingeConstraint "DoorHinge"; positive angle = open when DoorDir = 1)
 	DoorDir = 1, -- flip to -1 if a live test shows the doors swinging INTO the cab

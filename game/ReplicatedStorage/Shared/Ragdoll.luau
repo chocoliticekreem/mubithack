@@ -197,8 +197,9 @@ end
 
 local function addVelocity(character: Model, impulse: Vector3)
 	local root = rootOf(character)
-	if not root then
-		return
+	local hum = humanoidOf(character)
+	if not root or (hum and hum.SeatPart) then
+		return -- seated: the root's assembly is the vehicle, a shove would launch / flip it
 	end
 	local v = clampImpulse(impulse)
 	-- A grounded humanoid eats horizontal velocity within a few frames; a little hop keeps the shove.
@@ -231,8 +232,8 @@ local nextToken = 0
 
 local function enableHere(character: Model, seconds: number): boolean
 	local hum = humanoidOf(character)
-	if not hum or hum.Health <= 0 then
-		return false
+	if not hum or hum.Health <= 0 or hum.SeatPart then
+		return false -- never go limp in a seat (standing back up re-poses the root = the whole vehicle)
 	end
 	local now = os.clock()
 	local untilT = now + seconds

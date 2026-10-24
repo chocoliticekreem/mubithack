@@ -67,4 +67,17 @@ Spec.test("chase FOV widens with speed", function()
 	Spec.truthy(D.fov(35, 70, 72, 20) < 82)
 end)
 
+
+Spec.test("low frame rates: dt clamp, servo gain and rate cap keep one frame from flipping the truck", function()
+	Spec.eq(D.stepDt(1 / 60, 1 / 30), 1 / 60)
+	Spec.eq(D.stepDt(0.5, 1 / 30), 1 / 30)
+	Spec.eq(D.stepDt(-1, 1 / 30), 0)
+	Spec.eq(D.servoGain(7, 1 / 60, 0.5), 7) -- 60 fps: unchanged
+	Spec.near(D.servoGain(7, 0.5, 0.5), 1) -- 2 fps: closes half the error per frame, no overshoot
+	Spec.eq(D.servoGain(7, 0, 0.5), 7)
+	Spec.eq(D.capRate(3, 1 / 60, 0.12), 3) -- 60 fps: a 3 rad/s wheelie is untouched
+	Spec.near(D.capRate(3, 0.5, 0.12), 0.24) -- 2 fps: at most 0.12 rad of pitch per frame
+	Spec.near(D.capRate(-3, 0.5, 0.12), -0.24)
+end)
+
 return Spec.finish()
