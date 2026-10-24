@@ -1,6 +1,7 @@
 --!strict
 -- BattlePassController [owner: BattlePass]. Client side of BattlePassService, sticker style (UiKit):
---   * "[P] PASS" chip on the left edge (lobby only, Premium Battle Pass owners only; everyone else buys
+--   * "[P] PASS" chip on the left edge (lobby only, everyone: free track for all; locked premium tiles
+--     say UNLOCK and open the Premium Battle Pass purchase. Previously owners only; everyone else buys
 --     the pass in the STORE) with a red badge counting rewards waiting for a Claim.
 --   * The panel (attr Menu = true, so MenuMouseController frees the mouse): season name + countdown, a big
 --     tier badge, XP bar, CLAIM ALL, and two tabs:
@@ -378,8 +379,8 @@ local function paintCard(c: Card, s: { [string]: any }, pass: PassRules.Pass)
 		b.BackgroundColor3 = GREY
 		b.TextSize = 18
 	elseif lockedPremium then
-		b.Text = "PREMIUM"
-		b.BackgroundColor3 = GREY
+		b.Text = "UNLOCK"
+		b.BackgroundColor3 = Palette.UiGood
 		b.TextSize = 17
 	else
 		b.Text = "CLAIM"
@@ -423,7 +424,7 @@ local function paintPip(s: { [string]: any }?)
 	if not pip then
 		return
 	end
-	pip.Visible = s ~= nil and owner()
+	pip.Visible = s ~= nil -- everyone has the free track
 	if not s then
 		return
 	end
@@ -514,6 +515,14 @@ local function buildCard(parent: Instance, tier: number, track: string, id: stri
 	b.Activated:Connect(function()
 		local s = state
 		if not s then
+			return
+		end
+		if track == "premium" and not s.premium then
+			-- locked premium reward: open the Premium Battle Pass purchase (MonetizationService validates)
+			sfx("Click")
+			pcall(function()
+				Net.event("Monetization", "Buy"):FireServer("pass", "PremiumPass")
+			end)
 			return
 		end
 		local ok = PassRules.canClaim(asPass(s), tier, track, s.premium, opts(s))
@@ -708,9 +717,7 @@ local function setOpen(open: boolean)
 	if not p then
 		return
 	end
-	if open and not owner() then
-		open = false
-	end
+	-- the pass is open to everyone: free track for all, premium track shows locked + a buy button
 	if open then
 		p.Visible = true
 		UiKit.pop(p, 0.25)
@@ -928,12 +935,12 @@ local function placePip()
 end
 
 local function syncVisibility()
-	local own = owner()
+
 	local chip = ui.chip :: TextButton?
 	if chip then
-		chip.Visible = own and inLobby()
+		chip.Visible = inLobby()
 	end
-	if not inLobby() or not own then
+	if not inLobby() then
 		setOpen(false)
 	end
 	paintPip(state)
@@ -1027,7 +1034,7 @@ function BattlePassController:Start()
 		paint()
 	end)
 	Net.event("BattlePass", "Gain").OnClientEvent:Connect(function(amount: any, reason: any, tier: any, tiersGained: any, ids: any)
-		if type(amount) ~= "number" or not owner() then
+		if type(amount) ~= "number" then
 			return
 		end
 		if reason ~= "Active" then

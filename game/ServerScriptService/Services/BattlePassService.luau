@@ -251,11 +251,8 @@ local function push(player: Player)
 	end
 end
 
--- New rewards drop into an empty slot (pass owners only: they have the panel to swap them back).
+-- New rewards drop into an empty slot (everyone has the panel to swap them back).
 local function autoEquip(player: Player, p: Pass, ids: { string }): boolean
-	if not isPremium(player) then
-		return false
-	end
 	local changed = false
 	for _, id in ids do
 		local r = reward(id)
