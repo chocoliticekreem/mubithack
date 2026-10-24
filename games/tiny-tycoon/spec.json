@@ -1,0 +1,56 @@
+{
+  "title": "Cube Cash Tycoon",
+  "slug": "tiny-tycoon-each-player-gets-a",
+  "pitch": "Watch cubes roll down your conveyor, cash in, and buy droppers and speed upgrades to grow your tiny factory!",
+  "core_loop": "Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 seconds onto a conveyor. The conveyor carries cubes to a collector at the end, and the server adds each cube's value to the player's Cash leaderstat and destroys the cube. Two buy pads sit off to the side of the walking area: a second dropper for 25 cash and a faster conveyor for 50 cash. Touching a pad with enough cash buys the upgrade once, so income climbs and the numbers go up.",
+  "modules": [
+    {
+      "path": "ReplicatedStorage/Config.luau",
+      "purpose": "Shared constants. Returns a table with: DROP_INTERVAL=2, CUBE_VALUE=1, CUBE_SIZE=Vector3.new(1.5,1.5,1.5), CONVEYOR_SPEED=8, FAST_CONVEYOR_SPEED=16, DROPPER_COST=25, CONVEYOR_COST=50, PLOT_SIZE=Vector3.new(40,1,40), PLOT_SPACING=60, MAX_PLOTS=8, CONVEYOR_LENGTH=24, MAX_CUBES_PER_PLOT=30, colors (PLOT_COLOR, CONVEYOR_COLOR, CUBE_COLOR, DROPPER_COLOR, COLLECTOR_COLOR, BUTTON_COLOR, BOUGHT_COLOR), REMOTES_FOLDER='TycoonRemotes', and REMOTE_NOTIFY='Notify' (server to client message string).",
+      "depends": []
+    },
+    {
+      "path": "ServerScriptService/PlotBuilder.luau",
+      "purpose": "Builds the world from parts at runtime (baseplate, one plot per slot index) with a small part count (about 15 per plot, 8 plots max). Returns {buildBase(): Part, buildPlot(index:number): Plot} where Plot = {origin:CFrame, spawnCFrame:CFrame, conveyor:Part, conveyorDir:Vector3, droppers:{Part} (first one active, second one hidden or greyed until bought), dropperSlot2:Part, collector:Part, dropperButton:Part, conveyorButton:Part}. Buttons sit on the side of the plot, at least 6 studs from the spawn and the conveyor path, so walking never triggers them accidentally. Uses Anchored parts, with no coplanar surfaces. The conveyor is a long thin part whose top surface cubes ride on.",
+      "depends": [
+        "ReplicatedStorage/Config.luau"
+      ]
+    },
+    {
+      "path": "ServerScriptService/Tycoon.luau",
+      "purpose": "Server-side tycoon logic. Returns {new(player:Player, plot:Plot): Tycoon, Tycoon:destroy()}. On new: starts a drop loop that spawns an unanchored-or-velocity-driven Cube (value Config.CUBE_VALUE, stored as a NumberValue or attribute) from each active dropper every DROP_INTERVAL, with the first cube spawned immediately. Cubes move along the conveyor using AssemblyLinearVelocity or a Heartbeat step at the current conveyor speed, with a cap of MAX_CUBES_PER_PLOT. The collector's Touched event adds the cube value to player.leaderstats.Cash and destroys the cube, counting 'cubes_collected'. Wires the button Touched events, each debounced and only once per player: dropperButton costs DROPPER_COST and activates the second dropper (counts 'dropper_bought'); conveyorButton costs CONVEYOR_COST and sets the conveyor speed to FAST_CONVEYOR_SPEED (counts 'conveyor_bought'). The server checks Cash >= cost, deducts it, recolors the button to BOUGHT_COLOR, and fires Notify to the client. Counts 'cubes_dropped' per spawn.",
+      "depends": [
+        "ReplicatedStorage/Config.luau",
+        "ServerScriptService/PlotBuilder.luau",
+        "ReplicatedStorage/ForgeTelemetry.luau"
+      ]
+    },
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "purpose": "Entry point. Creates the remotes folder and the Notify RemoteEvent in ReplicatedStorage. Calls PlotBuilder.buildBase() and counts 'map_built'. On PlayerAdded (and for players already in game) creates the leaderstats folder with Cash=0, assigns the next free plot index, builds the plot, creates a Tycoon, and teleports the character to plot.spawnCFrame on CharacterAdded (counts 'plot_assigned'). On PlayerRemoving it destroys the Tycoon, removes the plot, and frees the slot. Also creates a SpawnLocation if needed so respawning works.",
+      "depends": [
+        "ReplicatedStorage/Config.luau",
+        "ServerScriptService/PlotBuilder.luau",
+        "ServerScriptService/Tycoon.luau",
+        "ReplicatedStorage/ForgeTelemetry.luau"
+      ]
+    },
+    {
+      "path": "StarterPlayerScripts/Hud.client.luau",
+      "purpose": "Creates a ScreenGui at runtime showing a big 'Cash: N' label that reads player.leaderstats.Cash (waiting with a timeout), a small hint line 'Touch the green pads to buy: Dropper 25 / Fast Belt 50', and a short toast when the Notify remote fires. Waits for the remotes via WaitForChild with a timeout. UI only, with no gameplay authority.",
+      "depends": [
+        "ReplicatedStorage/Config.luau"
+      ]
+    }
+  ],
+  "acceptance": [
+    "The map (baseplate and the player's plot with dropper, conveyor, collector and two buy pads) is built from parts at startup and the 'map_built' counter is 1",
+    "The player spawns on their plot within a few seconds, and 'plot_assigned' is 1",
+    "'cubes_dropped' increases within the first 2 seconds and keeps increasing roughly every 2 seconds",
+    "'cubes_collected' increases as cubes reach the collector, and the Cash leaderstat rises",
+    "Touching a buy pad with insufficient cash does nothing; with enough cash it deducts the cost once and increments 'dropper_bought' or 'conveyor_bought'",
+    "The HUD shows the current Cash and updates as it changes",
+    "Walking from spawn does not trigger the buy pads accidentally, and the cube count stays under the cap",
+    "No errors or warnings appear in the output"
+  ]
+}

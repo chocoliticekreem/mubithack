@@ -1,0 +1,2575 @@
+-- ForgeTest: in-game test harness for the mubit-tester MCP server (Studio only). docs/TESTER.md.
+--
+-- ServerStorage.ForgeTest (BindableFunction)
+--   :Invoke(cmd: string, argsJson: string?) -> JSON string {"ok": bool, "result": any, "error": string?}
+--   cmds: ping, caps, players, observe, act, query, inspect, set_attr, ignite, extinguish, teleport,
+--         config, counters, events, reset, round, blame, hook,
+--         squads, instances, queue, launch, mission_start, mission_end   (multiplayer / co-op / squads)
+--   Players are addressed by `userId` (also `player`): a UserId, a helmet number (1-4), or a name.
+--   players/observe/query/events take an optional `instanceId` (players/events also `squadId`) so
+--   one mission instance can be looked at in isolation while several run at once.
+--   Every game service is optional and nil-guarded: a missing or K0-stub service (its _selftest
+--   says "stub") makes the command fail with an "unsupported: ..." error, which scenarios turn
+--   into a SKIP instead of a FAIL.
+--
+-- ReplicatedStorage.ForgeTestRemote (RemoteFunction)
+--   server -> client: InvokeClient(player, "ForgeTest", cmd, args) runs an action on that player's
+--   client (StarterPlayerScripts/ForgeTestAgent). Always called with a timeout, because InvokeClient
+--   can hang forever. client -> server: InvokeServer("ForgeTest", "hello") marks the agent ready.
+--
+-- Event log: ring buffer (500) of {t, kind, data}; t is seconds since this script started (the
+-- same clock as `events.now` and `ping.clock`). Player events are stamped with the player's
+-- instanceId/squadId at log time. Lobby events (joined_pad, left_pad, countdown, launched) and
+-- mission events (mission_state, entered_instance, delivered, overheated, downed, revived,
+-- ragdolled, hose_hit, kinked, ...) come from attributes and from every Signal on the services.
+--
+-- Team Test with real friends: Studio MCP can't reach the cloud server, so the Python side relays
+-- commands through a client: ForgeTestRemote:InvokeServer("ForgeTest", "call", cmd, argsJson).
+-- Outside Studio the harness only runs if ServerStorage has a BoolValue `ForgeTestEnabled` = true
+-- (remove it before publishing); relayed calls are then accepted only from the place creator or
+-- the UserIds in its `AllowUserIds` attribute ("123,456").
+
+local RunService = game:GetService("RunService")
+local IS_STUDIO = RunService:IsStudio()
+local enableFlag = game:GetService("ServerStorage"):FindFirstChild("ForgeTestEnabled")
+if not IS_STUDIO and not (enableFlag and enableFlag:IsA("BoolValue") and enableFlag.Value) then
+	return
+end
+
+local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
+
+local VERSION = "2"
+local MAX_EVENTS = 500
+local HUD_TIMEOUT = 3
+local DEFAULT_ACT_TIMEOUT = 10
+local WALK_TIMEOUT = 20
+
+local TAGS = {
+	"Burning", "Flammable", "Door", "Hydrant", "TruckRefill", "RescueDropoff", "Rescuable", "Truck", "StationSpawn",
+	"SquadPad", "MissionBoard", "Hazard",
+}
+local THING_ATTRS = { "Locked", "Broken", "FireLevel", "RescueState", "Kind", "PadId", "CarriedBy", "HazardId", "InstanceId" }
+local ME_ATTRS = { "Water", "TankSize", "Carrying", "Helmet", "Downed", "Heat", "SquadId", "InstanceId" }
+-- Services / modules the harness knows about (all optional). Their Signals are logged as events.
+local KNOWN_SERVICES = {
+	"LobbyService", "MissionService", "SquadService", "ToolService", "RescueService", "BlameService",
+	"HeatService", "FireService", "MapService", "VehicleService", "HazardService", "Ragdoll", "HoseLine",
+}
+-- Signal name -> event kind (any other signal: snake_case of its name).
+local SIGNAL_KINDS = {
+	HoseHit = "hose_hit", Downed = "downed", Revived = "revived", Rescued = "delivered", Delivered = "delivered",
+	Overheated = "overheated", Kinked = "kinked", Yanked = "hose_yanked", Tethered = "hose_yanked",
+	Ragdolled = "ragdolled", PadJoined = "joined_pad", JoinedPad = "joined_pad", Joined = "joined_pad",
+	PadLeft = "left_pad", LeftPad = "left_pad", Left = "left_pad", CountdownStarted = "countdown",
+	Countdown = "countdown", CountdownTick = "countdown", CountdownCancelled = "countdown_cancelled",
+	Launched = "launched", SquadLaunched = "launched", SquadFormed = "squad_formed", SquadDisbanded = "squad_disbanded",
+	MissionStarted = "mission_started", InstanceStarted = "mission_started", MissionEnded = "mission_ended",
+	InstanceEnded = "mission_ended", StateChanged = "mission_state", InstanceStateChanged = "mission_state",
+	RoundStarted = "round_started", RoundEnded = "round_ended",
+}
+local WORLD_ATTRS = { "RoundState", "RoundEndsAt", "MissionId" }
+local ACTIONS = {
+	walk_to = true, jump = true, interact = true, equip = true, unequip = true,
+	use = true, look_at = true, say = true, wait = true,
+}
+
+local started = os.clock()
+local function now(): number
+	return math.floor((os.clock() - started) * 1000 + 0.5) / 1000
+end
+
+------------------------------------------------------------------------------- JSON
+
+-- HttpService:JSONEncode turns {} into [], so objects that may be empty are marked with obj().
+local objMarks = setmetatable({}, { __mode = "k" })
+local function obj(t)
+	objMarks[t] = true
+	return t
+end
+
+local function r(n: number, places: number?): number
+	local m = 10 ^ (places or 1)
+	return math.floor(n * m + 0.5) / m
+end
+
+local function v3(v: Vector3)
+	return { r(v.X), r(v.Y), r(v.Z) }
+end
+
+local function escape(s: string): string
+	s = string.gsub(s, '[%c"\\]', function(c)
+		if c == '"' then
+			return '\\"'
+		elseif c == "\\" then
+			return "\\\\"
+		elseif c == "\n" then
+			return "\\n"
+		elseif c == "\r" then
+			return "\\r"
+		elseif c == "\t" then
+			return "\\t"
+		end
+		return string.format("\\u%04x", string.byte(c))
+	end)
+	return '"' .. s .. '"'
+end
+
+local encode
+local function encodeNumber(n: number): string
+	if n ~= n or n == math.huge or n == -math.huge then
+		return "null"
+	end
+	if n == math.floor(n) and math.abs(n) < 1e15 then
+		return string.format("%d", n)
+	end
+	local s = string.format("%.4f", n)
+	s = string.gsub(s, "0+$", "")
+	s = string.gsub(s, "%.$", "")
+	return s
+end
+
+function encode(v: any, depth: number?): string
+	local d = depth or 0
+	if d > 20 then
+		return '"<depth>"'
+	end
+	local t = typeof(v)
+	if v == nil then
+		return "null"
+	elseif t == "boolean" then
+		return if v then "true" else "false"
+	elseif t == "number" then
+		return encodeNumber(v)
+	elseif t == "string" then
+		return escape(v)
+	elseif t == "Vector3" then
+		return encode(v3(v), d + 1)
+	elseif t == "Vector2" then
+		return encode({ r(v.X), r(v.Y) }, d + 1)
+	elseif t == "CFrame" then
+		return encode(v3(v.Position), d + 1)
+	elseif t == "Color3" then
+		return escape("#" .. v:ToHex())
+	elseif t == "EnumItem" then
+		return escape(v.Name)
+	elseif t == "Instance" then
+		return escape(v:GetFullName())
+	elseif t == "table" then
+		local n = #v
+		local count = 0
+		for _ in v do
+			count += 1
+		end
+		if count == 0 then
+			return if objMarks[v] then "{}" else "[]"
+		end
+		local parts = {}
+		if count == n and not objMarks[v] then
+			for i = 1, n do
+				parts[i] = encode(v[i], d + 1)
+			end
+			return "[" .. table.concat(parts, ",") .. "]"
+		end
+		for k, val in v do
+			table.insert(parts, escape(tostring(k)) .. ":" .. encode(val, d + 1))
+		end
+		return "{" .. table.concat(parts, ",") .. "}"
+	end
+	return escape(tostring(v))
+end
+
+-- Attribute / config values as plain JSON-able values.
+local function val(v: any): any
+	local t = typeof(v)
+	if v == nil then
+		return nil
+	elseif t == "number" then
+		return r(v, 2)
+	elseif t == "boolean" or t == "string" then
+		return v
+	elseif t == "Vector3" then
+		return v3(v)
+	end
+	return tostring(v)
+end
+
+local function attrsOf(inst: Instance, keys: { string }?)
+	local out = obj({})
+	if keys then
+		for _, k in keys do
+			local v = inst:GetAttribute(k)
+			if v ~= nil then
+				out[k] = val(v)
+			end
+		end
+	else
+		for k, v in inst:GetAttributes() do
+			out[k] = val(v)
+		end
+	end
+	return out
+end
+
+------------------------------------------------------------------------------- helpers
+
+local function posOf(inst: Instance?): Vector3?
+	if not inst then
+		return nil
+	end
+	if inst:IsA("BasePart") then
+		return inst.Position
+	end
+	if inst:IsA("Attachment") then
+		return inst.WorldPosition
+	end
+	if inst:IsA("Model") then
+		local ok, cf = pcall(inst.GetPivot, inst)
+		if ok then
+			return cf.Position
+		end
+	end
+	if inst:IsA("Player") then
+		local root = inst.Character and inst.Character:FindFirstChild("HumanoidRootPart")
+		return root and root.Position or nil
+	end
+	local part = inst:FindFirstAncestorWhichIsA("BasePart")
+	return part and part.Position or nil
+end
+
+-- "Workspace.Map.Station.Door" (GetFullName form, optional "game." prefix). Names may contain dots,
+-- so every split is tried.
+local function resolvePath(path: any): Instance?
+	if typeof(path) == "Instance" then
+		return path
+	end
+	if type(path) ~= "string" or path == "" then
+		return nil
+	end
+	local segs = string.split(path, ".")
+	local first = 1
+	if segs[1] == "game" then
+		first = 2
+	end
+	local function walk(node: Instance, i: number): Instance?
+		if i > #segs then
+			return node
+		end
+		local name = segs[i]
+		for j = i, #segs do
+			if j > i then
+				name = name .. "." .. segs[j]
+			end
+			local child = node:FindFirstChild(name)
+			if not child and node == game then
+				local ok, svc = pcall(game.GetService, game, name)
+				if ok then
+					child = svc
+				end
+			end
+			if child then
+				local found = walk(child, j + 1)
+				if found then
+					return found
+				end
+			end
+		end
+		return nil
+	end
+	return walk(game, first)
+end
+
+local function mustPath(path: any): Instance
+	local inst = resolvePath(path)
+	if not inst then
+		error("no instance at path " .. tostring(path))
+	end
+	return inst
+end
+
+local function toVec(v: any): Vector3?
+	if typeof(v) == "Vector3" then
+		return v
+	end
+	if type(v) == "table" and tonumber(v[1]) and tonumber(v[2]) and tonumber(v[3]) then
+		return Vector3.new(tonumber(v[1]), tonumber(v[2]), tonumber(v[3]))
+	end
+	if type(v) == "table" and tonumber(v.x or v.X) then
+		return Vector3.new(tonumber(v.x or v.X), tonumber(v.y or v.Y) or 0, tonumber(v.z or v.Z) or 0)
+	end
+	return nil
+end
+
+local joinOrder: { Player } = {}
+
+local function playerList(): { Player }
+	local out = {}
+	for _, p in joinOrder do
+		if p.Parent == Players then
+			table.insert(out, p)
+		end
+	end
+	for _, p in Players:GetPlayers() do
+		if not table.find(out, p) then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
+-- UserId, helmet number (1-4), join index, or name / display name (case-insensitive, then prefix).
+-- With no id and exactly one player, that player.
+local function resolvePlayer(id: any): Player
+	local list = playerList()
+	if id == nil or id == "" then
+		if #list == 1 then
+			return list[1]
+		end
+		error(if #list == 0 then "no players in game" else "userId required (" .. #list .. " players)")
+	end
+	if typeof(id) == "Instance" and id:IsA("Player") then
+		return id
+	end
+	local n = tonumber(id)
+	if n then
+		for _, p in list do
+			if p.UserId == n then
+				return p
+			end
+		end
+		for _, p in list do
+			if p:GetAttribute("Helmet") == n then
+				return p
+			end
+		end
+		if n >= 1 and n == math.floor(n) and list[n] then
+			return list[n]
+		end
+		error("no player with userId/helmet " .. tostring(id))
+	end
+	local s = string.lower(tostring(id))
+	for _, p in list do
+		if string.lower(p.Name) == s or string.lower(p.DisplayName) == s then
+			return p
+		end
+	end
+	for _, p in list do
+		if string.sub(string.lower(p.Name), 1, #s) == s or string.sub(string.lower(p.DisplayName), 1, #s) == s then
+			return p
+		end
+	end
+	error("no player named " .. tostring(id))
+end
+
+local function playerArg(args): Player
+	local id = args.userId
+	if id == nil then
+		id = args.player
+	end
+	return resolvePlayer(id)
+end
+
+local moduleCache: { [string]: ModuleScript } = {}
+local function findModule(name: string): ModuleScript?
+	local cached = moduleCache[name]
+	if cached and cached.Parent and cached.Name == name then
+		return cached
+	end
+	for _, container in { ServerScriptService, ServerStorage, ReplicatedStorage } do
+		for _, d in container:GetDescendants() do
+			if d.Name == name and d:IsA("ModuleScript") then
+				moduleCache[name] = d
+				return d
+			end
+		end
+	end
+	return nil
+end
+
+-- The live module table (same VM as Main.server, so the same require cache), or nil.
+local function liveModule(name: string): any
+	local ms = findModule(name)
+	if not ms then
+		return nil
+	end
+	local ok, mod = pcall(require, ms)
+	if ok and type(mod) == "table" then
+		return mod
+	end
+	return nil
+end
+
+------------------------------------------------------------------------------- event log
+
+local events: { { t: number, kind: string, data: any } } = {}
+
+local function nonEmpty(v: any): string?
+	if type(v) == "string" and v ~= "" then
+		return v
+	end
+	if type(v) == "number" then
+		return tostring(v)
+	end
+	return nil
+end
+
+local function log(kind: string, data: any, coalesceKey: string?)
+	data = obj(data or {})
+	-- Stamp the player's current mission instance / squad so events can be scoped by instanceId.
+	if data.userId ~= nil and (data.instanceId == nil or data.squadId == nil) then
+		local ok, p = pcall(Players.GetPlayerByUserId, Players, tonumber(data.userId) or 0)
+		if ok and p then
+			if data.instanceId == nil then
+				data.instanceId = nonEmpty(p:GetAttribute("InstanceId"))
+			end
+			if data.squadId == nil then
+				data.squadId = nonEmpty(p:GetAttribute("SquadId"))
+			end
+		end
+	end
+	local t = now()
+	local last = events[#events]
+	-- Coalesce bursts (Water draining while spraying, counters ticking) into the latest entry.
+	if coalesceKey and last and last.kind == kind and last.ckey == coalesceKey and t - last.t < 1 then
+		if data.delta and last.data.delta then
+			data.delta += last.data.delta
+		end
+		if last.data.old ~= nil and data.old ~= nil then
+			data.old = last.data.old
+		end
+		last.data = data
+		last.t = t
+		return
+	end
+	table.insert(events, { t = t, kind = kind, data = data, ckey = coalesceKey })
+	if #events > MAX_EVENTS then
+		table.remove(events, 1)
+	end
+end
+
+local function who(p: Player)
+	return { userId = p.UserId, name = p.Name, helmet = p:GetAttribute("Helmet") }
+end
+
+local function with(base, extra)
+	for k, v in extra do
+		base[k] = v
+	end
+	return base
+end
+
+local hookedTools = setmetatable({}, { __mode = "k" })
+local PLAYER_ATTRS = {
+	Water = true, Carrying = true, Downed = true, Helmet = true, SquadId = true, InstanceId = true, Heat = true,
+	Ragdolled = true, HoseKinkedBy = true,
+}
+
+local function hookTool(tool: Tool, player: Player)
+	if hookedTools[tool] then
+		return
+	end
+	hookedTools[tool] = true
+	tool.Activated:Connect(function()
+		log("tool_activated", with(who(player), { tool = tool.Name }))
+	end)
+	tool.Deactivated:Connect(function()
+		log("tool_deactivated", with(who(player), { tool = tool.Name }))
+	end)
+end
+
+local agents: { [Player]: number } = {}
+
+local function hookCharacter(player: Player, char: Model)
+	log("character_added", who(player))
+	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
+	if hum then
+		hum.Died:Connect(function()
+			log("player_died", with(who(player), { pos = posOf(player) }))
+		end)
+	end
+	char.ChildAdded:Connect(function(c)
+		if c:IsA("Tool") then
+			hookTool(c, player)
+			log("tool_equipped", with(who(player), { tool = c.Name }))
+		end
+	end)
+	char.ChildRemoved:Connect(function(c)
+		if c:IsA("Tool") then
+			log("tool_unequipped", with(who(player), { tool = c.Name }))
+		end
+	end)
+	for _, c in char:GetChildren() do
+		if c:IsA("Tool") then
+			hookTool(c, player)
+		end
+	end
+	char.AttributeChanged:Connect(function(key)
+		if PLAYER_ATTRS[key] then
+			local v = char:GetAttribute(key)
+			log("attr", with(who(player), { on = "character", key = key, value = val(v) }), "char:" .. player.UserId .. ":" .. key)
+			if key == "Ragdolled" then
+				log(if v == true then "ragdolled" else "unragdolled", with(who(player), { via = "attr" }))
+			elseif key == "Downed" then
+				log(if v == true then "downed" else "revived", with(who(player), { via = "attr" }))
+			end
+		end
+	end)
+end
+
+-- Lobby / mission transitions derived from player attributes (work whatever the signals are named).
+local function playerTransition(player: Player, key: string, v: any, old: any)
+	local base = who(player)
+	if key == "SquadId" then
+		local sid, oldSid = nonEmpty(v), nonEmpty(old)
+		if sid then
+			log("joined_pad", with(base, { squadId = sid, via = "attr" }))
+		elseif oldSid then
+			log("left_pad", with(base, { squadId = oldSid, via = "attr" }))
+		end
+	elseif key == "InstanceId" then
+		local iid, oldIid = nonEmpty(v), nonEmpty(old)
+		if iid then
+			log("entered_instance", with(base, { instanceId = iid, via = "attr" }))
+		elseif oldIid then
+			log("left_instance", with(base, { instanceId = oldIid, via = "attr" }))
+		end
+	elseif key == "Heat" then
+		if (tonumber(v) or 0) >= 100 and (tonumber(old) or 0) < 100 then
+			log("overheated", with(base, { heat = val(v), via = "attr" }))
+		end
+	elseif key == "Downed" then
+		if v == true and old ~= true then
+			log("downed", with(base, { via = "attr" }))
+		elseif v ~= true and old == true then
+			log("revived", with(base, { via = "attr" }))
+		end
+	elseif key == "Ragdolled" then
+		log(if v == true then "ragdolled" else "unragdolled", with(base, { via = "attr" }))
+	elseif key == "HoseKinkedBy" then
+		if v ~= nil and old == nil then
+			log("kinked", with(base, { by = val(v), via = "attr" }))
+		end
+	end
+end
+
+local function hookPlayer(player: Player)
+	if not table.find(joinOrder, player) then
+		table.insert(joinOrder, player)
+	end
+	log("player_added", who(player))
+	local last: { [string]: any } = {}
+	for k in PLAYER_ATTRS do
+		last[k] = player:GetAttribute(k)
+	end
+	player.AttributeChanged:Connect(function(key)
+		if PLAYER_ATTRS[key] then
+			local v = player:GetAttribute(key)
+			local old = last[key]
+			local data = with(who(player), { on = "player", key = key, value = val(v), old = val(old) })
+			last[key] = v
+			-- an instance/squad change is stamped with the new id by log(); keep the old one visible
+			log("attr", data, "player:" .. player.UserId .. ":" .. key)
+			playerTransition(player, key, v, old)
+		end
+	end)
+	player.CharacterAdded:Connect(function(char)
+		hookCharacter(player, char)
+	end)
+	if player.Character then
+		task.spawn(hookCharacter, player, player.Character)
+	end
+end
+
+Players.PlayerAdded:Connect(hookPlayer)
+for _, p in Players:GetPlayers() do
+	task.spawn(hookPlayer, p)
+end
+Players.PlayerRemoving:Connect(function(p)
+	log("player_removed", who(p))
+	agents[p] = nil
+	local i = table.find(joinOrder, p)
+	if i then
+		table.remove(joinOrder, i)
+	end
+end)
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt, player: Player)
+	log("prompt_triggered", with(who(player), {
+		prompt = prompt:GetFullName(),
+		action = prompt.ActionText,
+		object = prompt.ObjectText,
+	}))
+end)
+
+local rescueConns: { [Instance]: RBXScriptConnection } = {}
+local instanceIdOfInst -- forward: (Instance) -> string?, defined with the mission instance helpers
+local function hookRescuable(inst: Instance)
+	if rescueConns[inst] then
+		return
+	end
+	rescueConns[inst] = inst:GetAttributeChangedSignal("RescueState"):Connect(function()
+		local state = inst:GetAttribute("RescueState")
+		local iid = instanceIdOfInst and instanceIdOfInst(inst) or nil
+		log("attr", { on = inst:GetFullName(), key = "RescueState", value = val(state), instanceId = iid })
+		if state == "Rescued" then
+			local carrier = tonumber(inst:GetAttribute("CarriedBy"))
+			log("delivered", {
+				path = inst:GetFullName(), kind = val(inst:GetAttribute("Kind")), rescueId = val(inst:GetAttribute("RescueId")),
+				instanceId = iid, by = carrier, via = "attr",
+			})
+		end
+	end)
+end
+local function watchTag(tag: string)
+	CollectionService:GetInstanceAddedSignal(tag):Connect(function(inst)
+		local iid = instanceIdOfInst and instanceIdOfInst(inst) or nil
+		log("tag_added", { tag = tag, path = inst:GetFullName(), pos = posOf(inst), instanceId = iid })
+		if tag == "Rescuable" then
+			hookRescuable(inst)
+		end
+	end)
+	CollectionService:GetInstanceRemovedSignal(tag):Connect(function(inst)
+		log("tag_removed", { tag = tag, path = inst:GetFullName() })
+		if tag == "Rescuable" and rescueConns[inst] then
+			rescueConns[inst]:Disconnect()
+			rescueConns[inst] = nil
+		end
+	end)
+end
+watchTag("Burning")
+watchTag("Rescuable")
+for _, inst in CollectionService:GetTagged("Rescuable") do
+	hookRescuable(inst)
+end
+
+workspace.AttributeChanged:Connect(function(key)
+	if key == "RoundState" or key == "MissionId" then
+		log("attr", { on = "Workspace", key = key, value = val(workspace:GetAttribute(key)) })
+	end
+end)
+
+-- ForgeTelemetry.count writes number attributes on ServerStorage.ForgeCounters; watching the folder
+-- sees every count from every script (no need to wrap the module function).
+local counterCache: { [string]: number } = {}
+local hookedCounters: Instance? = nil
+local function hookCounters(f: Instance)
+	if hookedCounters == f then
+		return
+	end
+	hookedCounters = f
+	for k, v in f:GetAttributes() do
+		if type(v) == "number" then
+			counterCache[k] = v
+		end
+	end
+	f.AttributeChanged:Connect(function(key)
+		local v = f:GetAttribute(key)
+		if type(v) ~= "number" then
+			return
+		end
+		local old = counterCache[key] or 0
+		counterCache[key] = v
+		log("count", { name = key, delta = r(v - old, 2), value = r(v, 2) }, "count:" .. key)
+	end)
+end
+ServerStorage.ChildAdded:Connect(function(c)
+	if c.Name == "ForgeCounters" then
+		hookCounters(c)
+	end
+end)
+if ServerStorage:FindFirstChild("ForgeCounters") then
+	hookCounters(ServerStorage.ForgeCounters)
+end
+
+local function counters()
+	local out = obj({})
+	local f = ServerStorage:FindFirstChild("ForgeCounters")
+	if f then
+		for k, v in f:GetAttributes() do
+			if type(v) == "number" then
+				out[k] = r(v, 2)
+			end
+		end
+	end
+	return out
+end
+
+------------------------------------------------------------------------------- client remote
+
+local function getOrCreate(parent: Instance, name: string, className: string): Instance
+	local existing = parent:FindFirstChild(name)
+	if existing then
+		existing:Destroy()
+	end
+	local inst = Instance.new(className)
+	inst.Name = name
+	inst.Parent = parent
+	return inst
+end
+
+local dispatchCommand: (cmd: any, argsJson: any) -> string -- forward, defined at the bottom
+-- Latest lobby countdown per pad, as forwarded by the client agents: {seconds (-1 = cancelled), at}.
+local padCountdown: { [number]: { seconds: number, at: number } } = {}
+
+-- Who may run harness commands through the client relay (Team Test: the server isn't on MCP).
+local function relayAllowed(player: Player): boolean
+	if IS_STUDIO and not (enableFlag and enableFlag:IsA("BoolValue")) then
+		return true -- local Studio test (Play / Clients and Servers)
+	end
+	if game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId then
+		return true
+	end
+	local allow = enableFlag and tostring(enableFlag:GetAttribute("AllowUserIds") or "") or ""
+	for id in string.gmatch(allow, "%-?%d+") do
+		if tonumber(id) == player.UserId then
+			return true
+		end
+	end
+	return IS_STUDIO
+end
+
+local remote = getOrCreate(ReplicatedStorage, "ForgeTestRemote", "RemoteFunction") :: RemoteFunction
+remote.OnServerInvoke = function(player: Player, tag: any, cmd: any, hcmd: any, argsJson: any)
+	if tag ~= "ForgeTest" then
+		return false
+	end
+	if cmd == "hello" then
+		agents[player] = now()
+		log("agent_ready", who(player))
+		return true
+	end
+	if cmd == "event" and hcmd == "countdown" and type(argsJson) == "table" then
+		-- forwarded by ForgeTestAgent from Net.Lobby.Countdown (client-only remote)
+		local padId, seconds = tonumber(argsJson.padId), tonumber(argsJson.seconds)
+		if padId and seconds then
+			padCountdown[padId] = { seconds = seconds, at = os.clock() }
+			log("countdown", with(who(player), { padId = padId, seconds = seconds, via = "client" }), "countdown:" .. padId)
+		end
+		return true
+	end
+	if cmd == "call" then
+		if not relayAllowed(player) then
+			return '{"ok":false,"error":"relay not allowed for this player (see ForgeTestEnabled.AllowUserIds)"}'
+		end
+		return dispatchCommand(hcmd, argsJson)
+	end
+	return false
+end
+
+-- InvokeClient can hang forever (client gone, script not loaded), so it runs in its own thread
+-- and we give up after `timeout` seconds. A late reply is dropped.
+local function invokeClient(player: Player, cmd: string, args: any, timeout: number): (boolean, any)
+	local done, ok, res = false, false, nil
+	task.spawn(function()
+		local okCall, reply = pcall(remote.InvokeClient, remote, player, "ForgeTest", cmd, args)
+		if done then
+			return
+		end
+		done = true
+		if not okCall then
+			ok, res = false, "InvokeClient failed: " .. tostring(reply)
+		elseif type(reply) ~= "table" then
+			ok, res = false, "bad reply from client agent: " .. tostring(reply)
+		elseif reply.ok == false then
+			ok, res = false, tostring(reply.error or "client error")
+		else
+			ok, res = true, reply.result
+		end
+	end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < timeout do
+		task.wait(0.05)
+	end
+	if not done then
+		done = true
+		local hint = if agents[player] then "" else " (agent never said hello: is ForgeTestAgent running?)"
+		return false, string.format("client %s did not answer %s within %ds%s", player.Name, cmd, timeout, hint)
+	end
+	return ok, res
+end
+
+------------------------------------------------------------------------------- commands
+
+local function playerInfo(p: Player)
+	local char = p.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local tool = char and char:FindFirstChildOfClass("Tool")
+	local bp = {}
+	local backpack = p:FindFirstChildOfClass("Backpack")
+	if backpack then
+		for _, t in backpack:GetChildren() do
+			if t:IsA("Tool") then
+				table.insert(bp, t.Name)
+			end
+		end
+	end
+	local attrs = attrsOf(p)
+	if char then
+		for k, v in char:GetAttributes() do
+			if attrs[k] == nil then
+				attrs[k] = val(v)
+			end
+		end
+	end
+	local function attr(k)
+		local v = p:GetAttribute(k)
+		if v == nil and char then
+			v = char:GetAttribute(k)
+		end
+		return v
+	end
+	local carrying = attr("Carrying")
+	return obj({
+		userId = p.UserId,
+		name = p.Name,
+		displayName = p.DisplayName,
+		helmet = attr("Helmet"),
+		pos = root and v3(root.Position) or nil,
+		health = hum and r(hum.Health) or nil,
+		maxHealth = hum and r(hum.MaxHealth) or nil,
+		attrs = attrs,
+		tool = tool and tool.Name or nil,
+		backpack = bp,
+		carrying = if carrying == "" then nil else carrying,
+		downed = attr("Downed") == true,
+		heat = val(attr("Heat")),
+		ragdolled = attr("Ragdolled") == true,
+		squadId = nonEmpty(attr("SquadId")),
+		instanceId = nonEmpty(attr("InstanceId")),
+		character = char and char:GetFullName() or nil,
+		agent = agents[p] ~= nil,
+		hasCharacter = char ~= nil,
+	})
+end
+
+------------------------------------------------------------------------------- services, instances, lobby
+
+-- An error whose message starts with "unsupported:" means "the game can't do this yet" (missing or
+-- stub service); scenario runners report it as SKIP, not FAIL.
+local function unsupported(msg: string)
+	error("unsupported: " .. msg, 0)
+end
+
+-- Any Lua value as JSON-able data (Players as {userId, name, helmet}, Instances as paths).
+local function plain(v: any, depth: number?): any
+	local d = depth or 0
+	local t = typeof(v)
+	if t == "Instance" then
+		if v:IsA("Player") then
+			return who(v)
+		end
+		return v:GetFullName()
+	elseif t == "table" then
+		if d > 3 then
+			return "<table>"
+		end
+		local out = {}
+		local isArr = #v > 0
+		for k, x in v do
+			if type(x) ~= "function" and not (type(x) == "table" and type(x.Connect) == "function") then
+				if isArr and type(k) == "number" then
+					out[k] = plain(x, d + 1)
+				else
+					out[tostring(k)] = plain(x, d + 1)
+				end
+			end
+		end
+		return if isArr then out else obj(out)
+	elseif t == "function" then
+		return nil
+	end
+	return val(v)
+end
+
+local function findMethod(mod: any, names: { string }): (string?, any)
+	if type(mod) ~= "table" then
+		return nil, nil
+	end
+	for _, n in names do
+		if type(mod[n]) == "function" then
+			return n, mod[n]
+		end
+	end
+	return nil, nil
+end
+
+-- "missing" | "stub" | "live". K0 stubs answer _selftest() with (true, "stub"). Cached per session.
+local statusCache: { [string]: string } = {}
+local function serviceStatus(name: string): (string, any)
+	local mod = liveModule(name)
+	if not mod then
+		return "missing", nil
+	end
+	local cached = statusCache[name]
+	if cached then
+		return cached, mod
+	end
+	local status = "live"
+	if type(mod._selftest) == "function" then
+		local done, msg = false, ""
+		task.spawn(function()
+			local ok, a, b = pcall(mod._selftest, mod)
+			if ok then
+				msg = if type(b) == "string" then b elseif type(a) == "string" then a else ""
+			end
+			done = true
+		end)
+		local t0 = os.clock()
+		while not done and os.clock() - t0 < 2 do
+			task.wait(0.05)
+		end
+		if string.lower(msg) == "stub" then
+			status = "stub"
+		end
+	end
+	statusCache[name] = status
+	return status, mod
+end
+
+-- Mission instance Models / Folders (attribute InstanceId) near the top of Workspace.
+local instModels: { [string]: Instance } = {}
+local instModelsAt = -100
+local hookedModels = setmetatable({}, { __mode = "k" })
+
+local function hookInstanceModel(m: Instance, id: string)
+	if hookedModels[m] then
+		return
+	end
+	hookedModels[m] = true
+	m.AttributeChanged:Connect(function(key)
+		local v = m:GetAttribute(key)
+		if key == "RoundState" or key == "State" or key == "MissionState" then
+			log("mission_state", { instanceId = id, value = val(v), via = "attr" })
+		elseif key ~= "InstanceId" then
+			log("instance_attr", { instanceId = id, key = key, value = val(v) }, "inst:" .. id .. ":" .. key)
+		end
+	end)
+end
+
+local function scanInstanceModels(force: boolean?): { [string]: Instance }
+	if not force and os.clock() - instModelsAt < 1 then
+		return instModels
+	end
+	instModelsAt = os.clock()
+	local out = {}
+	local function walk(node: Instance, depth: number)
+		for _, c in node:GetChildren() do
+			if c:IsA("Model") or c:IsA("Folder") then
+				local id = nonEmpty(c:GetAttribute("InstanceId"))
+				if id and not (c:IsA("Model") and Players:GetPlayerFromCharacter(c)) then
+					if not out[id] then
+						out[id] = c
+						hookInstanceModel(c, id)
+					end
+				elseif depth < 4 then
+					walk(c, depth + 1)
+				end
+			end
+		end
+	end
+	walk(workspace, 1)
+	instModels = out
+	return out
+end
+
+instanceIdOfInst = function(inst: Instance): string?
+	for id, m in scanInstanceModels() do
+		if inst == m or inst:IsDescendantOf(m) then
+			return id
+		end
+	end
+	return nil
+end
+
+-- Visible from instance `scopeId`: inside it, or in the shared world (not inside another instance).
+local function visibleIn(inst: Instance, scopeId: string?): boolean
+	if not scopeId then
+		return true
+	end
+	local owner = instanceIdOfInst(inst)
+	return owner == nil or owner == scopeId
+end
+
+-- MissionService:GetMissions() is the §10 v1.5 contract; the rest are tolerated aliases.
+local RUN_METHODS = { "GetMissions", "GetInstances", "GetRuns", "ListInstances" }
+
+-- MissionRun-like tables from MissionService (any of RUN_METHODS, or an Instances/Runs field).
+local function rawRuns(): ({ any }, string)
+	local mission = liveModule("MissionService")
+	local list = {}
+	local via = "attrs"
+	if mission then
+		local got
+		local name, fn = findMethod(mission, RUN_METHODS)
+		if fn then
+			local ok, res = pcall(fn, mission)
+			if ok then
+				got, via = res, "MissionService:" .. tostring(name)
+			end
+		else
+			for _, f in { "Instances", "instances", "Runs", "runs" } do
+				if type(mission[f]) == "table" then
+					got, via = mission[f], "MissionService." .. f
+					break
+				end
+			end
+		end
+		if type(got) == "table" then
+			for k, run in got do
+				if type(run) == "table" then
+					if run.instanceId == nil and run.id == nil and type(k) == "string" then
+						run = table.clone(run)
+						run.instanceId = k
+					end
+					table.insert(list, run)
+				end
+			end
+		end
+	end
+	return list, via
+end
+
+local function scopeFor(id: string): Instance
+	local m = scanInstanceModels()[id] or scanInstanceModels(true)[id]
+	if m then
+		return m
+	end
+	for _, run in rawRuns() do
+		if nonEmpty(run.instanceId or run.id) == id then
+			if typeof(run.model) == "Instance" then
+				return run.model
+			end
+			local map = liveModule("MapService")
+			if map and run.locationId and type(map.GetLocation) == "function" then
+				local ok, loc = pcall(map.GetLocation, map, run.locationId)
+				if ok and typeof(loc) == "Instance" then
+					return loc
+				end
+			end
+		end
+	end
+	error("no mission instance " .. id .. " (no Model with InstanceId=" .. id .. " and no MissionService run)", 0)
+end
+
+local function countBurning(scope: Instance?): number
+	local n = 0
+	for _, inst in CollectionService:GetTagged("Burning") do
+		if inst:IsDescendantOf(workspace) and (not scope or inst:IsDescendantOf(scope)) then
+			n += 1
+		end
+	end
+	return n
+end
+
+local function countRescues(scope: Instance?)
+	local c = obj({ total = 0 })
+	for _, inst in CollectionService:GetTagged("Rescuable") do
+		if inst:IsDescendantOf(workspace) and (not scope or inst:IsDescendantOf(scope)) then
+			c.total += 1
+			local st = tostring(inst:GetAttribute("RescueState") or "Unknown")
+			c[st] = (c[st] or 0) + 1
+		end
+	end
+	return c
+end
+
+local function playerIdOf(u: any): number?
+	if typeof(u) == "Instance" and u:IsA("Player") then
+		return u.UserId
+	end
+	if type(u) == "table" then
+		return tonumber(u.userId or u.UserId)
+	end
+	return tonumber(u)
+end
+
+local function whoById(uid: number)
+	local ok, p = pcall(Players.GetPlayerByUserId, Players, uid)
+	if ok and p then
+		return who(p)
+	end
+	return obj({ userId = uid, gone = true })
+end
+
+-- Every running mission instance: MissionService runs + instance Models + players' InstanceId.
+local function instancesList(args): { any }
+	local runs, via = rawRuns()
+	local models = scanInstanceModels(true)
+	local byId, order = {}, {}
+	local function entry(id: string, source: string)
+		if not byId[id] then
+			byId[id] = obj({ instanceId = id, players = {}, source = source })
+			table.insert(order, id)
+		end
+		return byId[id]
+	end
+	local function addPlayer(e, uid: number?)
+		if not uid then
+			return
+		end
+		for _, x in e.players do
+			if x.userId == uid then
+				return
+			end
+		end
+		table.insert(e.players, whoById(uid))
+	end
+	for _, run in runs do
+		local id = nonEmpty(run.instanceId or run.id)
+		if id then
+			local e = entry(id, via)
+			e.missionId = val(run.missionId)
+			e.locationId = val(run.locationId)
+			e.squadId = val(run.squadId)
+			e.state = val(run.state)
+			e.endsAt = val(run.endsAt)
+			if type(run.players) == "table" then
+				for _, u in run.players do
+					addPlayer(e, playerIdOf(u))
+				end
+			end
+		end
+	end
+	for id in models do
+		entry(id, "model")
+	end
+	for _, p in playerList() do
+		local id = nonEmpty(p:GetAttribute("InstanceId"))
+		if id then
+			addPlayer(entry(id, "player attrs"), p.UserId)
+		end
+	end
+	local want = nonEmpty(args and args.instanceId)
+	local out = {}
+	for _, id in order do
+		if not want or want == id then
+			local e = byId[id]
+			local m = models[id]
+			if not m then
+				local ok, scope = pcall(scopeFor, id)
+				m = if ok then scope else nil
+			end
+			if m then
+				e.model = m:GetFullName()
+				e.state = e.state or val(m:GetAttribute("RoundState") or m:GetAttribute("State"))
+				e.missionId = e.missionId or val(m:GetAttribute("MissionId"))
+				e.locationId = e.locationId or val(m:GetAttribute("LocationId"))
+				e.fires = countBurning(m)
+				e.rescues = countRescues(m)
+			end
+			if type(e.endsAt) == "number" then
+				e.secondsLeft = r(e.endsAt - workspace:GetServerTimeNow())
+			end
+			table.insert(out, e)
+		end
+	end
+	return out
+end
+
+-- Lobby: SquadPads, squads (LobbyService or players' SquadId attrs), the mission catalog.
+local SQUAD_METHODS = { "GetSquads", "ListSquads", "GetAllSquads" }
+
+local function catalogIds(): { string }
+	local out = {}
+	local ms = findModule("MissionCatalog")
+	if ms then
+		local ok, cat = pcall(require, ms)
+		if ok and type(cat) == "table" then
+			local list = cat.missions or cat.Missions or cat
+			for k, def in list do
+				if type(def) == "table" and def.enabled == true then
+					local id = def.id or (if type(k) == "string" then k else nil)
+					if id ~= nil and not table.find(out, tostring(id)) then
+						table.insert(out, tostring(id))
+					end
+				end
+			end
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+local function padsList()
+	local pads = {}
+	for _, pad in CollectionService:GetTagged("SquadPad") do
+		if pad:IsDescendantOf(workspace) then
+			local pos = posOf(pad)
+			local e = obj({ padId = val(pad:GetAttribute("PadId")), path = pad:GetFullName(), pos = pos and v3(pos) or nil, attrs = attrsOf(pad), standing = {} })
+			if pad:IsA("BasePart") then
+				for _, p in playerList() do
+					local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if root then
+						local rel = pad.CFrame:PointToObjectSpace(root.Position)
+						if math.abs(rel.X) <= pad.Size.X / 2 + 1 and math.abs(rel.Z) <= pad.Size.Z / 2 + 1 and rel.Y > -2 and rel.Y < 12 then
+							table.insert(e.standing, who(p))
+						end
+					end
+				end
+			end
+			table.insert(pads, e)
+		end
+	end
+	table.sort(pads, function(a, b)
+		return (tonumber(a.padId) or 0) < (tonumber(b.padId) or 0)
+	end)
+	return pads
+end
+
+local function findPad(pad: any): Instance
+	if type(pad) == "string" and string.find(pad, "%.") then
+		return mustPath(pad)
+	end
+	local tagged = CollectionService:GetTagged("SquadPad")
+	if #tagged == 0 then
+		unsupported("no SquadPad in the world (station lobby not built yet)")
+	end
+	local n = tonumber(pad) or 1
+	for _, p in tagged do
+		if p:IsDescendantOf(workspace) and tonumber(p:GetAttribute("PadId")) == n then
+			return p
+		end
+	end
+	error("no SquadPad with PadId " .. tostring(pad), 0)
+end
+
+local function normSquad(sq: any, lobby: any)
+	local e = plain(sq)
+	if type(e) ~= "table" then
+		e = obj({})
+	end
+	e = obj(e)
+	e.id = val(sq.id or sq.squadId or sq.Id)
+	e.padId = val(sq.padId or sq.PadId)
+	e.leader = playerIdOf(sq.leader)
+	local members = {}
+	if type(sq.members) == "table" then
+		for _, u in sq.members do
+			local uid = playerIdOf(u)
+			if uid then
+				table.insert(members, whoById(uid))
+			end
+		end
+	end
+	e.members = members
+	e.missionId = val(sq.missionId)
+	e.instanceId = val(sq.instanceId)
+	e.state = val(sq.state)
+	local cd = sq.countdown or sq.secondsLeft or sq.Countdown
+	if cd == nil then
+		local endsAt = sq.launchAt or sq.countdownEndsAt or sq.endsAt
+		if type(endsAt) == "number" then
+			cd = math.max(0, endsAt - workspace:GetServerTimeNow())
+		end
+	end
+	if cd == nil and e.id ~= nil and type(lobby) == "table" and type(lobby.GetCountdown) == "function" then
+		local ok, res = pcall(lobby.GetCountdown, lobby, sq.id)
+		if ok and type(res) == "number" then
+			cd = res
+		end
+	end
+	e.countdown = if type(cd) == "number" then r(cd) else nil
+	e.source = "LobbyService"
+	return e
+end
+
+local function squadsCmd(args)
+	local status, lobby = serviceStatus("LobbyService")
+	local squads = {}
+	local via = "attrs"
+	if lobby then
+		local got
+		local name, fn = findMethod(lobby, SQUAD_METHODS)
+		if fn then
+			local ok, res = pcall(fn, lobby)
+			if ok then
+				got, via = res, "LobbyService:" .. tostring(name)
+			end
+		else
+			for _, f in { "Squads", "squads" } do
+				if type(lobby[f]) == "table" then
+					got, via = lobby[f], "LobbyService." .. f
+					break
+				end
+			end
+		end
+		if type(got) == "table" then
+			for k, sq in got do
+				if type(sq) == "table" then
+					local e = normSquad(sq, lobby)
+					if e.id == nil and type(k) == "string" then
+						e.id = k
+					end
+					table.insert(squads, e)
+				end
+			end
+		end
+	end
+	local known = {}
+	for _, s in squads do
+		if s.id ~= nil then
+			known[tostring(s.id)] = s
+		end
+	end
+	for _, p in playerList() do
+		local sid = nonEmpty(p:GetAttribute("SquadId"))
+		if sid then
+			if not known[sid] then
+				known[sid] = obj({ id = sid, members = {}, source = "player attrs" })
+				table.insert(squads, known[sid])
+			end
+			local s = known[sid]
+			local listed = false
+			for _, m in s.members do
+				if m.userId == p.UserId then
+					listed = true
+				end
+			end
+			if not listed then
+				table.insert(s.members, who(p))
+			end
+			s.instanceId = s.instanceId or nonEmpty(p:GetAttribute("InstanceId"))
+		end
+	end
+	local pads = padsList()
+	for _, pd in pads do
+		local cd = padCountdown[tonumber(pd.padId) or -1]
+		if cd and cd.seconds >= 0 then
+			local left = cd.seconds - (os.clock() - cd.at)
+			if left > -2 then
+				pd.countdown = r(math.max(0, left))
+			end
+		end
+	end
+	for _, s in squads do
+		if s.countdown == nil and s.padId ~= nil and s.instanceId == nil then
+			local cd = padCountdown[tonumber(s.padId) or -1]
+			if cd and cd.seconds >= 0 and cd.seconds - (os.clock() - cd.at) > -2 then
+				s.countdown = r(math.max(0, cd.seconds - (os.clock() - cd.at)))
+			end
+		end
+	end
+	for _, s in squads do
+		for _, pd in pads do
+			if s.padId ~= nil and pd.padId == s.padId then
+				pd.squadId = s.id
+				if s.countdown == nil then
+					for k, v in pd.attrs do
+						if string.find(string.lower(k), "count") and type(v) == "number" then
+							s.countdown = v
+						end
+					end
+				end
+			end
+		end
+	end
+	local wantSquad = nonEmpty(args.squadId)
+	local wantPad = tonumber(args.pad)
+	if wantSquad or wantPad then
+		local filtered = {}
+		for _, s in squads do
+			if (wantSquad and tostring(s.id) == wantSquad) or (wantPad and tonumber(s.padId) == wantPad) then
+				table.insert(filtered, s)
+			end
+		end
+		squads = filtered
+	end
+	local lobbyPlayers = {}
+	for _, p in playerList() do
+		if not nonEmpty(p:GetAttribute("InstanceId")) then
+			table.insert(lobbyPlayers, who(p))
+		end
+	end
+	return obj({ service = status, via = via, squads = squads, pads = pads, lobby = lobbyPlayers, catalog = catalogIds() })
+end
+
+-- Log every Signal on the game services as an event (kind from SIGNAL_KINDS, else snake_case).
+local hookedSignals = setmetatable({}, { __mode = "k" })
+local function snake(s: string): string
+	return string.lower((string.gsub(s, "(%l)(%u)", "%1_%2")))
+end
+
+local function hookSignals(name: string, mod: any)
+	for key, sig in mod do
+		if type(key) == "string" and type(sig) == "table" and type(sig.Connect) == "function" and not hookedSignals[sig] then
+			hookedSignals[sig] = true
+			local kind = SIGNAL_KINDS[key] or snake(key)
+			pcall(function()
+				sig:Connect(function(...)
+					local packed = table.pack(...)
+					local data = obj({ signal = name .. "." .. key, via = "signal" })
+					local list = {}
+					local first: Player? = nil
+					for i = 1, packed.n do
+						local a = packed[i]
+						local pv = plain(a)
+						list[i] = if pv == nil then "nil" else pv
+						if typeof(a) == "Instance" and a:IsA("Player") then
+							if not first then
+								first = a
+							elseif data.other == nil then
+								data.other = who(a)
+							end
+						end
+						if data.instanceId == nil then
+							if type(a) == "table" then
+								data.instanceId = nonEmpty(a.instanceId)
+							elseif type(a) == "string" and instModels[a] then
+								data.instanceId = a
+							end
+						end
+					end
+					data.args = list
+					if first then
+						data.userId, data.name, data.helmet = first.UserId, first.Name, first:GetAttribute("Helmet")
+					end
+					log(kind, data)
+				end)
+			end)
+		end
+	end
+end
+
+local hookedPads = setmetatable({}, { __mode = "k" })
+local function hookPad(pad: Instance)
+	if hookedPads[pad] then
+		return
+	end
+	hookedPads[pad] = true
+	pad.AttributeChanged:Connect(function(key)
+		local v = pad:GetAttribute(key)
+		local padId = val(pad:GetAttribute("PadId"))
+		if string.find(string.lower(key), "count") then
+			log("countdown", { padId = padId, key = key, value = val(v), via = "attr" })
+		else
+			log("pad_attr", { padId = padId, key = key, value = val(v) }, "pad:" .. tostring(padId) .. ":" .. key)
+		end
+	end)
+end
+CollectionService:GetInstanceAddedSignal("SquadPad"):Connect(hookPad)
+for _, pad in CollectionService:GetTagged("SquadPad") do
+	hookPad(pad)
+end
+
+task.spawn(function()
+	local t0 = os.clock()
+	while workspace:GetAttribute("ServerBooted") ~= true and os.clock() - t0 < 60 do
+		task.wait(0.5)
+	end
+	while true do
+		for _, name in KNOWN_SERVICES do
+			local mod = liveModule(name)
+			if mod then
+				pcall(hookSignals, name, mod)
+			end
+		end
+		local folder = ServerScriptService:FindFirstChild("Services")
+		if folder then
+			for _, ms in folder:GetChildren() do
+				if ms:IsA("ModuleScript") and not table.find(KNOWN_SERVICES, ms.Name) then
+					local ok, mod = pcall(require, ms)
+					if ok and type(mod) == "table" then
+						pcall(hookSignals, ms.Name, mod)
+					end
+				end
+			end
+		end
+		pcall(scanInstanceModels, true)
+		task.wait(5)
+	end
+end)
+
+local function burningish(inst: Instance): boolean
+	return CollectionService:HasTag(inst, "Burning") or (tonumber(inst:GetAttribute("FireLevel")) or 0) > 0
+end
+
+local function observe(args)
+	local p = playerArg(args)
+	local radius = tonumber(args.radius) or 120
+	local max = tonumber(args.max) or 12
+	local char = p.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local origin = root and root.Position
+	local out = obj({ me = obj({}), world = obj({}), things = {}, prompts = {}, hud = {} })
+	-- Scope: an explicit instanceId, else the player's own instance; things inside OTHER mission
+	-- instances are hidden (shared world such as the station stays visible). allInstances = no scope.
+	local scopeId = nonEmpty(args.instanceId)
+	if scopeId then
+		scopeFor(scopeId) -- errors on an unknown instance
+	elseif args.allInstances ~= true then
+		scopeId = nonEmpty(p:GetAttribute("InstanceId"))
+	end
+	local me = out.me
+	me.userId, me.name, me.helmet = p.UserId, p.Name, p:GetAttribute("Helmet")
+	if origin then
+		me.pos = v3(origin)
+	end
+	if hum then
+		me.health = math.floor(hum.Health + 0.5)
+		me.max_health = math.floor(hum.MaxHealth + 0.5)
+	end
+	if not char then
+		me.no_character = true
+	end
+	local attrs = obj({})
+	for _, k in ME_ATTRS do
+		local v = p:GetAttribute(k)
+		if v == nil and char then
+			v = char:GetAttribute(k)
+		end
+		if v ~= nil then
+			attrs[k] = val(v)
+		end
+	end
+	me.attrs = attrs
+	local tool = char and char:FindFirstChildOfClass("Tool")
+	me.tool = tool and tool.Name or nil
+	local bp = {}
+	local backpack = p:FindFirstChildOfClass("Backpack")
+	if backpack then
+		for _, t in backpack:GetChildren() do
+			if t:IsA("Tool") then
+				table.insert(bp, t.Name)
+			end
+		end
+	end
+	me.backpack = bp
+	for _, k in WORLD_ATTRS do
+		local v = workspace:GetAttribute(k)
+		if v ~= nil then
+			out.world[k] = val(v)
+		end
+	end
+	out.world.now = math.floor(workspace:GetServerTimeNow())
+	local sid = nonEmpty(p:GetAttribute("SquadId"))
+	if sid then
+		out.world.SquadId = sid
+	end
+	if scopeId then
+		out.world.InstanceId = scopeId
+		local ok, list = pcall(instancesList, { instanceId = scopeId })
+		local run = ok and list[1] or nil
+		if run then
+			out.world.instance = obj({
+				missionId = run.missionId, state = run.state, secondsLeft = run.secondsLeft, fires = run.fires,
+				rescues = run.rescues, players = #run.players,
+			})
+		end
+	elseif #CollectionService:GetTagged("SquadPad") > 0 then
+		out.world.lobby = true
+	end
+
+	local seen, things = {}, {}
+	for _, tag in TAGS do
+		for _, inst in CollectionService:GetTagged(tag) do
+			if not seen[inst] and inst:IsDescendantOf(workspace) and (tag ~= "Flammable" or burningish(inst)) and visibleIn(inst, scopeId) then
+				local pos = posOf(inst)
+				if pos then
+					local d = origin and (pos - origin).Magnitude or 0
+					if d <= radius then
+						seen[inst] = true
+						local e = { name = inst.Name, path = inst:GetFullName(), tag = tag, dist = math.floor(d + 0.5), pos = v3(pos) }
+						for _, a in THING_ATTRS do
+							local v = inst:GetAttribute(a)
+							if v ~= nil then
+								e[a] = val(v)
+							end
+						end
+						table.insert(things, e)
+					end
+				end
+			end
+		end
+	end
+	table.sort(things, function(a, b)
+		return a.dist < b.dist
+	end)
+	for i = 1, math.min(max, #things) do
+		table.insert(out.things, things[i])
+	end
+
+	local prompts = {}
+	local promptRadius = math.min(60, radius)
+	for _, d in workspace:GetDescendants() do
+		if d:IsA("ProximityPrompt") and d.Enabled then
+			local pos = posOf(d.Parent)
+			if pos then
+				local dist = origin and (pos - origin).Magnitude or 0
+				if dist <= promptRadius and visibleIn(d, scopeId) then
+					table.insert(prompts, {
+						action = d.ActionText, object = d.ObjectText, dist = math.floor(dist + 0.5),
+						range = d.MaxActivationDistance, in_range = dist <= d.MaxActivationDistance,
+						hold = r(d.HoldDuration), key = d.KeyboardKeyCode.Name, path = d.Parent:GetFullName(),
+					})
+				end
+			end
+		end
+	end
+	table.sort(prompts, function(a, b)
+		return a.dist < b.dist
+	end)
+	for i = 1, math.min(6, #prompts) do
+		table.insert(out.prompts, prompts[i])
+	end
+
+	local ok, hud = invokeClient(p, "hud", {}, HUD_TIMEOUT)
+	if ok and type(hud) == "table" then
+		out.hud = hud
+	else
+		out.hud_error = tostring(hud)
+	end
+	return out
+end
+
+local function act(args)
+	local p = playerArg(args)
+	local action = tostring(args.action or "")
+	local a = args.args
+	if type(a) ~= "table" then
+		a = {}
+	end
+	if not ACTIONS[action] then
+		local names = {}
+		for k in ACTIONS do
+			table.insert(names, k)
+		end
+		table.sort(names)
+		error("unknown action '" .. action .. "' (one of: " .. table.concat(names, ", ") .. ")")
+	end
+	-- Aim / walk / interact at another player by name, UserId or helmet ("target_player": "2").
+	local tp = a.target_player or a.at_player
+	if tp ~= nil then
+		local target = resolvePlayer(tp)
+		local tchar = target.Character
+		if not tchar then
+			error(target.Name .. " has no character")
+		end
+		a = table.clone(a)
+		a.target_player, a.at_player = nil, nil
+		if action == "use" then
+			a.aim = tchar:GetFullName()
+		else
+			a.path = tchar:GetFullName()
+		end
+	end
+	if action == "wait" then
+		local s = math.clamp(tonumber(a.seconds) or 1, 0, 60)
+		task.wait(s)
+		return { done = true, detail = string.format("waited %.1fs", s) }
+	end
+	-- Paths are resolved on the client, but an Instance can't be passed from JSON, so send strings.
+	local timeout = DEFAULT_ACT_TIMEOUT
+	if action == "walk_to" then
+		timeout = (tonumber(a.timeout) or WALK_TIMEOUT) + 5
+	elseif action == "use" then
+		timeout = math.clamp(tonumber(a.seconds) or 1, 0, 30) + 5
+	elseif action == "interact" then
+		timeout = 20
+	end
+	local ok, res = invokeClient(p, "act", { action = action, args = a }, timeout)
+	if not ok then
+		error(res)
+	end
+	if type(res) == "table" then
+		return obj(res)
+	end
+	return { done = true, detail = tostring(res) }
+end
+
+local function nearPos(near: any): Vector3?
+	if near == nil then
+		return nil
+	end
+	local v = toVec(near)
+	if v then
+		return v
+	end
+	if type(near) == "string" and resolvePath(near) and string.find(near, "%.") then
+		return posOf(resolvePath(near))
+	end
+	local p = resolvePlayer(near)
+	local pos = posOf(p)
+	if not pos then
+		error("player " .. p.Name .. " has no character")
+	end
+	return pos
+end
+
+local function query(args)
+	local origin = nearPos(args.near)
+	local radius = tonumber(args.radius)
+	local limit = tonumber(args.limit) or 25
+	local keys = if type(args.attrs) == "table" then args.attrs else nil
+	local tags = if args.tag then { tostring(args.tag) } else TAGS
+	-- instanceId: only things inside that mission instance. where: {attr = value} equality filter.
+	local scope = if nonEmpty(args.instanceId) then scopeFor(tostring(args.instanceId)) else nil
+	local where = if type(args.where) == "table" then args.where else nil
+	local function matches(inst: Instance): boolean
+		if scope and not (inst == scope or inst:IsDescendantOf(scope)) then
+			return false
+		end
+		if where then
+			for k, want in where do
+				local got = inst:GetAttribute(tostring(k))
+				if got ~= want and not (tonumber(got) and tonumber(want) and tonumber(got) == tonumber(want)) then
+					return false
+				end
+			end
+		end
+		return true
+	end
+	local seen, rows = {}, {}
+	for _, tag in tags do
+		for _, inst in CollectionService:GetTagged(tag) do
+			if not seen[inst] and inst:IsDescendantOf(workspace) and matches(inst) then
+				seen[inst] = true
+				local pos = posOf(inst)
+				local d = if origin and pos then (pos - origin).Magnitude else nil
+				if not radius or (d and d <= radius) then
+					table.insert(rows, {
+						path = inst:GetFullName(),
+						name = inst.Name,
+						tags = CollectionService:GetTags(inst),
+						pos = pos and v3(pos) or nil,
+						dist = d and r(d) or nil,
+						attrs = attrsOf(inst, keys),
+						instanceId = instanceIdOfInst(inst),
+					})
+				end
+			end
+		end
+	end
+	if origin then
+		table.sort(rows, function(a, b)
+			return (a.dist or math.huge) < (b.dist or math.huge)
+		end)
+	else
+		table.sort(rows, function(a, b)
+			return a.path < b.path
+		end)
+	end
+	local out = {}
+	for i = 1, math.min(limit, #rows) do
+		out[i] = rows[i]
+	end
+	return out
+end
+
+local function inspect(args)
+	local inst = mustPath(args.path)
+	local out = obj({
+		class = inst.ClassName,
+		name = inst.Name,
+		path = inst:GetFullName(),
+		attrs = attrsOf(inst),
+		tags = CollectionService:GetTags(inst),
+	})
+	local pos = posOf(inst)
+	out.pos = pos and v3(pos) or nil
+	if inst:IsA("BasePart") then
+		out.size = v3(inst.Size)
+		out.anchored = inst.Anchored
+		out.canCollide = inst.CanCollide
+		out.transparency = r(inst.Transparency, 2)
+	elseif inst:IsA("Model") then
+		local ok, _, size = pcall(inst.GetBoundingBox, inst)
+		if ok then
+			out.size = v3(size)
+		end
+	elseif inst:IsA("ProximityPrompt") then
+		out.prompt = obj({ action = inst.ActionText, object = inst.ObjectText, enabled = inst.Enabled, hold = inst.HoldDuration, range = inst.MaxActivationDistance })
+	elseif inst:IsA("Player") then
+		out.player = playerInfo(inst)
+	end
+	local children = {}
+	for i, c in inst:GetChildren() do
+		if i > 100 then
+			table.insert(children, "...(" .. (#inst:GetChildren() - 100) .. " more)")
+			break
+		end
+		table.insert(children, c.Name)
+	end
+	out.children = children
+	return out
+end
+
+local function toAttrValue(v: any): any
+	if type(v) == "table" then
+		local vec = toVec(v)
+		if vec then
+			return vec
+		end
+		error("unsupported attribute value (use number, string, bool, null or [x,y,z])")
+	end
+	return v
+end
+
+local function setAttr(args)
+	local inst: Instance
+	if args.path then
+		inst = mustPath(args.path)
+	else
+		inst = playerArg(args)
+	end
+	local key = tostring(args.key or "")
+	if key == "" then
+		error("key required")
+	end
+	inst:SetAttribute(key, toAttrValue(args.value))
+	return true
+end
+
+local function nearestFlammable(origin: Vector3, radius: number, wantBurning: boolean, scope: Instance?): Instance?
+	local best, bestD = nil, radius
+	local list = if wantBurning then CollectionService:GetTagged("Burning") else CollectionService:GetTagged("Flammable")
+	for _, inst in list do
+		if inst:IsDescendantOf(workspace) and burningish(inst) == wantBurning and (not scope or inst:IsDescendantOf(scope)) then
+			local pos = posOf(inst)
+			if pos then
+				local d = (pos - origin).Magnitude
+				if d <= bestD then
+					best, bestD = inst, d
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function targetFor(args, wantBurning: boolean): Instance
+	if args.path then
+		return mustPath(args.path)
+	end
+	local origin = nearPos(args.near)
+	if not origin then
+		error("path or near required")
+	end
+	local scope = if nonEmpty(args.instanceId) then scopeFor(tostring(args.instanceId)) else nil
+	local inst = nearestFlammable(origin, tonumber(args.radius) or 60, wantBurning, scope)
+	if not inst then
+		error(string.format("no %s part within %s studs", if wantBurning then "burning" else "unburnt Flammable", tostring(args.radius or 60)))
+	end
+	return inst
+end
+
+local function ignite(args)
+	local inst = targetFor(args, false)
+	local fire = liveModule("FireService")
+	local via = "tags"
+	if fire and type(fire.Ignite) == "function" and inst:IsA("BasePart") then
+		local ok, res = pcall(fire.Ignite, fire, inst, nil)
+		if ok then
+			via = "FireService:Ignite -> " .. tostring(res)
+		else
+			via = "tags (FireService:Ignite failed: " .. tostring(res) .. ")"
+		end
+	end
+	if not burningish(inst) then
+		inst:SetAttribute("FireLevel", 1)
+		CollectionService:AddTag(inst, "Burning")
+		if via ~= "tags" then
+			via ..= "; tags fallback"
+		end
+	end
+	return { path = inst:GetFullName(), burning = burningish(inst), via = via }
+end
+
+local function extinguish(args)
+	local fire = liveModule("FireService")
+	if args.all then
+		if fire and type(fire.ExtinguishAll) == "function" then
+			pcall(fire.ExtinguishAll, fire)
+		end
+		local n = 0
+		for _, inst in CollectionService:GetTagged("Burning") do
+			CollectionService:RemoveTag(inst, "Burning")
+			inst:SetAttribute("FireLevel", nil)
+			n += 1
+		end
+		return { all = true, cleared = n }
+	end
+	local inst = targetFor(args, true)
+	local via = "tags"
+	if fire and type(fire.Extinguish) == "function" then
+		local ok, res = pcall(fire.Extinguish, fire, inst, nil)
+		via = if ok then "FireService:Extinguish -> " .. tostring(res) else "tags (FireService:Extinguish failed: " .. tostring(res) .. ")"
+	end
+	if burningish(inst) then
+		CollectionService:RemoveTag(inst, "Burning")
+		inst:SetAttribute("FireLevel", nil)
+	end
+	return { path = inst:GetFullName(), burning = burningish(inst), via = via }
+end
+
+local function teleport(args)
+	local p = playerArg(args)
+	local char = p.Character
+	if not char then
+		error(p.Name .. " has no character")
+	end
+	local pos = toVec(args.pos)
+	if not pos and args.path then
+		local inst = mustPath(args.path)
+		pos = posOf(inst)
+		if pos then
+			local h = 0
+			if inst:IsA("BasePart") then
+				h = inst.Size.Y / 2
+			elseif inst:IsA("Model") then
+				local ok, _, size = pcall(inst.GetBoundingBox, inst)
+				h = if ok then size.Y / 2 else 0
+			end
+			pos += Vector3.new(0, h, 0)
+		end
+	end
+	if not pos and args.to ~= nil then -- next to another player (name / UserId / helmet)
+		local other = resolvePlayer(args.to)
+		pos = posOf(other)
+		if not pos then
+			error(other.Name .. " has no character")
+		end
+		pos -= Vector3.new(0, 3, 0)
+	end
+	local offset = toVec(args.offset)
+	if pos and offset then
+		pos += offset
+	end
+	if not pos then
+		error("pos, path or to required")
+	end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum and hum.Sit then
+		hum.Sit = false
+		task.wait()
+	end
+	local rot = char:GetPivot().Rotation
+	char:PivotTo(CFrame.new(pos + Vector3.new(0, 3, 0)) * rot)
+	log("teleport", with(who(p), { pos = v3(pos) }))
+	return true
+end
+
+local function config(args)
+	local name = tostring(args.module or "")
+	local ms = findModule(name)
+	if not ms then
+		error("no ModuleScript named " .. name)
+	end
+	local mod = require(ms) :: any
+	if type(mod) ~= "table" then
+		error(name .. " is not a table module")
+	end
+	local key = args.key
+	if key == nil then
+		local out = obj({})
+		for k, v in mod do
+			if type(v) ~= "function" then
+				out[tostring(k)] = val(v)
+			end
+		end
+		return out
+	end
+	if args.value == nil then
+		return { module = name, key = key, value = val(mod[key]) }
+	end
+	local old = mod[key]
+	local value = args.value
+	if typeof(old) == "Vector3" then
+		value = toVec(value) or error("value must be [x,y,z]")
+	end
+	if type(mod.Set) == "function" then
+		mod.Set(key, value)
+	else
+		if old == nil then
+			error("unknown key " .. tostring(key))
+		end
+		mod[key] = value
+	end
+	log("config", { module = name, key = key, value = val(mod[key]), old = val(old) })
+	return { module = name, key = key, value = val(mod[key]), old = val(old) }
+end
+
+local function kindSet(kinds: any): { [string]: boolean }?
+	if kinds == nil or kinds == "" then
+		return nil
+	end
+	local set = {}
+	if type(kinds) == "string" then
+		for k in string.gmatch(kinds, "[^,%s]+") do
+			set[k] = true
+		end
+	elseif type(kinds) == "table" then
+		for _, k in kinds do
+			set[tostring(k)] = true
+		end
+	end
+	return set
+end
+
+-- events {since?, instanceId?, squadId?, kinds?}: scoped event log. With instanceId, events that
+-- carry another instance's id are dropped; unstamped world events are kept unless strict=true.
+local function eventsCmd(args)
+	local since = tonumber(args.since) or -1
+	local iid = nonEmpty(args.instanceId)
+	local sid = nonEmpty(args.squadId)
+	local kinds = kindSet(args.kinds)
+	local strict = args.strict == true
+	local out = {}
+	for _, e in events do
+		if e.t > since and (not kinds or kinds[e.kind]) then
+			local d = e.data or {}
+			local keep = true
+			if iid then
+				local eid = nonEmpty(d.instanceId)
+				keep = (eid == iid) or (eid == nil and not strict and d.squadId == nil)
+			end
+			if keep and sid then
+				keep = nonEmpty(d.squadId) == sid
+			end
+			if keep then
+				table.insert(out, { t = e.t, kind = e.kind, data = e.data })
+			end
+		end
+	end
+	return { now = now(), events = out }
+end
+
+local function reset(args)
+	local map = liveModule("MapService")
+	local rebuilt = {}
+	if map then
+		if args.location then
+			if type(map.RebuildLocation) ~= "function" then
+				error("MapService has no RebuildLocation")
+			end
+			local m = map:RebuildLocation(tostring(args.location))
+			if not m then
+				error("unknown location " .. tostring(args.location))
+			end
+			table.insert(rebuilt, tostring(args.location))
+		else
+			local ids = {}
+			for id in (if type(map.GetLocations) == "function" then map:GetLocations() else {}) do
+				table.insert(ids, id)
+			end
+			table.sort(ids)
+			for _, id in ids do
+				map:RebuildLocation(id)
+				table.insert(rebuilt, id)
+				task.wait()
+			end
+		end
+	end
+	table.clear(events)
+	log("reset", { rebuilt = rebuilt })
+	return { rebuilt = rebuilt, map = map ~= nil }
+end
+
+local function round(args)
+	local function state()
+		local out = obj({})
+		for _, k in WORLD_ATTRS do
+			local v = workspace:GetAttribute(k)
+			if v ~= nil then
+				out[k] = val(v)
+			end
+		end
+		return out
+	end
+	if args.state == nil then
+		return state()
+	end
+	local want = tostring(args.state)
+	local mission = liveModule("MissionService")
+	local via = "attribute"
+	if mission then
+		local ok, err = true, nil
+		if want == "Active" and type(mission.StartRound) == "function" then
+			ok, err = pcall(mission.StartRound, mission, args.location, tonumber(args.seconds))
+			via = "MissionService:StartRound"
+		elseif want == "Results" and type(mission.EndRound) == "function" then
+			ok, err = pcall(mission.EndRound, mission, "forced")
+			via = "MissionService:EndRound"
+		end
+		if not ok then
+			via ..= " failed: " .. tostring(err) .. "; attribute"
+			workspace:SetAttribute("RoundState", want)
+		end
+	end
+	if via == "attribute" then
+		workspace:SetAttribute("RoundState", want)
+	end
+	local out = state()
+	out.via = via
+	return out
+end
+
+------------------------------------------------------------------------------- multiplayer / squads
+
+-- §10 v1.5: LobbyService:Join(player, padId) -> squadId, :Launch(squadId, missionId) -> instanceId,
+-- MissionService:StartMission(squad: {Player}, missionId, seconds?) -> instanceId, :EndMission(id, reason).
+local JOIN_METHODS = { "Join", "_join" }
+local LAUNCH_METHODS = { "Launch", "_launch" }
+local END_METHODS = { "EndMission", "_endMission" }
+
+local function waitFor(seconds: number, pred: () -> boolean): boolean
+	local t0 = os.clock()
+	while not pred() do
+		if os.clock() - t0 >= seconds then
+			return false
+		end
+		task.wait(0.1)
+	end
+	return true
+end
+
+local function filterPlayers(args): { Player }
+	local iid, sid = nonEmpty(args.instanceId), nonEmpty(args.squadId)
+	local only: { Player }? = nil
+	if type(args.userIds) == "table" then
+		only = {}
+		for _, id in args.userIds do
+			table.insert(only :: { Player }, resolvePlayer(id))
+		end
+	end
+	local out = {}
+	for _, p in only or playerList() do
+		if (not iid or nonEmpty(p:GetAttribute("InstanceId")) == iid) and (not sid or nonEmpty(p:GetAttribute("SquadId")) == sid) then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
+-- queue {userId, pad, walk?, join?, wait?}: put a player on a SquadPad (teleport, or walk with
+-- walk=true) and wait for their SquadId. If the pad itself didn't sign them up within `wait`,
+-- LobbyService:Join(player, padId) is called (join=false skips that; join=true calls it at once).
+local function queueCmd(args)
+	local p = playerArg(args)
+	local pad = findPad(if args.pad == nil then 1 else args.pad)
+	local padId = val(pad:GetAttribute("PadId"))
+	local via
+	if args.walk then
+		local res = act({ userId = p.UserId, action = "walk_to", args = { path = pad:GetFullName(), timeout = tonumber(args.timeout) or 20 } })
+		via = "walk: " .. tostring(res.detail)
+	else
+		teleport({ userId = p.UserId, path = pad:GetFullName() })
+		via = "teleport"
+	end
+	local function joined(): boolean
+		return nonEmpty(p:GetAttribute("SquadId")) ~= nil
+	end
+	local wait = math.clamp(tonumber(args.wait) or 3, 0, 30)
+	if args.join ~= true then
+		waitFor(wait, joined)
+	end
+	if not joined() and args.join ~= false then
+		local status, lobby = serviceStatus("LobbyService")
+		local name, fn = findMethod(lobby, JOIN_METHODS)
+		if not fn then
+			unsupported("LobbyService (" .. status .. ") has no Join and the pad did not sign the player up")
+		end
+		local ok, res = pcall(fn, lobby, p, tonumber(padId) or padId)
+		via ..= string.format("; LobbyService:%s -> %s", tostring(name), if ok then tostring(res) else "error " .. tostring(res))
+		waitFor(wait, joined)
+		if not joined() and status == "stub" then
+			unsupported("LobbyService is a K0 stub (Join did nothing)")
+		end
+	end
+	local sid = nonEmpty(p:GetAttribute("SquadId"))
+	return obj({ player = who(p), pad = padId, padPath = pad:GetFullName(), squadId = sid, joined = sid ~= nil, via = via })
+end
+
+local function findSquad(args)
+	local data = squadsCmd({})
+	local sid = nonEmpty(args.squadId)
+	if not sid and args.player ~= nil then
+		sid = nonEmpty(resolvePlayer(args.player):GetAttribute("SquadId"))
+	end
+	local padN = tonumber(args.pad)
+	for _, s in data.squads do
+		if (sid and tostring(s.id) == sid) or (not sid and padN and tonumber(s.padId) == padN) then
+			return s, data
+		end
+	end
+	return nil, data
+end
+
+local function membersOf(squad): { Player }
+	local out = {}
+	for _, m in squad.members or {} do
+		local ok, p = pcall(Players.GetPlayerByUserId, Players, tonumber(m.userId) or 0)
+		if ok and p then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
+-- launch {pad | squadId | player, missionId?, wait?}: launch now via LobbyService:Launch(squadId,
+-- missionId) (skips the leader's board + countdown). missionId defaults to the squad's choice, then
+-- the first enabled MissionCatalog entry.
+local function launchCmd(args)
+	local status, lobby = serviceStatus("LobbyService")
+	if not lobby then
+		unsupported("no LobbyService")
+	end
+	local squad, data = findSquad(args)
+	if not squad then
+		if #data.squads == 0 and status == "stub" then
+			unsupported("LobbyService is a K0 stub (no squads)")
+		end
+		error("no squad for " .. (if args.squadId then "squadId " .. tostring(args.squadId) else "pad " .. tostring(args.pad)), 0)
+	end
+	local sid = squad.id
+	local notes = {}
+	local missionId = nonEmpty(args.missionId) or nonEmpty(squad.missionId) or catalogIds()[1]
+	if not missionId then
+		error("missionId required (squad chose none and MissionCatalog has no enabled mission)", 0)
+	end
+	local name, fn = findMethod(lobby, LAUNCH_METHODS)
+	if not fn then
+		unsupported("LobbyService (" .. status .. ") has no Launch")
+	end
+	local ok, res = pcall(fn, lobby, sid, missionId)
+	if not ok then
+		error("LobbyService:" .. tostring(name) .. " failed: " .. tostring(res), 0)
+	end
+	table.insert(notes, string.format("LobbyService:%s(%s, %s) -> %s", tostring(name), tostring(sid), missionId, tostring(res)))
+	local members = membersOf(squad)
+	waitFor(math.clamp(tonumber(args.wait) or 8, 0, 60), function()
+		for _, p in members do
+			if not nonEmpty(p:GetAttribute("InstanceId")) then
+				return false
+			end
+		end
+		return #members > 0
+	end)
+	local iid = if type(res) == "string" then nonEmpty(res) elseif type(res) == "table" then nonEmpty(res.instanceId) else nil
+	for _, p in members do
+		iid = iid or nonEmpty(p:GetAttribute("InstanceId"))
+	end
+	if not iid and status == "stub" then
+		unsupported("LobbyService is a K0 stub (launch did nothing)")
+	end
+	local whos = {}
+	for _, p in members do
+		table.insert(whos, with(who(p), { instanceId = nonEmpty(p:GetAttribute("InstanceId")) }))
+	end
+	return obj({ squadId = sid, pad = squad.padId, missionId = missionId, instanceId = iid, members = whos, via = table.concat(notes, "; "), result = plain(res) })
+end
+
+-- mission_start {missionId?, players?: [..] | "all", seconds?, wait?}:
+-- MissionService:StartMission(players, missionId, seconds?) -> instanceId.
+local function missionStartCmd(args)
+	local status, mission = serviceStatus("MissionService")
+	if not mission or type(mission.StartMission) ~= "function" then
+		unsupported("MissionService:StartMission not available (" .. status .. ")")
+	end
+	local list = {}
+	local ids = args.players
+	if ids == nil or ids == "all" then
+		list = playerList()
+	else
+		if type(ids) ~= "table" then
+			ids = { ids }
+		end
+		for _, id in ids do
+			table.insert(list, resolvePlayer(id))
+		end
+	end
+	if #list == 0 then
+		error("no players to start a mission with", 0)
+	end
+	local missionId = tostring(args.missionId or "")
+	if missionId == "" then
+		missionId = catalogIds()[1] or error("missionId required (MissionCatalog has no enabled mission)", 0)
+	end
+	local ok, res = pcall(mission.StartMission, mission, list, missionId, tonumber(args.seconds))
+	if not ok then
+		error("MissionService:StartMission failed: " .. tostring(res), 0)
+	end
+	waitFor(math.clamp(tonumber(args.wait) or 8, 0, 60), function()
+		for _, p in list do
+			if not nonEmpty(p:GetAttribute("InstanceId")) then
+				return false
+			end
+		end
+		return true
+	end)
+	local iid = if type(res) == "string" then nonEmpty(res) elseif type(res) == "table" then nonEmpty(res.instanceId) else nil
+	for _, p in list do
+		iid = iid or nonEmpty(p:GetAttribute("InstanceId"))
+	end
+	if not iid then
+		if status == "stub" then
+			unsupported("MissionService is a K0 stub (StartMission did nothing)")
+		end
+		error("StartMission returned no instanceId and no player got an InstanceId", 0)
+	end
+	local whos = {}
+	for _, p in list do
+		table.insert(whos, with(who(p), { instanceId = nonEmpty(p:GetAttribute("InstanceId")) }))
+	end
+	return obj({ instanceId = iid, missionId = missionId, players = whos, result = plain(res) })
+end
+
+-- mission_end {instanceId | player, reason?="forced", wait?}
+local function missionEndCmd(args)
+	local status, mission = serviceStatus("MissionService")
+	local id = nonEmpty(args.instanceId)
+	if not id and args.player ~= nil then
+		id = nonEmpty(resolvePlayer(args.player):GetAttribute("InstanceId"))
+	end
+	if not id then
+		error("instanceId required", 0)
+	end
+	local name, fn = findMethod(mission, END_METHODS)
+	if not fn then
+		unsupported("MissionService (" .. status .. ") has no EndMission/EndInstance")
+	end
+	local ok, res = pcall(fn, mission, id, tostring(args.reason or "forced"))
+	if not ok then
+		error("MissionService:" .. tostring(name) .. " failed: " .. tostring(res), 0)
+	end
+	local function remaining(): number
+		local n = 0
+		for _, p in playerList() do
+			if nonEmpty(p:GetAttribute("InstanceId")) == id then
+				n += 1
+			end
+		end
+		return n
+	end
+	local function state(): any
+		if type(mission.GetMission) == "function" then
+			local okRun, run = pcall(mission.GetMission, mission, id)
+			if okRun and type(run) == "table" then
+				return run.state
+			end
+			return if okRun then "gone" else nil
+		end
+		return nil
+	end
+	-- ended = state Results/gone, or everyone back in the lobby (players return after ReturnSeconds)
+	waitFor(math.clamp(tonumber(args.wait) or 5, 0, 60), function()
+		local s = state()
+		return remaining() == 0 or s == "Results" or s == "gone"
+	end)
+	return obj({ instanceId = id, via = "MissionService:" .. tostring(name), result = plain(res), state = state(), playersStillIn = remaining() })
+end
+
+-- blame {instanceId?, squadId?, awards?}: BlameService stats per player (and awards).
+local function blameCmd(args)
+	local status, blame = serviceStatus("BlameService")
+	if not blame or type(blame.GetStats) ~= "function" then
+		unsupported("BlameService:GetStats not available (" .. status .. ")")
+	end
+	local stats = {}
+	for _, p in filterPlayers(args) do
+		local ok, s = pcall(blame.GetStats, blame, p)
+		table.insert(stats, if ok then plain(s) else with(who(p), { error = tostring(s) }))
+	end
+	local out = obj({ service = status, stats = stats })
+	if args.awards and type(blame.BuildAwards) == "function" then
+		local ok, a = pcall(blame.BuildAwards, blame)
+		out.awards = if ok then plain(a) else tostring(a)
+	end
+	return out
+end
+
+-- hook {module, fn, args?}: call a function on a live module (same require cache as the game), like
+-- ServerStorage.DevHook. fn "Name" = method call (mod:Name(...)), ".name" = dot call. Arg objects
+-- {"player": id} become that Player, {"character": id} their character, {"path": p} the instance,
+-- {"vec": [x,y,z]} a Vector3.
+local function hookCmd(args)
+	local name = tostring(args.module or "")
+	local status, mod = serviceStatus(name)
+	if not mod then
+		unsupported("no module " .. name)
+	end
+	local fname = tostring(args.fn or "")
+	local dot = string.sub(fname, 1, 1) == "."
+	if dot then
+		fname = string.sub(fname, 2)
+	end
+	local fn = mod[fname]
+	if type(fn) ~= "function" then
+		unsupported(name .. " (" .. status .. ") has no function " .. fname)
+	end
+	local callArgs = {}
+	local n = 0
+	for i, a in (if type(args.args) == "table" then args.args else {}) do
+		n = math.max(n, i)
+		if type(a) == "table" and a.player ~= nil then
+			callArgs[i] = resolvePlayer(a.player)
+		elseif type(a) == "table" and a.character ~= nil then
+			callArgs[i] = resolvePlayer(a.character).Character
+		elseif type(a) == "table" and a.path ~= nil then
+			callArgs[i] = mustPath(a.path)
+		elseif type(a) == "table" and a.vec ~= nil then
+			callArgs[i] = toVec(a.vec)
+		else
+			callArgs[i] = a
+		end
+	end
+	local packed
+	if dot then
+		packed = table.pack(pcall(fn, table.unpack(callArgs, 1, n)))
+	else
+		packed = table.pack(pcall(fn, mod, table.unpack(callArgs, 1, n)))
+	end
+	if not packed[1] then
+		error(name .. "." .. fname .. " failed: " .. tostring(packed[2]), 0)
+	end
+	local results = {}
+	for i = 2, packed.n do
+		local v = plain(packed[i])
+		results[i - 1] = if v == nil then "nil" else v
+	end
+	return obj({ module = name, fn = fname, status = status, result = results[1], results = results })
+end
+
+-- caps {}: which services exist / are stubs, their methods and signals, tag counts, catalog.
+local function capsCmd()
+	local services = obj({})
+	for _, name in KNOWN_SERVICES do
+		local status, mod = serviceStatus(name)
+		local e = obj({ status = status })
+		if mod then
+			local methods, signals = {}, {}
+			for k, v in mod do
+				if type(k) == "string" then
+					if type(v) == "function" then
+						table.insert(methods, k)
+					elseif type(v) == "table" and type(v.Connect) == "function" then
+						table.insert(signals, k)
+					end
+				end
+			end
+			table.sort(methods)
+			table.sort(signals)
+			e.methods, e.signals = methods, signals
+		end
+		services[name] = e
+	end
+	local tags = obj({})
+	for _, t in TAGS do
+		tags[t] = #CollectionService:GetTagged(t)
+	end
+	local instances = {}
+	for id in scanInstanceModels(true) do
+		table.insert(instances, id)
+	end
+	return obj({
+		version = VERSION, studio = IS_STUDIO, players = #Players:GetPlayers(), services = services, tags = tags,
+		catalog = catalogIds(), instanceModels = instances,
+	})
+end
+
+local commands: { [string]: (any) -> any } = {
+	ping = function()
+		return {
+			version = VERSION,
+			players = #Players:GetPlayers(),
+			agents = (function()
+				local n = 0
+				for p in agents do
+					if p.Parent == Players then
+						n += 1
+					end
+				end
+				return n
+			end)(),
+			studio = true,
+			time = workspace:GetServerTimeNow(),
+			clock = now(),
+			mapReady = workspace:GetAttribute("MapReady") == true,
+		}
+	end,
+	caps = capsCmd,
+	players = function(args)
+		local out = {}
+		for _, p in filterPlayers(args) do
+			table.insert(out, playerInfo(p))
+		end
+		return out
+	end,
+	squads = squadsCmd,
+	instances = instancesList,
+	queue = queueCmd,
+	launch = launchCmd,
+	mission_start = missionStartCmd,
+	mission_end = missionEndCmd,
+	blame = blameCmd,
+	hook = hookCmd,
+	observe = observe,
+	act = act,
+	query = query,
+	inspect = inspect,
+	set_attr = setAttr,
+	ignite = ignite,
+	extinguish = extinguish,
+	teleport = teleport,
+	config = config,
+	counters = counters,
+	events = eventsCmd,
+	reset = reset,
+	round = round,
+}
+
+local function decodeArgs(argsJson: any)
+	if type(argsJson) == "table" then
+		return argsJson
+	end
+	if argsJson == nil or argsJson == "" then
+		return {}
+	end
+	local ok, res = pcall(HttpService.JSONDecode, HttpService, tostring(argsJson))
+	if not ok then
+		error("args are not valid JSON: " .. tostring(res))
+	end
+	if type(res) ~= "table" then
+		error("args must be a JSON object")
+	end
+	return res
+end
+
+local bf = getOrCreate(ServerStorage, "ForgeTest", "BindableFunction") :: BindableFunction
+dispatchCommand = function(cmd: any, argsJson: any): string
+	local ok, res = pcall(function()
+		local fn = commands[tostring(cmd)]
+		if not fn then
+			local names = {}
+			for k in commands do
+				table.insert(names, k)
+			end
+			table.sort(names)
+			error("unknown command '" .. tostring(cmd) .. "' (one of: " .. table.concat(names, ", ") .. ")")
+		end
+		return fn(decodeArgs(argsJson))
+	end)
+	local reply
+	if ok then
+		reply = { ok = true, result = res }
+	else
+		local msg = tostring(res)
+		-- strip "ServerScriptService.ForgeTest:123: " so errors read cleanly
+		msg = string.gsub(msg, "^[%w%.]+:%d+: ", "")
+		reply = { ok = false, error = msg }
+	end
+	local encOk, json = pcall(encode, reply)
+	if encOk then
+		return json
+	end
+	return '{"ok":false,"error":' .. escape("encode failed: " .. tostring(json)) .. "}"
+end
+bf.OnInvoke = dispatchCommand
+
+print("[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote")
