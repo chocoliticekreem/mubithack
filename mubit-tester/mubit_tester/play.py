@@ -271,7 +271,8 @@ def compact_observation(obs: dict, limit: int = OBS_MAX_CHARS) -> dict:
         if not trimmed:
             probe = obs.get("probe")
             if isinstance(probe, dict) and probe:
-                obs["probe"] = {"errors": (probe.get("errors") or [])[:2]}
+                obs["probe"] = {"errors": (probe.get("errors") or [])[:2],
+                                **({"physics": probe["physics"][:2]} if probe.get("physics") else {})}
                 if len(_dumps(obs)) >= limit:
                     obs.pop("probe", None)
                 continue
@@ -315,7 +316,21 @@ def summarize_probe(probe: dict) -> dict:
         out["n_warnings"] = len(warns)
     if probe.get("counters"):
         out["counters"] = probe["counters"]
+    phys = physics_flags(probe)
+    if phys:
+        out["physics"] = phys
     return out
+
+
+PHYSICS_FIELDS = ("path", "kind", "max_speed", "max_angvel", "moved_studs", "windows")
+
+
+def physics_flags(probe: dict, limit: int = 5) -> list[dict]:
+    """ForgeProbe's physics sampler: assemblies that should rest but jitter or drift."""
+    phys = (probe or {}).get("physics") if isinstance(probe, dict) else None
+    flagged = phys.get("flagged") if isinstance(phys, dict) else None
+    return [{k: f.get(k) for k in PHYSICS_FIELDS if f.get(k) is not None}
+            for f in (flagged or [])[:limit] if isinstance(f, dict)]
 
 
 def _norm_key(key: Any) -> str:

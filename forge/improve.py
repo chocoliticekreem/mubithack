@@ -59,6 +59,10 @@ def round_digest(report: dict, n: int) -> dict:
         # real GUI clicks by testers: a feature with a menu is only proven when someone used it
         "ui_presses": [{k: p.get(k) for k in ("player", "text", "path", "fired", "changed", "effect")}
                        for p in (report.get("ui_presses") or [])[-MAX_UI_PRESSES:] if isinstance(p, dict)],
+        # which UI surfaces (buttons/panels) testers pressed vs never touched, and assemblies that jitter
+        "ui_coverage": report.get("ui_coverage") or {},
+        "physics": [{k: f.get(k) for k in ("path", "kind", "max_speed", "max_angvel", "moved_studs")}
+                    for f in ((probe.get("physics") or {}).get("flagged") or [])[:5] if isinstance(f, dict)],
     }
 
 

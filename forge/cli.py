@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import asyncio
 import json
 import os
@@ -433,10 +434,11 @@ async def _improve(args, *, faults_on: bool = True, fix: bool = False) -> None:
         harness = Harness(studio)
         for n in range(args.cycles):
             extra = pending_report_anomalies(store) if getattr(args, "reports", False) else []
-            playtest = multi_playtest
+            # the run's own files and spec give the UI surfaces testers must press (ui_coverage)
+            playtest = functools.partial(multi_playtest, game_dir=store.run.game_dir)
             if getattr(args, "start_round", False):
                 from forge.improve import round_starting
-                playtest = round_starting(multi_playtest, seconds=getattr(args, "round_seconds", None))
+                playtest = round_starting(playtest, seconds=getattr(args, "round_seconds", None))
             cycle = await run_cycle(s, args.slug, llm=llm, harness=harness, playtest=playtest,
                                     faults=faults, goal=args.goal, rounds=args.rounds,
                                     players=args.players, steps=args.steps, fix=fix,

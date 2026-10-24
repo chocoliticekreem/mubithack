@@ -80,6 +80,17 @@ def test_round_digest_is_compact_and_code_free():
 def test_round_digest_handles_empty_report():
     d = round_digest({}, 1)
     assert d["errors"] == {"count": 0, "first": []} and d["counters"] == {} and d["bugs"] == []
+    assert d["ui_coverage"] == {} and d["physics"] == []
+
+
+def test_round_digest_carries_ui_coverage_and_physics():
+    cov = {"pressed": 0, "total": 1, "gaps": ["Pass (BattlePassGui): never pressed, its panel was never opened"]}
+    flag = {"path": "Workspace.Truck.Chassis", "model": "Workspace.Truck", "kind": "jitter", "max_speed": 6.2,
+            "max_angvel": 3.1, "moved_studs": 0.4, "windows": 3}
+    d = round_digest({"ui_coverage": cov, "probe": {"physics": {"flagged": [flag], "watched": 9}}}, 1)
+    assert d["ui_coverage"] == cov
+    assert d["physics"] == [{"path": "Workspace.Truck.Chassis", "kind": "jitter", "max_speed": 6.2,
+                             "max_angvel": 3.1, "moved_studs": 0.4}]
 
 
 def test_matches_needs_system_and_keyword():

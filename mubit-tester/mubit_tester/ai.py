@@ -27,6 +27,7 @@ from typing import Any
 
 from forge import llm as llm_mod
 from mubit_tester import play
+from mubit_tester import surfaces as ui_surfaces
 from forge.config import Settings
 
 for _role in ("player", "judge", "explorer"):
@@ -110,9 +111,9 @@ _clip = play._clip
 _dumps = play._dumps
 
 
-def game_context(settings: Settings) -> dict:
+def game_context(settings: Settings, game_dir: Path | str | None = None) -> dict:
     """A saved game's own design belongs in user context, never in the fixed task prompts."""
-    path = Path(settings.base_game_dir).parent / 'spec.json'
+    path = Path(game_dir or settings.base_game_dir).parent / 'spec.json'
     if not path.is_file():
         return {}
     try:
@@ -329,7 +330,8 @@ def _compact_events(events: list) -> list:
 
 def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: list[dict],
                        observation: dict, history: list[dict], events: list,
-                       squad: dict | None = None, pressers: list[str] | None = None) -> str:
+                       squad: dict | None = None, pressers: list[str] | None = None,
+                       ui_tasks: list[dict] | None = None) -> str:
     team_text = _clip(_dumps(team), TEAM_CHARS) if team else "none (you are the only test player)"
     who = f"{me['name']} (helmet {me.get('helmet')}); role: {me['role']}"
     if me.get("squad"):
@@ -345,6 +347,8 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
                       f"your player. Players who can: {', '.join(pressers or []) or 'none'}. Read `ui` and leave "
                       "presses to them (say what you see if it helps).")
         lines += ["## On-screen UI", guide, ""]
+    if ui_tasks:
+        lines += ["## UI features assigned to you", ui_surfaces.tasks_text(ui_tasks), ""]
     lines += [
         "## Macro actions", MACRO_GUIDE, "",
         "## Step", (f"{n} of {total}" if total else str(n)) + " (decisions)", "",
@@ -374,7 +378,8 @@ def _bug_from(action: dict, key: str) -> dict | None:
 
 
 def judge_message(goal: str, roster: list[dict], steps: list[dict], events: list, probe: dict,
-                  counters: Any, hints: list[dict], errors: list[str], squads: dict | None = None) -> str:
+                  counters: Any, hints: list[dict], errors: list[str], squads: dict | None = None,
+                  ui_coverage: dict | None = None) -> str:
     names = {p["userId"]: p["name"] for p in roster}
     trace = []
     for s in steps:
@@ -405,6 +410,10 @@ def judge_message(goal: str, roster: list[dict], steps: list[dict], events: list
             "kinked hoses, left the squad), or empty\", \"credit\": \"what they did for the team\"}. "
             "Base it on the stats and the trace, not on the players' own claims.",
         ]
+    if ui_coverage and ui_coverage.get("total"):
+        extra += ["", "## UI coverage (features with on-screen buttons; a gap means the round did not prove it)",
+                  _clip(_dumps({"pressed": f"{ui_coverage['pressed']}/{ui_coverage['total']}",
+                                "gaps": ui_coverage.get("gaps") or []}), 1200)]
     return "\n".join([
         "## Goal", goal.strip(), "",
         "## Players", _dumps([{"name": p["name"], "role": p["role"], **({"squad": p["squad"]} if p.get("squad") else {})}
@@ -661,8 +670,9 @@ async def _squads_tick(harness, n: int, roster: list[dict], tick_players: list[d
 async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str, players, roles,
                    max_ticks: int, deadline: float | None, llm, studio, harness, studio_name,
                    step_seconds: float, bug_key: str, mode: str = "free", squads: int = 1,
-                   assist: bool = True) -> dict:
+                   assist: bool = True, game_dir: Path | str | None = None) -> dict:
     context = game_context(settings)
+    surface_spec = game_context(settings, game_dir) if game_dir else context
     if context:
         goal += '\n\nSaved game design:\n' + json.dumps(context, ensure_ascii=False)[:4000]
         goal += '\nTest this game and the features you observe. Firefighter mechanics may not exist in this game.'
@@ -692,6 +702,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
     started_direct: set = set()  # squads put straight into a mission (lobby unsupported)
     lobby_unsupported = False
     seen_mission = False
+    surfaces: list[dict] | None = None  # UI features this round must press, from the first observations
     async with AsyncExitStack() as stack:
         try:
             if harness is None and _is_harness(studio):
@@ -734,6 +745,10 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                 tick_players = [p for p in roster if p["userId"] in active]
                 obs_list = await asyncio.gather(*(_observe(harness, p["userId"]) for p in tick_players))
                 observations = {p["userId"]: o for p, o in zip(tick_players, obs_list)}
+                if surfaces is None:
+                    surfaces = ui_surfaces.assign_surfaces(ui_surfaces.derive_surfaces(
+                        surface_spec, game_dir or settings.base_game_dir, list(observations.values())), roster)
+                    report["ui_surfaces"] = surfaces
                 if (n - 1) % PROBE_EVERY == 0:
                     probe, counters = await asyncio.gather(_probe(harness), _counters(harness))
                     report["counters"] = counters
@@ -762,7 +777,8 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                     try:
                         user = agent_user_message(goal, p, n, max_ticks if deadline is None else None, team,
                                                   observations[uid], _history(report["steps"], uid, n), events,
-                                                  squad=contexts.get(uid), pressers=report["ui_pressers"])
+                                                  squad=contexts.get(uid), pressers=report["ui_pressers"],
+                                                  ui_tasks=ui_surfaces.tasks_for(surfaces, p["name"]))
                         action, res = await play._to_thread(
                             llm.complete_json, agent_role, user, session_id=session_id,
                             required=["action", "reason"], max_tokens=1024,
@@ -807,6 +823,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                     await asyncio.sleep(step_seconds)
 
             report["probe"] = await _probe(harness)
+            report["physics"] = play.physics_flags(report["probe"])
             report["counters"] = await _counters(harness)
             tail, since = await _events(harness, since)
             all_events.extend(tail)
@@ -816,6 +833,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
             report["errors"].append(f"{type(e).__name__}: {_clip(str(e), 500)}")
     report["events"] = _compact_events(all_events)[-50:]
     report["ui_presses"] = ui_presses(all_events)
+    report["ui_coverage"] = ui_surfaces.coverage(report.get("ui_surfaces") or [], report["ui_presses"])
     decided = [s["action"].get("action") for s in report["steps"] if s.get("action")]
     report["decisions"] = len(decided)  # one LLM call each
     report["macro_decisions"] = sum(1 for a in decided if a in MACROS or a == "repeat")
@@ -841,7 +859,8 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
 
     try:
         user = judge_message(goal, report["players"], report["steps"], all_events, report["probe"],
-                             report["counters"], report["bug_hints"], report["errors"], squads=squads_info)
+                             report["counters"], report["bug_hints"], report["errors"], squads=squads_info,
+                             ui_coverage=report["ui_coverage"])
         verdict, res = await play._to_thread(
             llm.complete_json, "judge", user, session_id=session_id,
             required=["goal_met", "bugs", "summary"], max_tokens=2048,
@@ -873,7 +892,7 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
 async def multi_playtest(settings: Settings, goal: str, players: int | list | None = None, steps: int = 20,
                          roles: list[str] | None = None, *, llm=None, studio=None, harness=None,
                          studio_name: str | None = None, step_seconds: float = 1.0, mode: str = "free",
-                         squads: int = 1, assist: bool = True) -> dict:
+                         squads: int = 1, assist: bool = True, game_dir: Path | str | None = None) -> dict:
     """One `player` agent per connected player (or the first N / the named ones), acting concurrently.
 
     mode="squads": the full multiplayer loop lobby -> pad -> countdown -> mission -> results. Players
@@ -881,24 +900,28 @@ async def multi_playtest(settings: Settings, goal: str, players: int | list | No
     squad and instance each tick (in the user message). With `assist`, the harness queues players
     idle in the lobby, launches squads stuck on their pad, and starts missions directly when the
     lobby isn't implemented yet. The judge also gets per-player stats and reports per-player blame.
+
+    game_dir: the game's files (default settings.base_game_dir); its client scripts and ../spec.json
+    give the UI surfaces each presser must cover, reported as `ui_coverage`.
     """
     if mode not in ("free", "squads"):
         raise ValueError(f"mode must be 'free' or 'squads', got {mode!r}")
     return await _session(settings, kind="multi_playtest", agent_role="player", goal=goal, players=players,
                           roles=roles, max_ticks=max(1, int(steps)), deadline=None, llm=llm, studio=studio,
                           harness=harness, studio_name=studio_name, step_seconds=step_seconds, bug_key="bug",
-                          mode=mode, squads=squads, assist=assist)
+                          mode=mode, squads=squads, assist=assist, game_dir=game_dir)
 
 
 async def explore(settings: Settings, minutes: float = 3, players: int | list | None = None, *, llm=None,
                   studio=None, harness=None, roles: list[str] | None = None, studio_name: str | None = None,
-                  max_ticks: int = MAX_EXPLORE_TICKS, step_seconds: float = 0.5) -> dict:
+                  max_ticks: int = MAX_EXPLORE_TICKS, step_seconds: float = 0.5,
+                  game_dir: Path | str | None = None) -> dict:
     """Bug hunt with the `explorer` role for `minutes` across players; the judge dedupes the bugs."""
     deadline = time.monotonic() + max(0.0, float(minutes)) * 60.0
     rep = await _session(settings, kind="explore", agent_role="explorer", goal=EXPLORE_GOAL, players=players,
                          roles=roles or EXPLORE_ROLES, max_ticks=max(1, int(max_ticks)), deadline=deadline,
                          llm=llm, studio=studio, harness=harness, studio_name=studio_name,
-                         step_seconds=step_seconds, bug_key="suspected_bug")
+                         step_seconds=step_seconds, bug_key="suspected_bug", game_dir=game_dir)
     rep["suspected_bugs"] = list(rep.get("bug_hints") or [])
     play._save_report(settings, rep)
     return rep
@@ -960,7 +983,8 @@ async def correct_step(settings: Settings, run_id: str, step: int, note: str, pl
                               target.get("observation") or {},
                               _history(report.get("steps") or [], target.get("player"), step),
                               target.get("events") or [], squad=target.get("squad"),
-                              pressers=report.get("ui_pressers"))
+                              pressers=report.get("ui_pressers"),
+                              ui_tasks=ui_surfaces.tasks_for(report.get("ui_surfaces") or [], me.get("name")))
     user += "\n\n## Correction from a human tester\n" + note.strip()
     after, res = await play._to_thread(
         llm.complete_json, role, user, session_id=report.get("session_id") or "playtest-" + run_id,
