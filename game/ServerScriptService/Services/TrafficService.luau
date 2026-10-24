@@ -304,9 +304,18 @@ local function snapLanes(n: RoadNet.Net)
 		return
 	end
 	local params = groundParams()
+	params.RespectCanCollide = true -- leaves, decals, markers and other non-solid bits are not road
+	-- The lane heights from RoadNet are already the road top. Only nudge them onto a SOLID surface that
+	-- is within SNAP_TOLERANCE of that height: casting from 5 studs up across 16 studs used to land on
+	-- tree canopies, traffic-light arms or parked cars, and the sloped lanes made cars bob up and down
+	-- and sink into the road.
+	local SNAP_TOLERANCE = 1.25
 	local function surface(x: number, y: number, z: number): number
-		local hit = workspace:Raycast(Vector3.new(x, y + 5, z), Vector3.new(0, -16, 0), params)
-		return if hit then hit.Position.Y else y
+		local hit = workspace:Raycast(Vector3.new(x, y + SNAP_TOLERANCE, z), Vector3.new(0, -2 * SNAP_TOLERANCE, 0), params)
+		if hit and hit.Normal.Y > 0.9 and math.abs(hit.Position.Y - y) <= SNAP_TOLERANCE then
+			return hit.Position.Y
+		end
+		return y
 	end
 	for i, lane in n.lanes do
 		lane.ay = surface(lane.ax, lane.ay, lane.az)
