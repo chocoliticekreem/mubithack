@@ -289,8 +289,19 @@ async def _improve(settings: Settings, slug: str, cycles: int, studio_name: str 
     return out
 
 
+async def _checks(settings: Settings, slug: str, max_checks: int, studio_name: str | None, llm) -> None:
+    """Scenario designer (forge checks --plan --run): plan executable checks from the spec, run them live."""
+    from forge.scenarios import plan_checks, run_plan
+    from forge.studio import Studio
+
+    await asyncio.to_thread(plan_checks, settings, slug, llm=llm, max_checks=max_checks)
+    async with Studio(settings) as studio:
+        await studio.select(studio_name)
+        await run_plan(studio, slug, settings=settings, llm=llm)
+
+
 async def bench_idea(item: dict, root: Path, base: Settings, *, iterations: int, studio: str | None,
-                     improve: int, fake: bool, lessons: str, ui: Any = None) -> dict:
+                     improve: int, fake: bool, lessons: str, ui: Any = None, checks: int = 0) -> dict:
     from forge.llm import FakeLLM, make_llm
     from forge.loop import new_game
 
@@ -320,6 +331,10 @@ async def bench_idea(item: dict, root: Path, base: Settings, *, iterations: int,
                 t1 = time.monotonic()
                 await _improve(settings, got, improve, studio, llm_factory)
                 rec["stages"]["improve"] = round(time.monotonic() - t1, 2)
+            if checks and studio:
+                t1 = time.monotonic()
+                await _checks(settings, got, checks, studio, llm_factory(settings.runs_dir / got / "calls.jsonl"))
+                rec["stages"]["checks"] = round(time.monotonic() - t1, 2)
     except Exception as e:  # one broken idea must not lose the others' numbers
         rec["ok"] = False
         rec["error"] = f"{type(e).__name__}: {e}"[:500]
@@ -372,7 +387,7 @@ def totals(ideas: list[dict]) -> dict:
 async def run_bench(ids: list[str] | None = None, *, iterations: int = 2, studio: str | None = None,
                     improve: int = 0, fake: bool = False, lessons: str = "starter",
                     settings: Settings | None = None, out_dir: Path | None = None, ui: Any = None,
-                    label: str | None = None) -> tuple[dict, Path]:
+                    label: str | None = None, checks: int = 0) -> tuple[dict, Path]:
     base = settings or load_settings()
     items = [s for s in SUITE if not ids or s["id"] in ids]
     unknown = sorted(set(ids or []) - set(SUITE_IDS))
@@ -385,7 +400,7 @@ async def run_bench(ids: list[str] | None = None, *, iterations: int = 2, studio
     result = {
         "schema": SCHEMA, "stamp": st, "label": label,
         "mode": "fake" if fake else "real", "studio": studio, "model": "fake" if fake else base.model,
-        "iterations": iterations, "improve": improve if studio else 0, "lessons": lessons,
+        "iterations": iterations, "improve": improve if studio else 0, "checks": checks if studio else 0, "lessons": lessons,
         "git": {"sha": _git(base, "rev-parse", "--short", "HEAD"),
                 "branch": _git(base, "rev-parse", "--abbrev-ref", "HEAD"),
                 "subject": _git(base, "log", "-1", "--format=%s")},
@@ -395,7 +410,7 @@ async def run_bench(ids: list[str] | None = None, *, iterations: int = 2, studio
     for item in items:
         print(f"\n=== bench {item['id']} ===", flush=True)
         rec = await bench_idea(item, root, base, iterations=iterations, studio=studio, improve=improve,
-                               fake=fake, lessons=lessons, ui=ui)
+                               fake=fake, lessons=lessons, ui=ui, checks=checks)
         result["ideas"].append(rec)
         result["totals"] = totals(result["ideas"])
         path.write_text(json.dumps(result, indent=1) + "\n", encoding="utf-8")  # partial results survive
@@ -425,7 +440,7 @@ def render(result: dict) -> str:
         f"# forge bench {result['stamp']}" + (f" ({result['label']})" if result.get("label") else ""),
         "",
         f"mode **{result['mode']}**, model `{result.get('model')}`, studio `{result.get('studio') or 'none'}`, "
-        f"{result['iterations']} iteration(s), improve {result.get('improve', 0)}, lessons {result.get('lessons')}, "
+        f"{result['iterations']} iteration(s), improve {result.get('improve', 0)}, checks {result.get('checks', 0)}, lessons {result.get('lessons')}, "
         f"git `{g.get('sha')}` on `{g.get('branch')}`",
         "",
         "| idea | ok | wall s | design | build | iterate | compile/fix | playtest | improve | LLM calls | tokens in/out "
@@ -474,6 +489,8 @@ METRICS: list[tuple[str, Callable[[dict], Any], bool, str]] = [
     ("build s", lambda i: (i.get("stages") or {}).get("build"), False, ".1f"),
     ("iterate s", lambda i: (i.get("stages") or {}).get("iterate"), False, ".1f"),
     ("playtest s", lambda i: (i.get("stages") or {}).get("playtest"), False, ".1f"),
+    ("improve s", lambda i: (i.get("stages") or {}).get("improve"), False, ".1f"),
+    ("checks s", lambda i: (i.get("stages") or {}).get("checks"), False, ".1f"),
     ("LLM calls", lambda i: (i.get("llm") or {}).get("calls"), False, "g"),
     ("LLM s (sum of calls)", lambda i: (i.get("llm") or {}).get("latency_s"), False, ".1f"),
     ("LLM overlap (sum/wall)", lambda i: round(i["llm"]["latency_s"] / i["wall_s"], 2)
@@ -563,6 +580,8 @@ def add_cli_parser(sub) -> None:
     b.add_argument("--fake", action="store_true", help="cheap mode: FakeLLM, no Studio, no tokens (CI)")
     b.add_argument("--studio", help="real mode with a Studio playtest in this window (e.g. Forge-agents-29)")
     b.add_argument("--improve", type=int, default=0, help="improve (fix) cycles per idea after the build (Studio only)")
+    b.add_argument("--checks", type=int, default=0,
+                   help="plan up to N executable checks from the spec and run them live (Studio only)")
     b.add_argument("--lessons", choices=["starter", "current"], default="starter",
                    help="start each idea from the starter lessons (default, comparable) or runs/lessons.md")
     b.add_argument("--label", help="a note saved with the result (e.g. 'baseline main')")
@@ -600,7 +619,7 @@ def cmd_bench(args) -> int:
     result, path = asyncio.run(run_bench(ids, iterations=args.iterations, studio=args.studio,
                                          improve=args.improve, fake=args.fake, lessons=args.lessons,
                                          settings=s, out_dir=Path(args.out) if args.out else None,
-                                         label=args.label))
+                                         label=args.label, checks=args.checks))
     print("\n" + render(result))
     print(f"\nsaved {path} and {path.with_suffix('.md')}")
     return 0 if all(i.get("ok") for i in result["ideas"]) else 1
