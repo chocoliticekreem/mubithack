@@ -648,6 +648,7 @@ function Build.storage(ctx: any, site: Model, F: CFrame, maxW: number, maxD: num
 	SK.rescue(site, "R3", "Cat", F * CF(-w / 2 + uw * 6.5, y0, d * 0.4), "sitting")
 	local sign = SK.part(site, "Sign", F * CF(0, y0 + H + 2.5, -0.6), V(w * 0.5, 3.4, 0.6), C.Red)
 	SK.sign(sign, "STUFF-IT SELF STORAGE", Enum.NormalId.Front, C.Trim)
+	interior(site, "storage", F, w, d, H, 1, y0) -- Interiors/Depot: racks, forklifts, office, guard booth
 end
 
 function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)

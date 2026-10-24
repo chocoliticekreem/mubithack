@@ -896,6 +896,7 @@ function StorageBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local mapDir = script.Parent.Parent
 	PropKit = tryRequire(mapDir:FindFirstChild("Props"), "PropKit")
 	model:SetAttribute("DisplayName", "Stor-Mor Self Storage")
+	model:SetAttribute("InteriorOrigin", origin) -- Lib/Map/Interiors/Depot dresses the yard + office per run
 
 	grounds(model, rng)
 
