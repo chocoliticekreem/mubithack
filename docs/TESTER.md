@@ -160,6 +160,11 @@ One shot (`mubit_tester/testrun.py`, `mubit_tester/bisect.py`):
 - `bisect_versions(game, check, good?, bad?)`: binary search over a Forge game's `GameVersions`
   tags; each version is exported to a scratch folder, synced (prune), played and `check` run
   (saved check id, scenario name or inline Luau); the current version is re-synced afterwards.
+- `qa_test(focus?, steps=12, game?)`: wraps `mubit_tester.ai.qa_test` (the QA protocol: understand,
+  plan, execute with screenshots, investigate, report). Summary first (QA PASS/FAIL, acceptance
+  counts, bugs with fix targets), key screenshot paths (first two as images), the report.md path.
+  `playtest_correct` on its run: step 0 = plan, n = step judge, -1 = visual review; the reply names
+  the Mubit task (`test_planner` / `step_judge` / `visual_judge` / `player` / `explorer`).
 - `swarm(goal, testers=10, minutes=5)`: thin wrapper over `mubit_tester.swarm.run_swarm(settings,
   goal, testers, minutes, progress, ...)` (only the keyword args its signature takes are passed;
   `format_swarm(result)` formats it when present).

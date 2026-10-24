@@ -16,6 +16,7 @@ specific, and (3) rated Good.
 | What was wrong | Tool | Task it lands in |
 |---|---|---|
 | An AI player's action at a step of a playtest | `playtest_correct(run_id, step, note, player)` (mubit-tester) | `player` (or `explorer`) |
+| A QA protocol (`qa_test`) judgement | `playtest_correct(run_id, step, note)`: step 0 = the plan, n = step n's verdict, -1 = the visual review | `test_planner` / `step_judge` / `visual_judge` |
 | Code a Forge game wrote | `correct(slug, path, note)` (forge) | `fixer` |
 | The auditor missed something a human saw | `tester_report(slug, text, run_ids)` (forge) | `triage` + `auditor` |
 
@@ -41,7 +42,7 @@ task and throws away its examples.
 
 ## Always finish with
 ```
-Correction recorded: <task> task, request <id>
+Correction recorded: <task> task (the result names it), request <id>
 Before: <old action/code>   After: <new>
 To make it a training example: Mubit console → Requests → <id> → Rate Good
 (this task trains its adapter at 25 kept examples; the console shows the count).

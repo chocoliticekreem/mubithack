@@ -7,7 +7,7 @@ World:   players, observe, query, inspect, counters, events, errors, console, sc
 Control: act, act_all, teleport, ignite, extinguish, set_attr, config, reset, round.
 Squads:  squads, instances, queue, launch, mission_start, mission_end (lobby, pads, mission instances).
 Testing: scenario_run, scenario_list.
-AI:      playtest, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
+AI:      playtest, qa_test, explore, playtest_correct, suggest_fix, report, reports (every LLM call via Mubit).
 
 Extensions: other modules add tools with `register(mcp)` (see `EXTENSIONS` / `load_extensions`),
 e.g. `mubit_tester.studio_bridge.register(mcp)` for the Studio plugin bridge. They may use the
@@ -209,13 +209,21 @@ def format_report(report: dict) -> str:
 
 
 def format_correction(res: dict) -> str:
+    """The corrected call went to the same Mubit task as the call it corrects: `player` for a
+    playtest step, `explorer`, or `test_planner` / `step_judge` / `visual_judge` for a QA protocol
+    run (res["role"]). Name that task so the user rates the right one."""
+    role = res.get("role") or "player"
+    what = {"test_planner": "the QA plan", "step_judge": f"step {res.get('step')}'s judgement",
+            "visual_judge": "the visual review"}.get(role, f"step {res.get('step')}")
+    rid = res.get("request_id")
     return "\n".join([
-        f"## Correction recorded: `{res.get('run_id')}` step {res.get('step')}"
+        f"## Correction recorded in the `{role}` task: `{res.get('run_id')}` {what}"
         + (f" (player {res['player']})" if res.get("player") else ""), "",
         f"**Before:** {_cell(res.get('before'), 300)}",
         f"**After:** {_cell(res.get('after'), 300)}", "",
-        f"Mubit request id: `{res.get('request_id') or '-'}` (same player task, so it counts as a "
-        "training example).",
+        f"Mubit request id: `{rid or '-'}`: a new call in the same `{role}` task, so it is a training "
+        "example once rated Good (Mubit console → Requests"
+        + (f" → {rid}" if rid else "") + "; a task trains its adapter at 25 kept examples).",
     ])
 
 
@@ -537,6 +545,9 @@ async def run_correct(run_id: str, step: int, note: str, player: str | None = No
             res = await _play().correct_step(s, run_id, step, note)
             if player:
                 res = {**res, "note": "player ignored: single-player correction"}
+        if not res.get("role"):  # player / explorer runs: the run's agent role is the task
+            with contextlib.suppress(Exception):
+                res = {**res, "role": _play().load_report(s, run_id).get("agent_role") or "player"}
     return format_correction(res)
 
 
@@ -1179,6 +1190,71 @@ async def playtest(goal: str, players: int | None = None, steps: int = 20, roles
         return await run_playtest(goal, steps, None, players, roles, mode, squads)
 
 
+def format_qa(rep: dict, shots: list[dict]) -> str:
+    """Summary first: verdict, acceptance counts, bugs, then key screenshots and where it's saved."""
+    met = rep.get("goal_met")
+    head = "PASS" if met is True else "FAIL" if met is False else "INCONCLUSIVE"
+    acc = rep.get("acceptance") or []
+    counts: dict[str, int] = {}
+    for a in acc:
+        counts[str(a.get("status"))] = counts.get(str(a.get("status")), 0) + 1
+    out = [f"## QA {head}: {_cell(rep.get('goal'), 120)}",
+           f"{_cell(rep.get('summary'), 600)}",
+           f"Run `{rep.get('run_id')}`, {len(rep.get('steps') or [])} step(s), "
+           f"{((rep.get('timings') or {}).get('total_ms') or 0) / 1000:.0f}s; acceptance: "
+           + (", ".join(f"{v} {k}" for k, v in sorted(counts.items())) or "none"), ""]
+    bugs = rep.get("bugs") or []
+    out.append(f"### Bugs ({len(bugs)})")
+    for b in bugs[:8]:
+        out.append(f"- **{b.get('id')}. [{b.get('severity')}] {_cell(b.get('title'), 100)}**: "
+                   f"expected {_cell(b.get('expected'), 100)}; actual {_cell(b.get('actual'), 100)} "
+                   f"(fix target `{b.get('fix_target') or '?'}`)")
+    if not bugs:
+        out.append("- none found")
+    fails = [a for a in acc if a.get("status") == "fail"]
+    if fails:
+        out += ["", "### Failing acceptance items"] + [f"- {_cell(a.get('text'), 160)} (steps {a.get('steps')})" for a in fails[:8]]
+    if rep.get("errors"):
+        out += ["", f"Run errors: {_cell(rep['errors'], 300)}"]
+    out += ["", "### Key screenshots"] + ([f"- step {c['n']}: `{c['path']}` ({_cell(c.get('what'), 80)})" for c in shots]
+                                         or ["- none"])
+    out += ["", f"Full report: `{Path(str(rep.get('test_dir', ''))) / 'report.md'}`",
+            f"Correct a judgement: `playtest_correct(run_id=\"{rep.get('run_id')}\", step=<n>, note=...)` "
+            "(step 0 = the plan, n = step n's judge, -1 = the visual review)."]
+    return "\n".join(out)
+
+
+@mcp.tool(structured_output=False)
+async def qa_test(focus: str | None = None, steps: int = 12, game: str | None = None,
+                  ctx: Context | None = None) -> list:
+    """QA protocol tester (Mubit, with vision): understand the game, plan up to `steps` test steps
+    (optionally around `focus`, e.g. "the hydrant refill"), execute them with screenshots, investigate
+    mismatches, and report acceptance items and bugs. Returns the summary first, bugs, the key
+    screenshot paths (and the first two images), and the report path. `game`: a Forge slug or omit
+    for game/. Stops play it started. Several minutes; slower and deeper than test_feature."""
+    with _tool_errors():
+        ai = _ai()
+        if ai is None or not hasattr(ai, "qa_test"):
+            raise ToolError("qa_test needs mubit_tester.ai.qa_test (the QA protocol), which isn't available")
+        say = progress_reporter(ctx)
+        root, slug = game_root(game)
+        await say(f"QA protocol on {slug or root.name}" + (f", focus: {focus}" if focus else ""))
+        async with open_studio() as st:
+            h = harness_for(st)
+            kw: dict = {"game_dir": root, "max_steps": max(1, int(steps)), "studio": st, "harness": h, "stop": True}
+            if slug:
+                kw["slug"] = slug
+            rep = await ai.qa_test(load_settings(), focus, **kw)
+        from mubit_tester import protocol
+        shots = protocol.pick_key_shots(rep, protocol.KEY_IMAGES)
+        await say(f"done: {rep.get('summary', '')[:120]}")
+        parts: list = [format_qa(rep, shots)]
+        for c in shots[:2]:
+            if Path(str(c["path"])).exists():
+                parts.append(Image(path=c["path"]))
+        return parts
+
+
 @mcp.tool()
 async def explore(minutes: float = 3, players: int | None = None) -> str:
     """Unscripted AI bug hunt (Mubit `explorer` role) for `minutes`; returns the bugs it found."""
@@ -1193,8 +1269,10 @@ async def explore(minutes: float = 3, players: int | None = None) -> str:
 
 @mcp.tool()
 async def playtest_correct(run_id: str, step: int, note: str, player: str | None = None) -> str:
-    """Correct an AI player's choice at one step ("it should have ..."): a new call in the same
-    Mubit task, i.e. a training example. `player` picks whose step in a multiplayer run."""
+    """Correct an AI call at one step ("it should have ..."): a new call in the same Mubit task, i.e.
+    a training example once rated Good. Playtest runs: step n of `player` (whose step in a
+    multiplayer run). QA protocol runs (qa_test): step 0 = the plan (test_planner), n = step n's
+    judge (step_judge), -1 = the visual review (visual_judge). The reply names the task."""
     with _tool_errors():
         return await run_correct(run_id, step, note, player)
 
@@ -1505,7 +1583,7 @@ TOOL_NAMES = (
     "act", "act_all", "teleport", "ignite", "extinguish", "set_attr", "config", "reset", "round",
     "squads", "instances", "queue", "launch", "mission_start", "mission_end",
     "scenario_run", "scenario_list",
-    "playtest", "explore", "playtest_correct", "suggest_fix", "report", "reports",
+    "playtest", "qa_test", "explore", "playtest_correct", "suggest_fix", "report", "reports",
 )
 
 load_extensions()

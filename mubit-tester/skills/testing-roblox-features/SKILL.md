@@ -53,6 +53,7 @@ Never write "works" without a "Proved by" row that tests the claim.
 | Past runs | `test_runs()` |
 | Errors while you poke by hand | `play_start`, then `watch_errors(seconds=60)` while you `act` |
 | Which version broke it (Forge game) | `bisect_versions(game, check)` |
+| A deep, open-ended QA pass with screenshots | `qa_test(focus, steps)` (minutes, Mubit vision) |
 | A picture of something specific | `screenshot(focus="2")` or `focus="<instance path>"` |
 
 ## Common mistakes
