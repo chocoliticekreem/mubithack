@@ -1192,7 +1192,7 @@ def _brief(m: dict | None) -> dict | None:
             "checks": {k: (m.get("checks") or {}).get(k) for k in ("pass", "fail")},
             "physics": len((m.get("physics") or {}).get("flagged") or []), "swarm_high": m.get("swarm_high"),
             "ttfr_s": m.get("ttfr_s"), "screenshot": m.get("screenshot"), "studio": m.get("studio"),
-            **({"round_started": m["round_started"]} if "round_started" in m else {})}
+            **{k: m[k] for k in ("round_started", "observed_s") if k in m}}
 
 
 def score_trend(run_dir: Path) -> list[dict]:
@@ -1455,6 +1455,7 @@ def evidence_dirs(settings: Settings, name: str, extra: list[Path] | None = None
 
 
 STATIC_KINDS = ("code", "genre")             # code-scan facts: current by construction, never "broken" proof
+ABSENCE_KINDS = ("untouched",)              # "never moved": absence, not proof that something is broken
 LIVE_SOURCE = "fresh session"
 OLD_WEIGHT = 0.3                            # an unreproduced claim from an older build
 STATIC_WEIGHT = 0.8                         # a missing-feature claim backed only by the code scan
@@ -1487,18 +1488,23 @@ def harness_list(st: evm.EvidenceStore) -> list[dict]:
              "stale": sum(1 for i in v if i.data.get("stale"))} for k, v in sorted(groups.items(), key=lambda kv: -len(kv[1]))]
 
 
-def classify(c: dict, st: evm.EvidenceStore, live: set[str]) -> dict:
+SHORT_PROBE_S = 60  # a live probe shorter than this can't prove a counter regression vs full-round history
+
+
+def classify(c: dict, st: evm.EvidenceStore, live: set[str], weak: set[str] | None = None) -> dict:
     """A ranked candidate's freshness: verified now (a live re-check, or evidence recorded on the current
     build), static
     (code scan only: a missing part, not a broken one), unverified (old), or tooling (harness limits only)."""
     refs = [r for r in c.get("evidence") or [] if r in st.items]
-    kinds = {r: st.items[r].kind for r in refs}
+    kinds = {r: "untouched" if r.startswith("stat:untouched") or r in (weak or set()) else st.items[r].kind
+             for r in refs}  # absence and weak leads never verify a claim on their own
     if refs and all(k == "tooling" for k in kinds.values()):
         status, w = "tooling", 0.0
-    elif any(r in live or (not st.items[r].data.get("stale") and kinds[r] not in STATIC_KINDS) for r in refs):
+    elif any((r in live or not st.items[r].data.get("stale")) and kinds[r] not in STATIC_KINDS + ABSENCE_KINDS
+             for r in refs):
         status, w = "verified now", 1.0  # a live re-check, or a record made on the current build
-    elif refs and all(k in STATIC_KINDS for k in kinds.values()):
-        status, w = "static", STATIC_WEIGHT
+    elif refs and all(k in STATIC_KINDS + ABSENCE_KINDS for k in kinds.values()):
+        status, w = "static", STATIC_WEIGHT  # missing in code, or never exercised: nothing broken to reproduce
     else:
         status, w = "unverified (old)", OLD_WEIGHT
     old = sorted({st.items[r].data.get("version") for r in refs if st.items[r].data.get("stale")} - {None})
@@ -1561,7 +1567,8 @@ async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str
                     res = await st.execute_luau(build_call_luau("round", args), "Server")
                     round_started = "error" not in str(res).lower()
                     log(f"fresh probe: start round -> {_clip(res, 120)}")
-                await asyncio.sleep(25 if round_started else 8)
+                observed = 25 if round_started else 8
+                await asyncio.sleep(observed)
                 probe = await st.probe_report()
                 try:
                     probe["census"] = await fun.census(st)
@@ -1570,7 +1577,7 @@ async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str
                 shot = await st.screenshot(out_dir / "fresh-screenshot.png")
                 out["probe"] = evm.measurement_from_probe(probe, label="now", studio=True,
                                                           screenshot=str(shot) if shot else None,
-                                                          round_started=round_started,
+                                                          round_started=round_started, observed_s=observed,
                                                           comparable=round_started or not pt.get("start_round"))
             finally:
                 await _safe_stop(st)
@@ -1769,7 +1776,10 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
         a["request_id"] = det.get("request_id")
     for g in gp["gaps"]:
         g["request_id"] = gp.get("request_id")
-    ranked = [classify(c, st, live) for c in candidates(det["anomalies"], gp["gaps"])]
+    weak = set()
+    if fresh and float((fresh.get("probe") or {}).get("observed_s") or SHORT_PROBE_S) < SHORT_PROBE_S:
+        weak = {c["id"] for c in cands if c["kind"] in ("regression", "drop")}
+    ranked = [classify(c, st, live, weak) for c in candidates(det["anomalies"], gp["gaps"])]
     order = {"verified now": 0, "static": 1, "unverified (old)": 2, "tooling": 3}
     ranked.sort(key=lambda c: (order[c["status"]], -c["score"]))
     harness = harness_list(st)
@@ -1805,10 +1815,12 @@ def render_advice(rep: dict) -> str:
         fp = rep["fresh_probe"]
         L += [f"Fresh probe on `{v.get('current')}`"
               + (" (a round started through the test harness)" if fp.get("round_started") else " (lobby)")
+              + (f", watched {fp['observed_s']} s: older playtests ran longer, so rate counters (fires, spreads, "
+                 "flare-ups) read low; treat their regressions as leads to confirm" if fp.get("observed_s") else "")
               + f": {fp.get('errors')} runtime errors, {fp.get('physics')} physics flags. "
               f"Screenshot: `{fp.get('screenshot')}`.", ""]
     for status, head in (("verified now", "Verified on the current build"),
-                         ("static", "Missing parts (code scan; nothing to reproduce)"),
+                         ("static", "Missing or never exercised (code scan / counters that never moved)"),
                          ("unverified (old)", "Unverified (old): from older builds, not reproduced by the fresh session")):
         rows = [c for c in rep["ranked"] if c["status"] == status]
         L += [f"## {head} ({len(rows)})", ""]

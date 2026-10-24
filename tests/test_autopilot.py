@@ -604,6 +604,27 @@ def test_game_versions_tag_old_items(tmp_path):
     assert st.render().count("(old: game") == 1
 
 
+def test_classify_never_verifies_on_absence_alone():
+    st = evm.EvidenceStore()
+    st.add("report:r#9", "report", "x", "battle pass spams prompts", stale=True)
+    st.add("untouched:claims", "untouched", "telemetry", "claims stayed 0")
+    st.add("err:1", "error", "fresh session", "boom")
+    st.add("tool:1", "tooling", "x", "held, not triggered")
+    c = {"title": "t", "score": 4.0, "evidence": ["report:r#9", "untouched:claims"]}
+    live = {"untouched:claims", "err:1"}
+    assert apm.classify(c, st, live)["status"] == "unverified (old)"
+    assert apm.classify({**c, "evidence": ["untouched:claims"]}, st, live)["status"] == "static"
+    st.add("stat:untouched:claims", "stat", "prefilter", "claims declared but 0")
+    assert apm.classify({**c, "evidence": ["stat:untouched:claims"]}, st, live | {"stat:untouched:claims"})["status"] == "static"
+    assert apm.classify({**c, "evidence": ["report:r#9", "err:1"]}, st, live)["status"] == "verified now"
+    assert apm.classify({**c, "evidence": ["tool:1"]}, st, live)["status"] == "tooling"
+    st.add("stat:regression:fires", "stat", "prefilter", "fires 9 -> 1")
+    weak_only = {**c, "evidence": ["report:r#9", "stat:regression:fires"]}
+    lv = live | {"stat:regression:fires"}
+    assert apm.classify(weak_only, st, lv)["status"] == "verified now"
+    assert apm.classify(weak_only, st, lv, {"stat:regression:fires"})["status"] == "unverified (old)"
+
+
 def test_advise_compares_a_fresh_probe_only_like_for_like(tmp_path):
     s = _settings(tmp_path)
     root = tmp_path / "game"

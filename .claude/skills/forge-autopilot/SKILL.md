@@ -53,11 +53,26 @@ It stops when `forge done` is green and critic and fun reach `--target`, when th
 
 ## Read-only advice on the human-built game
 ```bash
-.venv/bin/forge autopilot --advise --root game --goal "..."
+scripts/studio-slot.sh acquire Forge-agents-<N>
+FORGE_BRIDGE=0 .venv/bin/forge autopilot --advise --root game --fresh --studio Forge-agents-<N> \
+    --qa-steps 0 --swarm-players 1 --goal "..."          # about 10 Mubit calls
+scripts/studio-slot.sh release Forge-agents-<N>
 ```
-This reads `evidence/<name>*`, `runs/<name>*`, `games/<name>/reports/*.md` and the source, then makes one
-anomaly_detector call and one gap_finder call. It writes `runs/autopilot-advise/<name>/<stamp>/report.md`
-and never edits a game file.
+This reads `evidence/<name>*`, `runs/<name>*`, `games/<name>/reports/*.md` and the source. It makes one
+anomaly_detector call and one gap_finder call, writes `runs/autopilot-advise/<name>/<stamp>/report.md`, and
+never edits a game file.
+
+The evidence is version-aware: each item is tagged with the game commit it was recorded on, and older
+items are marked old and weighted down.
+
+`--fresh` first re-checks on the current build. It runs a probe with a round started, a short QA run
+focused on the old claims, and a short swarm. Each ranked item comes out as one of:
+- **verified now**: live or current-build evidence backs it;
+- **missing / never exercised**: only the code scan or counters that never moved back it;
+- **unverified (old)**: only older builds back it (scored at x0.3).
+
+Tester-harness failures (prompts the harness couldn't press, NoPath) go to a **tester-harness fix list**,
+not the game's bug list. Without `--fresh`, runtime claims from older builds stay unverified.
 
 ## Correct a decision (this is how it learns)
 ```bash
