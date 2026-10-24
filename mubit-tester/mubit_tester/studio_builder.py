@@ -27,7 +27,7 @@ PROGRESS_KEYS = ('pct', 'phase', 'step', 'items', 'eta_s')
 POLL_S = 1.0
 # a make_game job's % : build 0-70, install 70-75, improvement rounds 75-99, ready 100
 BUILD_PCT, INSTALL_PCT, ROUNDS_PCT = 70, 75, 99
-STANDARD_SCORE = 7
+STANDARD_SCORE = 6
 MAX_ROUNDS = 5
 HARNESS = re.compile(r'Forge(Test|Probe|TestAgent|Telemetry)\b')
 ROUND_EXPECTED_S = 240.0

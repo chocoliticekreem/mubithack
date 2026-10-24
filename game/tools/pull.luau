@@ -6,6 +6,7 @@ local CollectionService = game:GetService("CollectionService")
 local BASE = "http://127.0.0.1:34873/"
 local PRUNE = true
 local FORCE = false -- true: ignore ForgeHash and fetch every file (the pre-incremental behaviour)
+local DEFER = false -- true: a changed file that is not inline waits for a later call (no HTTP)
 local TAG = "ForgeManaged"
 local ROOTS = { "ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts", "ServerStorage", "StarterGui", "Workspace" }
 local MANIFEST_JSON: string? = nil
@@ -51,12 +52,22 @@ local function findDir(parent: Instance, name: string): Instance?
 	return nil
 end
 
+-- Studio may refuse this thread the HttpEnabled write (LocalUser capability): only fetches need it
 local was = HttpService.HttpEnabled
-HttpService.HttpEnabled = true
+local function setHttp(on: boolean)
+	if HttpService.HttpEnabled ~= on then
+		pcall(function()
+			HttpService.HttpEnabled = on
+		end)
+	end
+end
+if not DEFER then
+	setHttp(true)
+end
 local ok, result = pcall(function()
 	local manifest = HttpService:JSONDecode(if MANIFEST_JSON then MANIFEST_JSON else fetch("tools/manifest.json"))
 	local inline = if INLINE_JSON then HttpService:JSONDecode(INLINE_JSON) else {}
-	local n, skipped, fetched, changed, pruned = 0, 0, 0, {}, {}
+	local n, skipped, fetched, pending, changed, pruned = 0, 0, 0, 0, {}, {}
 	local keep: { [Instance]: boolean } = {}
 	for _, e in manifest do
 		local parent = rootOf(e.service)
@@ -81,6 +92,12 @@ local ok, result = pcall(function()
 		if not FORCE and inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
 			and inst:GetAttribute("ForgeLen") == e.size and #(inst :: any).Source == e.size then
 			skipped += 1
+		elseif DEFER and inline[e.path] == nil then
+			pending += 1
+			if inst then
+				keep[inst :: Instance] = true
+			end
+			continue
 		else
 			local src = inline[e.path]
 			if src == nil then
@@ -151,7 +168,7 @@ local ok, result = pcall(function()
 	if #pruned > 0 then
 		msg ..= "; pruned: " .. table.concat(pruned, ", ")
 	end
-	return msg .. "; skipped " .. skipped .. ", fetched " .. fetched
+	return msg .. "; skipped " .. skipped .. ", fetched " .. fetched .. (if pending > 0 then ", pending " .. pending else "")
 end)
-HttpService.HttpEnabled = was
+setHttp(was)
 return (if ok then "OK " else "ERROR ") .. tostring(result)
