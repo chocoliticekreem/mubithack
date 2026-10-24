@@ -499,7 +499,10 @@ class NeedsStudio(StudioError)               # screenshot / real input / rendere
 class HeadlessStudio(game_dir, players=1, clients=True, boot=2.0, settle=1.0, idle="wall"|float, slug, kind)
     # duck-types studio.Studio: execute_luau(code, "Server"|"Client"|"Client:<n|name>", timeout) / call(
     # "execute_luau"|"get_studio_state") / state / play (fresh server) / stop / wait_ready / probe_report /
-    # console / sync(root) / hot_reload / run(seconds) ; screenshot -> NeedsStudio ; list_studios -> []
+    # console / sync(root) / hot_reload / run(seconds) / press(user, path=, text=) ; screenshot -> NeedsStudio ;
+    # list_studios -> []. press (Harness.press delegates to it headless): on that player's client, the shown
+    # GuiButton by path/text gets MouseButton1Down/Up/Click + Activated, then a screen/leaderstats diff
+    # (no layout: a covered button still fires; Harness.ui_windows lists every simulated client)
     # (the `luau -i` REPL over a pty; one H.rpc line per call; the world advances min(wall gap, 10 s) between
     # calls with idle="wall"). Harness, checks.run_check, scenarios, fun.census, qa_test and run_swarm run on it.
 async def backend(settings, game_dir, *, needs_ui=False, studio_name=None, players=2, slug, kind)  # ctx manager:
