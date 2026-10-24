@@ -879,9 +879,12 @@ git and lets G2 and GF add locations in parallel.
 - **Slots, not coordinates.** `MapConfig.SlotOrigin(slot)` gives each location its own 400×400
   stud square on a grid: Station = slot 0 at the origin, Town = 1, Forest = 2, Dam = 3. Two
   builders can never overlap, and a new location only needs a free slot number.
-- **Deterministic seeds.** `rng = Random.new(MapConfig.Seed + MapKit.hash(Id))`. **No
-  `math.random` and no `Random.new()` without a seed in builders.** The same seed always gives the
-  same town, so:
+- **Deterministic seeds.** `rng = Random.new(MapService:GetSeed() + MapKit.hash(Id))`. **No
+  `math.random` and no `Random.new()` without a seed in builders.** Each live server rolls its own
+  map seed (Workspace attr `MapSeed`) so the city varies from server to server: layout, incident
+  sites, colours, season, time of day and weather (`Lib/Map/City/MapVariant`). Set `MapSeed` (and
+  optionally `MapSeason` / `MapSky` / `MapWeather`) before Play to reproduce a server; Edit previews
+  and the Station always use `MapConfig.Seed`. The same seed always gives the same town, so:
   - a bug report "door at House3 won't break" points at the same door on every machine;
   - **round reset = `MapService:RebuildLocation(id)`**, so no service has to undo its own damage.
     MapService destroys the location model, builds it again, and fires `LocationBuilt`. FireService
