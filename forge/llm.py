@@ -71,6 +71,12 @@ def jobs_from_env(default: int = DEFAULT_JOBS) -> int:
         return default
 
 
+def estimate_tokens(text: str) -> int:
+    """Rough output-token count for a reply whose real usage we never got (cut-short streams).
+    Luau runs about 3 characters per token on Mubit's Anthropic models."""
+    return (len(text) + 2) // 3
+
+
 def stream_verdict(role: str, text: str) -> str:
     """While a reply streams in: "abort" (prose where code/JSON should be), "done" (a code reply's
     ```luau block has closed, the rest is commentary) or "more"."""
@@ -379,7 +385,12 @@ class MubitLLM(_JSONMixin):
             text = "".join(parts)
             msg = stream.current_message_snapshot if stopped else stream.get_final_message()
         usage = getattr(msg, "usage", None)
-        return (text, rid, getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None),
+        out_tokens = getattr(usage, "output_tokens", None)
+        if stopped:
+            # a stream we cut short never gets its final usage (the snapshot still holds message_start's
+            # ~1-5 tokens): estimate from what actually arrived so bench/ledger token counts stay honest
+            out_tokens = max(out_tokens or 0, estimate_tokens(text))
+        return (text, rid, getattr(usage, "input_tokens", None), out_tokens,
                 getattr(msg, "model", None) or self.model)
 
     def _call_openai(self, system: str, user: str, session_id: str, max_tokens: int):

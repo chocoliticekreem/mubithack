@@ -457,3 +457,11 @@ def test_make_llm_wraps_mubit_in_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("FORGE_NO_CACHE", "1")
     assert isinstance(fllm.make_llm(s, None), MubitLLM)
     assert isinstance(LLMResult("t", "coder", None, "m", 0, None, None).cached, bool)
+
+
+def test_estimate_tokens_for_cut_short_streams():
+    from forge.llm import estimate_tokens
+
+    assert estimate_tokens("") == 0
+    assert estimate_tokens("x" * 300) == 100
+    assert estimate_tokens("local a = 1") >= 3
