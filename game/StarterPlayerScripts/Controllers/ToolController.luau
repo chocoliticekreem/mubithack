@@ -9,8 +9,8 @@
 --     burst + droplets at the impact point. Attachments live under workspace.Terrain as
 --     "HoseStream_<UserId>" (+ "_Beam0", "_Beam1").
 --   Recoil (local, instant): a LinearVelocity "ToolMover" on the HumanoidRootPart (horizontal plane)
---     pushes you backwards while the hose sprays, harder at full pressure (ToolMath.pressure of the
---     tank x HoseLine's HosePressure attr); you walk slower while bracing it. On a WetFloor puddle you
+--     pushes you backwards while the hose sprays, harder at full pressure (ToolMath.pressure: full
+--     water x HoseLine's HosePressure attr); you walk slower while bracing it. On a WetFloor puddle you
 --     keep your momentum like ice, and spraying there launches you across the room. Aim straight down
 --     long enough and you hose-rocket upwards.
 --   First person (your own stream): the particles are born ToolConfig.FpSprayStart studs out along the
@@ -137,8 +137,7 @@ local function resource(player: Player, kind: string): (number, number)
 	if kind == "foam" then
 		return (player:GetAttribute("Foam") :: number?) or 0, (player:GetAttribute("FoamSize") :: number?) or ToolConfig.FoamSize
 	end
-	return (player:GetAttribute(Names.Attr.Water) :: number?) or 0,
-		(player:GetAttribute(Names.Attr.TankSize) :: number?) or ToolConfig.TankSize
+	return 1, 1 -- the hose has endless water (trucks never run dry)
 end
 
 local function pressureOf(player: Player, kind: string): number
@@ -601,7 +600,7 @@ local function renderStream(player: Player, kind: string, tool: Tool, aim: Vecto
 	s.splash.Size = NumberSequence.new(0.35 * splashK, 0.1 * splashK)
 	s.splash.Rate = 70 * math.max(splashK, 0.3)
 
-	-- low tank: the stream sputters in pulses
+	-- low foam: the stream sputters in pulses (the hose never runs low)
 	local left, size = resource(player, kind)
 	local sputter = left < size * ToolConfig.LowWaterFraction and math.sin(now * 22) > 0.2
 	local rate = if sputter then 15 else if foam then 90 else 60 + 80 * pressure

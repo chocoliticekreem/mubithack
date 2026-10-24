@@ -135,7 +135,7 @@ function HintText.format(text: string, mode: Mode, ctx: Ctx?): string
 	s = string.gsub(s, "%f[%a]([Hh]old) " .. KEY .. "%f[^%w]", function(p: string, k: string)
 		return verb(k, mode, ctx, true, p == "Hold") or nil
 	end)
-	-- a bare key in a sentence: "E to pick up", "Or E on a hydrant", "(G to drop)"
+	-- a bare key in a sentence: "E to pick up", "Climb up, E on the cat", "(G to drop)"
 	for _, w in { "to", "on" } do
 		s = string.gsub(s, "()%f[%w]([EGQRTF]) " .. w .. " ", function(pos: number, k: string)
 			local e = entry(k, ctx)

@@ -4,7 +4,6 @@
 --   Workspace RoundState / RoundEndsAt / MissionId      -> timer pill (red + pulse + tick under 30 s)
 --   tag Burning (under workspace.Map[MissionId])        -> objectives: "FIRES LEFT n"
 --   tag Rescuable + attr RescueState                    -> objectives: "RESCUED a / b"
---   LocalPlayer attrs Water / TankSize (ToolService)    -> WATER TANK gauge (wave, blink + REFILL hint < 20 %)
 --   LocalPlayer attr Heat 0..100 (HeatService)          -> HEAT thermometer (fills red, shakes >= 85, flashes at 100)
 --   LocalPlayer attr Carrying (RescueService)           -> carry slot "CARRYING: DOG -> bring to TRUCK"
 --   LocalPlayer attr Downed (SquadService)              -> DOWNED overlay
@@ -61,11 +60,6 @@ type Ui = {
 	objectives: Frame,
 	fires: TextLabel,
 	rescued: TextLabel,
-	tank: Frame,
-	tankFill: Frame,
-	tankWave: Frame,
-	tankPct: TextLabel,
-	refillHint: TextLabel,
 	heat: Frame,
 	heatTube: Frame,
 	heatFill: Frame,
@@ -221,60 +215,11 @@ local function build(): Ui
 	squadLayout.Parent = squad
 	squad.Parent = gui
 
-	-- water tank (bottom right)
-	local tank = UiKit.panel(gui, "Tank", UDim2.fromOffset(74, 184), UDim2.new(1, -14, 1, -14), Vector2.new(1, 1))
-	UiKit.corner(tank, 20)
-	tank.ClipsDescendants = true
-	local tankFill = Instance.new("Frame")
-	tankFill.Name = "Fill"
-	tankFill.AnchorPoint = Vector2.new(0, 1)
-	tankFill.Position = UDim2.fromScale(0, 1)
-	tankFill.Size = UDim2.fromScale(1, 1)
-	tankFill.BackgroundColor3 = Palette.UiWater
-	tankFill.BorderSizePixel = 0
-	local grad = Instance.new("UIGradient")
-	grad.Rotation = 90
-	grad.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190))
-	grad.Parent = tankFill
-	tankFill.Parent = tank
-	local tankWave = Instance.new("Frame")
-	tankWave.Name = "Wave"
-	tankWave.AnchorPoint = Vector2.new(0, 1)
-	tankWave.Size = UDim2.new(0.6, 0, 0, 8)
-	tankWave.BackgroundColor3 = Palette.WaterSpray
-	tankWave.BorderSizePixel = 0
-	UiKit.corner(tankWave, 6)
-	tankWave.Parent = tank
-	local tankPct = UiKit.label(tank, "Pct", "100%", UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 0.5, -10), {
-		font = UiKit.Header,
-		textSize = 24,
-		color = Palette.UiCream,
-		stroke = true,
-	})
-	tankPct.ZIndex = 3
-	local tankCaption = UiKit.label(tank, "Caption", "WATER", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 6), {
-		font = UiKit.Header,
-		textSize = 17,
-		color = Palette.UiCream,
-		stroke = true,
-	})
-	tankCaption.ZIndex = 3
-	local refillHint = UiKit.label(gui, "RefillHint", "REFILL at hydrant / truck!", UDim2.fromOffset(300, 30),
-		UDim2.new(1, -14, 1, -204), {
-			font = UiKit.Header,
-			textSize = 22,
-			color = Palette.UiRed,
-			stroke = true,
-			align = Enum.TextXAlignment.Right,
-		})
-	refillHint.AnchorPoint = Vector2.new(1, 1)
-	refillHint.Visible = false
-
-	-- heat thermometer (left of the tank)
+	-- heat thermometer (bottom right; no water gauge: trucks have endless water)
 	local heat = Instance.new("Frame")
 	heat.Name = "Heat"
 	heat.AnchorPoint = Vector2.new(1, 1)
-	heat.Position = UDim2.new(1, -100, 1, -14)
+	heat.Position = UDim2.new(1, -14, 1, -14)
 	heat.Size = UDim2.fromOffset(56, 184)
 	heat.BackgroundTransparency = 1
 	heat.Parent = gui
@@ -341,15 +286,10 @@ local function build(): Ui
 	})
 
 	-- phones / iPads: the bottom-right corner is the thumb cluster (jump + SPRAY etc.) and the left edge
-	-- holds the HELP / STORE / ADMIN chips, so the big tank is not drawn at all (the hotbar slot's gauge
-	-- already shows the water); the thermometer sits right of the chip column, the refill hint over the hotbar
+	-- holds the HELP / STORE / ADMIN chips, so the thermometer sits right of the chip column
 	if TOUCH then
-		tank.Visible = false
 		heat.AnchorPoint = Vector2.new(0, 0.5)
 		heat.Position = UDim2.new(0, 146, 0.5, -10)
-		refillHint.AnchorPoint = Vector2.new(0.5, 1)
-		refillHint.Position = UDim2.new(0.5, 0, 1, -140)
-		refillHint.TextXAlignment = Enum.TextXAlignment.Center
 	end
 
 	-- carry slot (bottom left)
@@ -435,7 +375,7 @@ local function build(): Ui
 	HudLayout.pin(squad, function(s, _inset)
 		return HudLayout.RightColumnBelow * s
 	end)
-	for _, w in { timerPill, objectives, squad, tank, heat, carry, refillHint } do
+	for _, w in { timerPill, objectives, squad, heat, carry } do
 		HudLayout.reserve(w)
 	end
 
@@ -453,11 +393,6 @@ local function build(): Ui
 		objectives = objectives,
 		fires = fires,
 		rescued = rescued,
-		tank = tank,
-		tankFill = tankFill,
-		tankWave = tankWave,
-		tankPct = tankPct,
-		refillHint = refillHint,
 		heat = heat,
 		heatTube = heatTube,
 		heatFill = heatFill,
@@ -912,19 +847,6 @@ local function refresh(t: number)
 	u.fires.Text = `FIRES LEFT  {firesLeft}`
 	u.rescued.Text = `RESCUED  {rescued} / {total}`
 
-	-- tank
-	local size = (player:GetAttribute(Names.Attr.TankSize) :: number?) or 0
-	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	u.tank.Visible = size > 0 and not TOUCH
-	local frac = if size > 0 then math.clamp(water / size, 0, 1) else 0
-	u.tankFill.Size = UDim2.fromScale(1, frac)
-	u.tankWave.Visible = frac > 0.02 and frac < 0.98
-	u.tankWave.Position = UDim2.new(0.2 + 0.1 * math.sin(t * 3), 0, 1 - frac, math.sin(t * 4) * 2 + 3)
-	u.tankPct.Text = `{math.floor(frac * 100 + 0.5)}%`
-	local low = size > 0 and frac < 0.2
-	u.refillHint.Visible = low and inRound
-	u.tankFill.BackgroundColor3 = if low and math.floor(t * 3) % 2 == 0 then Palette.UiRed else Palette.UiWater
-
 	-- heat
 	local heatAttr = player:GetAttribute(HEAT_ATTR)
 	local heat = if type(heatAttr) == "number" then math.clamp(heatAttr, 0, 100) else 0
@@ -991,10 +913,10 @@ local function refresh(t: number)
 	u.squad.Visible = inRound or #Players:GetPlayers() > 1
 	refreshSquad(u)
 
-	-- markers: the truck is forced on while carrying or when the tank runs low
+	-- markers: the truck is forced on while carrying
 	placeMarker(u.marks.fire, if active then nearestFire else nil, from)
 	placeMarker(u.marks.rescue, if active and not carrying then nearestRescue else nil, from)
-	placeMarker(u.marks.truck, if active and (carrying or low) then truckPos(from) else nil, from)
+	placeMarker(u.marks.truck, if active and carrying then truckPos(from) else nil, from)
 end
 
 function HudController:Init(_controllers: { [string]: any }) end

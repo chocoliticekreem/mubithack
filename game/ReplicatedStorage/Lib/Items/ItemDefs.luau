@@ -19,12 +19,6 @@
 --   ItemDefs.reelSlot(holding, lying, cap) -> "new" | "reclaim" | "full"
 --   ItemDefs.spinsWhenThrown(id, list) -> boolean
 --   ItemDefs.throwSpeed(charge, min, max) -> number
---   ItemDefs.drawWater(water, litres) -> (newWater, drawn)
---   ItemDefs.supplyStep(water, size, rate, dt) -> number
---   ItemDefs.supplyState(dist, length, snapFactor) -> "ok" | "taut" | "snap"
---   ItemDefs.supplyStrain(strain, pulling, dt, decay) -> number      drive-off strain (rips at a limit)
---   ItemDefs.hydrantAction(line, mine) -> "grab" | "stow" | "reel" | "unhook" | "busy"
---   ItemDefs.intakeAction(holding, hookedHere, dist, reach) -> "hook" | "unhook" | "busy" | "far" | "none"
 --   ItemDefs.bonkSpeed(speed, minSpeed) -> boolean
 
 local ItemDefs = {}
@@ -38,7 +32,7 @@ export type Def = {
 	prefersBack: boolean, -- a grab puts it on your back when the back is free
 	throwable: boolean,
 	tethered: boolean, -- the hose nozzle: comes from a truck reel and stays attached to it
-	fixture: boolean?, -- lives in the world, not the locker (the hydrant's supply coupling): not in GearOrder
+	fixture: boolean?, -- lives in the world, not the locker: not in GearOrder (none right now)
 	stocked: boolean, -- found in GearRacks / TruckCompartments
 	tool: boolean, -- ToolService:CreateTool makes the Tool (else Inventory builds a plain one)
 	unlockLevel: number?, -- player level that unlocks it in the locker (nil = 1)
@@ -77,20 +71,6 @@ local Items: { [string]: Def } = {
 		tethered = true,
 		stocked = false,
 		tool = true,
-	},
-	-- the hydrant's supply line coupling: [R] at a hydrant, walk it to a truck's side intake, [R] there
-	SupplyHose = {
-		id = "SupplyHose",
-		name = "Supply Line",
-		short = "SUPPLY",
-		color = "#F2C230",
-		backable = false,
-		prefersBack = false,
-		throwable = false,
-		tethered = true,
-		stocked = false,
-		tool = false,
-		fixture = true,
 	},
 	Axe = {
 		id = "Axe",
@@ -445,7 +425,7 @@ function ItemDefs.fumble(state: State): (State, string?, string?)
 	return s, hand, carry
 end
 
--- Any player can pull a nozzle off any truck reel (the water still comes from that truck's tank).
+-- Any player can pull a nozzle off any truck reel (trucks have endless water).
 -- A reel has `cap` nozzles: `holding` are in players' hands, `lying` are dropped on the ground still
 -- tethered to it. "new" = a fresh nozzle, "reclaim" = reel a lying one back in and hand it over,
 -- "full" = every nozzle is in someone's hands.
@@ -466,63 +446,6 @@ end
 function ItemDefs.throwSpeed(charge: number, minSpeed: number, maxSpeed: number): number
 	local c = if charge ~= charge then 0 else math.clamp(charge, 0, 1)
 	return minSpeed + (maxSpeed - minSpeed) * c
-end
-
--- Spraying draws from the truck tank. Returns the new tank level and what was actually drawn.
-function ItemDefs.drawWater(water: number, litres: number): (number, number)
-	local w = math.max(0, water)
-	local drawn = math.clamp(litres, 0, w)
-	return w - drawn, drawn
-end
-
--- A hydrant supply line tops the truck up at `rate` L/s.
-function ItemDefs.supplyStep(water: number, size: number, rate: number, dt: number): number
-	return math.clamp(water + rate * math.max(0, dt), 0, size)
-end
-
--- Supply line (hydrant <-> truck) stretch: "snap" past length * snapFactor (truck drove off).
-function ItemDefs.supplyState(dist: number, length: number, snapFactor: number): string
-	if dist > length * snapFactor then
-		return "snap"
-	elseif dist > length then
-		return "taut"
-	end
-	return "ok"
-end
-
--- Drive-off strain on a hooked supply line: builds 1/s while the driver pulls the line taut, bleeds
--- off at `decay`/s otherwise. The line rips past InventoryConfig.SupplyRipStrain.
-function ItemDefs.supplyStrain(strain: number, pulling: boolean, dt: number, decay: number): number
-	local d = math.max(0, dt)
-	if pulling then
-		return math.max(0, strain) + d
-	end
-	return math.max(0, strain - decay * d)
-end
-
--- What [R] at a hydrant does. line = "home" | "held" | "loose" | "hooked"; mine = you hold it.
-function ItemDefs.hydrantAction(line: string, mine: boolean): string
-	if line == "hooked" then
-		return "unhook"
-	elseif line == "held" then
-		return if mine then "stow" else "busy"
-	elseif line == "loose" then
-		return "reel"
-	end
-	return "grab"
-end
-
--- What [R] at a truck's intake does. holding = you hold a supply coupling; hookedHere = this truck
--- already has a line on (one per truck); dist = hydrant -> intake, reach = how far the line stretches.
-function ItemDefs.intakeAction(holding: boolean, hookedHere: boolean, dist: number, reach: number): string
-	if hookedHere then
-		return if holding then "busy" else "unhook"
-	elseif not holding then
-		return "none"
-	elseif dist > reach then
-		return "far"
-	end
-	return "hook"
 end
 
 -- A thrown item only bonks while it is still flying fast.

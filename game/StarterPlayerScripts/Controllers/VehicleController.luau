@@ -735,8 +735,8 @@ local function makeRespawnButton()
 	local maxText = Instance.new("UITextSizeConstraint")
 	maxText.MaxTextSize = 22
 	maxText.Parent = hint
-	-- Fit between the screen's left edge and HudController's bottom-right water tank + heat gauge
-	-- (~170 px at UIScale 1); wrap to two lines on narrow / phone screens instead of running under them.
+	-- Fit between the screen's left edge and HudController's bottom-right heat gauge
+	-- (kept at the old ~170 px reserve, symmetric); wrap to two lines on narrow / phone screens instead of running under them.
 	local function layoutHints()
 		local cam = workspace.CurrentCamera
 		if not cam then
