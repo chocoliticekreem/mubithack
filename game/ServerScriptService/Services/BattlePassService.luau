@@ -362,7 +362,7 @@ function BattlePassService.Start(self: any)
 				Telemetry.count(C_CLAIMS, 1)
 			end
 		end
-		handleBuy(player)
+		-- no auto "buy premium" prompt on tier-up: the pass is only shown to owners (Store sells it)
 	end)
 
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, passId: number, purchased: boolean)

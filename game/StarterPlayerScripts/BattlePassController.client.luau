@@ -105,11 +105,15 @@ do
 	cap.Parent = passBtn
 	-- lobby-only: during a call the button sat on top of the left-edge world markers
 	local lp = game:GetService("Players").LocalPlayer
+	-- only for players who bought the Premium Battle Pass (MonetizationService sets Pass_PremiumPass);
+	-- everyone else buys it from the Store. Lobby-only as before.
 	local function sync()
 		local iid = lp:GetAttribute("InstanceId")
-		passBtn.Visible = type(iid) ~= "string" or iid == ""
+		local owned = lp:GetAttribute("Pass_PremiumPass") == true
+		passBtn.Visible = owned and (type(iid) ~= "string" or iid == "")
 	end
 	lp:GetAttributeChangedSignal("InstanceId"):Connect(sync)
+	lp:GetAttributeChangedSignal("Pass_PremiumPass"):Connect(sync)
 	sync()
 end
 
@@ -350,7 +354,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed or UserInputService:GetFocusedTextBox() then
 		return
 	end
-	if input.KeyCode == toggleKey then
+	if input.KeyCode == toggleKey and game:GetService("Players").LocalPlayer:GetAttribute("Pass_PremiumPass") == true then
 		setOpen(not panel.Visible)
 	end
 end)
