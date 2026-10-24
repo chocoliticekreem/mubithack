@@ -557,9 +557,11 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 					local j = r.int(1, i)
 					pool[i], pool[j] = pool[j], pool[i]
 				end
-				-- one site per run at most
+				-- one site per run at most; which kind comes first rotates per seed (an apartment fire on one
+				-- server, the diner or the corner shop on the next)
 				local used: { [any]: boolean } = table.clone(usedRun)
 				local placed = 0
+				local kindOff = r.int(0, #style.sites - 1)
 				for _, l in pool do
 					if placed >= n then
 						break
@@ -572,7 +574,7 @@ function Districts.corridors(cfg: any, r: Rng, districts: { DistrictInfo }, line
 					end
 					if owner and not used[owner] then
 						used[owner] = true
-						l.kind = style.sites[(placed % #style.sites) + 1]
+						l.kind = style.sites[((placed + kindOff) % #style.sites) + 1]
 						l.site = true
 						placed += 1
 					end
