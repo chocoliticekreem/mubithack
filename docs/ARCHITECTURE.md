@@ -68,13 +68,20 @@ forge/                 Python package (uv), entry point `forge`
                        fix_code(..., repro=True): reproduce first, judge by checks (see "Fix loop" below)
   checks.py            executable checks: runs/<slug>/checks/<id>.luau, run in the Server DM during play,
                        return {ok, detail}; load_checks/save_check/run_check/run_checks/summary;
-                       wrap() gives every body a `forge` table (HELPERS): waitFor(fn, t), startRound(t),
-                       endRound() via ServerStorage.ForgeTest `round` ("setup: ..." error without it);
-                       helpers_doc(spec) for user messages (+ round rule when spec playtest.start_round);
+                       wrap() gives every body a `forge` table (HELPERS): waitFor(fn, t), startRound(t) (waits
+                       out a round still in Results when the game has a MissionService), endRound() via
+                       ServerStorage.ForgeTest `round` ("setup: ..." error without it);
+                       helpers_doc(spec) for user messages: helpers + SETUP_RULE (+ round rule when spec
+                       playtest.start_round); setup_failure(result) ("setup:" in error or detail = unknown);
+                       run_check(studio, check, timeout=90, *, fresh=True, log) reruns a setup failure once in
+                       a fresh playtest (fresh_play), then marks it setup: true; run_checks(..., *, log) stops
+                       restarting once a restart did not help; lint_setup(body) -> why a body has no setup assertion;
                        premise: consumer_hits(game_dir, body) (line-numbered game lines naming what a check
                        asserts), valid_consumer(game_dir, "<file>:<line>") -> normalised ref | None
   repro.py             reproduce(settings, slug, anomaly, investigation, *, llm, studio, session_id) ->
-                       {proven, check, result, attempts}; run_suite(studio, run_dir) -> {results, anomalies};
+                       {proven, check, result, attempts} (attempt statuses proven | passed | errored | setup |
+                       no_consumer | no_setup | unusable); run_suite(studio, run_dir) -> {results, anomalies,
+                       unknown} (setup failures are unknown, not anomalies);
                        save_pending / promote / load_pending / find; problem_block(check, result) for the fixer
   prompts/reproducer.md  Mubit task: anomaly + investigation + code excerpts -> ONE check that fails while the
                        bug exists (```luau block, `-- check:` / `-- covers:` / `-- consumer: <file>:<line>` header)
@@ -302,11 +309,13 @@ cycle start: run_suite(checks/*.luau + checks/pending/*.luau)    # before faults
 budget:      max_fixes counts anomalies that reach a fix attempt; unproven / no-file ones are free, but
              at most max_fixes * REPRO_PER_FIX (3) anomalies are investigated + reproduced per cycle
 per anomaly: investigator (as before, its conclusion is a hint; its context is budgeted, see roles.py below)
-             -> reproducer writes a check -> luau-compile -> run in the live playtest
+             -> reproducer writes a check -> luau-compile -> lint_setup (no "setup:" assertion: one extra
+                correction call before any Studio time, status no_setup) -> run in the live playtest
                 ok=false, no error : PROVEN if its `-- consumer:` names a real game line, saved to
                                      checks/pending/<id>.luau; no real consumer -> no_consumer
+                setup failure      : status setup (rerun once in a fresh playtest first), never a proof
                 passed / errored /
-                no_consumer        : one retry, the outcome in the user message (same Mubit task); for
+                setup / no_consumer: one retry, the outcome in the user message (same Mubit task); for
                                      no_consumer the outcome lists the game lines naming what it asserts
                 still not failing  : unproven (improve/unproven.json), no fix attempted
              (an anomaly that names a saved check reuses it if it still fails cleanly)
@@ -314,7 +323,8 @@ per anomaly: investigator (as before, its conclusion is a hint; its context is b
                 objects added only so the check finds them are rejected)
              -> compile -> resync -> run the repro check + every guard (checks that passed at fix start)
                 repro still fails  : check_failed, retry with the output, no playtest spent
-                a guard fails      : check_regression, retry with the broken checks
+                a guard fails      : check_regression, retry with the broken checks (a guard that only
+                                     failed to set up, also in a fresh playtest, is unknown and does not block)
                 both hold          : one playtest round + verifier (evidence); kept unless the verifier
                                      says regression or server errors rose (hard_regressions)
              kept -> version snapshot, check moves pending/ -> checks/ (joins the suite as a guard)
@@ -691,7 +701,9 @@ def plan_checks(settings, slug, *, llm, max_checks=15, session_id=None, log=prin
 async def run_plan(studio, slug, *, settings, llm=None, session_id=None, log=print, only=None, prior=None)
     -> list[dict]   # only: check ids to run (the rest of a headless triage); prior: results kept in front
     # reversible checks share one playtest; each check whose covers says "irreversible" gets a
-    # fresh one. Play is always stopped. A detail containing "inconclusive" is a failure.
+    # fresh one. Play is always stopped. A detail containing "inconclusive" is a failure. A check that cannot
+    # set up its situation is rerun in a fresh playtest (run_check) and otherwise never becomes an anomaly.
+    # plan_checks: compile errors and bodies without a setup assertion (lint_setup) share one correction call.
     # Failures -> ONE check_reviewer call (Mubit task): game_bug | check_bug. The user message lists,
     # per check, the line-numbered game lines (client + server) naming what it asserts; a game_bug
     # must carry "consumer": "<file>:<line>" (valid_consumer), else it counts as a check bug (premise

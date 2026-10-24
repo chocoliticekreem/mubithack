@@ -91,6 +91,19 @@ MACRO_GUIDE = (
     "Judge the feature by that effect; \"nothing changed\" after a buy, claim or touch is a bug to report. Keep "
     "move_to / interact / key / spray for fine positioning and fighting."
 )
+OBBY_ACTIONS = ("teleport_stage", "obby_try")
+# Obby guidance, in the USER message, only when the observation has an `obby` block (frozen Mubit prompts).
+OBBY_GUIDE = (
+    "This game is an obby: your observation's `obby` shows your stage, the course length (max_stage), the next "
+    "checkpoint and the hazards (KillPart) near you. Two macros cover a long course quickly:\n"
+    "- teleport_stage {\"stage\": N}: stand on checkpoint N, any stage, without walking there.\n"
+    "- obby_try {\"from_stage\": N, \"attempts\": 1-5}: a scripted runner starts on checkpoint N and tries to reach "
+    "the next one; the result says reached, fell (where, on which hazard) or stuck (where).\n"
+    "Sample the course instead of walking it from stage 1: obby_try stages spread over the whole range (stage 1, then "
+    "about every tenth of max_stage, and the last one), then look closer at the stages that fail. A stage the runner "
+    "never reaches in several attempts, or a fall with no hazard nearby, is a bug to report with its stage number."
+)
+UI_PASS_BUTTONS = 50  # buttons read after a scripted press: an opened panel can show many
 HISTORY = 4
 HISTORY_RESULT_CHARS = 400  # room for a macro's effect
 PROBE_EVERY = 5
@@ -240,6 +253,8 @@ def map_action(action: dict) -> tuple[str, dict] | str:
         return name, out
     if name == "repeat":
         return _map_repeat(args)
+    if name in OBBY_ACTIONS:
+        return _map_obby(name, args)
     if name == "wait":
         return "wait", {"seconds": max(0.0, min(_num(args.get("seconds"), 2.0), 10.0))}
     if name == "done":
@@ -257,10 +272,30 @@ def _map_repeat(args: dict) -> tuple[str, dict] | str:
     name, inner_args = mapped
     if name in ("wait", "repeat"):
         return f"error: repeat can't repeat {name}"
+    if name in OBBY_ACTIONS:
+        return f"error: repeat can't repeat {name} (obby_try takes attempts)"
     if name in MACROS:  # N walks have to fit in one Studio call
         inner_args["timeout"] = min(inner_args.get("timeout", REPEAT_MACRO_TIMEOUT), REPEAT_MACRO_TIMEOUT)
     times = int(max(1, min(_num(args.get("times"), 2), 5)))
     return "repeat", {"action": name, "args": inner_args, "times": times}
+
+
+def _map_obby(name: str, args: dict) -> tuple[str, dict] | str:
+    """teleport_stage {stage} / obby_try {from_stage?, to_stage?, attempts?, timeout?} (ForgeTest commands)."""
+    out: dict = {}
+    keys = ("stage",) if name == "teleport_stage" else ("from_stage", "to_stage")
+    for k in keys:
+        if args.get(k) is not None:
+            try:
+                out[k] = int(float(args[k]))
+            except (TypeError, ValueError):
+                return f"error: {name} {k} must be a stage number, got {args[k]!r}"
+    if name == "teleport_stage":
+        return (name, out) if "stage" in out else "error: teleport_stage needs stage (a checkpoint's Stage number)"
+    out["attempts"] = int(max(1, min(_num(args.get("attempts"), 1), 5)))
+    if args.get("timeout") is not None:
+        out["timeout"] = max(3.0, min(_num(args.get("timeout"), 20), 60.0))
+    return name, out
 
 
 async def dispatch(harness, user_id: Any, action: dict) -> str:
@@ -349,6 +384,8 @@ def agent_user_message(goal: str, me: dict, n: int, total: int | None, team: lis
         lines += ["## On-screen UI", guide, ""]
     if ui_tasks:
         lines += ["## UI features assigned to you", ui_surfaces.tasks_text(ui_tasks), ""]
+    if (observation or {}).get("obby"):
+        lines += ["## Obby", OBBY_GUIDE, ""]
     lines += [
         "## Macro actions", MACRO_GUIDE, "",
         "## Step", (f"{n} of {total}" if total else str(n)) + " (decisions)", "",
@@ -411,9 +448,11 @@ def judge_message(goal: str, roster: list[dict], steps: list[dict], events: list
             "Base it on the stats and the trace, not on the players' own claims.",
         ]
     if ui_coverage and ui_coverage.get("total"):
+        scripted = {s["name"]: s["scripted"] for s in ui_coverage.get("surfaces") or [] if s.get("scripted")}
         extra += ["", "## UI coverage (features with on-screen buttons; a gap means the round did not prove it)",
                   _clip(_dumps({"pressed": f"{ui_coverage['pressed']}/{ui_coverage['total']}",
-                                "gaps": ui_coverage.get("gaps") or []}), 1200)]
+                                "gaps": ui_coverage.get("gaps") or [],
+                                **({"scripted_pass": scripted} if scripted else {})}), 2000)]
     return "\n".join([
         "## Goal", goal.strip(), "",
         "## Players", _dumps([{"name": p["name"], "role": p["role"], **({"squad": p["squad"]} if p.get("squad") else {})}
@@ -598,6 +637,78 @@ def ui_presses(events: list) -> list[dict]:
     return out
 
 
+async def _ui_view(harness, user_id) -> dict:
+    """The player's screen now: {buttons, not_rendering?} (the harness's `ui`, else an observation's `ui`)."""
+    if hasattr(harness, "ui"):
+        got = await _safe(harness.ui, user_id, max=UI_PASS_BUTTONS)
+        if isinstance(got, dict) and not _err(got):
+            return {"buttons": [b for b in got.get("buttons") or [] if isinstance(b, dict)],
+                    "not_rendering": got.get("not_rendering")}
+    obs = await _observe(harness, user_id)
+    return {"buttons": [b for b in obs.get("ui") or [] if isinstance(b, dict)], "not_rendering": None}
+
+
+async def _ui_buttons(harness, user_id) -> list[dict]:
+    return (await _ui_view(harness, user_id))["buttons"]
+
+
+async def _ui_press(harness, user_id, kind: str, label: str, button: dict | None) -> dict:
+    args = {"path": button["path"]} if button and button.get("path") else {"text": label}
+    try:
+        res = await asyncio.wait_for(harness.act(user_id, "press", **args), ACT_TIMEOUT)
+    except Exception as e:  # noqa: BLE001 - recorded, the pass goes on
+        res = {"done": False, "detail": f"error: {type(e).__name__}: {_clip(str(e), 200)}"}
+    res = res if isinstance(res, dict) else {"done": False, "detail": _clip(res, 200)}
+    return {"kind": kind, "button": label, "path": res.get("path") or args.get("path"),
+            "fired": bool(res.get("fired", res.get("done"))), "changed": bool(res.get("changed")),
+            "effect": {k: v for k, v in (res.get("effect") or {}).items() if v},
+            "detail": _clip(res.get("detail") or "", 300)}
+
+
+async def ui_pass(harness, surfaces: list[dict], roster: list[dict]) -> list[dict]:
+    """Before free play, no LLM: every assigned UI surface is pressed once with a real click (its presser's
+    Studio window), then each of its actions that is on screen once it is open (a Claim only shows on a
+    claimable tier: "where enabled"), purchase-like actions last, then whatever it opened is closed again.
+    Every press is a real Harness.press, so it also lands in the event log (ui_presses) like a tester's.
+    -> [{surface, gui, player, presses: [{kind: entry|action|close, button, path, fired, changed, effect,
+    detail}], skipped: [actions not on screen]}]; each surface gets `scripted` (ui_surfaces.pass_note)."""
+    ids = {p["name"]: p["userId"] for p in roster if p.get("can_press")}
+    out = []
+    for s in surfaces or []:
+        uid = ids.get(s.get("assigned"))
+        if uid is None:
+            continue
+        rec: dict = {"surface": s["name"], "gui": s.get("gui", ""), "player": s["assigned"], "presses": [],
+                     "skipped": []}
+        view = await _ui_view(harness, uid)
+        if view["not_rendering"]:  # a minimized Studio window: say so instead of "no visible button"
+            rec["blocked"] = str(view["not_rendering"])
+            s["scripted"] = ui_surfaces.pass_note(rec)
+            out.append(rec)
+            continue
+        entry_btn = ui_surfaces.pick_button(view["buttons"], s["name"], s.get("path"))
+        entry = await _ui_press(harness, uid, "entry", s["name"], entry_btn)
+        rec["presses"].append(entry)
+        if entry["fired"]:
+            now = await _ui_buttons(harness, uid)
+            for action in ui_surfaces.order_actions(s.get("actions") or ui_surfaces.new_buttons(entry["effect"])):
+                btn = ui_surfaces.pick_button(now, action)
+                if btn is None:
+                    rec["skipped"].append(action)
+                    continue
+                rec["presses"].append(await _ui_press(harness, uid, "action", action, btn))
+                now = await _ui_buttons(harness, uid)  # a press can re-render the panel
+            if ui_surfaces.opened(entry["effect"]):
+                close = ui_surfaces.close_button(now, s.get("gui")) or ui_surfaces.pick_button(
+                    now, s["name"], (entry_btn or {}).get("path"))
+                if close is not None:
+                    rec["presses"].append(await _ui_press(harness, uid, "close",
+                                                          str(close.get("text") or close.get("path")), close))
+        s["scripted"] = ui_surfaces.pass_note(rec)
+        out.append(rec)
+    return out
+
+
 async def _squads_tick(harness, n: int, roster: list[dict], tick_players: list[dict], observations: dict,
                        phases: dict, lobby_ticks: dict, queued_ticks: dict, started_direct: set,
                        lobby_unsupported: bool, seen_mission: bool, report: dict, contexts: dict,
@@ -749,6 +860,12 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
                     surfaces = ui_surfaces.assign_surfaces(ui_surfaces.derive_surfaces(
                         surface_spec, game_dir or settings.base_game_dir, list(observations.values())), roster)
                     report["ui_surfaces"] = surfaces
+                    if any(s.get("assigned") for s in surfaces):
+                        # a scripted pass presses every assigned surface before free play, so no menu goes
+                        # unproven (run 2: PASS and GO NOW! assigned, 0 presses); then fresh observations
+                        report["ui_pass"] = await ui_pass(harness, surfaces, roster)
+                        obs_list = await asyncio.gather(*(_observe(harness, p["userId"]) for p in tick_players))
+                        observations = {p["userId"]: o for p, o in zip(tick_players, obs_list)}
                 if (n - 1) % PROBE_EVERY == 0:
                     probe, counters = await asyncio.gather(_probe(harness), _counters(harness))
                     report["counters"] = counters
@@ -833,7 +950,8 @@ async def _session(settings: Settings, *, kind: str, agent_role: str, goal: str,
             report["errors"].append(f"{type(e).__name__}: {_clip(str(e), 500)}")
     report["events"] = _compact_events(all_events)[-50:]
     report["ui_presses"] = ui_presses(all_events)
-    report["ui_coverage"] = ui_surfaces.coverage(report.get("ui_surfaces") or [], report["ui_presses"])
+    report["ui_coverage"] = ui_surfaces.coverage(report.get("ui_surfaces") or [], report["ui_presses"],
+                                                 report.get("ui_pass"))
     decided = [s["action"].get("action") for s in report["steps"] if s.get("action")]
     report["decisions"] = len(decided)  # one LLM call each
     report["macro_decisions"] = sum(1 for a in decided if a in MACROS or a == "repeat")

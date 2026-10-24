@@ -28,7 +28,9 @@ from forge.llm import LLM, LLMError
 
 PENDING = "pending"
 REPRO_RETRIES = 1
-REPRO_MAX_TOKENS = 3000
+# a check that asserts its setup before its behaviour is longer: 3 of 10 reproducer replies by 2026-10-24 were cut
+# off at 3000 tokens before their ```luau fence closed (unusable)
+REPRO_MAX_TOKENS = 6000
 EXCERPT_FILES = 3
 EXCERPT_CHARS = 5000
 INDEX_CHARS = 5000
@@ -40,8 +42,10 @@ in a function, so it may use locals, early returns and task.wait (stay under 20 
 It must return { ok = boolean, detail = string }. ok = true means the game behaves correctly.
 A Luau error or a missing return counts as a failed run, but it does NOT prove the bug: only a clean
 ok = false does. The playtest has the Studio player (Players:GetPlayers()[1]) once they have joined.
-Live server modules can be reached with require(<ModuleScript>) or
-game:GetService("ServerStorage").DevHook:Invoke(moduleName, method, ...).
+Live server modules are reached with game:GetService("ServerStorage").DevHook:Invoke(moduleName, method, ...)
+-> (true, results...) or (false, error); put "." before the method for a plain call (".AwardXp").
+require(<ModuleScript>) in a check gives a separate copy whose state is empty (no player data loaded): its
+calls change nothing in the running game, so a setup done through it never happens.
 Undo what the check sets up (cash, positions, spawned parts) before every return.
 ok = false must mean "the game did the wrong thing". When the check cannot set up its situation (no player,
 no plot, a part or module missing), call error("setup: <what is missing>") instead: that is a broken check,
@@ -82,11 +86,11 @@ return { ok = spent == 25, detail = "pad took " .. spent .. " cash, expected 25"
 local Players = game:GetService("Players")
 local p = Players:GetPlayers()[1]
 if not p then error("setup: no player") end
-local Shop = require(game:GetService("ServerScriptService"):WaitForChild("ShopService"))
 local cash = p.leaderstats.Cash
 local oldCash = cash.Value
 cash.Value = 3
-local bought = Shop.buy(p, "Sword")
+local called, bought = game:GetService("ServerStorage").DevHook:Invoke("ShopService", ".buy", p, "Sword")
+if not called then cash.Value = oldCash; error("setup: ShopService.buy failed: " .. tostring(bought)) end
 local after = cash.Value
 local owns = p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Sword")
 if owns then owns:Destroy() end
@@ -149,15 +153,18 @@ async def run_suite(studio: Any, run_dir: Path, log: Callable[[str], None] = pri
     """Every saved check (suite + pending) -> {"results": [...], "anomalies": [...]}."""
     suite, pend = fchecks.load_checks(run_dir), load_pending(run_dir)
     if not suite and not pend:
-        return {"results": [], "anomalies": []}
-    results = await fchecks.run_checks(studio, suite + pend)
+        return {"results": [], "anomalies": [], "unknown": []}
+    results = await fchecks.run_checks(studio, suite + pend, log=log)
     pending_ids = {c.id for c in pend}
     for r in results:
         r["pending"] = r["id"] in pending_ids
-    failing = [r for r in results if not r.get("ok")]
+    # a check that could not set up its situation (even in a fresh playtest) proved nothing: not an anomaly
+    unknown = [r["id"] for r in results if fchecks.setup_failure(r)]
+    failing = [r for r in results if not r.get("ok") and r["id"] not in unknown]
     log(f"[checks] suite {sum(1 for r in results if r['ok'] and not r['pending'])}/{len(suite)} pass, "
-        f"pending {sum(1 for r in results if r['pending'] and not r['ok'])}/{len(pend)} still fail")
-    return {"results": results, "anomalies": [check_anomaly(r, r["pending"]) for r in failing]}
+        f"pending {sum(1 for r in results if r['pending'] and not r['ok'])}/{len(pend)} still fail"
+        + (f", unknown (could not set up): {', '.join(unknown)}" if unknown else ""))
+    return {"results": results, "anomalies": [check_anomaly(r, r["pending"]) for r in failing], "unknown": unknown}
 
 
 # ---------------------------------------------------------------- the reproducer call
@@ -240,6 +247,11 @@ def _no_consumer_outcome(named: str, hits: str) -> str:
 
 
 def _outcome(result: dict) -> str:
+    if fchecks.setup_failure(result):
+        return (f"When it ran it could not set up its situation (also in a fresh playtest): "
+                f"{str(result.get('error') or result.get('detail'))[:600]}\nA setup failure proves nothing. Make the "
+                "setup work (read the real names from the code, start a round with forge.startRound()) so the check "
+                "reaches the situation the anomaly describes, asserts that it did, and then asserts the behaviour.")
     if result.get("error"):
         return (f"When it ran it ERRORED: {result['error'][:600]}\nAn erroring check proves nothing. Fix the error "
                 "(read the real names from the code) so it runs cleanly and returns ok = false while the bug exists.")
@@ -253,8 +265,9 @@ def _outcome(result: dict) -> str:
 async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | None, *, llm: LLM, studio: Any,
                     session_id: str, retries: int = REPRO_RETRIES, log: Callable[[str], None] = print) -> dict:
     """Ask the reproducer for a failing check and run it live. A retry (same Mubit task, the outcome as a
-    correction in the user message) follows only a check that errored; a passing check ends it, unproven.
-    Returns {"proven": bool, "check": Check | None, "result": dict | None, "attempts": [...]}."""
+    correction in the user message) follows only a check that errored or could not set up; a passing check
+    ends it, unproven. A check with no setup assertion at all (checks.lint_setup) gets one extra correction
+    before it runs. Returns {"proven": bool, "check": Check | None, "result": dict | None, "attempts": [...]}."""
     from forge import roles
     from forge.improve import file_index
     from forge.memory import RunStore
@@ -271,13 +284,15 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
                 for rel in excerpt_files(settings, root, anomaly, found)}
     attempts: list[dict] = []
     previous: tuple[str | None, str] | None = None
-    for _ in range(1 + max(0, retries)):
+    tries, lint_left = 1 + max(0, retries), 1
+    while tries > 0:
         msg = reproduce_message(anomaly, found, index, excerpts, previous, spec)
         try:
             res = await asyncio.to_thread(llm.complete, "reproducer", msg, session_id=session_id,
                                           max_tokens=REPRO_MAX_TOKENS)
             body = roles.extract_luau(res.text)
         except LLMError as e:
+            tries -= 1
             attempts.append({"status": "unusable", "error": str(e)[:300]})
             previous = (None, "Your previous reply could not be used: reply with ONE ```luau block, the check.")
             log(f"[reproducer] unusable reply: {str(e)[:100]}")
@@ -286,15 +301,27 @@ async def reproduce(settings: Settings, slug: str, anomaly: dict, found: dict | 
         check.id = fchecks.check_id(check.title)
         check.covers = check.covers or f"anomaly: {anomaly['title']}"
         err = compile_error(body)
+        lint = None if err else fchecks.lint_setup(body)
+        if lint and lint_left:
+            lint_left -= 1  # warn + one correction, before any Studio time is spent on it
+            attempts.append({"status": "no_setup", "check": check.id, "title": check.title, "lint": lint,
+                             "request_id": res.request_id, "body": body})
+            log(f"[reproducer] {check.id}: no setup assertion, asking for one {res.request_id}")
+            previous = (body, lint)
+            continue
+        tries -= 1
         result = ({"id": check.id, "title": check.title, "ok": False, "error": f"luau-compile: {err}"} if err
-                  else await fchecks.run_check(studio, check))
-        status = "proven" if not result.get("ok") and not result.get("error") else (
-            "passed" if result.get("ok") else "errored")
+                  else await fchecks.run_check(studio, check, log=log))
+        status = ("passed" if result.get("ok") else "setup" if fchecks.setup_failure(result)
+                  else "errored" if result.get("error") else "proven")
         consumer = fchecks.valid_consumer(root, consumer_of(body))
         if status == "proven" and consumer is None:
             status = "no_consumer"  # a clean fail on a premise nothing in the game reads proves nothing
         attempts.append({"status": status, "check": check.id, "title": check.title, "result": result,
-                         "request_id": res.request_id, "body": body, "consumer": consumer or ""})
+                         "request_id": res.request_id, "body": body, "consumer": consumer or "",
+                         **({"lint": lint} if lint else {})})
+        if lint:
+            log(f"[reproducer] {check.id}: still no setup assertion after the correction")
         log(f"[reproducer] {check.id}: {status} ({str(result.get('error') or result.get('detail', ''))[:120]}) "
             f"{res.request_id}")
         if status == "proven":

@@ -590,8 +590,11 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                 checked: dict = {}
                 if check is not None:
                     await harness.ensure_ready()
-                    checked = {"repro": await run_check(studio, check),
-                               "guards": await run_checks(studio, [g for g in guards if g.id != check.id])}
+                    checked = {"repro": await run_check(studio, check, log=log),
+                               "guards": await run_checks(studio, [g for g in guards if g.id != check.id], log=log)}
+                    unknown = [r["id"] for r in checked["guards"] if r.get("setup")]
+                    if unknown:
+                        log(f"[fix] {a['title']}: guard(s) {', '.join(unknown)} could not set up, unknown (not a regression)")
                     rejected = _check_rejection(checked)
                     if rejected:
                         # exact evidence, so no playtest round is spent on a fix that is already rejected
@@ -654,13 +657,20 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
 
 
 def _check_rejection(checked: dict) -> tuple[str, str] | None:
-    """(status, why) when the checks after a fix reject it: the repro still fails, or a guard broke."""
+    """(status, why) when the checks after a fix reject it: the repro still fails, or a guard broke. A guard
+    that only failed to set up its situation (also in a fresh playtest, checks.run_check) is unknown, not a
+    regression: only a real assertion failure blocks a fix."""
+    from forge.checks import setup_failure
+
     repro = checked["repro"]
     if not repro.get("ok"):
         out = repro.get("error") or repro.get("detail", "")
+        if setup_failure(repro):
+            return ("check_failed", f"After your fix the failing check could not set up its situation: "
+                    f"{str(out)[:400]}. It proves nothing, so the fix is not kept; keep what the check sets up working.")
         return ("check_failed", f"The failing check still fails after your fix: {str(out)[:400]}. "
                 "Make the behaviour the check asserts true.")
-    broke = [r for r in checked["guards"] if not r.get("ok")]
+    broke = [r for r in checked["guards"] if not r.get("ok") and not setup_failure(r)]
     if broke:
         return ("check_regression", "Your fix broke checks that passed before: " + "; ".join(
             f"{r['id']}: {str(r.get('error') or r.get('detail', ''))[:160]}" for r in broke))
@@ -678,8 +688,8 @@ async def _reproduce(settings: Settings, slug: str, a: dict, found: dict | None,
     run_dir = ImproveStore(settings, slug).run.dir
     saved = frepro.find(run_dir, a["check"]) if a.get("check") else None
     if saved is not None:
-        res = await run_check(harness.studio, saved)
-        if not res.get("ok") and not res.get("error"):
+        res = await run_check(harness.studio, saved, log=log)
+        if not res.get("ok") and not res.get("error") and not res.get("setup"):
             return saved, {"check": saved.id, "source": "saved", "before": res, "attempts": []}
         log(f"[reproducer] saved check {saved.id} no longer fails cleanly, writing a new one")
     out = await frepro.reproduce(settings, slug, a, found, llm=llm, studio=harness.studio, session_id=session_id,

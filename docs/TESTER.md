@@ -39,8 +39,8 @@ Commands (args are a JSON object):
 |---|---|---|
 | `ping` | `{}` | `{version, players, studio, time}` |
 | `players` | `{}` | `[{userId, name, helmet, pos, health, maxHealth, attrs, tool, backpack, carrying, downed}]` |
-| `observe` | `{userId, radius?=120, max?=12}` | same shape as play.py's OBSERVE (`me`, `world`, `things`, `prompts`, plus `hud`, `ui` and `panels` fetched from that client by remote) |
-| `ui` | `{userId, max?=10}` | `{buttons: [{text, path, gui, x, y, w, h}], panels: [{gui, path, title}], total}`: visible, interactable GuiButtons in PlayerGui (path below PlayerGui, `[n]` for same-named siblings; x/y = center in Studio MCP mouse coordinates) |
+| `observe` | `{userId, radius?=120, max?=12}` | same shape as play.py's OBSERVE (`me`, `world`, `things`, `prompts`, plus `hud`, `ui` and `panels` fetched from that client by remote; `ui_error` when the game view is not rendering; `obby` in games with checkpoints, see Obbies) |
+| `ui` | `{userId, max?=10}` | `{buttons: [{text, path, gui, x, y, w, h}], panels: [{gui, path, title}], total, viewport: [w, h], not_rendering?}`: visible, interactable GuiButtons in PlayerGui (path below PlayerGui, `[n]` for same-named siblings; x/y = center in Studio MCP mouse coordinates). `not_rendering`: the viewport is under 50 px (a minimized or hidden Studio window shows no game view during play, so no button has a size and no click lands) |
 | `ui_target` / `ui_effect` | `{userId, path? \| text?}` / `{userId}` | arm a listener on one button and return where to click / after the click: `{fired, changed, effect}` (panels and GUIs opened/closed, buttons new/gone, HUD text new/gone); logs a `ui_press` event |
 | `act` | `{userId, action, args}` | `{done, detail}`; actions below |
 | `query` | `{tag?, near?: [x,y,z] \| userId, radius?, attrs?: [..], limit?=25}` | `[{path, name, tags, pos, dist, attrs}]` |
@@ -53,7 +53,9 @@ Commands (args are a JSON object):
 | `counters` | `{}` | ForgeTelemetry counters |
 | `events` | `{since?: number}` | `{now, events: [{t, kind, data}]}` from a ring buffer (500), see below |
 | `reset` | `{location?}` | `MapService:RebuildLocation` or all, plus clearing the event log |
-| `round` | `{state?}` | read or force `Workspace.RoundState` via MissionService if present |
+| `round` | `{state?, wait?=30}` | read or force `Workspace.RoundState` via MissionService if present. `state: "Active"` while the last round is still finishing (RoundState not Active and not Lobby/Waiting/Intermission/Idle, e.g. `Results`) first waits up to `wait` s for it to end, then 1 s (MissionService frees its players only back in the lobby; a start during Results did nothing, run 2); `waited` in the result. Without MissionService the attribute is set at once |
+| `teleport_stage` | `{userId, stage}` | stand the player on top of the checkpoint tagged `Checkpoint` with `Stage = stage` (waits out a respawn, re-teleports if the game's own spawn code moved the body) -> `{stage, path, pos, player_stage, stages, next}` |
+| `obby_try` | `{userId, from_stage?, to_stage?, attempts?=1 (<=5), timeout?=20}` | a deterministic runner (no LLM): from checkpoint `from_stage` (default: the player's stage) toward the next one, up to `attempts` times -> `{done, reached, from_stage, to_stage, attempts: [{result: reached \| fell \| stuck, at, dist, secs, jumps, via, hazard?, last_floor?, detail}], detail}` |
 | `bot_spawn` | `{names: [..] \| n, colors?: [[r,g,b]], near?: pos \| player, radius?=10}` | swarm bot testers: server-driven R15 NPCs in `Workspace.ForgeTestBots`, in a ring around `near`; returns their `players` info (`bot: true`, UserIds -1001, -1002, ...) |
 | `bots` / `bot_clear` | `{}` | list the bots / destroy them all |
 | `multi` | `{calls: [{cmd, args}], timeout?=90}` | run several commands concurrently (one thread each) in ONE call; returns `[{ok, result?, error?}]` in order |
@@ -97,6 +99,8 @@ class Harness:                                   # wraps a forge.studio.Studio
     def __init__(self, studio, *, client_windows=None): ...   # client_windows: Client studio ids of a multiplayer test
     async def press(self, user_id, path=None, text=None) -> dict  # real GUI click: {done, fired, changed, effect, detail}
     async def call(self, cmd: str, **args) -> Any        # raises HarnessError on ok=false
+    async def teleport_stage(self, user_id, stage) -> dict  # obbies; act() routes these two commands too
+    async def obby_try(self, user_id, from_stage=None, attempts=1, timeout=None) -> dict
     async def ensure_ready(self, timeout=30) -> dict      # play running + ping ok (starts solo play if not playing)
     # thin helpers: players(), observe(user_id), act(user_id, action, **args), query(...), events(since), counters()
 
@@ -111,9 +115,13 @@ async def multi_playtest(settings, goal: str, players: int | None = None, steps:
     # (e.g. "nozzle", "rescuer", "chaos"); judge at the end. Report saved to runs/playtests/<run_id>/report.json
     # (same shape as forge.play reports, plus players: [...] and per-step player ids)
 async def explore(settings, minutes: float = 3, players=None, *, llm=None, studio=None) -> dict   # bug hunt: role `explorer`
+async def ui_pass(harness, surfaces, roster) -> list[dict]   # scripted press of the assigned surfaces before free play
 # mubit_tester/surfaces.py   (no LLM)
 def derive_surfaces(spec, game_dir, observations, limit=5) -> list[dict]   # [{name, gui, actions, source}]
-def coverage(surfaces, presses) -> dict   # {surfaces: [{name, gui, assigned, presses, fired, changed, actions_pressed}], pressed, total, gaps}
+def coverage(surfaces, presses, scripted=None) -> dict   # {surfaces: [{name, gui, assigned, presses, fired, changed,
+    # actions_pressed, scripted?}], pressed, total, gaps, scripted_presses}
+def pick_button(buttons, text, path=None) / order_actions(actions) / close_button(buttons, gui) / new_buttons(effect)
+def pass_note(rec) -> str                 # 'PASS: fired, opened a panel; Claim: fired, changed the screen; ...'
 # mubit_tester/swarm.py
 async def run_swarm(settings, players: int = 10, minutes: float = 3, *, personas=None, pool=6, max_steps=40,
                     llm=None, studio=None, harness=None, studio_name=None, screenshots=True, shot_every=5,
@@ -158,6 +166,19 @@ and `gaps` such as `"Pass (BattlePassGui): never pressed, its panel was never op
 `"... opened, but Claim never pressed"`). The judge sees the gaps and `round_digest` carries
 `ui_coverage`, so the auditor sees an unproven menu. `forge fix` passes the run's own `game_dir`.
 
+**Scripted pass before free play** (`ai.ui_pass`, no LLM; run 2: PASS and GO NOW! were assigned and pressed 0
+times). Right after the surfaces are assigned at tick 1, every assigned surface is pressed once by its presser
+with a real click (`Harness.press`), then each of its actions that is on screen once it is open ("where enabled":
+a battle pass shows Claim only on a claimable tier; state labels such as Claimed are never pressed), purchase-like
+actions (buy, premium, robux, unlock, gift) last because a purchase prompt can cover the next clicks, then what it
+opened is closed again (an X / Close / Back button of that GUI, else the entry button). A live-only surface's actions
+are the buttons its press made appear. Then the players are observed again and free play starts. The presses land
+in the event log like a tester's (`ui_presses`); `report["ui_pass"]` keeps `[{surface, gui, player, presses: [{kind
+entry|action|close, button, path, fired, changed, effect, detail}], skipped, blocked?}]`; `ui_coverage` gets
+`scripted_presses` and, per surface, `scripted` (one line, also in the presser's `## UI features assigned to you`
+and in the judge's UI coverage block as `scripted_pass`). When the presser's game view is not rendering (`ui`
+`not_rendering`), nothing is clicked and the surface is `blocked` with that reason, which the coverage gap repeats.
+
 ## Physics probe (jitter and drift)
 
 ForgeProbe samples, every 0.5 s, the root parts of unanchored assemblies that should be at rest: mass
@@ -169,6 +190,43 @@ Each newly flagged assembly bumps counter `physics_jitter` / `physics_drift`. It
 ForgeProbe report (`physics`), in testers' observations (`probe.physics`), the report's `physics`, the
 judge's ForgeProbe section and `round_digest.physics`. Anchored parts moved by script (`PivotTo`) are
 not sampled.
+
+## Obbies (teleport_stage, obby_try)
+
+Contract, shared with the ObbyKit: a checkpoint is a part (or model) tagged `Checkpoint` with a number attribute
+`Stage` (1..N); a hazard is tagged `KillPart`; a player's stage is their `Stage` attribute, else `leaderstats.Stage`.
+In games with checkpoints `observe` adds `obby: {stage, stages, max_stage, nearest: {stage, dist}, next: {stage,
+path, pos, dist}, hazards: [{name, path, dist, pos}]}` (hazards within 60 studs, at most 6).
+
+`obby_try` runs on the server: it takes physics ownership of a real player's character for the run (restored
+after; a bot is server-owned anyway). Route: PathfindingService waypoints (AgentCanJump) followed with
+Humanoid:MoveTo, jumping at each Jump waypoint (its take-off point); a platform edge (no floor 1.5 studs ahead),
+a step up and a stall (1.2 s without getting closer) also jump. Outcomes: **reached** = standing on the next
+checkpoint (grounded, over its top face), or the player's stage rose to it during this run (a stage reached
+earlier says nothing, obbies only count up); **fell** = died, touched a KillPart, or dropped 12 studs below the
+lower checkpoint (`hazard`, `at`, and `last_floor`: the last part it stood on); **stuck** = 4 s without getting
+closer, or the timeout. A run never starts off its checkpoint: when the game kills or moves the body right after
+the teleport, it teleports once more, else the attempt is `stuck: could not start`. One call answers within 100 s
+(attempts that would not fit are skipped); Python waits `attempts * (timeout + 15) + 5` s, at most 115.
+
+Testers get both as macros (`OBBY_GUIDE`, only when the observation has `obby`): sample the course
+(stage 1, about every tenth of `max_stage`, the last one) instead of walking it from stage 1, then look closer at
+the stages that fail. MCP: `act(player, "obby_try", {from_stage, attempts})`; Python: `Harness.teleport_stage`,
+`Harness.obby_try`.
+
+## Checks: a setup failure is unknown, not a pass or a bug
+
+A check that never reaches its situation errors with `setup: ...` (or returns a detail built from one, such as
+`startRound failed: setup: ...`). `forge.checks.setup_failure(result)` detects both. `run_check` reruns such a
+check once in a fresh playtest (stop, play, wait for a player); still failing to set up, it is marked `setup: true`
+and counts as unknown everywhere: not a regression for a fix's guards, not an anomaly at a cycle's start
+(`run_suite(...)["unknown"]`), not a proof for the reproducer (status `setup`, retried), never an anomaly from the
+plan (`as_anomalies`). In a batch, restarts stop once a fresh playtest did not help. `forge.startRound` first waits
+out a round still in its Results phase when the game has a MissionService (so round checks run back to back).
+Writers (scenarist, reproducer, reviewer) get `checks.SETUP_RULE` in the user message: assert the situation
+happened before the behaviour (`assert(tierAfter > tierBefore, "setup: no tier-up")`), and reach live modules
+through `ServerStorage.DevHook` (a `require()` in a check is a separate copy with empty state). `lint_setup` flags
+a body with no `setup:` assertion at all: the reproducer and the scenarist ask once for a correction.
 
 ## QA protocol (`forge qa`, `mubit_tester.protocol`)
 

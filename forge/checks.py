@@ -17,7 +17,14 @@ A check that errors counts as failed, with the error as its detail.
 The wrapper gives every body a small `forge` helper table (HELPERS / HELPERS_DOC): `forge.waitFor`,
 `forge.startRound`, `forge.endRound`. The round helpers go through the ForgeTest harness's `round`
 command (ServerStorage.ForgeTest, the same one `forge fix --start-round` uses), so a round-based game
-can be tested inside its round; without the harness they raise a "setup: ..." error.
+can be tested inside its round; without the harness they raise a "setup: ..." error. startRound first
+waits out a round that is still in its Results / cooldown phase (the game frees its players only back in
+the lobby), so round-based checks can run one after another in one playtest.
+
+A "setup: ..." failure (in the error, or in a detail a check built from one) means the check never reached
+its situation: it proves nothing either way. run_check restarts the playtest once and runs it again; a
+check that still cannot set up is marked `setup: true` and is unknown, never a pass, a proof or a
+regression. lint_setup flags a body that has no setup assertion at all (SETUP_RULE says why).
 
 Checks cost no LLM calls to run and give an exact pass/fail, so they are how Forge proves a bug
 (a failing check), proves a fix (the check now passes), and guards against regressions (every
@@ -34,6 +41,7 @@ something in a real engine (physics, rendering, replication) says so with `-- ne
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shutil
@@ -42,10 +50,14 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 CHECKS_DIR = "checks"
-CHECK_TIMEOUT = 30.0
+# a round-based check can wait out the last round's Results phase (forge.startRound, up to 30 s) and then
+# its own round start; still well under forge.studio's 120 s MCP call limit
+CHECK_TIMEOUT = 90.0
+SETUP_MARK = "setup:"
+RESTART_SETTLE = 3.0  # seconds after a restarted playtest has a player, for the game's services to boot
 _ID_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -118,8 +130,31 @@ function forge.harness(cmd, args)
 	if not reply.ok then error("setup: ForgeTest " .. cmd .. " failed: " .. tostring(reply.error), 0) end
 	return reply.result
 end
+local ROUND_IDLE = { Lobby = true, Waiting = true, Intermission = true, Idle = true, [""] = true }
+function forge.roundIdle()
+	local s = workspace:GetAttribute("RoundState")
+	return s == nil or ROUND_IDLE[tostring(s)] == true
+end
+function forge.roundDriver()
+	-- the game's own round driver, the one the harness's `round` command calls; without it the harness sets
+	-- RoundState itself, so a Results it set never ends by itself and there is nothing to wait for
+	for _, svc in { "ServerScriptService", "ServerStorage", "ReplicatedStorage" } do
+		local m = game:GetService(svc):FindFirstChild("MissionService", true)
+		if m and m:IsA("ModuleScript") then return true end
+	end
+	return false
+end
 function forge.startRound(timeout)
 	if workspace:GetAttribute("RoundState") == "Active" then return true end
+	if not forge.roundIdle() and forge.roundDriver() then
+		-- the last round is still in its Results / cooldown phase: the game frees its players only back
+		-- in the lobby, so a start now does nothing (Flame and Blame run 2: every later round guard failed)
+		forge.waitFor(function()
+			return forge.roundIdle() or workspace:GetAttribute("RoundState") == "Active"
+		end, 30)
+		if workspace:GetAttribute("RoundState") == "Active" then return true end
+		task.wait(1)
+	end
 	local res = forge.harness("round", { state = "Active" })
 	local active = forge.waitFor(function() return workspace:GetAttribute("RoundState") == "Active" end, timeout or 15)
 	if not active then
@@ -136,19 +171,48 @@ end
 HELPERS_DOC = """Every check body can use a `forge` helper table (defined by the wrapper, no require needed):
 - forge.waitFor(fn, timeout) -> the first truthy value fn() returns within timeout seconds (default 10), else nil.
 - forge.startRound(timeout) -> starts a round through the ForgeTest harness (no-op if workspace RoundState is
-  already "Active") and waits until RoundState is "Active"; raises "setup: ..." when it cannot.
+  already "Active"; first waits out a round still in its Results phase) and waits until RoundState is
+  "Active"; raises "setup: ..." when it cannot.
 - forge.endRound() -> ends the round (call it before returning when the check started one).
-A check never waits for a lobby countdown or a player to pick a mission: it calls forge.startRound()."""
+A check never waits for a lobby countdown or a player to pick a mission: it calls forge.startRound().
+Live server modules: game:GetService("ServerStorage").DevHook:Invoke(moduleName, method, ...) -> (true, results...)
+or (false, error) ("." before the method for a plain call). require() in a check is a separate copy whose state is
+empty, so its calls change nothing in the running game."""
 
 ROUND_RULE = ("This game starts in a lobby (spec playtest.start_round): a check about anything that happens "
               "during a round MUST call forge.startRound() first and forge.endRound() before returning. "
               "\"inconclusive: round not Active\" is never an acceptable result.")
 
+SETUP_RULE = """Prove the situation before the behaviour. Every check asserts that its setup really produced
+the situation the behaviour is about, and raises a setup error when it did not, BEFORE it asserts the
+behaviour: assert(tierAfter > tierBefore, "setup: no tier-up") or
+if not reached then error("setup: the award never reached the next tier") end.
+A check about what happens on a tier-up must see the tier-up happen: an XP award that never tiered up makes a
+"no auto-claim on tier-up" check pass without testing anything. Compare before/after values of THIS check
+(a cumulative counter that was already above 0 proves nothing). A setup error proves nothing either way (not a
+pass, not a game bug), so it is always the safe answer. Never turn a setup error into ok = false (no pcall
+around forge.startRound that returns ok = false): that reports a game bug the game does not have."""
+
 
 def helpers_doc(spec: dict | None) -> str:
-    """The helper docs for a scenarist/reproducer/reviewer user message, plus the round rule when the game
-    starts in a lobby."""
-    return HELPERS_DOC + ("\n" + ROUND_RULE if ((spec or {}).get("playtest") or {}).get("start_round") else "")
+    """The helper docs for a scenarist/reproducer/reviewer user message: the helpers, the setup rule, and the
+    round rule when the game starts in a lobby."""
+    return (HELPERS_DOC + "\n" + SETUP_RULE
+            + ("\n" + ROUND_RULE if ((spec or {}).get("playtest") or {}).get("start_round") else ""))
+
+
+_COMMENT = re.compile(r"--\[(=*)\[.*?\]\1\]|--[^\n]*", re.S)
+_SETUP_LITERAL = re.compile(r"""(?:["']|\[=*\[)\s*setup:""")
+LINT_SETUP = ("This check never asserts its setup: it has no error(\"setup: ...\") or assert(..., \"setup: ...\") for "
+              "the situation it needs. Add one that proves the situation happened (for example "
+              "assert(tierAfter > tierBefore, \"setup: no tier-up\")) before asserting the behaviour, so a run "
+              "where the situation never happened is a setup error, not a pass.")
+
+
+def lint_setup(body: str) -> str | None:
+    """Why a check body can pass without its situation ever happening (no setup assertion at all), else None.
+    Cheap and static: a "setup: ..." string literal outside comments counts as the assertion."""
+    return None if _SETUP_LITERAL.search(_COMMENT.sub("", body or "")) else LINT_SETUP
 
 
 def wrap(body: str) -> str:
@@ -255,8 +319,35 @@ def result_from(text: str) -> dict:
     return out
 
 
-async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT) -> dict:
-    """Run one check in the Server datamodel of the current playtest -> {id, title, ok, detail, error?}."""
+def setup_failure(result: dict) -> bool:
+    """The check never reached its situation ("setup: ..." in its error, or in a detail it built from one,
+    such as 'startRound failed: setup: round did not start'): unknown, it proves nothing either way."""
+    if result.get("ok"):
+        return False
+    return SETUP_MARK in f"{result.get('error') or ''} {result.get('detail') or ''}"
+
+
+def _can_restart(studio: Any) -> bool:
+    return callable(getattr(studio, "play", None)) and callable(getattr(studio, "stop", None))
+
+
+async def fresh_play(studio: Any, log: Callable[[str], None] = print) -> bool:
+    """Stop and start the playtest (a fresh server with fresh game state), then wait for a player.
+    False when Studio would not restart or no player spawned."""
+    from forge.scenarios import wait_for_player
+
+    try:
+        await studio.stop()
+        await studio.play()
+    except Exception as e:  # noqa: BLE001 - reported; the check keeps its setup failure
+        log(f"[checks] could not restart the playtest: {type(e).__name__}: {str(e)[:200]}")
+        return False
+    ok = await wait_for_player(studio)
+    await asyncio.sleep(RESTART_SETTLE)
+    return ok
+
+
+async def _run_once(studio: Any, check: Check, timeout: float) -> dict:
     try:
         text = await studio.execute_luau(wrap(check.body), "Server", timeout=timeout)
         res = result_from(text)
@@ -265,8 +356,34 @@ async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT) -
     return {"id": check.id, "title": check.title, **res}
 
 
-async def run_checks(studio: Any, checks: list[Check], timeout: float = CHECK_TIMEOUT) -> list[dict]:
-    return [await run_check(studio, c, timeout) for c in checks]
+async def run_check(studio: Any, check: Check, timeout: float = CHECK_TIMEOUT, *, fresh: bool = True,
+                    log: Callable[[str], None] = print) -> dict:
+    """Run one check in the Server datamodel of the current playtest -> {id, title, ok, detail, error?}.
+    A setup failure (setup_failure) gets one rerun in a restarted playtest when `fresh` and the studio can
+    play/stop (the rerun has restarted: true and the first run in `first`); a check that still cannot set up
+    has setup: true."""
+    res = await _run_once(studio, check, timeout)
+    if fresh and setup_failure(res) and _can_restart(studio):
+        log(f"[checks] {check.id} could not set up ({str(res.get('error') or res.get('detail'))[:120]}); "
+            "running it again in a fresh playtest")
+        if await fresh_play(studio, log):
+            first = {k: res[k] for k in ("ok", "detail", "error") if k in res}
+            res = {**await _run_once(studio, check, timeout), "restarted": True, "first": first}
+    if setup_failure(res):
+        res["setup"] = True
+    return res
+
+
+async def run_checks(studio: Any, checks: list[Check], timeout: float = CHECK_TIMEOUT, *,
+                     log: Callable[[str], None] = print) -> list[dict]:
+    """Every check in order. Restarts stop for the rest of the batch once a fresh playtest did not help."""
+    out, fresh = [], True
+    for c in checks:
+        r = await run_check(studio, c, timeout, fresh=fresh, log=log)
+        if r.get("restarted") and r.get("setup"):
+            fresh = False
+        out.append(r)
+    return out
 
 
 def summary(results: list[dict]) -> str:
@@ -274,7 +391,8 @@ def summary(results: list[dict]) -> str:
     lines = [f"checks: {passed}/{len(results)} pass"]
     for r in results:
         if not r.get("ok"):
-            lines.append(f"- FAIL {r['id']}: {r.get('error') or r.get('detail', '')}"[:300])
+            what = "UNKNOWN (could not set up)" if setup_failure(r) else "FAIL"
+            lines.append(f"- {what} {r['id']}: {r.get('error') or r.get('detail', '')}"[:300])
     return "\n".join(lines)
 
 

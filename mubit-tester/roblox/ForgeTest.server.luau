@@ -4,6 +4,7 @@
 --   :Invoke(cmd: string, argsJson: string?) -> JSON string {"ok": bool, "result": any, "error": string?}
 --   cmds: ping, caps, players, observe, act, query, inspect, set_attr, ignite, extinguish, teleport,
 --         config, counters, events, reset, round, blame, hook,
+--         teleport_stage, obby_try   (obbies: parts tagged Checkpoint with a Stage attribute, KillPart hazards)
 --         ui, ui_target, ui_effect   (the player's GUI buttons; `press` = these + a real click, Python)
 --         squads, instances, queue, launch, mission_start, mission_end   (multiplayer / co-op / squads)
 --         bot_spawn, bots, bot_clear   (swarm: server-driven NPC testers, addressed like players)
@@ -77,6 +78,9 @@ local SIGNAL_KINDS = {
 	RoundStarted = "round_started", RoundEnded = "round_ended",
 }
 local WORLD_ATTRS = { "RoundState", "RoundEndsAt", "MissionId" }
+-- RoundState values between rounds; any other value but Active (Results, Ended, ...) is a round still finishing
+local ROUND_IDLE = { Lobby = true, Waiting = true, Intermission = true, Idle = true, [""] = true }
+local ROUND_COOLDOWN = 30
 local ACTIONS = {
 	walk_to = true, jump = true, interact = true, equip = true, unequip = true,
 	use = true, look_at = true, say = true, wait = true,
@@ -1570,6 +1574,102 @@ local function burningish(inst: Instance): boolean
 	return CollectionService:HasTag(inst, "Burning") or (tonumber(inst:GetAttribute("FireLevel")) or 0) > 0
 end
 
+------------------------------------------------------------------------------- obby
+-- ObbyKit contract: a checkpoint is a part (or a model) tagged "Checkpoint" with a number attribute Stage
+-- (1..N); a hazard is tagged "KillPart". A player's stage is their Stage attribute, else leaderstats.Stage.
+
+local OBBY_CHECKPOINT, OBBY_HAZARD = "Checkpoint", "KillPart"
+
+local function checkpointPart(inst: Instance): BasePart?
+	if inst:IsA("BasePart") then
+		return inst
+	elseif inst:IsA("Model") then
+		return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+	end
+	return nil
+end
+
+-- stage number -> its checkpoint part (the first one tagged with that Stage), and how many stages there are
+local function checkpoints(): ({ [number]: BasePart }, number)
+	local out, n = {}, 0
+	for _, inst in CollectionService:GetTagged(OBBY_CHECKPOINT) do
+		local stage = tonumber(inst:GetAttribute("Stage"))
+		local part = if stage and inst:IsDescendantOf(workspace) then checkpointPart(inst) else nil
+		if stage and part and out[stage] == nil then
+			out[stage] = part
+			n += 1
+		end
+	end
+	return out, n
+end
+
+local function stageOf(p: any): number?
+	local v = tonumber(p:GetAttribute("Stage"))
+	if v then
+		return v
+	end
+	local ls = p:FindFirstChild("leaderstats")
+	local s = ls and ls:FindFirstChild("Stage")
+	return if s and s:IsA("ValueBase") then tonumber((s :: any).Value) else nil
+end
+
+local function nextStage(cps: { [number]: BasePart }, after: number): number?
+	local best: number? = nil
+	for n in cps do
+		if n > after and (best == nil or n < (best :: number)) then
+			best = n
+		end
+	end
+	return best
+end
+
+local function topOf(part: BasePart): Vector3
+	return part.Position + Vector3.new(0, part.Size.Y / 2, 0)
+end
+
+-- observe's `obby` block (games with checkpoints only): stage, the next checkpoint, hazards nearby
+local function obbyView(p: any, origin: Vector3?, radius: number)
+	local cps, count = checkpoints()
+	if count == 0 then
+		return nil
+	end
+	local maxStage, nearest, nearD = 0, nil, math.huge
+	for n, part in cps do
+		maxStage = math.max(maxStage, n)
+		local d = if origin then (part.Position - origin).Magnitude else math.huge
+		if d < nearD then
+			nearest, nearD = n, d
+		end
+	end
+	local stage = stageOf(p)
+	local view = obj({ stage = stage, stages = count, max_stage = maxStage })
+	if nearest and origin then
+		view.nearest = { stage = nearest, dist = math.floor(nearD + 0.5) }
+	end
+	local nx = nextStage(cps, stage or nearest or 0)
+	if nx then
+		local part = cps[nx]
+		view.next = { stage = nx, path = part:GetFullName(), pos = v3(topOf(part)),
+			dist = if origin then math.floor((part.Position - origin).Magnitude + 0.5) else nil }
+	end
+	local hazards = {}
+	for _, h in CollectionService:GetTagged(OBBY_HAZARD) do
+		local pos = if origin and h:IsDescendantOf(workspace) then posOf(h) else nil
+		if pos and origin and (pos - origin).Magnitude <= radius then
+			table.insert(hazards, { name = h.Name, path = h:GetFullName(), dist = math.floor((pos - origin).Magnitude + 0.5),
+				pos = v3(pos) })
+		end
+	end
+	table.sort(hazards, function(a, b)
+		return a.dist < b.dist
+	end)
+	view.hazards = {}
+	for i = 1, math.min(6, #hazards) do
+		table.insert(view.hazards, hazards[i])
+	end
+	return view
+end
+
 local function observe(args)
 	local p = playerArg(args)
 	local radius = tonumber(args.radius) or 120
@@ -1733,6 +1833,10 @@ local function observe(args)
 	for i = 1, math.min(8, #touchables) do
 		table.insert(out.touchables, touchables[i])
 	end
+	local obby = obbyView(p, origin, math.min(radius, 60))
+	if obby then
+		out.obby = obby
+	end
 
 	if isBot(p) then
 		-- no client, so no screen: a bot only sees the world
@@ -1750,6 +1854,9 @@ local function observe(args)
 	if uiOk and type(ui) == "table" then
 		out.ui = ui.buttons or {}
 		out.panels = ui.panels or {}
+		if ui.not_rendering then
+			out.ui_error = ui.not_rendering -- a minimized Studio window: no button has a size
+		end
 	else
 		out.ui_error = tostring(ui)
 	end
@@ -2605,6 +2712,272 @@ local function teleport(args)
 	return true
 end
 
+------------------------------------------------------------------------------- obby commands
+
+local OBBY_TIMEOUT = 20 -- seconds per obby_try attempt (one checkpoint to the next)
+local OBBY_ATTEMPTS = 5
+local OBBY_FALL = 12 -- studs below the lower of the two checkpoints' tops: the runner fell off the course
+local OBBY_BUDGET = 100 -- seconds for all of one obby_try's attempts (Python waits at most 115)
+local OBBY_OVERHEAD = 15 -- per attempt besides the run: a respawn (up to 10 s), settling, the teleport, the path
+
+local function waitAlive(p: any, timeout: number): (Model?, Humanoid?, BasePart?)
+	local t0 = os.clock()
+	repeat
+		local char = p.Character
+		local hum = char and char.Parent and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hum and root and hum.Health > 0 then
+			return char, hum, root
+		end
+		task.wait(0.2)
+	until os.clock() - t0 > timeout
+	return nil, nil, nil
+end
+
+-- teleport_stage {userId, stage}: stand the player on top of the checkpoint tagged Stage = stage, so a tester
+-- can start anywhere on a long course instead of walking it from stage 1.
+local function teleportStage(args)
+	local p = playerArg(args)
+	local stage = tonumber(args.stage)
+	if not stage then
+		error("stage required (a checkpoint's Stage number)", 0)
+	end
+	local cps, count = checkpoints()
+	local part = cps[stage]
+	if not part then
+		local have = {}
+		for n in cps do
+			table.insert(have, n)
+		end
+		table.sort(have)
+		error(string.format("no checkpoint with Stage %s (%d parts tagged %s%s)", tostring(args.stage), count,
+			OBBY_CHECKPOINT, if #have > 0 then string.format(", stages %s..%s", tostring(have[1]), tostring(have[#have])) else ""), 0)
+	end
+	local old = p.Character
+	local oldHum = old and old:FindFirstChildOfClass("Humanoid")
+	local char, hum, root = waitAlive(p, 10)
+	if not char or not hum or not root then
+		error(p.Name .. " has no living character", 0)
+	end
+	if char ~= old or not oldHum or oldHum.Health <= 0 then
+		task.wait(1) -- a fresh respawn: the game's own spawn code moves the body first
+	end
+	if hum.Sit then
+		hum.Sit = false
+		task.wait()
+	end
+	local top = topOf(part)
+	local spot = top + Vector3.new(0, 3, 0)
+	for _ = 1, 2 do
+		char:PivotTo(CFrame.new(spot) * char:GetPivot().Rotation)
+		root.AssemblyLinearVelocity = Vector3.zero
+		task.wait(0.4) -- land on it, so the checkpoint's own Touched handler runs
+		if (root.Position - spot).Magnitude < 6 then
+			break -- else the game moved it (a spawn or checkpoint handler): once more
+		end
+	end
+	log("teleport_stage", with(who(p), { stage = stage }))
+	return obj({ stage = stage, path = part:GetFullName(), pos = v3(top), player_stage = stageOf(p), stages = count,
+		next = nextStage(cps, stage) })
+end
+
+-- standing on the part: over its top face, a body height above it (a character's root is ~3 studs up), grounded
+local function onTop(root: BasePart, hum: Humanoid, part: BasePart): boolean
+	local rel = part.CFrame:PointToObjectSpace(root.Position)
+	return hum.FloorMaterial ~= Enum.Material.Air and math.abs(rel.X) <= part.Size.X / 2 + 0.5
+		and math.abs(rel.Z) <= part.Size.Z / 2 + 0.5 and rel.Y >= part.Size.Y / 2 and rel.Y <= part.Size.Y / 2 + 5
+end
+
+-- One deterministic run from `fromPart` toward `toPart`: PathfindingService waypoints (AgentCanJump) with
+-- Humanoid:MoveTo + Jump, then a straight run at the goal that jumps at a platform edge, when blocked, and when
+-- the goal is a step up. The server drives the body (for a real player it holds physics ownership for the run).
+local function obbyRun(p: any, toStage: number, fromPart: BasePart, toPart: BasePart, timeout: number)
+	local char = p.Character
+	local hum = char and char.Parent and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not char or not hum or not root or hum.Health <= 0 then
+		return { result = "not_started", detail = p.Name .. " died or respawned right after the teleport" }
+	end
+	if flat(root.Position - fromPart.Position).Magnitude > math.max(fromPart.Size.X, fromPart.Size.Z) / 2 + 3 then
+		return { result = "not_started", detail = "the game moved the body off the start checkpoint (to "
+			.. table.concat(v3(root.Position), ", ") .. ")" }
+	end
+	local real = not isBot(p)
+	if real then
+		pcall(root.SetNetworkOwner, root, nil)
+	end
+	local goal = topOf(toPart)
+	local floorY = math.min(topOf(fromPart).Y, goal.Y) - OBBY_FALL
+	local stage0 = stageOf(p) -- an obby only counts up, so a stage reached earlier says nothing about this run
+	local hazard: Instance? = nil
+	local conns = {}
+	for _, h in CollectionService:GetTagged(OBBY_HAZARD) do
+		if h:IsA("BasePart") and ((h.Position - goal).Magnitude < 200 or (h.Position - root.Position).Magnitude < 200) then
+			table.insert(conns, h.Touched:Connect(function(hit)
+				if hazard == nil and hit:IsDescendantOf(char) then
+					hazard = h
+				end
+			end))
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { char }
+	local t0 = os.clock()
+	local lastFloor: string? = nil
+	local jumps = 0
+	local function outcome(): string?
+		if char.Parent == nil or hum.Health <= 0 or hazard ~= nil or root.Position.Y < floorY then
+			return "fell"
+		end
+		local st = stageOf(p)
+		if onTop(root, hum, toPart) or (st ~= nil and st >= toStage and (stage0 == nil or st > stage0)) then
+			return "reached"
+		end
+		return nil
+	end
+	local function sample()
+		if hum.FloorMaterial ~= Enum.Material.Air then
+			local hit = workspace:Raycast(root.Position, Vector3.new(0, -8, 0), params)
+			if hit then
+				lastFloor = hit.Instance:GetFullName()
+			end
+		end
+	end
+	local function jump()
+		if hum.FloorMaterial ~= Enum.Material.Air then
+			hum.Jump = true
+			jumps += 1
+		end
+	end
+	local result: string? = nil
+	local via = "path"
+	-- the route: PathfindingService waypoints (AgentCanJump), else straight at the goal
+	local targets: { { pos: Vector3, jump: boolean } } = {}
+	local path = PathfindingService:CreatePath({ AgentRadius = 1.5, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 3 })
+	local okPath = pcall(path.ComputeAsync, path, root.Position, goal)
+	if okPath and path.Status == Enum.PathStatus.Success then
+		for i, wp in path:GetWaypoints() do
+			if i > 1 then
+				table.insert(targets, { pos = wp.Position, jump = wp.Action == Enum.PathWaypointAction.Jump })
+			end
+		end
+	else
+		via = "straight (no path: " .. (if okPath then path.Status.Name else "ComputeAsync failed") .. ")"
+	end
+	table.insert(targets, { pos = goal, jump = false })
+	local idx, jumpAt = 1, nil
+	local best, lastGain = flat(goal - root.Position).Magnitude, os.clock()
+	while os.clock() - t0 < timeout and os.clock() - lastGain < 4 do
+		local tgt = targets[idx]
+		if idx < #targets and flat(tgt.pos - root.Position).Magnitude < 1.5 then
+			if tgt.jump then
+				jumpAt = os.clock() -- a Jump waypoint is the take-off point: jump from here
+			end
+			idx += 1
+			tgt = targets[idx]
+		end
+		hum:MoveTo(tgt.pos)
+		if hum.FloorMaterial ~= Enum.Material.Air then
+			local dir = flat(tgt.pos - root.Position)
+			if jumpAt and os.clock() - jumpAt < 0.6 then
+				jump()
+				jumpAt = nil
+			elseif dir.Magnitude > 0.5 and not workspace:Raycast(root.Position + dir.Unit * 1.5, Vector3.new(0, -6, 0), params) then
+				jump() -- the platform ends just ahead: jump the gap
+			elseif tgt.pos.Y > root.Position.Y - 1 and dir.Magnitude < 6 then
+				jump() -- a step up (the root rides ~3 studs above the floor)
+			end
+		end
+		task.wait(0.05)
+		sample()
+		result = outcome()
+		if result then
+			break
+		end
+		local d = flat(goal - root.Position).Magnitude
+		if d < best - 0.5 then
+			best, lastGain = d, os.clock()
+		elseif os.clock() - lastGain > 1.2 then
+			jump() -- held up by a lip or a wall: hop
+		end
+	end
+	for _, c in conns do
+		c:Disconnect()
+	end
+	if hum.Parent and hum.Health > 0 then
+		hum:MoveTo(root.Position)
+	end
+	if real and root.Parent then
+		pcall(root.SetNetworkOwner, root, p)
+	end
+	result = result or "stuck"
+	local at, secs, dist = v3(root.Position), os.clock() - t0, flat(goal - root.Position).Magnitude
+	local where = table.concat(at, ", ")
+	local detail
+	if result == "reached" then
+		detail = string.format("reached stage %d in %.1fs (%d jumps, %s)", toStage, secs, jumps, via)
+	elseif result == "fell" then
+		local how = if hazard then "on hazard " .. hazard:GetFullName()
+			elseif hum.Health <= 0 or char.Parent == nil then "and died"
+			else "off the course"
+		detail = string.format("fell %s at [%s] after %.1fs, %.0f studs short of stage %d%s (%d jumps, %s)", how, where,
+			secs, dist, toStage, if lastFloor then "; last ground " .. lastFloor else "", jumps, via)
+	else
+		detail = string.format("stuck at [%s] after %.1fs, %.0f studs short of stage %d%s (%d jumps, %s)", where, secs,
+			dist, toStage, if lastFloor then " on " .. lastFloor else "", jumps, via)
+	end
+	return { result = result, at = at, dist = r(dist), secs = r(secs), jumps = jumps, via = via,
+		hazard = if hazard then hazard:GetFullName() else nil, last_floor = lastFloor, detail = detail }
+end
+
+-- obby_try {userId, from_stage?, to_stage?, attempts?=1, timeout?=20}: stand the player on checkpoint from_stage
+-- (default: their stage) and let a deterministic runner (obbyRun, no LLM) go for the next checkpoint, up to
+-- `attempts` times. -> {done = reached, from_stage, to_stage, attempts: [{result = reached | fell | stuck, at,
+-- dist, secs, jumps, hazard?, last_floor?, detail}], detail}
+local function obbyTry(args)
+	local p = playerArg(args)
+	local cps = checkpoints()
+	local from = tonumber(args.from_stage or args.stage) or stageOf(p)
+	if not from then
+		error("from_stage required (the player has no Stage yet)", 0)
+	end
+	local to = tonumber(args.to_stage) or nextStage(cps, from)
+	if cps[from] and not (to and cps[to]) then
+		error(string.format("no checkpoint after stage %s", tostring(from)), 0)
+	end
+	local attempts = math.clamp(math.floor(tonumber(args.attempts) or 1), 1, OBBY_ATTEMPTS)
+	local per = math.clamp(tonumber(args.timeout) or OBBY_TIMEOUT, 3, 60)
+	local tries, reached, started = {}, false, os.clock()
+	for i = 1, attempts do
+		if i > 1 and os.clock() - started + per + OBBY_OVERHEAD > OBBY_BUDGET then
+			break -- the whole call has to answer inside one Studio MCP call
+		end
+		local res
+		for _ = 1, 2 do -- the game can kill or move the body right after the teleport: once more
+			teleportStage({ userId = p, stage = from }) -- errors with the stage listing when from_stage is unknown
+			res = obbyRun(p, to :: number, cps[from], cps[to :: number], per)
+			if res.result ~= "not_started" then
+				break
+			end
+		end
+		if res.result == "not_started" then
+			res.result, res.detail = "stuck", "could not start: " .. res.detail
+		end
+		res.attempt = i
+		table.insert(tries, res)
+		if res.result == "reached" then
+			reached = true
+			break
+		end
+	end
+	local last = tries[#tries]
+	log("obby_try", with(who(p), { from = from, to = to, reached = reached, attempts = #tries, result = last.result }))
+	return obj({ done = reached, from_stage = from, to_stage = to, reached = reached, attempts = tries,
+		detail = string.format("stage %s -> %s: %s after %d attempt(s); last: %s", tostring(from), tostring(to),
+			if reached then "reached" else "NOT reached", #tries, tostring(last.detail)) })
+end
+
 local function config(args)
 	local name = tostring(args.module or "")
 	local ms = findModule(name)
@@ -2736,7 +3109,28 @@ local function round(args)
 		return state()
 	end
 	local want = tostring(args.state)
+	local function idle(): boolean
+		local s = workspace:GetAttribute("RoundState")
+		return s == nil or ROUND_IDLE[tostring(s)] == true
+	end
 	local mission = liveModule("MissionService")
+	local waited = 0
+	if want == "Active" and mission and workspace:GetAttribute("RoundState") ~= "Active" and not idle() then
+		-- the last round is still in its Results / cooldown phase: the game frees its players only back in
+		-- the lobby, so a start now would do nothing (`wait`: how long to wait for that, default 30 s).
+		-- Without MissionService this command sets RoundState itself, so there is nothing to wait for.
+		local t0, limit = os.clock(), math.clamp(tonumber(args.wait) or ROUND_COOLDOWN, 0, 60)
+		while os.clock() - t0 < limit and not idle() and workspace:GetAttribute("RoundState") ~= "Active" do
+			task.wait(0.2)
+		end
+		waited = os.clock() - t0
+		if workspace:GetAttribute("RoundState") == "Active" then
+			local out = state()
+			out.via, out.waited = "became Active by itself", r(waited)
+			return out
+		end
+		task.wait(1) -- settle: the game finishes handing its players back
+	end
 	local via = "attribute"
 	if mission then
 		local ok, err = true, nil
@@ -2757,6 +3151,9 @@ local function round(args)
 	end
 	local out = state()
 	out.via = via
+	if waited > 0 then
+		out.waited = r(waited)
+	end
 	return out
 end
 
@@ -3179,6 +3576,8 @@ local commands: { [string]: (any) -> any } = {
 	ignite = ignite,
 	extinguish = extinguish,
 	teleport = teleport,
+	teleport_stage = teleportStage,
+	obby_try = obbyTry,
 	config = config,
 	counters = counters,
 	events = eventsCmd,
