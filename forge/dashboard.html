@@ -7,21 +7,24 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --sky: #3b2a8f; --sky2: #5a3fd1; --panel: #ffffff; --panel2: #f3efff; --ink: #1a1033; --muted: #6a6190;
-    --yellow: #ffd23f; --orange: #ff8a1f; --green: #2fd17a; --pink: #ff4fa3; --cyan: #29c7f2; --red: #ff4d5e;
-    --purple: #8b5cf6; --grey: #b7b1cc; --gold: #ffcc33; --line: #e2dcf5; --code: #f4f1fb;
-    --shadow: 0 5px 0 var(--ink);
-    --head: "Lilita One", "Baloo 2", cursive; --body: "Nunito", "Trebuchet MS", sans-serif;
+    /* Cozy village: warm cream, leaf, sky, peach, butter, rose; soft brown ink. Green and red mean ✓ and ✗. */
+    color-scheme: light;
+    --paper: #fbf4e4; --sky: var(--paper); --sky2: var(--paper);
+    --panel: #fffdf8; --panel2: #f7efdd; --ink: #4b3b2f; --muted: #8a7766; --line: #ecdfc6; --code: #f7efdd;
+    --leaf: #7fb069; --skyc: #84c5e3; --peach: #f4a685; --butter: #f9d56e; --rose: #e87d8a;
+    --green: #5f9e4a; --red: #d9534f; --yellow: var(--butter); --blue: #4f9cc2; --orange: var(--peach);
+    --teal: var(--blue); --cyan: var(--skyc); --pink: var(--rose); --purple: #a58bc9; --gold: var(--butter); --grey: #c9bba3;
+    --shadow: 0 2px 0 #eadcc0, 0 14px 30px -18px #4b3b2f55;
+    --head: "Fredoka", "Nunito", sans-serif; --body: "Nunito", "Trebuchet MS", sans-serif;
+    --mono: ui-monospace, Menlo, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
-      --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
   }
-  :root[data-theme="dark"] { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
-    --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
+  :root[data-theme="dark"] { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
+    --ink: #f0e9da; --muted: #b5aa95; --line: #4a443b; --code: #34302a; --text: #f0e9da;
+    --sticker: #3d3832; --sticker-edge: #141210; --red: #ff6b78; --teal: #29b3b9; --green: #2bcf7f; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; min-height: 100vh; color: var(--text, var(--ink)); font: 600 15px/1.45 var(--body);
@@ -224,7 +227,7 @@
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lane.running { background: linear-gradient(90deg, #4a3d1a, var(--panel2) 40%); } }
   .lane .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .lane .who svg { width: 34px; height: 40px; flex: none; }
-  .lane.running .who svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .lane.running .who svg { animation: blink 1.2s ease-in-out infinite; }
   .lane .nm { font-weight: 900; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
   .lane .st { display: block; font: 900 10px var(--body); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
   .lane.running .st { color: #15803d; } .lane.failed .st { color: #b91c1c; }
@@ -337,14 +340,14 @@
   .verdict { font-weight: 900; } .verdict small { display: block; color: var(--muted); font-weight: 700; font-size: 13px; }
   .gamecard { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
   .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
-  .agent { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
+  .agent { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
     padding: 8px 10px; border-radius: 14px; background: var(--panel2); border: 2px solid var(--ink); color: var(--text, var(--ink));
     box-shadow: 0 3px 0 var(--ink); transition: transform .08s; min-width: 0; }
   .agent:hover, .agent:focus-visible { transform: translateY(-2px); outline: none; box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--cyan); }
   .agent.running { background: linear-gradient(135deg, #fff6c9, #ffe27a); color: var(--ink); }
   .agent.sel { box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--pink); }
-  .agent svg { width: 34px; height: 40px; }
-  .agent.running svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .agent svg { width: 42px; height: 50px; margin: -4px 0; }
+  .agent.running svg { animation: blink 1.2s ease-in-out infinite; }
   .agent .nm { font-weight: 900; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent .st { font: 800 11px var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent.running .st { color: #6b5a12; }
@@ -371,23 +374,26 @@
   @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
 
   /* ---------- live build progress (runs/<slug>/progress.json) on "Running now" */
-  .prog { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 12px 14px; border-radius: 14px; cursor: pointer;
-    background: var(--panel2); border: 2px solid var(--ink); color: var(--text, var(--ink)); }
+  .prog { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 14px 16px; border-radius: 18px; cursor: pointer;
+    background: #fdf0c4; border: 0; color: var(--text, var(--ink)); }
+  .prog.done, .prog.failed, .prog.stalled { background: var(--panel2); }
   .prog-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
-  .prog .pct { font: 64px/0.9 var(--head); min-width: 2.6ch; text-align: right; }
-  .prog .pct small { font-size: 28px; }
-  .prog .nm { font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .prog .stp { font-weight: 900; font-size: 17px; overflow-wrap: anywhere; }
-  .prog .meta { font: 800 13px var(--body); color: var(--muted); }
-  .pbar { height: 16px; margin: 10px 0 8px; border: 2.5px solid var(--ink); border-radius: 99px; background: var(--line); overflow: hidden; }
-  .pbar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--orange), var(--yellow));
+  .prog .pct { font: 700 60px/0.9 var(--head); min-width: 2.6ch; text-align: right; color: var(--ink); letter-spacing: -.02em; }
+  .prog .pct small { font-size: 26px; color: var(--muted); }
+  .prog .nm { font: 700 15px var(--head); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prog .stp { font-weight: 800; font-size: 17px; overflow-wrap: anywhere; }
+  .prog .meta { font: 700 13px var(--body); color: var(--muted); }
+  .pbar { height: 14px; margin: 12px 0 10px; border: 0; border-radius: 999px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+  .pbar > i { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--peach), var(--butter));
     transition: width 1.6s linear; }
-  .prog.done .pbar > i { background: var(--green); } .prog.failed .pbar > i { background: var(--red); }
+  .prog.done .pbar > i { background: var(--leaf); } .prog.failed .pbar > i { background: var(--red); }
   .prog.stalled .pbar > i { background: var(--grey); } .prog.stalled .stp { color: var(--muted); }
-  .pfeed { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
-  .pfeed li { font-size: 13.5px; font-weight: 800; padding-left: 18px; position: relative; overflow-wrap: anywhere; }
+  .pfeed { list-style: none; margin: 0; padding: 8px 0 0; display: grid; gap: 3px; border-top: 1.5px dashed var(--line); }
+  .prog .pfeed { border-top-color: #efdca0; }
+  .pfeed:empty { display: none; }
+  .pfeed li { font-size: 13.5px; font-weight: 700; padding-left: 18px; position: relative; overflow-wrap: anywhere; }
   .pfeed li::before { content: "·"; position: absolute; left: 4px; font-weight: 900; }
-  .pfeed li.ok::before { content: "✓"; color: var(--green); } .pfeed li.bad { color: var(--red); } .pfeed li.bad::before { content: "✗"; }
+  .pfeed li.ok { color: var(--text, var(--ink)); } .pfeed li.ok::before { content: "✓"; color: var(--green); } .pfeed li.bad { color: var(--red); } .pfeed li.bad::before { content: "✗"; }
   .pfeed li.new { animation: pfeedIn .45s ease-out; }
   @keyframes pfeedIn { from { opacity: 0; transform: translateY(-8px); } }
   @media (prefers-reduced-motion: reduce) { .pbar > i { transition: none; } .pfeed li.new { animation: none; } }
@@ -422,7 +428,7 @@
   .aprow .dec .r { color: var(--muted); grid-column: 2 / -1; font-size: 11.5px; }
   .aprow .ev { font-size: 11.5px; color: var(--muted); }
   .empty { padding: 18px; border: 3px dashed var(--line); border-radius: 16px; font-weight: 800; color: var(--muted); text-align: center; }
-  .credits { margin-top: 26px; color: #cfc6f5; font-size: 12px; font-weight: 700; text-align: center; }
+  .credits { margin-top: 26px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
 
   @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) {
@@ -437,6 +443,85 @@
     *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition: none !important; }
     .launch.go .big .lid { transform: translate(0, -13px) rotate(-10deg); }
   }
+
+
+
+  /* ================================================================ cozy village
+     Soft cards on cream, no hard outlines; the agents are Bottts robots (Pablo Stanley, free for commercial
+     use) tinted with the palette. */
+  body { background: var(--paper); font-weight: 700; }
+  header { color: var(--ink); }
+  h1, h2, h3, .head { font-weight: 700; color: var(--ink); }
+  .logo { font: 700 38px/1 var(--head); color: var(--ink); -webkit-text-stroke: 0; text-shadow: none; letter-spacing: -.01em; }
+  .logo::first-letter { color: var(--peach); }
+  .tag { color: var(--muted); font-weight: 700; }
+  .card { border: 0; border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); }
+  .btn, select.pick { border: 0; border-radius: 999px; box-shadow: 0 2px 0 #e4d4b4; background: var(--butter); color: var(--ink); font-weight: 800; }
+  select.pick { background-color: var(--panel); border-radius: 14px; }
+  .btn.ghost { background: var(--panel); }
+  .btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #e4d4b4; }
+  .chip { border: 0; border-radius: 999px; background: var(--panel2); color: var(--ink); letter-spacing: .04em; padding: 3px 10px; }
+  .chip.live { background: var(--leaf); color: #fff; } .chip.done { background: var(--butter); }
+  .tile { border: 0; box-shadow: none; background: var(--panel2); border-radius: 16px; }
+  .tile .v { color: var(--ink); }
+  .tile.hot, .report, .moment { background: #fdf0c4; }
+  .empty { border-color: var(--line) !important; color: var(--muted); }
+  .nowrow, .agent { border: 0; border-radius: 18px; background: var(--panel2); box-shadow: none; }
+  .agent { grid-template-columns: 48px minmax(0, 1fr); align-items: center; transition: transform .12s, background .12s; }
+  .agent:hover, .agent:focus-visible { transform: translateY(-2px); background: #f2e6cc; box-shadow: none; outline: none; }
+  .agent.sel { background: #f2e6cc; box-shadow: inset 0 0 0 2px var(--peach); }
+  .agent.running { background: #fdf0c4; color: var(--ink); }
+  .agent .st { color: var(--muted); }
+  .agent svg { width: 48px; height: 48px; margin: 0; }
+  .crew image { image-rendering: auto; }
+  .agent.running svg, .lane.running .who svg { animation: bob 1.4s ease-in-out infinite; transform-origin: 50% 100%; }
+  .result .pic, .lb .pic { border: 0; border-radius: 16px; background: #3a2f27; color: #f7efdd; }
+  .shot { border: 0; border-radius: 12px; background: #3a2f27; } .shot .badge { border: 0; }
+  .drawer { border-left: 0; box-shadow: -10px 0 40px -10px #4b3b2f55; }
+  .lane { background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .lane.running { background: #fdf0c4; border-radius: 12px; }
+  .lane.running .st { color: var(--green); } .lane.failed .st { color: var(--red); }
+  .track { background: var(--panel2); border: 0; border-radius: 999px; overflow: visible; }
+  .track i { border: 0; border-radius: 999px; top: 4px; bottom: 4px; background: var(--skyc); cursor: help; }
+  .track i.seg-bad { z-index: 1; background: var(--red); }
+  .track i.seg-bad::after { content: "✗"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font: 900 11px/1 var(--body); color: var(--red); }
+  .track i.seg-pend { background: var(--grey); }
+  .track i.open { background: var(--butter); }
+  .track i:hover { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
+  .ok, .up { color: var(--green); } .bad, .down { color: var(--red); }
+  .meter { border: 0; border-radius: 999px; background: var(--panel2); }
+  .meter i { background: var(--butter); } .meter i.full { background: var(--leaf); }
+  .stage { border: 0; border-radius: 18px; background: linear-gradient(#cfe8f3 0 62%, #b7d99c 62%); }
+  .stage .sun { border: 0; box-shadow: 0 0 0 8px #f9d56e55; }
+  .bubble, .bot .name, .slot .v { border: 0; border-radius: 10px; }
+  .map { background: var(--panel2); border: 0; }
+  .credits { color: var(--muted); }
+  .scrim, .lightbox { background: #4b3b2fb3; }
+  /* hover card: a printed ticket with a rubber stamp */
+  .tip { background: var(--panel); color: var(--text, var(--ink)); border-radius: 4px; padding: 10px 12px 9px; max-width: 320px;
+    font: 600 12px/1.4 var(--body); 
+    box-shadow: 0 0 0 4px var(--sticker), 0 0 0 5.5px var(--sticker-edge), 4px 7px 0 4px #26221d33; }
+  .tip.call { min-width: 220px; }
+  .tip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .tip-who { font: 15px/1 var(--head); text-transform: capitalize; }
+  .tip-title { font-weight: 800; margin-bottom: 4px; }
+  .tip-line { color: var(--muted); overflow-wrap: anywhere; }
+  .tip-line.rid { font: 10.5px/1.4 var(--mono);  opacity: .8; }
+  .tip-line.err { color: var(--red); font-weight: 700; }
+  .stamp { flex: none; font: 900 11px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; padding: 4px 6px 3px;
+    border: 2.5px solid currentColor; border-radius: 4px; transform: rotate(-6deg);
+    -webkit-mask: radial-gradient(circle at 30% 40%, #000 60%, #000b 75%, #0006 100%) 0 0 / 7px 5px;
+    mask: radial-gradient(circle at 30% 40%, #000 60%, #000b 75%, #0006 100%) 0 0 / 7px 5px; }
+  .stamp.ok { color: var(--green); } .stamp.bad { color: var(--red); transform: rotate(5deg); } .stamp.pend { color: var(--blue); }
+  .tip-checks { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1.5px dashed var(--line); display: grid; gap: 3px; }
+  .tip-checks li { display: grid; grid-template-columns: 16px 1fr; gap: 4px; }
+  .tip-checks li b { font-weight: 900; } .tip-checks li.ok b { color: var(--green); } .tip-checks li.bad b { color: var(--red); } .tip-checks li.pend b { color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .card, .shot { transform: none !important; } }
+
+  .tip { border-radius: 16px; box-shadow: 0 16px 40px -14px #4b3b2f88, 0 0 0 1px var(--line); }
+  .stamp { -webkit-mask: none; mask: none; border: 0; border-radius: 999px; transform: none; color: #fff; padding: 4px 9px; letter-spacing: .04em; }
+  .stamp.ok { background: var(--green); color: #fff; } .stamp.bad { background: var(--red); color: #fff; transform: none; } .stamp.pend { background: var(--blue); color: #fff; }
+  .tip-calls li span small { display: block; color: var(--muted); font-weight: 700; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -449,8 +534,8 @@
   </header>
 
   <div id="nowBox"><div class="card empty">Loading…</div></div>
-  <div id="gameBox"></div>
   <div id="agentsBox"></div>
+  <div id="gameBox"></div>
 
   <section id="more" aria-label="More detail">
     <div id="main"></div>
@@ -462,7 +547,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Lilita One and Nunito (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -486,17 +571,17 @@ const when = iso => { const t = Date.parse(iso); return isNaN(t) ? "" : ago(t / 
 
 // The Forge team. Each one is a Mubit task (role); `roles` lists which call roles count toward its badge.
 const TEAM = [
-  {key: "planner", name: "Planner", doing: "Planning the new feature", hat: "#8b5cf6", body: "#c4b5fd", tool: "clip", roles: ["planner"]},
-  {key: "designer", name: "Designer", doing: "Dreaming up the game", hat: "#ff4fa3", body: "#ffb3d6", tool: "pencil", roles: ["designer"]},
-  {key: "coder", name: "Coder", doing: "Writing the game code", hat: "#ff8a1f", body: "#ffd0a3", tool: "hammer", roles: ["coder"]},
-  {key: "tester", name: "Tester", doing: "Playing the game in Roblox", hat: "#29c7f2", body: "#b3ecff", tool: "pad", roles: ["tester", "playtester", "judge"]},
-  {key: "critic", name: "Critic", doing: "Scoring the game out of 10", hat: "#ffd23f", body: "#fff0a8", tool: "star", roles: ["critic"]},
-  {key: "auditor", name: "Inspector", doing: "Hunting for bugs", hat: "#ef4444", body: "#fecaca", tool: "glass", roles: ["auditor", "triage"]},
-  {key: "investigator", name: "Investigator", doing: "Finding where the bug hides", hat: "#0ea5e9", body: "#bae6fd", tool: "glass", roles: ["investigator"]},
-  {key: "fixer", name: "Bug Fixer", doing: "Fixing the bugs", hat: "#2fd17a", body: "#b8f5d3", tool: "wrench", roles: ["fixer"]},
-  {key: "patcher", name: "Patcher", doing: "Patching a big file", hat: "#14b8a6", body: "#a7f3e8", tool: "wrench", roles: ["patcher"]},
-  {key: "verifier", name: "Checker", doing: "Checking the fix really worked", hat: "#84cc16", body: "#d9f99d", tool: "check", roles: ["verifier"]},
-  {key: "coach", name: "Coach", doing: "Writing lessons for next time", hat: "#f97316", body: "#fed7aa", tool: "book", roles: ["reflector"]},
+  {key: "planner", name: "Planner", doing: "Planning the new feature", hat: "#765ba7", body: "#cdbfe3", tool: "clip", roles: ["planner"]},
+  {key: "designer", name: "Designer", doing: "Dreaming up the game", hat: "#ff48b0", body: "#ffc2e3", tool: "pencil", roles: ["designer"]},
+  {key: "coder", name: "Coder", doing: "Writing the game code", hat: "#ff6c2f", body: "#ffc8ad", tool: "hammer", roles: ["coder"]},
+  {key: "tester", name: "Tester", doing: "Playing the game in Roblox", hat: "#3d9dd6", body: "#bfe0f3", tool: "pad", roles: ["tester", "playtester", "judge"]},
+  {key: "critic", name: "Critic", doing: "Scoring the game out of 10", hat: "#ffd400", body: "#fff0a0", tool: "star", roles: ["critic"]},
+  {key: "auditor", name: "Inspector", doing: "Hunting for bugs", hat: "#f15060", body: "#fbc3c9", tool: "glass", roles: ["auditor", "triage"]},
+  {key: "investigator", name: "Investigator", doing: "Finding where the bug hides", hat: "#0078bf", body: "#b3d6ec", tool: "glass", roles: ["investigator"]},
+  {key: "fixer", name: "Bug Fixer", doing: "Fixing the bugs", hat: "#00a95c", body: "#a9e5c8", tool: "wrench", roles: ["fixer"]},
+  {key: "patcher", name: "Patcher", doing: "Patching a big file", hat: "#00838a", body: "#a6d6d8", tool: "wrench", roles: ["patcher"]},
+  {key: "verifier", name: "Checker", doing: "Checking the fix really worked", hat: "#82d8d5", body: "#d6f3f1", tool: "check", roles: ["verifier"]},
+  {key: "coach", name: "Coach", doing: "Writing lessons for next time", hat: "#ffb511", body: "#ffe3a3", tool: "book", roles: ["reflector"]},
 ];
 const KEEPER = "Saving a snapshot in a chest";
 
@@ -512,23 +597,16 @@ const TOOLS = {
   book: `<path d="M40 18h10l1 2 1-2h10v20H52l-1 2-1-2H40z" fill="#fff" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/><path d="M51 20v18" stroke="#1a1033" stroke-width="2"/>`,
 };
 
-function botSvg(m) {
-  return `<svg viewBox="0 0 70 84" aria-hidden="true">
-    <ellipse cx="32" cy="80" rx="20" ry="3.5" fill="#1a103333"/>
-    <rect x="20" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="35" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="15" y="40" width="34" height="28" rx="11" fill="${m.body}" stroke="#1a1033" stroke-width="3"/>
-    <rect x="25" y="46" width="14" height="9" rx="3" fill="#fff" stroke="#1a1033" stroke-width="2"/>
-    <rect x="8" y="44" width="9" height="17" rx="4.5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/>
-    <circle cx="32" cy="26" r="16" fill="#ffd9b8" stroke="#1a1033" stroke-width="3"/>
-    <circle cx="26" cy="27" r="2.8" fill="#1a1033"/><circle cx="38" cy="27" r="2.8" fill="#1a1033"/>
-    <circle cx="27" cy="26" r="1" fill="#fff"/><circle cx="39" cy="26" r="1" fill="#fff"/>
-    <path d="M27 34q5 4 10 0" fill="none" stroke="#1a1033" stroke-width="2.5" stroke-linecap="round"/>
-    <path d="M14 22a18 16 0 0 1 36 0z" fill="${m.hat}" stroke="#1a1033" stroke-width="3"/>
-    <rect x="10" y="20" width="44" height="6" rx="3" fill="${m.hat}" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="29" y="8" width="6" height="8" rx="2" fill="#fff" opacity=".7"/>
-    <g class="arm">${TOOLS[m.tool]}<rect x="41" y="42" width="10" height="16" rx="5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/></g>
-  </svg>`;
+// Each agent is a Bottts robot (Pablo Stanley, bottts.com, free for personal and commercial use) served by
+// DiceBear. The role picks the robot and its palette colour, so a role always looks the same.
+const ROBOT_TINT = ["7fb069", "84c5e3", "f4a685", "f9d56e", "e87d8a", "a58bc9"];
+const ROBOT_ALIAS = {"bug fixer": "fixer", inspector: "auditor", checker: "verifier", coach: "reflector", player: "tester", playtester: "tester"};
+function hashOf(t) { let h = 7; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
+function botSvg(m, role) {
+  let key = String(role || m.name || "agent").replace(/[_-]+/g, " ").trim().toLowerCase();
+  key = ROBOT_ALIAS[key] || key;
+  const url = `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(key)}&baseColor=${ROBOT_TINT[hashOf(key) % ROBOT_TINT.length]}`;
+  return `<svg class="crew" viewBox="0 0 70 70" aria-hidden="true"><image href="${url}" x="0" y="0" width="70" height="70"/></svg>`;
 }
 
 const KIND = {
@@ -755,14 +833,40 @@ function renderGame(g) {
       <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
       <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
         <span class="chip">${g.versions.length} versions</span><span class="chip">${(g.agents || []).length} agents</span></div></div>
-    ${resultBlock(g, false)}</div>`);
+    ${resultBlock(g, false)}</div>
+    ${renderShots(g)}`);
+}
+
+// the main view's pictures: the first round next to the latest one, then this round's QA bots, which play at once
+function renderShots(g) {
+  const T = g.team?.testers || [], C = g.team?.critic_shots || [];
+  const qa = T.filter(t => /^\d+-qa-/.test(t.run));
+  const rounds = [...new Set(qa.map(t => t.run.split("-")[0]))].sort();
+  const first = rounds[0], last = rounds[rounds.length - 1];
+  const before = Object.fromEntries(qa.filter(t => t.run.startsWith(first + "-")).map(t => [t.label, t]));
+  const tile = (c, what) => shotTile({run: "critic", label: "Round screenshot", goal: ""},
+    {n: c.n, action: what, shot: c.shot, ok: null, assertions: [], reason: "", result: ""});
+  const pair = C.length > 1 ? `<div class="tester"><div class="row"><span class="nm">Before → after</span>
+      <span class="small muted">round ${C[0].n} next to round ${C[C.length - 1].n}, the same spot in Studio</span></div>
+      <div class="strip">${tile(C[0], `before · round ${C[0].n}`)}${tile(C[C.length - 1], `after · round ${C[C.length - 1].n}`)}</div></div>` : "";
+  const mark = ok => ok === true ? `<span class="ok">✓</span>` : ok === false ? `<span class="bad">✗</span>` : "·";
+  const bots = qa.filter(t => t.run.startsWith(last + "-")).map(t => {
+    const was = first !== last ? before[t.label] : null;
+    return `<div class="tester"><div class="row"><span class="nm">${esc(t.label)}</span>${mark(t.goal_met)}
+      <span class="small muted">${esc((t.summary || "").replace(/ after 1 attempt\(s\); last:/, ":").replace(/; last groun.*$/, "").replace(/ at \[[^\]]*\]/, "").slice(0, 110))}${was ? ` · round ${+first}: ${mark(was.goal_met)} → now ${mark(t.goal_met)}` : ""}</span></div>
+      <div class="strip">${t.steps.map(s => shotTile(t, s)).join("")}</div></div>`;
+  }).join("");
+  if (!pair && !bots) return "";
+  const passed = qa.filter(t => t.run.startsWith(last + "-") && t.goal_met).length;
+  const total = qa.filter(t => t.run.startsWith(last + "-")).length;
+  return `<div class="card"><div class="sec-head"><h2>Screenshots</h2><span class="sub">${total ? `round ${+last}: ${total} QA bots played at once, ${passed} reached the next checkpoint · ` : ""}tap to enlarge</span></div>${pair}${bots}</div>`;
 }
 
 function renderAgents(g) {
   if (!g) { put("agentsBox", ""); return; }
   const list = g.agents || [];
-  const cards = list.map(a => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" aria-label="${esc(roleName(a.role))}: see what it did">
-      ${botSvg(member(a.role))}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
+  const cards = list.map((a, ai) => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" data-tipa="${ai}" aria-label="${esc(roleName(a.role))}: see what it did">
+      ${botSvg(member(a.role), a.role)}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
       <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
   put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
     ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}</div>`);
@@ -780,7 +884,7 @@ function renderDrawer() {
   const outcomes = D.outcomes.slice(0, 4).map(o => `<div class="orow">${pill((o.outcome || "unknown").replace("_", " "))}<span>${esc(o.what)}</span></div>`).join("");
   const did = [...new Set(D.rows.map(c => (c.step || "").replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 3)
     .map(t => `<li>${esc(t.length > 90 ? t.slice(0, 87) + "…" : t)}</li>`).join("");
-  put("drawerBody", `<div class="top">${botSvg(member(D.role))}<div style="min-width:0"><h3>${esc(roleName(D.role))}</h3>
+  put("drawerBody", `<div class="top">${botSvg(member(D.role), D.role)}<div style="min-width:0"><h3>${esc(roleName(D.role))}</h3>
       <div class="small muted">${esc(game()?.title || D.slug)} · ${D.calls} calls${D.failed ? ` · <span class="bad">${D.failed} failed</span>` : ""}</div></div>
       <button class="x" data-close aria-label="Close">✕</button></div>
     ${did ? `<h4>What it did</h4><ul class="did">${did}</ul>` : ""}
@@ -826,16 +930,19 @@ const SHOTS = {};           // shot key -> step, for the lightbox
 let LB = null;              // {key, list}
 const seenMoments = new Set(JSON.parse(store.get("forge.moments") || "[]"));
 
-function laneRow(ln, span, liveSpan) {
+const tipState = t => t?.ok === true ? "ok" : t?.ok === false ? "bad" : "pend";
+
+function laneRow(ln, li, span, liveSpan) {
   const m = member(ln.role);
-  const segs = ln.spans.map(([s, e]) => {
+  const segs = ln.spans.map(([s, e], si) => {
     const end = e == null ? liveSpan : e;
     const left = Math.max(0, s / span * 100), w = Math.max(0.6, (end - s) / span * 100);
-    return `<i class="${e == null ? "open" : ""}" style="left:${left.toFixed(2)}%;width:${Math.min(w, 100 - left).toFixed(2)}%;background-color:${m.hat}"></i>`;
+    const st = e == null ? "open" : tipState((ln.tips || [])[si]);
+    return `<i class="seg-${st}${e == null ? " open" : ""}" data-tipl="${li}:${si}" style="left:${left.toFixed(2)}%;width:${Math.min(w, 100 - left).toFixed(2)}%;--seg:${m.hat}"></i>`;
   }).join("");
   const pf = ln.kind === "tester" && (ln.passed || ln.failed) ? `<span class="pf"><span class="ok">✓${ln.passed}</span> <span class="bad">✗${ln.failed}</span></span>` : "";
   return `<div class="lane ${esc(ln.status)}">
-    <div class="who">${botSvg(m)}<div style="min-width:0"><div class="nm" title="${esc(ln.label)}">${esc(ln.label)}</div>
+    <div class="who">${botSvg(m, ln.kind === "tester" ? "tester" : ln.role)}<div style="min-width:0"><div class="nm" title="${esc(ln.label)}">${esc(ln.label)}</div>
       <span class="st">${esc(LANE_STATUS[ln.status] || ln.status)} · ${ln.calls} ${ln.kind === "tester" ? "step" : "call"}${ln.calls === 1 ? "" : "s"}${pf}</span></div></div>
     <div class="track" role="img" aria-label="${esc(ln.label)}: ${ln.spans.length} calls on the run timeline">${[25, 50, 75].map(p => `<span class="tick" style="left:${p}%"></span>`).join("")}${segs}</div>
     <div class="now">${ln.latency_ms ? `<span class="lat" title="latency of its latest call">${ms(ln.latency_ms)}</span>` : ""}
@@ -859,7 +966,7 @@ function renderLanes(g) {
   </div>`;
   if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as Forge makes its first Mubit call.</div>`;
   const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
-  return `${tiles}<div class="lanes">${L.lanes.map(ln => laneRow(ln, span, liveSpan)).join("")}</div>
+  return `${tiles}<div class="lanes">${L.lanes.map((ln, li) => laneRow(ln, li, span, liveSpan)).join("")}</div>
     <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
 }
 
@@ -875,7 +982,7 @@ function shotTile(t, s) {
 function renderFeed(g) {
   const T = g.team.testers, crit = g.team.critic_shots;
   if (!T.length && !crit.length) return `<div class="empty">No tester screenshots yet. Testers save one per step to runs/${esc(g.slug)}/tests/&lt;run&gt;/step-NN.png.</div>`;
-  const rows = T.slice().reverse().map(t => `<div class="tester"><div class="row">${botSvg(member("tester")).replace("<svg", '<svg style="width:26px;height:30px"')}
+  const rows = T.slice().reverse().map(t => `<div class="tester"><div class="row">${botSvg(member("tester"), "tester").replace("<svg", '<svg style="width:28px;height:28px"')}
       <span class="nm">${esc(t.label)}</span>${pill(t.status === "done" ? "finished" : t.status)}
       <span class="small muted">${t.n_steps} steps · <span class="ok">✓ ${t.passed}</span> · <span class="bad">✗ ${t.failed}</span>${t.goal ? ` · goal: ${esc(t.goal)}` : ""}</span></div>
     <div class="strip">${t.steps.slice().reverse().map(s => shotTile(t, s)).join("")}</div></div>`).join("");
@@ -1036,10 +1143,50 @@ function renderLightbox() {
   $("lightbox").classList.add("open");
 }
 
+const STAMP = {ok: "✓ answered", bad: "✗ failed", pend: "… pending"};
+
+function callTipHtml(ln, t) {
+  const st = tipState(t);
+  const checks = (t.checks || []).map(c => `<li class="${c.ok === true ? "ok" : c.ok === false ? "bad" : "pend"}"><b>${c.ok === true ? "✓" : c.ok === false ? "✗" : "·"}</b>${esc(c.text)}</li>`).join("");
+  return `<div class="tip-head"><span class="tip-who">${esc(ln.label)}</span><span class="stamp ${st}">${STAMP[st]}</span></div>
+    ${t.head && t.head.toLowerCase() !== String(ln.label).toLowerCase() ? `<div class="tip-title">${esc(t.head)}</div>` : ""}
+    ${(t.lines || []).map((x, i) => `<div class="tip-line${/^mreq_/.test(x) ? " rid" : ""}${i === 0 && st === "bad" && /Error|error|failed/.test(x) ? " err" : ""}">${esc(x)}</div>`).join("")}
+    ${checks ? `<ul class="tip-checks">${checks}</ul>` : ""}`;
+}
+
+function placeTip(e, tip) {
+  tip.style.display = "block";
+  const x = Math.min(e.clientX + 16, innerWidth - tip.offsetWidth - 10);
+  const y = e.clientY + 18 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 12 : e.clientY + 18;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+
+function agentTipHtml(a) {
+  const rows = (a.recent || []).map(c => { const st = tipState(c);
+    return `<li class="${st}"><b>${st === "ok" ? "✓" : st === "bad" ? "✗" : "…"}</b><span>${esc(c.step || {ok: "answered", bad: "failed", pend: "cut short"}[st])}<small>${esc(ago(c.ts))}${c.latency_ms ? ` · ${ms(c.latency_ms)}` : ""}</small></span></li>`; }).join("");
+  const st = a.running ? "pend" : a.failed ? "bad" : "ok";
+  return `<div class="tip-head"><span class="tip-who">${esc(roleName(a.role))}</span><span class="stamp ${st}">${a.running ? "… working" : a.failed ? `✗ ${a.failed} failed` : "✓ all answered"}</span></div>
+    <div class="tip-title">${a.calls} call${a.calls === 1 ? "" : "s"} · latest first</div>
+    ${rows ? `<ul class="tip-checks tip-calls">${rows}</ul>` : ""}<div class="tip-line" style="margin-top:6px">click for what it did</div>`;
+}
+
 function showTip(e) {
-  const r = e.target.closest("[data-tipv]"), tip = $("tip");
+  const tip = $("tip"), l = e.target.closest("[data-tipl]"), ag = e.target.closest("[data-tipa]");
+  if (ag) {
+    const a = (game()?.agents || [])[+ag.dataset.tipa];
+    if (!a) { tip.style.display = "none"; return; }
+    tip.className = "tip call"; tip.innerHTML = agentTipHtml(a); placeTip(e, tip); return;
+  }
+  if (l) {
+    const [li, si] = l.dataset.tipl.split(":").map(Number);
+    const ln = game()?.team?.lanes?.lanes?.[li], t = ln?.tips?.[si];
+    if (!t) { tip.style.display = "none"; return; }
+    tip.className = "tip call"; tip.innerHTML = callTipHtml(ln, t); placeTip(e, tip); return;
+  }
+  const r = e.target.closest("[data-tipv]");
   if (!r) { tip.style.display = "none"; return; }
   const v = game()?.team?.timeline[+r.dataset.tipv]; if (!v) return;
+  tip.className = "tip";
   tip.innerHTML = `<b>${esc(v.version)}</b> · ${esc(v.title)}<br>critic ${v.score ?? "–"}${v.fun != null ? ` · fun ${v.fun}` : ""}${v.delta ? ` · ${v.delta > 0 ? "+" : ""}${v.delta}` : ""}<br>+${v.added} −${v.removed} lines in ${v.files} files${v.summary ? `<br><span style="opacity:.8">${esc(v.summary)}</span>` : ""}`;
   tip.style.display = "block";
   tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
@@ -1188,7 +1335,7 @@ $("drawer").addEventListener("click", e => {
 $("team").addEventListener("click", e => {
   const sh = e.target.closest("[data-shot]"); if (sh) { LB = sh.dataset.shot; renderLightbox(); }
 });
-$("team").addEventListener("mousemove", showTip);
+document.addEventListener("mousemove", showTip);
 $("team").addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
 $("lightbox").addEventListener("click", e => {
   if (e.target === $("lightbox") || e.target.closest("#lbClose")) { LB = null; return renderLightbox(); }
@@ -1218,18 +1365,20 @@ document.addEventListener("keydown", e => {
 
 async function refresh() {
   try {
-    const r = await fetch("/api/state", {cache: "no-store"});
+    const r = await fetch("/api/state", {cache: "no-store", signal: AbortSignal.timeout(20000)});
     DATA = await r.json();
     if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for Forge · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
-// a build in flight polls fast so the bar and feed feel live; otherwise the old 3s
+// The next poll starts only after this one has finished: overlapping polls used to stack up while a slow
+// state build ran, and every one of them rebuilt the whole state. A build in flight polls fast so the bar
+// and feed feel live.
 const pollMs = () => (DATA?.active || []).some(a => a.progress?.running) ? 1500 : 3000;
 (async function poll() { await refresh(); setTimeout(poll, pollMs()); })();
 </script>

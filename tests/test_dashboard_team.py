@@ -4,6 +4,7 @@ speed) built from fixture run folders."""
 from __future__ import annotations
 
 import dataclasses
+import gzip
 import json
 import threading
 import time
@@ -365,3 +366,46 @@ def test_agent_screenshots_come_from_its_own_tester_runs(settings):
     assert [s["label"].split(" · ")[0] for s in shots["swarm_tester"]] == ["griefer"]
     assert shots["player"] == []  # its playtests never wrote a tests/ run
     assert shots["judge"] == []  # no tester run in its session id
+
+
+def test_every_bar_has_a_hover_card_with_its_outcome(settings):
+    store = RunStore(settings, "tycoon")
+    with (store.dir / "calls.jsonl").open("a") as f:
+        f.write(json.dumps({**call("auditor", 90, 3_000, "mreq_a1"), "error": "APITimeoutError: read timed out"}) + "\n")
+        f.write(json.dumps({**call("auditor", 99, 4_000, "mreq_a2"), "aborted": True, "model": "claude-sonnet-5-5",
+                            "input_tokens": 8700, "output_tokens": 2100}) + "\n")
+    t, d = team(settings)
+    auditor_card = next(a for a in d["games"][0]["agents"] if a["role"] == "auditor")
+    assert [c["ok"] for c in auditor_card["recent"]] == [None, False]  # newest first: cut short, then failed
+    for ln in t["lanes"]["lanes"]:
+        assert len(ln["tips"]) == len(ln["spans"]), ln["label"]
+    aud = next(ln for ln in t["lanes"]["lanes"] if ln["role"] == "auditor")
+    failed, cut = aud["tips"]
+    assert failed["ok"] is False and any("APITimeoutError" in x for x in failed["lines"])
+    assert cut["ok"] is None and "4.0s · claude-sonnet-5-5 · 8.7k in / 2.1k out" in cut["lines"]
+    designer = next(ln for ln in t["lanes"]["lanes"] if ln["role"] == "designer")
+    assert designer["tips"][0]["ok"] is True and "mreq_d" in designer["tips"][0]["lines"]
+    tester = next(ln for ln in t["lanes"]["lanes"] if ln["kind"] == "tester")
+    bought = next(tip for tip in tester["tips"] if tip["head"].startswith("step 2"))
+    assert bought["ok"] is False and bought["checks"] == [{"ok": False, "text": "cash drops by 50"}]
+
+
+def test_state_is_built_once_for_overlapping_polls(settings, monkeypatch):
+    builds = []
+
+    def slow_collect(s):
+        builds.append(1)
+        time.sleep(0.3)
+        return {"now": 0, "games": []}
+
+    monkeypatch.setattr(db, "collect", slow_collect)
+    monkeypatch.setitem(db._STATE, "at", 0.0)
+    monkeypatch.setitem(db._STATE, "raw", b"")
+    out = []
+    threads = [threading.Thread(target=lambda: out.append(db.state_bytes(settings))) for _ in range(5)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert len(builds) == 1 and len({raw for raw, _ in out}) == 1
+    assert json.loads(gzip.decompress(out[0][1])) == {"now": 0, "games": []}
