@@ -1209,6 +1209,7 @@ function SchoolBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	NpcBuilder = tryRequire(libDir and libDir:FindFirstChild("Rescue"), "NpcBuilder")
 
 	model:SetAttribute("DisplayName", "Maple Elementary")
+	model:SetAttribute("InteriorOrigin", origin) -- SchoolBuilder.Furnish (when a run binds the school)
 	model:SetAttribute("Atmosphere", "Default")
 
 	outside(model, rng)
@@ -1259,6 +1260,79 @@ function SchoolBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	rescueSpawn(rs, "R11", "Civilian", "Teacher", BID, at(-1, FY, 15, 180), "lying")
 
 	bld.PrimaryPart = bld:FindFirstChild("HallFloor") :: BasePart?
+end
+
+------------------------------------------------------------------------------------------------
+-- Furnish: the extra dressing a run gets (Lib/Map/Interiors/Furnish calls this from
+-- MapService:BindSite, so the idle map doesn't carry it): cubbies, blinds, posters and bins in the
+-- classrooms, real bookcases + the librarian's desk, the principal's flag / armchairs / rug, a
+-- notice board and exit sign in the lobby, a milk fridge + posters in the cafeteria, art posters
+-- and cubbies in Class 4. Everything clears the doors, desks and rescue spots above.
+------------------------------------------------------------------------------------------------
+function SchoolBuilder.Furnish(model: Model)
+	local origin = model:GetAttribute("InteriorOrigin")
+	local interiors = script.Parent.Parent:FindFirstChild("Interiors")
+	local kitMod = interiors and interiors:FindFirstChild("Kit")
+	if typeof(origin) ~= "CFrame" or not (kitMod and kitMod:IsA("ModuleScript")) then
+		return
+	end
+	local Kit = require(kitMod) :: any
+	local root = Instance.new("Model")
+	root.Name = "Interior"
+	local rng = Random.new(6767)
+	local N, S, E, W = 0, math.pi, -math.pi / 2, math.pi / 2 -- yaw: the item's front faces -Z / +Z / +X / -X
+	local function at(x: number, z: number, yaw: number?, y: number?): CFrame
+		return origin * CFrame.new(x, y or FY, z) * CFrame.Angles(0, yaw or 0, 0)
+	end
+	local function add(fn: any, cf: CFrame, o: { [string]: any }?)
+		local op = o or {}
+		op.rng = rng
+		fn(root, cf, op)
+	end
+	local TEXT = { "BE KIND", "STOP, DROP\n& ROLL", "READ\nEVERY DAY", "WASH YOUR\nFLIPPERS", "TEAMWORK!", "MATH\nIS FUN" }
+	-- classrooms 1..3: cubbies by the east partition, blinds on the north windows, posters, a bin
+	for i, room in { { -63, -36 }, { -36, -8 }, { -8, 20 } } do
+		local x0, x1 = room[1], room[2]
+		add(Kit.cubbies, at(x1 - 1.3, -21, W), { w = 6, h = 3 })
+		add(Kit.poster, at(x0 + 5, -0.5, N), { y = 6.8, text = TEXT[(i * 2 - 1) % #TEXT + 1] })
+		add(Kit.poster, at((x0 + x1) / 2 - 5, -0.5, N), { y = 6.8, kind = if i == 3 then "table" else "planets", w = 4, h = 3 })
+		add(Kit.trashCan, at(x1 - 1.5, -1.8, N), { color = KID_COLORS[i] })
+	end
+	for _, x in { -59, -40, -31.5, -12.5, -3.5, 15.5, 26, 34 } do
+		add(Kit.blinds, at(x, -27.5, S, 7.5), { w = 6, h = 5, drop = rng:NextNumber(0.3, 0.5) })
+	end
+	-- library: two tall bookcases by the hallway wall, the librarian's desk, a reading poster, a plant
+	add(Kit.bookshelf, at(23.5, -1.2, N), { w = 5, h = 7 })
+	add(Kit.bookshelf, at(36, -1.2, N), { w = 5, h = 7 })
+	add(Kit.teacherDesk, at(31, -19, S), { color = C.TealDark, mug = C.Mustard })
+	add(Kit.globe, at(29.5, -19, N, FY + 3.2))
+	add(Kit.poster, at(20.5, -8, E), { y = 6.5, text = "SHH!\nREADING\nZONE", bg = C.Mustard })
+	add(Kit.plant, at(38.2, -3.2, N), { size = 1.2, color = C.Pink })
+	-- principal's office: flag, visitor armchairs facing the desk, rug, plaques, clock
+	add(Kit.flag, at(12.6, 18.5, N), { color = C.Teal })
+	add(Kit.rug, at(5, 18.5, N), { w = 8, d = 5, color = C.Red, pattern = "border", accent = C.Gold })
+	add(Kit.armchair, at(3, 17.6, S), { color = C.TealDark })
+	add(Kit.armchair, at(7.2, 17.6, S), { color = C.TealDark })
+	add(Kit.poster, at(-3.5, 19, E), { y = 7, text = "PRINCIPAL\nOF THE\nYEAR", bg = C.White, fg = C.TealDark, w = 2.4, h = 3 })
+	add(Kit.clock, at(0, 11, S), { y = 11, rim = C.TealDark })
+	-- lobby: notice board on the west partition, an exit sign over the front doors
+	add(Kit.noticeBoard, at(-19.5, 13, E), { w = 3.6, h = 2.8, y = 6 })
+	add(Kit.exitSign, at(-12, 29, N), { y = 9.3 })
+	-- cafeteria: a milk fridge by the east partition, a food poster between the front windows, a banner
+	add(Kit.fridge, at(-21.9, 15, W), { color = C.Sky })
+	add(Kit.poster, at(-36, 29, N), { y = 7.5, kind = "food", w = 2.6, h = 3.4 })
+	add(Kit.banner, at(-30, 11, S), { w = 8, y = 10, h = 1.4, text = "LUNCH TIME!", bg = C.Terracotta, fg = C.White })
+	-- class 4 (art room): cubbies on the hallway side, art posters on the gym wall
+	add(Kit.cubbies, at(36, 11.8, S), { w = 6, h = 3 })
+	for k = 0, 2 do
+		add(Kit.poster, at(39.5, 14.5 + k * 3.6, W), { y = 6.5, kind = "art", w = 3, h = 3 })
+	end
+	for _, d in root:GetDescendants() do
+		if d:IsA("BasePart") and CollectionService:HasTag(d, Names.Tag.Flammable) then
+			d:SetAttribute(Names.Attr.BuildingId, BID)
+		end
+	end
+	root.Parent = model
 end
 
 return SchoolBuilder
