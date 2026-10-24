@@ -110,7 +110,8 @@ def verify_message(anomaly: dict, change: str, before: list[dict], after: list[d
              _digests_block("Before", before), _digests_block("After", after),
              "## Telemetry changes (computed, peak per counter)\n" + "\n".join(table)]
     if hard:
-        parts.append("## Flagged regressions (computed)\n" + "\n".join(f"- {h}" for h in hard))
+        parts.append("## Flagged changes (computed; judge whether each is a regression or the fix working)\n"
+                     + "\n".join(f"- {h}" for h in hard))
     parts.append("Return only the verdict JSON object.")
     return "\n\n".join(parts)
 
@@ -329,9 +330,18 @@ def _peaks(digests: list[dict]) -> dict:
     return out
 
 
+def hard_regressions(before: list[dict], after: list[dict]) -> list[str]:
+    """Regressions that overrule a 'fixed' verdict: only more server errors. Counter drops go to the
+    verifier as flags, because many fixes are meant to make counters fall (run on Flame and Blame: a
+    verified fire-balance fix was wrongly overruled when fire_cap_hit and collapses went to zero)."""
+    _, flags = telemetry_changes(before, after)
+    return [f for f in flags if f.startswith("server errors")]
+
+
 def telemetry_changes(before: list[dict], after: list[dict]) -> tuple[list[str], list[str]]:
-    """(table lines for the verifier, hard regressions). Hard regressions: a counter that was present
-    and non-zero before and is missing or zero after, or more server errors than before."""
+    """(table lines for the verifier, flags). Flags: a counter that was present and non-zero before and
+    is missing or zero after, or more server errors than before. Lost counters are only flags for the
+    verifier to judge (a fire fix SHOULD make fire_cap_hit disappear); see hard_regressions."""
     b, a = _peaks(before), _peaks(after)
     lines, hard = [], []
     for k in sorted(set(b) | set(a)):
@@ -507,7 +517,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
                                       steps=steps, llm=llm, harness=harness)
                 v = await asyncio.to_thread(verify, llm, a, f"Rewrote {rel} to fix it.", before, after,
                                             session_id=session_id)
-                _, hard = telemetry_changes(before, after)
+                hard = hard_regressions(before, after)
                 if v["verdict"] == "fixed" and hard:
                     v = {**v, "verdict": "regression", "regressions": v["regressions"] + hard,
                          "evidence": v["evidence"] + " Overruled by computed regressions: " + "; ".join(hard)}
