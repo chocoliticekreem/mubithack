@@ -10,21 +10,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Recursive:slnt,wght,CASL,MONO@-15..0,400..900,0..1,0..1&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Risograph inks (named after real Riso drum colours) on newsprint. */
-    --paper: #efe8d8; --paper2: #e6ddc8; --sky: var(--paper); --sky2: var(--paper2);
-    --panel: #fbf8f1; --panel2: #f1ead9; --ink: #26221d; --muted: #6f6656; --line: #d9cfba; --code: #f1ead9;
-    --yellow: #ffd400; --orange: #ff6c2f; --green: #00a95c; --pink: #ff48b0; --cyan: #3d9dd6; --red: #f15060;
-    --teal: #00838a; --blue: #0078bf; --purple: #765ba7; --grey: #b9ae97; --gold: #ffb511;
-    --sticker: #ffffff; --sticker-edge: #d6ccb6;
-    --shadow: 0 0 0 5px var(--sticker), 0 0 0 6.5px var(--sticker-edge), 3px 6px 0 6px #26221d22;
+    /* Two-ink risograph: black + one blue on newsprint. Green and red only ever mean ✓ and ✗; yellow only
+       means "working now". A print look has no dark version: the page stays on paper in dark mode too. */
+    color-scheme: light;
+    --paper: #ece6d6; --paper2: #e3dbc6; --sky: var(--paper); --sky2: var(--paper2);
+    --panel: #f7f3e8; --panel2: #ebe4d2; --ink: #1d1a16; --muted: #6b6354; --line: #d3c9b2; --code: #ebe4d2;
+    --blue: #2a4f9e; --yellow: #ffd23a; --green: #138a4b; --red: #d43a2f;
+    --teal: var(--blue); --cyan: var(--blue); --pink: var(--blue); --purple: var(--blue); --orange: var(--ink);
+    --gold: var(--yellow); --grey: #a99f8b;
+    --sticker: #fffdf7; --sticker-edge: #cfc5ae;
+    --shadow: 0 0 0 5px var(--sticker), 0 0 0 6.5px var(--sticker-edge), 3px 6px 0 6px #1d1a161f;
     --head: "Bagel Fat One", "Arial Rounded MT Bold", sans-serif;
     --body: "Recursive", ui-rounded, "Trebuchet MS", sans-serif;
     --mono: "Recursive", ui-monospace, Menlo, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
-      --ink: #f0e9da; --muted: #b5aa95; --line: #4a443b; --code: #34302a; --text: #f0e9da;
-      --sticker: #3d3832; --sticker-edge: #141210; --red: #ff6b78; --teal: #29b3b9; --green: #2bcf7f; }
   }
   :root[data-theme="dark"] { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
     --ink: #f0e9da; --muted: #b5aa95; --line: #4a443b; --code: #34302a; --text: #f0e9da;
@@ -231,7 +230,7 @@
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lane.running { background: linear-gradient(90deg, #4a3d1a, var(--panel2) 40%); } }
   .lane .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .lane .who svg { width: 34px; height: 40px; flex: none; }
-  .lane.running .who svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .lane.running .who svg { animation: blink 1.2s ease-in-out infinite; }
   .lane .nm { font-weight: 900; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: capitalize; }
   .lane .st { display: block; font: 900 10px var(--body); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
   .lane.running .st { color: #15803d; } .lane.failed .st { color: #b91c1c; }
@@ -344,14 +343,14 @@
   .verdict { font-weight: 900; } .verdict small { display: block; color: var(--muted); font-weight: 700; font-size: 13px; }
   .gamecard { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
   .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
-  .agent { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
+  .agent { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
     padding: 8px 10px; border-radius: 14px; background: var(--panel2); border: 2px solid var(--ink); color: var(--text, var(--ink));
     box-shadow: 0 3px 0 var(--ink); transition: transform .08s; min-width: 0; }
   .agent:hover, .agent:focus-visible { transform: translateY(-2px); outline: none; box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--cyan); }
   .agent.running { background: linear-gradient(135deg, #fff6c9, #ffe27a); color: var(--ink); }
   .agent.sel { box-shadow: 0 3px 0 var(--ink), 0 0 0 3px var(--pink); }
-  .agent svg { width: 34px; height: 40px; }
-  .agent.running svg { animation: hop .5s ease-in-out infinite; transform-origin: 50% 100%; }
+  .agent svg { width: 42px; height: 50px; margin: -4px 0; }
+  .agent.running svg { animation: blink 1.2s ease-in-out infinite; }
   .agent .nm { font-weight: 900; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent .st { font: 800 11px var(--body); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent.running .st { color: #6b5a12; }
@@ -428,13 +427,11 @@
   body { font-variation-settings: "CASL" 1; font-weight: 600; background: var(--paper); }
   body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60; opacity: .5; mix-blend-mode: multiply;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .15 0 0 0 0 .13 0 0 0 0 .1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  :root[data-theme="dark"] body::before { mix-blend-mode: screen; opacity: .18; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body::before { mix-blend-mode: screen; opacity: .18; } }
   header { color: var(--ink); }
-  .logo { color: var(--red); -webkit-text-stroke: 0; text-shadow: 3px 2px 0 var(--teal); letter-spacing: .02em; font-size: 44px; }
+  .logo { color: var(--ink); -webkit-text-stroke: 0; text-shadow: 3px 2px 0 color-mix(in srgb, var(--blue) 80%, transparent); letter-spacing: .02em; font-size: 44px; }
   .tag { color: var(--muted); font-weight: 700; }
   h1, h2, h3, .head { color: var(--text, var(--ink)); }
-  .sec-head h2, .map-head h2, .goal h3, .game-title { text-shadow: 2px 1.5px 0 color-mix(in srgb, var(--red) 55%, transparent); }
+  .sec-head h2, .map-head h2, .goal h3, .game-title { text-shadow: 2px 1.5px 0 color-mix(in srgb, var(--blue) 45%, transparent); }
   .card { border: 0; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
   .card:nth-of-type(odd) { transform: rotate(-.35deg); } .card:nth-of-type(even) { transform: rotate(.3deg); }
   .btn, select.pick { border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--teal); background: var(--yellow); }
@@ -444,12 +441,12 @@
   .chip.live { background: var(--green); color: #fff; border-color: var(--green); } .chip.done { background: var(--yellow); }
   .tile { border: 2px dashed var(--line); box-shadow: none; background: var(--panel2); border-radius: 12px; }
   .tile .v { font-family: var(--head); color: var(--blue); }
-  .tile.hot, .report, .moment { background: var(--yellow) radial-gradient(color-mix(in srgb, var(--orange) 45%, transparent) 22%, transparent 24%) 0 0 / 7px 7px; }
+  .tile.hot, .report, .moment { background: var(--yellow) radial-gradient(#1d1a1624 22%, transparent 24%) 0 0 / 7px 7px; }
   .tile.hot .k { color: var(--ink); }
   /* workshop stage: flat two-ink sky and a halftone sun */
   .stage { border: 0; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--ink);
-    background: linear-gradient(color-mix(in srgb, var(--cyan) 55%, var(--paper)) 0 62%, color-mix(in srgb, var(--green) 70%, var(--paper)) 62%); }
-  .stage .sun { border: 0; box-shadow: none; background: radial-gradient(var(--orange) 34%, transparent 36%) 0 0 / 7px 7px, var(--yellow); }
+    background: linear-gradient(color-mix(in srgb, var(--blue) 22%, var(--paper)) 0 62%, color-mix(in srgb, var(--blue) 45%, var(--paper)) 62%); }
+  .stage .sun { border: 0; box-shadow: none; background: radial-gradient(#1d1a1630 34%, transparent 36%) 0 0 / 7px 7px, var(--yellow); }
   .stage .cloud, .stage .cloud::after { background: var(--panel); }
   .bubble, .bot .name, .slot .v { border-width: 2px; border-radius: 6px; }
   .bot.active .name { background: var(--yellow); }
@@ -457,16 +454,15 @@
   /* mission control lanes: halftone bars, red cross-hatch for failed calls */
   .lane { background: transparent; border: 0; border-bottom: 1.5px dashed var(--line); border-radius: 0; }
   .lane.running { background: color-mix(in srgb, var(--yellow) 28%, transparent); border-radius: 8px; }
-  :root[data-theme="dark"] .lane.running { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
   .lane.running .st { color: var(--green); } .lane.failed .st { color: var(--red); }
   .track { background: var(--panel2); border: 1.5px solid var(--ink); border-radius: 4px; overflow: visible; }
   .track i { border: 0; border-radius: 2px; top: 2px; bottom: 2px; cursor: help;
-    background: radial-gradient(#0000003d 30%, transparent 33%) 0 0 / 4px 4px, var(--seg, var(--grey)); }
+    background: radial-gradient(#0000003d 30%, transparent 33%) 0 0 / 4px 4px, var(--blue); }
   .track i.seg-bad { z-index: 1; background: repeating-linear-gradient(-45deg, var(--red) 0 3px, transparent 3px 6px), var(--panel); box-shadow: inset 0 0 0 1.5px var(--red); }
   .track i.seg-bad::after { content: "✗"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font: 900 12px/1 var(--body); color: var(--red); }
   .track i.seg-pend { opacity: .55; }
   .track i:hover { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
-  .track i.open { background-color: var(--seg, var(--grey)); }
+  .track i.open { background-color: var(--yellow); }
   .lane .lat { border-width: 1.5px; border-radius: 4px; font-family: var(--mono); font-variation-settings: "MONO" 1; }
   .ok, .up, .brow .bl .xf { color: var(--green); } .bad, .down { color: var(--red); }
   .badge.pass, .asserts .badge.pass { background: var(--green); color: #fff; } .badge.fail { background: var(--red); }
@@ -500,9 +496,9 @@
   /* riso: the condensed view (running now, result, agent stickers, drawer) */
   .nowrow, .agent { border: 2px solid var(--ink); border-radius: 8px; background: var(--panel); box-shadow: 3px 3px 0 var(--teal); }
   .agent:nth-child(3n+1) { transform: rotate(-.5deg); } .agent:nth-child(3n+2) { transform: rotate(.4deg); }
-  .agent:hover, .agent:focus-visible { transform: translate(-1px, -2px) rotate(0); box-shadow: 4px 5px 0 var(--red); }
-  .agent.sel { box-shadow: 3px 3px 0 var(--pink), 0 0 0 2px var(--pink); }
-  .agent.running { background: var(--yellow) radial-gradient(color-mix(in srgb, var(--orange) 45%, transparent) 22%, transparent 24%) 0 0 / 7px 7px; color: #26221d; }
+  .agent:hover, .agent:focus-visible { transform: translate(-1px, -2px) rotate(0); box-shadow: 4px 5px 0 var(--ink); }
+  .agent.sel { box-shadow: 3px 3px 0 var(--ink), 0 0 0 2px var(--ink); }
+  .agent.running { background: var(--yellow) radial-gradient(#1d1a1624 22%, transparent 24%) 0 0 / 7px 7px; color: #26221d; }
   .agent.running .st, .agent.running .thought { color: #4a4235; }
   .result .pic, .lb .pic { background: var(--ink); color: var(--paper); border-width: 2px; border-radius: 6px; }
   .shot { background: #26221d; } .shot .n { background: #26221dcc; } .shot .cap { background: linear-gradient(transparent, #26221dee); }
@@ -585,24 +581,33 @@ const TOOLS = {
   book: `<path d="M40 18h10l1 2 1-2h10v20H52l-1 2-1-2H40z" fill="#fff" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/><path d="M51 20v18" stroke="#1a1033" stroke-width="2"/>`,
 };
 
-function botSvg(m) {
-  return `<svg viewBox="0 0 70 84" aria-hidden="true">
-    <ellipse cx="32" cy="80" rx="20" ry="3.5" fill="#1a103333"/>
-    <rect x="20" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="35" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="15" y="40" width="34" height="28" rx="11" fill="${m.body}" stroke="#1a1033" stroke-width="3"/>
-    <rect x="25" y="46" width="14" height="9" rx="3" fill="#fff" stroke="#1a1033" stroke-width="2"/>
-    <rect x="8" y="44" width="9" height="17" rx="4.5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/>
-    <circle cx="32" cy="26" r="16" fill="#ffd9b8" stroke="#1a1033" stroke-width="3"/>
-    <circle cx="26" cy="27" r="2.8" fill="#1a1033"/><circle cx="38" cy="27" r="2.8" fill="#1a1033"/>
-    <circle cx="27" cy="26" r="1" fill="#fff"/><circle cx="39" cy="26" r="1" fill="#fff"/>
-    <path d="M27 34q5 4 10 0" fill="none" stroke="#1a1033" stroke-width="2.5" stroke-linecap="round"/>
-    <path d="M14 22a18 16 0 0 1 36 0z" fill="${m.hat}" stroke="#1a1033" stroke-width="3"/>
-    <rect x="10" y="20" width="44" height="6" rx="3" fill="${m.hat}" stroke="#1a1033" stroke-width="2.5"/>
-    <rect x="29" y="8" width="6" height="8" rx="2" fill="#fff" opacity=".7"/>
-    <g class="arm">${TOOLS[m.tool]}<rect x="41" y="42" width="10" height="16" rx="5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/></g>
-  </svg>`;
+// Each worker is a rubber crew stamp: a two-letter code in a double ring, inked black or blue, pressed at
+// a slight angle. Code, ink and angle come from the name, so a role always gets the same stamp.
+const STAMP_CODE = {fixer: "FX", "bug fixer": "FX", auditor: "AU", inspector: "AU", investigator: "IV", verifier: "VF",
+  checker: "VF", reflector: "RF", coach: "RF", planner: "PL", designer: "DE", coder: "CO", tester: "QA", player: "QA",
+  critic: "CR", patcher: "PA", reproducer: "RP", triage: "TR", director: "DR", architect: "AR", judge: "JU"};
+function stampCode(name) {
+  const key = String(name).replace(/[_-]+/g, " ").trim().toLowerCase();
+  if (STAMP_CODE[key]) return STAMP_CODE[key];
+  const w = key.split(/\s+/);
+  return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase();
 }
+function hashOf(t) { let h = 7; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
+function botSvg(m, role) {
+  const name = role || m.name || "", h = hashOf(stampCode(name)), code = stampCode(name);
+  const ink = h % 3 === 0 ? "var(--ink)" : "var(--blue)", tilt = (h % 15) - 7;
+  return `<svg class="crew" viewBox="0 0 70 84" aria-hidden="true"><g transform="rotate(${tilt} 35 44)" filter="url(#inked)">
+    <circle cx="35" cy="44" r="29" fill="none" stroke="${ink}" stroke-width="4.5"/>
+    <circle cx="35" cy="44" r="22.5" fill="none" stroke="${ink}" stroke-width="1.6" stroke-dasharray="3 2.4"/>
+    <text x="35" y="52.5" text-anchor="middle" font-family="Bagel Fat One, sans-serif" font-size="22" fill="${ink}">${esc(code)}</text>
+  </g></svg>`;
+}
+document.body.insertAdjacentHTML("beforeend", `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="inked">
+  <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4" result="n"/>
+  <feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" result="d"/>
+  <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="1" seed="9" result="g"/>
+  <feColorMatrix in="g" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.3 1.75" result="mask"/>
+  <feComposite in="d" in2="mask" operator="in"/></filter></svg>`);
 
 const KIND = {
   build: {c: "#ff8a1f", t: "#ffd23f", label: "Build"},
@@ -791,7 +796,7 @@ function renderAgents(g) {
   if (!g) { put("agentsBox", ""); return; }
   const list = g.agents || [];
   const cards = list.map((a, ai) => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" data-tipa="${ai}" aria-label="${esc(roleName(a.role))}: see what it did">
-      ${botSvg(member(a.role))}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
+      ${botSvg(member(a.role), a.role)}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
       <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
   put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
     ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}</div>`);
@@ -809,7 +814,7 @@ function renderDrawer() {
   const outcomes = D.outcomes.slice(0, 4).map(o => `<div class="orow">${pill((o.outcome || "unknown").replace("_", " "))}<span>${esc(o.what)}</span></div>`).join("");
   const did = [...new Set(D.rows.map(c => (c.step || "").replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 3)
     .map(t => `<li>${esc(t.length > 90 ? t.slice(0, 87) + "…" : t)}</li>`).join("");
-  put("drawerBody", `<div class="top">${botSvg(member(D.role))}<div style="min-width:0"><h3>${esc(roleName(D.role))}</h3>
+  put("drawerBody", `<div class="top">${botSvg(member(D.role), D.role)}<div style="min-width:0"><h3>${esc(roleName(D.role))}</h3>
       <div class="small muted">${esc(game()?.title || D.slug)} · ${D.calls} calls${D.failed ? ` · <span class="bad">${D.failed} failed</span>` : ""}</div></div>
       <button class="x" data-close aria-label="Close">✕</button></div>
     ${did ? `<h4>What it did</h4><ul class="did">${did}</ul>` : ""}
@@ -867,7 +872,7 @@ function laneRow(ln, li, span, liveSpan) {
   }).join("");
   const pf = ln.kind === "tester" && (ln.passed || ln.failed) ? `<span class="pf"><span class="ok">✓${ln.passed}</span> <span class="bad">✗${ln.failed}</span></span>` : "";
   return `<div class="lane ${esc(ln.status)}">
-    <div class="who">${botSvg(m)}<div style="min-width:0"><div class="nm" title="${esc(ln.label)}">${esc(ln.label)}</div>
+    <div class="who">${botSvg(m, ln.kind === "tester" ? "tester" : ln.role)}<div style="min-width:0"><div class="nm" title="${esc(ln.label)}">${esc(ln.label)}</div>
       <span class="st">${esc(LANE_STATUS[ln.status] || ln.status)} · ${ln.calls} ${ln.kind === "tester" ? "step" : "call"}${ln.calls === 1 ? "" : "s"}${pf}</span></div></div>
     <div class="track" role="img" aria-label="${esc(ln.label)}: ${ln.spans.length} calls on the run timeline">${[25, 50, 75].map(p => `<span class="tick" style="left:${p}%"></span>`).join("")}${segs}</div>
     <div class="now">${ln.latency_ms ? `<span class="lat" title="latency of its latest call">${ms(ln.latency_ms)}</span>` : ""}
