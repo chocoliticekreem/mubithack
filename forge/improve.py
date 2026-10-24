@@ -32,6 +32,7 @@ VERDICTS = ("fixed", "not_fixed", "regression", "inconclusive")
 FAULTS_DIR = Path(__file__).parent / "faults"
 MAX_ROUND_ERRORS = 3
 MAX_UI_PRESSES = 8
+CURATED_HEADER = "## Curated genre lessons (forge/lessons_library)"
 
 Playtest = Callable[..., Awaitable[dict]]
 
@@ -249,6 +250,22 @@ class ImproveStore:
         return any(difflib.SequenceMatcher(None, t, r["title"].lower()).ratio() >= UNPROVEN_SIMILAR
                    for r in self._unproven())
 
+    def seed_playbook(self, spec: dict) -> bool:
+        """Curated genre lessons (forge/lessons_library, e.g. Roblox tycoon best practices) go at the top
+        of the playbook once, so the auditor judges balance and fun against what the genre expects."""
+        from forge.director import genre_lessons
+
+        known = self.playbook()
+        if CURATED_HEADER in known:
+            return False
+        text = " ".join(str(spec.get(k) or "") for k in ("title", "pitch", "core_loop", "idea"))
+        curated = genre_lessons(text)
+        if not curated:
+            return False
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.playbook_path.write_text(f"{CURATED_HEADER}\n{curated}\n\n{known}", encoding="utf-8")
+        return True
+
     def learn(self, lessons: list[str]) -> None:
         """Fast learning: lessons from missed faults go into the next audit's playbook."""
         known = self.playbook()
@@ -406,6 +423,10 @@ def _anomaly_text(a: dict) -> str:
 def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | None:
     """The game file most likely to hold the anomaly (paths and names first, then keywords)."""
     from mubit_tester.ai import find_candidate_files
+
+    named = str(anomaly.get("path") or "")
+    if named and (game_dir / named).is_file() and not named.startswith(NOT_IN_STUDIO):
+        return named  # the fun critic names its file
 
     ranked = find_candidate_files(dataclasses.replace(settings, base_game_dir=game_dir),
                                   _anomaly_text(anomaly), limit=10)
@@ -816,6 +837,8 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
     spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
     n = len(store.scores()) + 1
     session_id = f"improve-{slug}-{n}"
+    if store.seed_playbook(spec):
+        log(f"[playbook] seeded curated genre lessons -> {store.playbook_path}")
 
     await harness.ensure_ready()
     repro = repro and fix and getattr(harness, "studio", None) is not None
@@ -862,6 +885,14 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
 
     real = (suite_start["anomalies"] + [found["anomalies"][i] for i in sc["unmatched_anomalies"]]
             + list(extra_anomalies or []))
+    if fix:  # the latest fun critique's issues (forge/fun.py) are fixed like any other anomaly
+        from forge.fun import pending_fun_anomalies
+
+        prev = store.scores()
+        fun_issues = pending_fun_anomalies(settings, slug, since=prev[-1]["ts"] if prev else "")
+        if fun_issues:
+            log(f"[fun] {len(fun_issues)} fun critic issue(s) join this cycle's fixes")
+        real += fun_issues
     # focus (e.g. one feature): only these anomalies are fixed and count as open; the rest is a backlog
     backlog = [a for a in real if focus is not None and not focus(a)]
     real = [a for a in real if focus is None or focus(a)]

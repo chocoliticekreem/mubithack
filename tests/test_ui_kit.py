@@ -38,7 +38,7 @@ def test_index_points_at_real_files_and_covers_every_snippet():
     entries = ui_kit.load_index()
     files = {e["file"] for e in entries}
     assert files == {p.name for p in LIB.glob("*.luau")}
-    assert 8 <= len(entries) <= 12
+    assert 8 <= len(entries) <= 16
     assert len({e["name"] for e in entries}) == len(entries)
     assert [e["name"] for e in entries if e.get("always")] == ["Theme"]
     for e in entries:

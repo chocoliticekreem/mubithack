@@ -84,7 +84,8 @@ async def _list_studios(settings) -> list[dict]:
 
 def cmd_new(args) -> int:
     from forge.loop import new_game
-    slug = asyncio.run(new_game(args.idea, args.iterations, not args.no_studio))
+    slug = asyncio.run(new_game(args.idea, args.iterations, not args.no_studio,
+                                use_director=False if args.no_director else None))
     print(f"\nslug: {slug}   (continue with: forge run {slug})")
     return 0
 
@@ -502,6 +503,20 @@ def cmd_ledger(args) -> int:
     return 0
 
 
+def cmd_direct(args) -> int:
+    from forge.director import dry_run, render_compare
+    out = dry_run(load_settings(), args.idea, compare=args.compare)
+    print(json.dumps(out["stats"], indent=1) if args.json else render_compare(out))
+    return 0
+
+
+def cmd_fun(args) -> int:
+    from forge.fun import critique_game
+    res = critique_game(load_settings(), args.slug)
+    print(json.dumps({k: res[k] for k in ("score", "scores", "summary", "checks", "issues")}, indent=1))
+    return 0
+
+
 def cmd_done(args) -> int:
     from forge.done import readiness, render
     r = readiness(load_settings(), args.slug)
@@ -584,6 +599,15 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("idea")
     n.add_argument("--iterations", "-n", type=int, default=3)
     n.add_argument("--no-studio", action="store_true", help="compile-check only, no Studio MCP")
+    n.add_argument("--no-director", action="store_true", help="skip the game director (designer only)")
+
+    di = sub.add_parser("direct", help="dry run: director design doc + designer spec, no build")
+    di.add_argument("idea")
+    di.add_argument("--compare", action="store_true", help="also run the plain designer and print before/after")
+    di.add_argument("--json", action="store_true")
+
+    fu = sub.add_parser("fun", help="fun critic on a game's current code + latest playtest evidence")
+    fu.add_argument("slug")
 
     r = sub.add_parser("run", help="continue iterating an existing game")
     r.add_argument("slug")
@@ -753,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {"doctor": cmd_doctor, "bench": cmd_bench, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp}[args.cmd]

@@ -93,7 +93,23 @@ forge/                 Python package (uv), entry point `forge`
   ledger.py            `forge ledger`: ledger(settings) -> {total_calls, roles[{role, calls, corrections, verified,
                        rejected}], entries} rebuilt from runs/**/traces + improve/<n>.json + state.json corrections
   done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass,
-                       features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded)
+                       features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
+                       fun critic >= 8, visuals (<= 15% default-grey parts), hud (a ScreenGui), sounds (>= 1),
+                       first60 (every director beat's counter reached its min); census from the playtest, else source
+  director.py          quality brain 1 (`forge direct "<idea>" [--compare]`): genre_lessons(text) (forge/lessons_library),
+                       direct(llm, idea, lessons, *, session_id) -> design doc (Mubit task `director`),
+                       design_from_doc(llm, idea, doc, lessons, *, session_id) -> spec (frozen designer, doc in the user
+                       message, module budget 4-12 overrides the old cap of 7), plan() = both; spec["director"] = doc,
+                       spec["first_60s"] = [{t, beat, counter, min}]; art pass install_kit(spec, game_dir) writes the
+                       prebuilt ReplicatedStorage/GameAssets.luau (forge/kit: palette, sounds.json, play/burst/shake/
+                       styleLighting/part); coder_notes(spec, lessons) puts style + juice ahead of coder/fixer lessons
+  fun.py               quality brain 2 (`forge fun <slug>`): census(studio) (server + client scene census during play,
+                       stored as report["census"]), static_census(files), fun_critique(llm, spec, files, report, *,
+                       census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
+                       first_60_seconds, missing_juice, issues, census, checks} (Mubit task `fun_critic`),
+                       FunStore -> runs/<slug>/fun/<n>.json + latest.json, pending_fun_anomalies() for run_cycle(fix=True)
+  lessons_library/*.md curated genre lessons (fun, tycoon, obby, simulator): director + designer + coder user messages,
+                       and seeded once at the top of runs/<slug>/improve/playbook.md (ImproveStore.seed_playbook)
   bench.py             `forge bench`: fixed 5-idea suite (tycoon, obby, minigame, simulator, defence) built with
                        loop.new_game (+ optional improve cycles); run_bench(ids, *, iterations, studio, improve, fake,
                        lessons) -> (result, runs/bench/<stamp>.json + .md); compare(a, b) -> markdown deltas (docs/BENCH.md)
@@ -168,7 +184,14 @@ def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 else Mub
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, ..., `scenarist`
 (test plan of executable checks), `check_reviewer` (failing check: game bug or check bug).
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `auditor`, `verifier`,
-`triage`, `investigator`, `patcher`, `planner`, `reproducer`.
+`triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`.
+
+Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
+`FORGE_FUN_CRITIC=0` skips the fun critic; tests default both off in the root conftest.py):
+```
+idea -> director (design doc) -> designer (doc in user msg) -> install_kit (GameAssets.luau) -> coder (style notes)
+     -> playtest (+ census) -> critic + fun_critic (issues merged, done needs fun >= 8) -> fixer -> reflector
+```
 
 ### Fix loop: reproduce, fix, prove (improve.fix_code, `forge fix`)
 Default with a live Studio; `forge fix --no-repro` (run_cycle(repro=False)) is the old verifier-only loop.

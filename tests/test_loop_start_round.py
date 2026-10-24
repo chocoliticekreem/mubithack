@@ -27,6 +27,8 @@ class LoopStudio:
         return None
 
     async def execute_luau(self, code, datamodel="Edit", timeout=None):
+        if code.startswith("-- forge census"):
+            return "{}"  # scene census for the fun critic (forge/fun.py); not a round start
         self.ran.append((datamodel, code))
         return '{"ok":true,"result":{"RoundState":"Active"}}'
 

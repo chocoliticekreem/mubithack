@@ -25,7 +25,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 PROMPT_DIRS = (PROMPTS_DIR, Path(__file__).resolve().parent.parent / "mubit-tester" / "prompts")
 ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge",
          "auditor", "verifier", "triage", "investigator", "patcher", "planner", "scenarist",
-         "check_reviewer", "reproducer")
+         "check_reviewer", "reproducer", "director", "fun_critic")
 
 MAX_TRIES = 3  # total attempts for retryable gateway errors (429 / 503 / 529 overloaded)
 RETRY_STATUSES = {429, 503, 529}
@@ -458,6 +458,21 @@ def fake_default_reply(role: str, user: str) -> str:
         return json.dumps({"score": 5, "summary": "fake critique", "issues": [], "done": False})
     if role == "reflector":
         return "# Lessons\n\n- Use task.wait, never wait().\n"
+    if role == "director":
+        return json.dumps({
+            "fantasy": "You dash around grabbing glowing coins", "core_loop": "run -> grab coins -> score climbs",
+            "progression": [], "systems": [{"name": "Coins", "what": "spawn and collect",
+                                            "module": "ServerScriptService/Game.server.luau"}],
+            "juice": [{"moment": "coin collected", "sound": "coin ding", "vfx": "sparkle burst",
+                       "ui": "counter punch", "camera": "none"}],
+            "first_60_seconds": [{"t": 5, "beat": "grabs the first coin", "counter": "coins_collected", "min": 1}],
+            "rewards": [], "visual_style": {"palette": ["#FFC429"], "materials": ["SmoothPlastic"]},
+            "sounds": [{"id": "Coin", "for": "coin", "describe": "coin ding"}], "module_budget": 4,
+            "acceptance": ["coins can be collected"],
+        })
+    if role == "fun_critic":
+        return json.dumps({"scores": {"fun": 5, "juice": 5, "clarity": 5, "visuals": 5},
+                           "summary": "fake fun critique", "issues": []})
     raise LLMError(f"unknown role {role!r}")
 
 
