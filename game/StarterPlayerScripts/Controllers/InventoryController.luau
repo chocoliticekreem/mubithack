@@ -447,6 +447,9 @@ local function showPrompt(prompt: ProximityPrompt, inputType: Enum.ProximityProm
 	if not prompt:GetAttribute("InvPrompt") or shown[prompt] then
 		return
 	end
+	if InputHints.isTouch() then
+		return -- touch: TapUseController's one small bubble + tap-the-item instead of this sticker
+	end
 	local adornee = prompt.Parent
 	if not adornee or not adornee:IsA("BasePart") then
 		return
@@ -455,25 +458,32 @@ local function showPrompt(prompt: ProximityPrompt, inputType: Enum.ProximityProm
 	gui.Name = "InvPromptGui"
 	gui.Adornee = adornee
 	gui.AlwaysOnTop = true
-	gui.Size = UDim2.fromOffset(260, 56)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 2.6, 0)
+	-- compact: a key cap + two words, not a banner over the item
+	gui.Size = UDim2.fromOffset(196, 42)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 2.4, 0)
 	gui.MaxDistance = 40
 	gui.ResetOnSpawn = false
 	local panel = UiKit.panel(gui, "Panel", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
 	panel.BackgroundColor3 = Palette.UiCream
-	local key = UiKit.label(panel, "Key", keyText(prompt, inputType), UDim2.fromOffset(44, 40), UDim2.fromOffset(8, 8), {
+	local key = UiKit.label(panel, "Key", keyText(prompt, inputType), UDim2.fromOffset(32, 30), UDim2.fromOffset(6, 6), {
 		font = UiKit.Header,
-		textSize = 24,
+		textSize = 18,
 		color = Palette.UiCream,
 	})
 	key.BackgroundTransparency = 0
 	key.BackgroundColor3 = Palette.UiInk
 	UiKit.corner(key, 8)
-	UiKit.label(panel, "Action", prompt.ActionText, UDim2.new(1, -66, 1, 0), UDim2.fromOffset(60, 0), {
+	local action = UiKit.label(panel, "Action", prompt.ActionText, UDim2.new(1, -50, 1, 0), UDim2.fromOffset(44, 0), {
 		font = UiKit.Header,
-		textSize = 22,
+		textSize = 17,
 		align = Enum.TextXAlignment.Left,
 	})
+	-- long ones ("Hook up supply line") shrink to fit instead of running off the sticker
+	action.TextScaled = true
+	local cap = Instance.new("UITextSizeConstraint")
+	cap.MaxTextSize = 17
+	cap.MinTextSize = 11
+	cap.Parent = action
 	if inputType == Enum.ProximityPromptInputType.Touch then
 		local tap = Instance.new("TextButton")
 		tap.Name = "Tap"

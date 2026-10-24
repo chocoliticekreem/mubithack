@@ -13,6 +13,7 @@ return Config.define({
 	MaxTrucks = 4, -- one per station bay; everyone else rides along in a crew seat
 	PerMissionTrucks = false, -- v1 fallback: MissionService:ParkAt(instanceId) builds a truck inside the instance
 	OwnerOnlyDrives = true, -- others can still ride the back benches
+	TapEnterRange = 22, -- studs from the chassis: a tap on the truck (touch) sits you straight in (Vehicle/Enter)
 
 	-- Parking
 	ReserveAhead = 46, -- studs in front of the station anchor for the reserve row
