@@ -68,11 +68,11 @@ Spec.test("test override attribute only counts in Studio", function()
 	Spec.eq(R.rankOf({ userId = 7, isStudio = false, override = 3 }), 0)
 end)
 
-Spec.test(":setrank session rank caps at Admin and never demotes an owner", function()
-	Spec.eq(R.rankOf({ userId = 7, sessionRank = 2 }), 2)
-	Spec.eq(R.rankOf({ userId = 7, sessionRank = 3 }), 2)
-	Spec.eq(R.rankOf({ userId = 7, admins = { 7 }, sessionRank = 0 }), 0)
-	Spec.eq(R.rankOf({ userId = 42, creatorType = "User", creatorId = 42, sessionRank = 0 }), 3)
+Spec.test("a saved grant caps at Admin and never demotes an owner", function()
+	Spec.eq(R.rankOf({ userId = 7, grantedRank = 2 }), 2)
+	Spec.eq(R.rankOf({ userId = 7, grantedRank = 3 }), 2)
+	Spec.eq(R.rankOf({ userId = 7, admins = { 7 }, grantedRank = 0 }), 0)
+	Spec.eq(R.rankOf({ userId = 42, creatorType = "User", creatorId = 42, grantedRank = 0 }), 3)
 end)
 
 Spec.test("rankFromName", function()
@@ -240,8 +240,8 @@ end)
 
 Spec.test("complete command names, players and lists", function()
 	local a = R.complete(":gi", CMDS, 3, {}, C.Lists)
-	Spec.eq(table.concat(a, "|"), ":give |:giftpass |:giftxp ")
-	Spec.eq(#R.complete(":gi", CMDS, 2, {}, C.Lists), 1) -- admins don't see giftpass/giftxp
+	Spec.eq(table.concat(a, "|"), ":give |:giant |:giftpass |:giftxp ")
+	Spec.eq(#R.complete(":gi", CMDS, 2, {}, C.Lists), 2) -- admins don't see giftpass/giftxp
 	local p = R.complete(":kick bo", CMDS, 1, { "bobby", "Bobcat", "zed" }, C.Lists)
 	Spec.eq(table.concat(p, "|"), ":kick bobby |:kick Bobcat ")
 	local l = R.complete(":giftpass bobby Pr", CMDS, 3, { "bobby" }, C.Lists)
@@ -292,6 +292,145 @@ Spec.test("xpForLevel lands exactly on the level", function()
 	end
 	Spec.eq(Schema.xpForLevel(1), 0)
 	Spec.eq(Schema.xpForLevel(2), 100)
+end)
+
+--------------------------------------------------------------------------------- saved ranks
+
+Spec.test("canGrant: Owner grants up to Admin, Admin grants Mod, nobody touches self or Owner", function()
+	Spec.eq((R.canGrant(3, 0, 2, false)), true) -- owner makes an admin
+	Spec.eq((R.canGrant(3, 2, 0, false)), true) -- owner un-admins
+	Spec.eq((R.canGrant(2, 0, 1, false)), true) -- admin makes a mod
+	Spec.eq((R.canGrant(2, 1, 0, false)), true) -- admin un-mods
+	local ok, why = R.canGrant(2, 0, 2, false)
+	Spec.eq(ok, false)
+	Spec.truthy(why and string.find(why, "Owner"))
+	Spec.eq((R.canGrant(2, 2, 0, false)), false) -- admin can't demote an admin
+	Spec.eq((R.canGrant(1, 0, 1, false)), false) -- mods can't grant
+	Spec.eq((R.canGrant(3, 3, 0, false)), false) -- nobody changes an owner
+	Spec.eq((R.canGrant(3, 0, 3, false)), false) -- can't mint owners
+	Spec.eq((R.canGrant(2, 1, 1, true)), false) -- not your own rank
+end)
+
+Spec.test("grantAction: store, clear back to the config default, or nothing", function()
+	Spec.eq(R.grantAction(0, nil, 2), "set")
+	Spec.eq(R.grantAction(0, 2, 2), "same")
+	Spec.eq(R.grantAction(0, 2, 0), "clear") -- :unadmin a granted admin: drop the record
+	Spec.eq(R.grantAction(2, nil, 0), "set") -- :unadmin a config admin: a saved 0 overrides the list
+	Spec.eq(R.grantAction(2, 0, 2), "clear") -- back to the config admin rank
+	Spec.eq(R.grantAction(0, nil, 0), "same")
+end)
+
+Spec.test("a saved grant overrides the config lists (rejoin / new server uses the same record)", function()
+	local ctx = { userId = 7, admins = { 7 }, creatorType = "User", creatorId = 1 } :: any
+	Spec.eq(R.rankOf(ctx), 2)
+	ctx.grantedRank = 0
+	Spec.eq(R.rankOf(ctx), 0)
+	ctx.grantedRank = 1
+	Spec.eq(R.rankOf(ctx), 1)
+	Spec.eq(R.rankOf({ userId = 9, grantedRank = 2 }), 2)
+end)
+
+Spec.test("staff commands: :admin is Owner only, :mod / :unadmin / :setrank Admin, :admins Mod", function()
+	Spec.eq((R.find(CMDS, "admin") :: any).rank, 3)
+	Spec.eq((R.find(CMDS, "mod") :: any).rank, 2)
+	Spec.eq((R.find(CMDS, "unadmin") :: any).rank, 2)
+	Spec.eq((R.find(CMDS, "unmod") :: any).name, "unadmin")
+	Spec.eq((R.find(CMDS, "setrank") :: any).rank, 2)
+	Spec.eq((R.find(CMDS, "admins") :: any).rank, 1)
+	Spec.eq((R.find(CMDS, "admin") :: any).grant, 2)
+	Spec.eq((R.find(CMDS, "mod") :: any).grant, 1)
+	Spec.eq((R.find(CMDS, "unadmin") :: any).grant, 0)
+end)
+
+Spec.test(":admins lines: highest rank first, offline included, players left out", function()
+	local lines = R.staffLines({
+		{ userId = 5, name = "zed", rank = 1, source = "saved by Arvin", online = false },
+		{ userId = 1, name = "Arvin", rank = 3, source = "creator", online = true },
+		{ userId = 6, name = "amy", rank = 2, source = "config", online = false },
+		{ userId = 8, name = "kid", rank = 0, source = "saved by Arvin", online = true },
+	})
+	Spec.eq(#lines, 3)
+	Spec.truthy(string.find(lines[1], "Owner: Arvin", 1, true))
+	Spec.truthy(string.find(lines[2], "Admin: amy (#6) - config", 1, true))
+	Spec.truthy(string.find(lines[3], "Mod: zed", 1, true))
+	Spec.eq(string.find(lines[3], "online", 1, true), nil)
+end)
+
+-------------------------------------------------------------------------------------------- trolls
+
+local TROLLS = {
+	"fling", "rocket", "spin", "tiny", "giant", "bighead", "ragdoll", "noodle", "explode", "slap", "jail",
+	"clone", "penguinrain", "dance", "confetti", "sparkles", "fakeban", "invert",
+}
+
+Spec.test("every troll command exists, is Mod+, a troll, and shows in :cmds with help", function()
+	local help = table.concat(R.helpLines(CMDS, 1), "\n")
+	Spec.truthy(string.find(help, "== TROLL ==", 1, true))
+	for _, name in TROLLS do
+		local c = R.find(CMDS, name) :: any
+		Spec.truthy(c ~= nil, name)
+		Spec.eq(c.rank, 1, name)
+		Spec.eq(c.troll, true, name)
+		Spec.eq(c.group, "Troll", name)
+		Spec.truthy(string.find(help, ":" .. name .. " [players]", 1, true), name)
+	end
+	for _, name in { "normal", "unjail" } do
+		local c = R.find(CMDS, name) :: any
+		Spec.eq(c.rank, 1, name)
+		Spec.truthy(not c.troll, name .. " is a revert, not a troll")
+	end
+	Spec.eq((R.find(CMDS, "kaboom") :: any).name, "explode")
+	Spec.eq((R.find(CMDS, "untroll") :: any).name, "normal")
+end)
+
+Spec.test("canTroll: not a higher rank; equal is fine; the Owner trolls anyone; self always", function()
+	Spec.eq(R.canTroll(1, 0, false), true)
+	Spec.eq(R.canTroll(1, 1, false), true)
+	Spec.eq(R.canTroll(1, 2, false), false)
+	Spec.eq(R.canTroll(2, 3, false), false)
+	Spec.eq(R.canTroll(3, 3, false), true)
+	Spec.eq(R.canTroll(1, 3, true), true)
+end)
+
+Spec.test("massTarget: all / everyone / others / @groups anywhere in the list", function()
+	Spec.eq(R.massTarget("all"), true)
+	Spec.eq(R.massTarget("me,Others"), true)
+	Spec.eq(R.massTarget(" everyone "), true)
+	Spec.eq(R.massTarget("@lobby"), true)
+	Spec.eq(R.massTarget("me"), false)
+	Spec.eq(R.massTarget("bob,zed"), false)
+	Spec.eq(R.massTarget("#12"), false)
+	Spec.eq(R.massTarget("allison"), false) -- a name that starts with "all" is one player
+end)
+
+--------------------------------------------------------------------------------------- gift fanfare
+
+local Fanfare = require("../ServerScriptService/Lib/Monetization/FanfareText")
+local PASSES = {
+	{ key = "UnlimitedFoam", name = "UNLIMITED FOAM", perk = "Unlimited Foam: your extinguisher never runs out!" },
+	{ key = "PremiumPass", name = "PREMIUM PASS", blurb = "Gold track." },
+}
+
+Spec.test("fanfare words: gift, purchase and donation", function()
+	local g = Fanfare.build({ kind = "gift", receiver = "Bob", giver = "Arvin", pass = "PremiumPass" }, PASSES)
+	Spec.eq(g.banner, "🎁 ARVIN GIFTED BOB THE PREMIUM PASS!")
+	Spec.truthy(string.find(g.chat, "Arvin gifted Bob the Premium Pass", 1, true))
+	Spec.eq(g.title, "YOU GOT A GIFT!")
+	Spec.truthy(string.find(g.body, "Premium Pass: Gold track.", 1, true))
+	local p = Fanfare.build({ kind = "pass", receiver = "Bob", pass = "UnlimitedFoam" }, PASSES)
+	Spec.eq(p.banner, "⭐ BOB JUST GOT UNLIMITED FOAM!")
+	Spec.eq(p.body, "You now have Unlimited Foam: your extinguisher never runs out!")
+	local d = Fanfare.build({ kind = "donate", receiver = "Bob", robux = 100 }, PASSES)
+	Spec.eq(d.banner, "💖 BOB DONATED R$ 100 TO STATION 67!")
+	Spec.truthy(string.find(d.body, "Donation Board", 1, true))
+end)
+
+Spec.test("fanfare words survive odd input", function()
+	local g = Fanfare.build({ kind = "gift", receiver = "  ", giver = nil, pass = "Nope" }, PASSES)
+	Spec.truthy(string.find(g.banner, "SOMEONE GIFTED SOMEONE THE NOPE", 1, true))
+	Spec.eq(Fanfare.titleCase("UNLIMITED FOAM"), "Unlimited Foam")
+	local long = Fanfare.build({ kind = "pass", receiver = string.rep("x", 80), pass = "UnlimitedFoam" }, PASSES)
+	Spec.truthy(#long.banner < 80)
 end)
 
 return Spec.finish()

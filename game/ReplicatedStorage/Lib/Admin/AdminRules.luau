@@ -14,6 +14,11 @@
 --   AdminRules.resolve(spec, callerId, roster, pick?): ({ number }, string?)  -- target UserIds
 --   AdminRules.canRun(rank, def): boolean
 --   AdminRules.canAffect(callerRank, targetRank, isSelf): boolean
+--   AdminRules.canTroll(callerRank, targetRank, isSelf): boolean -- trolls: not a higher rank (Owner: anyone)
+--   AdminRules.massTarget(spec): boolean                         -- all / others / @group (trolls need Admin)
+--   AdminRules.canGrant(callerRank, targetRank, newRank, isSelf): (boolean, string?)
+--   AdminRules.grantAction(defaultRank, savedRank?, newRank): "set" | "clear" | "same"
+--   AdminRules.staffLines(rows): { string }                       -- :admins
 --   AdminRules.allow(bucket, now, rate, burst): boolean          -- token bucket (mutates bucket)
 --   AdminRules.usage(def): string                                -- ":tp <players> <destination>"
 --   AdminRules.helpLines(commands, rank): { string }
@@ -31,6 +36,8 @@ export type Command = {
 	args: { Arg },
 	help: string,
 	harmful: boolean?,
+	troll: boolean?,
+	grant: number?,
 	group: string,
 }
 
@@ -46,7 +53,7 @@ export type RankCtx = {
 	groupRanks: { owner: number?, admin: number?, mod: number? }?,
 	isStudio: boolean?,
 	studioOwner: boolean?, -- Studio dev override: a real Studio account (UserId > 0) is Owner
-	sessionRank: number?, -- granted by :setrank for this server only
+	grantedRank: number?, -- saved grant (:admin / :mod / :unadmin / :setrank); replaces the config lists
 	override: number?, -- Studio-only test override (attribute AdminRankDebug); ignored outside Studio
 }
 
@@ -93,8 +100,8 @@ function AdminRules.rankOf(ctx: RankCtx): number
 	if rank < 1 and has(ctx.mods, id) then
 		rank = 1
 	end
-	if rank < OWNER and type(ctx.sessionRank) == "number" then
-		rank = math.clamp(math.floor(ctx.sessionRank), 0, 2) -- :setrank can't mint owners or demote one
+	if rank < OWNER and type(ctx.grantedRank) == "number" then
+		rank = math.clamp(math.floor(ctx.grantedRank), 0, 2) -- a grant can't mint owners or demote one
 	end
 	return rank
 end
@@ -393,6 +400,79 @@ end
 -- Kohl's rule: you can't act on someone of your own rank or higher (owners can; anyone can on themself).
 function AdminRules.canAffect(callerRank: number, targetRank: number, isSelf: boolean): boolean
 	return isSelf or callerRank >= OWNER or callerRank > targetRank
+end
+
+-- Trolls: you can't troll a HIGHER rank (equal is fine); the Owner can troll anyone; yourself always.
+function AdminRules.canTroll(callerRank: number, targetRank: number, isSelf: boolean): boolean
+	return isSelf or callerRank >= OWNER or callerRank >= targetRank
+end
+
+-- A target spec that can hit many players at once: all / everyone / others / @groups (any comma part).
+-- Trolls with one of these need Admin.
+function AdminRules.massTarget(spec: string): boolean
+	for part in string.gmatch(string.lower(spec or ""), "[^,]+") do
+		local p = string.match(part, "^%s*(.-)%s*$") or ""
+		if p == "all" or p == "everyone" or p == "others" or string.sub(p, 1, 1) == "@" then
+			return true
+		end
+	end
+	return false
+end
+
+-- Saved ranks. Owner grants anything up to Admin; Admin grants Mod / Player to Players and Mods only.
+-- Nobody changes their own rank or an Owner's. newRank: 0 Player, 1 Mod, 2 Admin.
+function AdminRules.canGrant(callerRank: number, targetRank: number, newRank: number, isSelf: boolean): (boolean, string?)
+	if newRank < 0 or newRank > 2 or newRank ~= math.floor(newRank) then
+		return false, "rank must be Player, Mod or Admin"
+	end
+	if isSelf then
+		return false, "you can't change your own rank"
+	end
+	if targetRank >= OWNER then
+		return false, "nobody can change an Owner's rank"
+	end
+	if callerRank >= OWNER then
+		return true, nil
+	end
+	if callerRank == 2 then
+		if newRank >= 2 then
+			return false, "only the Owner can make Admins"
+		end
+		if targetRank >= 2 then
+			return false, "only the Owner can change an Admin's rank"
+		end
+		return true, nil
+	end
+	return false, "only Admins and the Owner can change ranks"
+end
+
+-- What a grant does to the saved record: "set" (store it), "clear" (drop the record: the config list
+-- already gives exactly this rank), or "same" (nothing to do).
+function AdminRules.grantAction(defaultRank: number, savedRank: number?, newRank: number): string
+	if newRank == defaultRank then
+		return if savedRank ~= nil then "clear" else "same"
+	end
+	return if savedRank == newRank then "same" else "set"
+end
+
+export type StaffRow = { userId: number, name: string, rank: number, source: string, online: boolean }
+
+-- :admins lines, highest rank first, then by name. source = "owner" | "config" | "group" | "saved".
+function AdminRules.staffLines(rows: { StaffRow }): { string }
+	local list = table.clone(rows)
+	table.sort(list, function(a, b)
+		if a.rank ~= b.rank then
+			return a.rank > b.rank
+		end
+		return string.lower(a.name) < string.lower(b.name)
+	end)
+	local out: { string } = {}
+	for _, r in list do
+		if r.rank >= 1 then
+			table.insert(out, `{AdminRules.rankName(r.rank)}: {r.name} (#{r.userId}) - {r.source}{if r.online then ", online" else ""}`)
+		end
+	end
+	return out
 end
 
 -- Token bucket: `rate` commands/second sustained, `burst` extra. Mutates bucket { tokens, at }.

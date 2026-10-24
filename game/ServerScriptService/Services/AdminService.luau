@@ -4,7 +4,15 @@
 -- Every command is parsed and rank-checked HERE; the client only sends text. No command runs code.
 --
 -- Ranks: Lib/Admin/AdminRules.rankOf with AdminConfig (creator / Owners / Admins / Mods / group ranks /
---   Studio dev override / Studio-only AdminRankDebug test attribute / :setrank session ranks).
+--   Studio dev override / Studio-only AdminRankDebug test attribute / SAVED grants).
+-- Saved ranks: :admin (Owner) / :mod / :unadmin / :setrank (Admin+; AdminRules.canGrant) and the console's
+--   PLAYERS list write DataStore AdminConfig.RankStore, key "staff" = { [UserId] = { rank, name, by, at } }
+--   (UpdateAsync; memory in Studio / when DataService isn't persistent). A grant overrides the config lists
+--   and sticks across servers and rejoins; other servers re-read it on a MessagingService ping
+--   (AdminConfig.RankTopic) and every RankRefreshSeconds. Targets may be offline (name or #UserId).
+--   :admins lists everyone with a rank, online or not.
+-- Trolls (group Troll, def.troll): TrollService:Run per target. Can't troll a higher rank (Owner: anyone),
+--   all / others / @groups need Admin, plus a second rate limit (AdminConfig.Troll.Rate / Burst).
 -- Commands: Lib/Admin/AdminCommands (data: rank, args, help). Targets: me, all, others, random, @lobby,
 --   @squad, @<squad or call id>, #<UserId>, partial names, comma lists. Harmful commands (kick, ban, mute,
 --   kill, freeze) only hit lower ranks. Rate limit: AdminConfig.Rate / Burst per player.
@@ -22,12 +30,14 @@
 --   AdminInvisible, AdminMuted (AdminConfig.Attr; UI only, never trusted)
 -- Consumes (nil-guarded): DataService, MonetizationService, BattlePassService, InventoryService,
 --   MissionService, LobbyService, FireService, VehicleService, EventService, AtmosphereService, SquadService
--- Counters: admin_commands, admin_denied, admin_rate_limited, admin_failed
+-- Counters: admin_commands, admin_denied, admin_rate_limited, admin_failed, admin_rank_grants
 -- Test hooks (DevHook only): _run(player, text) -> "ok|line1\nline2", _rank(player), _logs(n?),
---   _ban(userId, name, reason?), _banned(userId), _selftest()
+--   _ban(userId, name, reason?), _banned(userId), _grants() -> "id=rank,...", _restart() (drops this
+--   server's rank cache and re-reads the store, like a new server), _selftest()
 
 local CollectionService = game:GetService("CollectionService")
 local DataStoreService = game:GetService("DataStoreService")
+local MessagingService = game:GetService("MessagingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -69,10 +79,23 @@ type Ctx = {
 }
 type Handler = (Ctx) -> (boolean, string)
 
+type Grant = { rank: number, name: string, by: string, at: number }
+-- The rank store: a DataStore, or (Studio / no persistence) a memory mock with the same two methods.
+type RankStore = {
+	kind: string?, -- the memory mock only
+	GetAsync: (self: any, key: string) -> any,
+	UpdateAsync: (self: any, key: string, fn: (old: any) -> any) -> any,
+}
+
 local services: { [string]: any } = {}
 local groupRanks: { [Player]: number } = {}
-local sessionRanks: { [number]: number } = {}
+local grants: { [number]: Grant } = {} -- this server's copy of the saved ranks
+local rankStore: RankStore? = nil
+local rankStoreKind = "none" -- "datastore" | "memory"
+local RANK_KEY = "staff"
+local nameCache: { [number]: string } = {}
 local buckets: { [Player]: { tokens: number?, at: number? } } = {}
+local trollBuckets: { [Player]: { tokens: number?, at: number? } } = {}
 local lastChat: { [Player]: { text: string, at: number } } = {}
 local logs: { Rules.LogEntry } = {}
 local bans: { [string]: { name: string, reason: string, by: string, at: number } } = {} -- memory copy
@@ -117,22 +140,28 @@ end
 
 ------------------------------------------------------------------------------------------ ranks
 
-local function rankOf(player: Player): number
-	local override = if IS_STUDIO then player:GetAttribute(Cfg.DebugAttribute) else nil
+-- withGrant = false: the rank the config alone gives (what an :unadmin falls back to).
+local function rankOfId(userId: number, player: Player?, withGrant: boolean?): number
+	local override = if IS_STUDIO and player then player:GetAttribute(Cfg.DebugAttribute) else nil
+	local g = grants[userId]
 	return Rules.rankOf({
-		userId = player.UserId,
+		userId = userId,
 		owners = Cfg.Owners,
 		admins = Cfg.Admins,
 		mods = Cfg.Mods,
 		creatorType = if game.CreatorType == Enum.CreatorType.Group then "Group" else "User",
 		creatorId = game.CreatorId,
-		groupRank = groupRanks[player],
+		groupRank = if player then groupRanks[player] else nil,
 		groupRanks = Cfg.GroupRanks,
 		isStudio = IS_STUDIO,
-		studioOwner = Cfg.StudioOwner,
-		sessionRank = sessionRanks[player.UserId],
+		studioOwner = Cfg.StudioOwner and player ~= nil, -- the Studio override is the person at the keyboard only
+		grantedRank = if withGrant ~= false and g then g.rank else nil,
 		override = if type(override) == "number" then override else nil,
 	})
+end
+
+local function rankOf(player: Player): number
+	return rankOfId(player.UserId, player)
 end
 
 local function refreshRank(player: Player)
@@ -142,6 +171,121 @@ local function refreshRank(player: Player)
 	local r = rankOf(player)
 	player:SetAttribute(A.Rank, r)
 	player:SetAttribute(A.RankName, Rules.rankName(r))
+end
+
+local function refreshAll()
+	for _, p in Players:GetPlayers() do
+		refreshRank(p)
+	end
+end
+
+-------------------------------------------------------------------------------------- saved ranks
+
+local function memoryRankStore(): RankStore
+	local data: { [string]: any } = {}
+	local function copy(t: any): any
+		if type(t) ~= "table" then
+			return t
+		end
+		local out = {}
+		for k, v in t do
+			out[k] = copy(v)
+		end
+		return out
+	end
+	return {
+		kind = "memory",
+		GetAsync = function(_self, key: string)
+			return copy(data[key])
+		end,
+		UpdateAsync = function(_self, key: string, fn: (any) -> any)
+			local new = fn(copy(data[key]))
+			if new ~= nil then
+				data[key] = copy(new)
+			end
+			return copy(new)
+		end,
+	}
+end
+
+-- Keeps only well-formed records: { ["<UserId>"] = { rank 0..2, name, by, at } }.
+local function sanitizeGrants(raw: any): { [number]: Grant }
+	local out: { [number]: Grant } = {}
+	if type(raw) ~= "table" then
+		return out
+	end
+	for k, v in raw do
+		local id = tonumber(k)
+		if id and type(v) == "table" and type(v.rank) == "number" and v.rank >= 0 and v.rank <= 2 then
+			out[id] = {
+				rank = math.floor(v.rank),
+				name = if type(v.name) == "string" then v.name else `#{id}`,
+				by = if type(v.by) == "string" then v.by else "?",
+				at = if type(v.at) == "number" then v.at else 0,
+			}
+		end
+	end
+	return out
+end
+
+local function loadGrants(): boolean
+	local store = rankStore
+	if not store then
+		return false
+	end
+	local ok, res = pcall(function()
+		return store:GetAsync(RANK_KEY)
+	end)
+	if not ok then
+		warn(`[AdminService] rank store read: {res}`)
+		return false
+	end
+	grants = sanitizeGrants(res)
+	for id, g in grants do
+		nameCache[id] = g.name
+	end
+	refreshAll()
+	return true
+end
+
+local function publishRanks()
+	if IS_STUDIO then
+		return
+	end
+	task.spawn(function()
+		pcall(function()
+			MessagingService:PublishAsync(Cfg.RankTopic, game.JobId)
+		end)
+	end)
+end
+
+-- rank nil = drop the record (the config already gives the wanted rank). Returns ok, error.
+local function saveGrant(userId: number, name: string, rank: number?, by: string): (boolean, string?)
+	local store = rankStore
+	if not store then
+		return false, "the rank store isn't ready"
+	end
+	local ok, res = pcall(function()
+		return store:UpdateAsync(RANK_KEY, function(old: any)
+			local t = if type(old) == "table" then old else {}
+			if rank == nil then
+				t[tostring(userId)] = nil
+			else
+				t[tostring(userId)] = { rank = rank, name = name, by = by, at = os.time() }
+			end
+			return t
+		end)
+	end)
+	if not ok then
+		warn(`[AdminService] rank store write: {res}`)
+		return false, "couldn't save the rank (DataStore error), try again"
+	end
+	grants = sanitizeGrants(res)
+	nameCache[userId] = name
+	refreshAll()
+	publishRanks()
+	Telemetry.count("admin_rank_grants")
+	return true, nil
 end
 
 ------------------------------------------------------------------------------------------- utils
@@ -170,8 +314,9 @@ local function roster(): { Rules.Who }
 	return out
 end
 
--- Resolves a players spec to Player objects. Harmful commands drop targets of equal/higher rank.
-local function targets(ctx: Ctx, spec: string, harmful: boolean?): ({ Player }, string?)
+-- Resolves a players spec to Player objects. Harmful commands drop targets of equal/higher rank;
+-- mode "troll" drops only HIGHER ranks (AdminRules.canTroll: the Owner trolls anyone).
+local function targets(ctx: Ctx, spec: string, harmful: (boolean | string)?): ({ Player }, string?)
 	local list = roster()
 	local ids, err = Rules.resolve(spec, ctx.caller.UserId, list, math.random(math.max(1, #list)))
 	if err then
@@ -182,18 +327,25 @@ local function targets(ctx: Ctx, spec: string, harmful: boolean?): ({ Player }, 
 	for _, id in ids do
 		local p = Players:GetPlayerByUserId(id)
 		if p then
-			if harmful and not Rules.canAffect(ctx.rank, rankOf(p), p == ctx.caller) then
+			if harmful == "troll" then
+				if not Rules.canTroll(ctx.rank, rankOf(p), p == ctx.caller) then
+					skipped += 1
+				else
+					table.insert(out, p)
+				end
+			elseif harmful and not Rules.canAffect(ctx.rank, rankOf(p), p == ctx.caller) then
 				skipped += 1
 			else
 				table.insert(out, p)
 			end
 		end
 	end
+	local higher = if harmful == "troll" then "a higher rank" else "equal or higher rank"
 	if skipped > 0 then
-		table.insert(ctx.notes, `skipped {skipped} player(s) of equal or higher rank`)
+		table.insert(ctx.notes, `skipped {skipped} player(s) of {higher}`)
 	end
 	if #out == 0 then
-		return out, if skipped > 0 then "you can't target players of your rank or higher" else "no players"
+		return out, if skipped > 0 then `you can't target players of {higher}` else "no players"
 	end
 	return out, nil
 end
@@ -739,25 +891,232 @@ H.shutdown = function(ctx)
 	return true, "shutting down in 1 s"
 end
 
-H.setrank = function(ctx)
+------------------------------------------------------------------------------------------- staff
+
+type Someone = { userId: number, name: string, player: Player? }
+
+local function nameOfId(userId: number): string
+	local p = Players:GetPlayerByUserId(userId)
+	if p then
+		return p.Name
+	end
+	local cached = nameCache[userId]
+	if cached then
+		return cached
+	end
+	if userId > 0 then
+		local ok, res = pcall(function()
+			return Players:GetNameFromUserIdAsync(userId)
+		end)
+		if ok and type(res) == "string" then
+			nameCache[userId] = res
+			return res
+		end
+	end
+	return `#{userId}`
+end
+
+-- Grant targets: online players (normal targeting, one by one: no all / others / @groups), else ONE
+-- offline user by #UserId, a saved staff name, or a Roblox username.
+local function grantTargets(ctx: Ctx, spec: string): ({ Someone }, string?)
+	if Rules.massTarget(spec) or string.lower(spec) == "random" then
+		return {}, "pick players by name for rank changes (no all / others / @groups)"
+	end
+	local list = roster()
+	local ids = Rules.resolve(spec, ctx.caller.UserId, list)
+	local out: { Someone } = {}
+	for _, id in ids do
+		local p = Players:GetPlayerByUserId(id)
+		if p then
+			table.insert(out, { userId = id, name = p.Name, player = p })
+		end
+	end
+	if #out > 0 then
+		return out, nil
+	end
+	local word = string.match(spec, "^%s*(.-)%s*$") or ""
+	if word == "" or string.find(word, ",", 1, true) then
+		return {}, `no player matches "{spec}"`
+	end
+	local id = if string.sub(word, 1, 1) == "#" then tonumber(string.sub(word, 2)) else nil
+	if not id then
+		for gid, g in grants do
+			if string.lower(g.name) == string.lower(word) then
+				id = gid
+			end
+		end
+	end
+	if not id then
+		local ok, res = pcall(function()
+			return Players:GetUserIdFromNameAsync(word)
+		end)
+		id = if ok and type(res) == "number" then res else nil
+	end
+	if not id then
+		return {}, `no player or Roblox user "{word}"`
+	end
+	return { { userId = id, name = nameOfId(id), player = nil } }, nil
+end
+
+local function grant(ctx: Ctx, who: Someone, newRank: number): (boolean, string)
+	local current = if who.player then rankOf(who.player) else rankOfId(who.userId, nil)
+	local ok, why = Rules.canGrant(ctx.rank, current, newRank, who.userId == ctx.caller.UserId)
+	if not ok then
+		return false, `{who.name}: {why}`
+	end
+	local saved = grants[who.userId]
+	local default = rankOfId(who.userId, who.player, false)
+	local action = Rules.grantAction(default, if saved then saved.rank else nil, newRank)
+	if action == "same" then
+		return true, `{who.name} is already {Rules.rankName(current)}`
+	end
+	local okSave, err = saveGrant(who.userId, who.name, if action == "clear" then nil else newRank, ctx.caller.Name)
+	if not okSave then
+		return false, err or "couldn't save"
+	end
+	local now = if who.player then rankOf(who.player) else rankOfId(who.userId, nil)
+	if who.player then
+		local msg = if now >= 1
+			then `{ctx.caller.DisplayName} made you {Rules.rankName(now)}! Press ; or tap ADMIN for commands.`
+			else `You are a Player again.`
+		Net.notify(who.player, msg, if now >= 1 then "good" else "info")
+	end
+	return true, `{who.name} is now {Rules.rankName(now)} (saved{if who.player then "" else ", offline"})`
+end
+
+local function grantHandler(fixed: number?): Handler
+	return function(ctx)
+		local r = fixed
+		if r == nil then
+			r = Rules.rankFromName(ctx.args.rank)
+		end
+		if r == nil or r > 2 then
+			return false, "rank must be Player, Mod or Admin"
+		end
+		local list, err = grantTargets(ctx, ctx.args.players)
+		if err then
+			return false, err
+		end
+		local n = 0
+		local first = ""
+		for i, who in list do
+			local ok, msg = grant(ctx, who, r)
+			if i == 1 then
+				first = msg
+			else
+				table.insert(ctx.notes, msg)
+			end
+			if ok then
+				n += 1
+			end
+		end
+		if #list > 1 then
+			table.insert(ctx.notes, 1, first)
+			return n > 0, `{Rules.rankName(r)}: {n} of {#list} player(s)`
+		end
+		return n > 0, first
+	end
+end
+
+H.admin = grantHandler(2)
+H.mod = grantHandler(1)
+H.unadmin = grantHandler(0)
+H.setrank = grantHandler(nil)
+
+H.admins = function(ctx)
+	local rows: { Rules.StaffRow } = {}
+	local seen: { [number]: boolean } = {}
+	local function add(id: number, source: string)
+		if seen[id] or id == 0 then
+			return
+		end
+		seen[id] = true
+		local p = Players:GetPlayerByUserId(id)
+		local r = if p then rankOf(p) else rankOfId(id, nil)
+		table.insert(rows, { userId = id, name = nameOfId(id), rank = r, source = source, online = p ~= nil })
+	end
+	if game.CreatorType == Enum.CreatorType.User and game.CreatorId > 0 then
+		add(game.CreatorId, "creator")
+	end
+	for id, g in grants do
+		add(id, `saved by {g.by}`)
+	end
+	for _, list in { Cfg.Owners, Cfg.Admins, Cfg.Mods } do
+		for _, id in list do
+			add(id, "config")
+		end
+	end
+	for _, p in Players:GetPlayers() do
+		add(p.UserId, if IS_STUDIO then "studio / group" else "group")
+	end
+	local lines = Rules.staffLines(rows)
+	for _, l in lines do
+		table.insert(ctx.notes, l)
+	end
+	return true, `{#lines} staff (ranks are saved: they stick across servers)`
+end
+
+------------------------------------------------------------------------------------------- trolls
+
+local function trollHandler(kind: string): Handler
+	return function(ctx)
+		local Troll = services.TrollService
+		if not Troll then
+			return false, "TrollService is not running"
+		end
+		local list, err = targets(ctx, ctx.args.players, "troll")
+		if err then
+			return false, err
+		end
+		local n = 0
+		local word = kind
+		for _, p in list do
+			local ok, msg = Troll:Run(kind, p, ctx.caller)
+			if ok then
+				n += 1
+				word = msg
+			else
+				table.insert(ctx.notes, `{p.Name}: {msg}`)
+			end
+		end
+		return done(word, list, n)
+	end
+end
+
+for _, def in Commands.Commands do
+	if def.troll then
+		H[def.name] = trollHandler(def.name)
+	end
+end
+
+H.unjail = function(ctx)
+	local Troll = services.TrollService
+	if not Troll then
+		return false, "TrollService is not running"
+	end
 	local list, err = targets(ctx, ctx.args.players)
 	if err then
 		return false, err
 	end
-	local r = Rules.rankFromName(ctx.args.rank)
-	if r == nil or r > 2 then
-		return false, "rank must be Player, Mod or Admin"
+	return done("unjailed", list, each(list, function(p)
+		return Troll:Revert(p, "jail") > 0
+	end))
+end
+
+H.normal = function(ctx)
+	local Troll = services.TrollService
+	if not Troll then
+		return false, "TrollService is not running"
 	end
-	local n = each(list, function(p)
-		if p == ctx.caller then
-			return false
-		end
-		sessionRanks[p.UserId] = r
-		refreshRank(p)
-		Net.notify(p, `You are now {Rules.rankName(rankOf(p))} on this server`, "info")
-		return true
-	end)
-	return done(`rank {Rules.rankName(r)} (this server only)`, list, n)
+	local list, err = targets(ctx, ctx.args.players)
+	if err then
+		return false, err
+	end
+	local total = 0
+	for _, p in list do
+		total += Troll:Revert(p)
+	end
+	return true, `back to normal: {namesOf(list)} ({total} effect(s) undone)`
 end
 
 local function announce(kind: string, ctx: Ctx, key: string): (boolean, string)
@@ -1132,6 +1491,23 @@ local function execute(caller: Player, text: any, source: string): (boolean?, { 
 	if not handler then
 		return false, { `:{def.name} is not implemented` }
 	end
+	if def.troll then
+		if rank < 2 and Rules.massTarget(tostring(args.players or "")) then
+			Telemetry.count("admin_denied")
+			log(caller, rank, text, false, "denied (all / others need Admin)")
+			return false, { "trolling all / others / a whole group needs Admin rank" }
+		end
+		local tb = trollBuckets[caller]
+		if not tb then
+			tb = {}
+			trollBuckets[caller] = tb
+		end
+		if not Rules.allow(tb, os.clock(), Cfg.Troll.Rate, Cfg.Troll.Burst) then
+			Telemetry.count("admin_rate_limited")
+			log(caller, rank, text, false, "rate limited (trolls)")
+			return false, { "slow down: one troll at a time" }
+		end
+	end
 	local ctx: Ctx = { caller = caller, rank = rank, args = args, def = def, notes = {} }
 	local ok, a, b = pcall(handler, ctx)
 	local success: boolean = ok and a == true
@@ -1267,7 +1643,31 @@ function AdminService:Start()
 		pcall(function()
 			banStore = DataStoreService:GetDataStore(Cfg.BanStore)
 		end)
+		pcall(function()
+			rankStore = (DataStoreService:GetDataStore(Cfg.RankStore) :: any) :: RankStore
+			rankStoreKind = "datastore"
+		end)
 	end
+	if not rankStore then
+		rankStore = memoryRankStore()
+		rankStoreKind = "memory"
+	end
+	loadGrants()
+	if not IS_STUDIO then
+		pcall(function()
+			MessagingService:SubscribeAsync(Cfg.RankTopic, function(msg: any)
+				if type(msg) == "table" and msg.Data ~= game.JobId then
+					loadGrants()
+				end
+			end)
+		end)
+	end
+	task.spawn(function()
+		while true do
+			task.wait(math.max(15, Cfg.RankRefreshSeconds))
+			loadGrants()
+		end
+	end)
 
 	local run = Net.event("Admin", "Run")
 	resultRemote = Net.event("Admin", "Result")
@@ -1289,6 +1689,7 @@ function AdminService:Start()
 	Players.PlayerRemoving:Connect(function(p: Player)
 		groupRanks[p] = nil
 		buckets[p] = nil
+		trollBuckets[p] = nil
 		lastChat[p] = nil
 	end)
 end
@@ -1321,6 +1722,24 @@ function AdminService:_banned(userId: number): boolean
 	return getBan(userId) ~= nil
 end
 
+function AdminService:_grants(): string
+	local out = {}
+	for id, g in grants do
+		table.insert(out, `{id}={g.rank}`)
+	end
+	table.sort(out)
+	return table.concat(out, ",")
+end
+
+-- A server restart as far as ranks go: forget this server's copy, re-read the store, re-rank everyone.
+function AdminService:_restart(): string
+	grants = {}
+	nameCache = {}
+	refreshAll()
+	local ok = loadGrants()
+	return `reloaded={ok} store={rankStoreKind} grants={self:_grants()}`
+end
+
 function AdminService:_selftest(): (boolean, string)
 	local missing = {}
 	for _, def in Commands.Commands do
@@ -1328,7 +1747,9 @@ function AdminService:_selftest(): (boolean, string)
 			table.insert(missing, def.name)
 		end
 	end
-	return #missing == 0, `commands={#Commands.Commands} missing={table.concat(missing, ",")} persistentBans={banStore ~= nil}`
+	local store = rankStoreKind
+	return #missing == 0,
+		`commands={#Commands.Commands} missing={table.concat(missing, ",")} persistentBans={banStore ~= nil} rankStore={store}`
 end
 
 return AdminService

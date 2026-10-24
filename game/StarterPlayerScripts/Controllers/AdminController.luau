@@ -3,6 +3,8 @@
 --   * staff console: the ";" key (AdminConfig.ConsoleKey) or the ADMIN chip opens a centre-top modal with a
 --     command box, autocomplete (Tab / click a suggestion) and the server's replies. :cmds lists the
 --     commands for your rank. Attribute Menu = true, so MenuMouseController frees the mouse.
+--   * PLAYERS tab in the console header: every player with their rank; tap one, then PLAYER / MOD / ADMIN
+--     (the ranks you may grant) to save it (":setrank #<UserId> <rank>", re-checked by the server).
 --   * ADMIN chip in the left chip column under STORE (touch friendly), staff only.
 --   * :m banner and :h hint for everyone (Admin/Announce, text already filtered by the server).
 --   * fly / noclip for the local character while Player attrs AdminFly / AdminNoclip are true.
@@ -50,6 +52,10 @@ type Ui = {
 	bannerText: TextLabel,
 	hint: Frame,
 	hintText: TextLabel,
+	playersBtn: TextButton,
+	playersPanel: Frame,
+	playerList: ScrollingFrame,
+	playerStatus: TextLabel,
 }
 
 local ui: Ui? = nil
@@ -151,6 +157,7 @@ local function showHelp()
 	for _, line in Rules.helpLines(Commands.Commands :: any, rank()) do
 		addLine(line, if string.sub(line, 1, 2) == "==" then Palette.UiShock else Palette.UiCream)
 	end
+	addLine("Ranks are saved (every server, every rejoin). Trolls all undo themselves; :normal undoes them now.", Palette.UiWarn)
 	addLine("Gifted passes are an in-game entitlement only: they don't grant the real Roblox game pass.", Palette.UiWarn)
 end
 
@@ -248,6 +255,163 @@ local function submit(text: string)
 	end
 end
 
+----------------------------------------------------------------------------------------- players
+
+-- The console's PLAYERS list: tap a player to open their rank choices, tap a rank to save it (the server
+-- runs ":setrank #<UserId> <rank>" with all the usual checks). Big rows, big buttons: phone friendly.
+local selectedId: number? = nil
+local renderPlayers: () -> () = function() end
+
+local RANK_COLORS = { [0] = Palette.UiCream, [1] = Palette.UiWater, [2] = Palette.UiWarn, [3] = Palette.UiRed }
+
+-- the ranks I may set on someone (mirrors AdminRules.canGrant; the server re-checks)
+local function grantable(myRank: number, theirRank: number, isMe: boolean): { number }
+	if isMe or theirRank >= 3 then
+		return {}
+	end
+	if myRank >= 3 then
+		return { 0, 1, 2 }
+	end
+	if myRank == 2 and theirRank <= 1 then
+		return { 0, 1 }
+	end
+	return {}
+end
+
+local function rowButton(parent: Instance, name: string, text: string, color: Color3, w: number, order: number): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Size = UDim2.fromOffset(w, 52)
+	b.BackgroundColor3 = color
+	b.AutoButtonColor = true
+	b.Font = UiKit.Header
+	b.TextSize = 22
+	b.TextColor3 = Palette.UiInk
+	b.Text = text
+	b.LayoutOrder = order
+	b.ZIndex = 13
+	b.Parent = parent
+	UiKit.corner(b, 10)
+	UiKit.stroke(b, 2, Palette.UiInk)
+	return b
+end
+
+renderPlayers = function()
+	local u = ui
+	if not u or not u.playersPanel.Visible then
+		return
+	end
+	local list = u.playerList
+	for _, c in list:GetChildren() do
+		if c:IsA("GuiObject") then
+			c:Destroy()
+		end
+	end
+	local me = rank()
+	local all = Players:GetPlayers()
+	table.sort(all, function(a, b)
+		local ra, rb = tonumber(a:GetAttribute(A.Rank)) or 0, tonumber(b:GetAttribute(A.Rank)) or 0
+		if ra ~= rb then
+			return ra > rb
+		end
+		return string.lower(a.Name) < string.lower(b.Name)
+	end)
+	local order = 0
+	for _, p in all do
+		order += 1
+		local theirs = tonumber(p:GetAttribute(A.Rank)) or 0
+		local open = selectedId == p.UserId
+		local row = Instance.new("TextButton")
+		row.Name = `P_{p.UserId}`
+		row.Size = UDim2.new(1, 0, 0, 60)
+		row.BackgroundColor3 = if open then Color3.fromHex("#3A2F44") else Palette.UiPanelDark
+		row.AutoButtonColor = true
+		row.Text = ""
+		row.LayoutOrder = order
+		row.ZIndex = 12
+		row.Parent = list
+		UiKit.corner(row, 10)
+		local nameLabel = UiKit.label(row, "Name", `{p.DisplayName}  @{p.Name}{if p == player then "  (you)" else ""}`, UDim2.new(1, -150, 1, 0), UDim2.fromOffset(14, 0), {
+			font = UiKit.Body,
+			textSize = 22,
+			color = Palette.UiCream,
+			align = Enum.TextXAlignment.Left,
+		})
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.ZIndex = 13
+		local badge = UiKit.label(row, "Rank", string.upper(Rules.rankName(theirs)), UDim2.fromOffset(120, 36), UDim2.new(1, -130, 0.5, -18), {
+			font = UiKit.Header,
+			textSize = 20,
+			color = Palette.UiInk,
+		})
+		badge.BackgroundTransparency = 0
+		badge.BackgroundColor3 = RANK_COLORS[theirs] or Palette.UiCream
+		badge.ZIndex = 13
+		UiKit.corner(badge, 8)
+		local uid = p.UserId
+		UiKit.onTap(row, function()
+			selectedId = if selectedId == uid then nil else uid
+			-- rebuild after this tap is done: destroying the tapped button mid-event lets the same
+			-- tap fall through to the modal's dim, which closes the console
+			task.delay(0.05, renderPlayers)
+		end)
+		if open then
+			order += 1
+			local choices = Instance.new("Frame")
+			choices.Name = `Choices_{uid}`
+			choices.Size = UDim2.new(1, 0, 0, 64)
+			choices.BackgroundTransparency = 1
+			choices.LayoutOrder = order
+			choices.ZIndex = 12
+			choices.Parent = list
+			local cl = Instance.new("UIListLayout")
+			cl.FillDirection = Enum.FillDirection.Horizontal
+			cl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+			cl.VerticalAlignment = Enum.VerticalAlignment.Center
+			cl.Padding = UDim.new(0, 10)
+			cl.Parent = choices
+			local ranks = grantable(me, theirs, p == player)
+			if #ranks == 0 then
+				local why = if p == player then "You can't change your own rank."
+					elseif theirs >= 3 then "Nobody can change the Owner."
+					elseif me <= 1 then "Only Admins and the Owner can change ranks."
+					else "Only the Owner can change an Admin."
+				local l = UiKit.label(choices, "Why", why, UDim2.new(1, -20, 1, 0), UDim2.new(), {
+					font = UiKit.Body,
+					textSize = 20,
+					color = Palette.UiWarn,
+				})
+				l.ZIndex = 13
+			else
+				for i, r in ranks do
+					local current = r == theirs
+					local b = rowButton(choices, `Set{Rules.rankName(r)}`, (if current then "✓ " else "") .. string.upper(Rules.rankName(r)), RANK_COLORS[r], 150, i)
+					UiKit.onTap(b, function()
+						if current then
+							return
+						end
+						submit(`:setrank #{uid} {Rules.rankName(r)}`)
+						selectedId = nil
+					end)
+				end
+			end
+		end
+	end
+end
+
+local function showPlayers(on: boolean)
+	local u = ui
+	if not u then
+		return
+	end
+	u.playersPanel.Visible = on
+	u.playersBtn.Text = if on then "COMMANDS" else "PLAYERS"
+	if on then
+		u.box:ReleaseFocus()
+		renderPlayers()
+	end
+end
+
 ------------------------------------------------------------------------------------------- build
 
 local function chipButton(g: ScreenGui): TextButton
@@ -307,7 +471,7 @@ local function build()
 	flat.BackgroundColor3 = Palette.UiRed
 	flat.BorderSizePixel = 0
 	flat.Parent = head
-	local title = UiKit.label(head, "Title", "STATION 67 ADMIN", UDim2.new(1, -170, 1, 0), UDim2.fromOffset(16, 0), {
+	local title = UiKit.label(head, "Title", "STATION 67 ADMIN", UDim2.new(1, -330, 1, 0), UDim2.fromOffset(16, 0), {
 		font = UiKit.Header,
 		textSize = 26,
 		color = Palette.UiCream,
@@ -329,6 +493,49 @@ local function build()
 	player:GetAttributeChangedSignal(A.Rank):Connect(paintRank)
 	local close = UiKit.button(head, "Close", "X", UDim2.fromOffset(36, 36), UDim2.new(1, -26, 0.5, 0), Palette.UiPanelDark)
 	close.TextSize = 22
+	local playersBtn = UiKit.button(head, "PlayersTab", "PLAYERS", UDim2.fromOffset(130, 36), UDim2.new(1, -244, 0.5, 0), Palette.UiWater)
+	playersBtn.TextSize = 20
+
+	-- PLAYERS: tap a player, then a rank (saved). Covers the command box + output while open.
+	local playersPanel = Instance.new("Frame")
+	playersPanel.Name = "PlayersPanel"
+	playersPanel.Size = UDim2.new(1, -24, 1, -56)
+	playersPanel.Position = UDim2.fromOffset(12, 50)
+	playersPanel.BackgroundColor3 = Color3.fromHex("#141018")
+	playersPanel.BorderSizePixel = 0
+	playersPanel.Visible = false
+	playersPanel.ZIndex = 10
+	playersPanel.Parent = panel
+	UiKit.corner(playersPanel, 8)
+	local pstatus = UiKit.label(playersPanel, "Status", "Tap a player, then a rank. Ranks are saved for every server.", UDim2.new(1, -16, 0, 30), UDim2.fromOffset(8, 2), {
+		font = UiKit.Body,
+		textSize = 18,
+		color = Palette.UiWarn,
+		align = Enum.TextXAlignment.Left,
+	})
+	pstatus.TextTruncate = Enum.TextTruncate.AtEnd
+	pstatus.ZIndex = 11
+	local plist = Instance.new("ScrollingFrame")
+	plist.Name = "List"
+	plist.Size = UDim2.new(1, 0, 1, -34)
+	plist.Position = UDim2.fromOffset(0, 34)
+	plist.BackgroundTransparency = 1
+	plist.BorderSizePixel = 0
+	plist.ScrollBarThickness = 8
+	plist.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	plist.CanvasSize = UDim2.new()
+	plist.ZIndex = 11
+	plist.Parent = playersPanel
+	local pl = Instance.new("UIListLayout")
+	pl.SortOrder = Enum.SortOrder.LayoutOrder
+	pl.Padding = UDim.new(0, 6)
+	pl.Parent = plist
+	local pp = Instance.new("UIPadding")
+	pp.PaddingLeft = UDim.new(0, 6)
+	pp.PaddingRight = UDim.new(0, 14)
+	pp.PaddingTop = UDim.new(0, 6)
+	pp.PaddingBottom = UDim.new(0, 6)
+	pp.Parent = plist
 
 	local box = Instance.new("TextBox")
 	box.Name = "Input"
@@ -459,10 +666,17 @@ local function build()
 		bannerText = msg,
 		hint = hint,
 		hintText = hintText,
+		playersBtn = playersBtn,
+		playersPanel = playersPanel,
+		playerList = plist,
+		playerStatus = pstatus,
 	}
 
 	UiKit.onTap(chip, function()
 		setOpen(not panel.Visible)
+	end)
+	UiKit.onTap(playersBtn, function()
+		showPlayers(not playersPanel.Visible)
 	end)
 	UiKit.onTap(close, function()
 		setOpen(false)
@@ -685,6 +899,24 @@ function AdminController:Start()
 	end)
 	syncBody()
 
+	-- the PLAYERS list follows joins, leaves and rank changes
+	local function watchPlayer(p: Player)
+		p:GetAttributeChangedSignal(A.Rank):Connect(function()
+			renderPlayers()
+		end)
+		renderPlayers()
+	end
+	Players.PlayerAdded:Connect(watchPlayer)
+	for _, p in Players:GetPlayers() do
+		watchPlayer(p)
+	end
+	Players.PlayerRemoving:Connect(function(p: Player)
+		if selectedId == p.UserId then
+			selectedId = nil
+		end
+		task.defer(renderPlayers)
+	end)
+
 	local Admin = ReplicatedStorage:WaitForChild("Net"):WaitForChild("Admin") -- the server may still be building the map
 	runRemote = Admin:WaitForChild("Run") :: RemoteEvent
 	local result = Admin:WaitForChild("Result") :: RemoteEvent
@@ -698,6 +930,12 @@ function AdminController:Start()
 		end
 		if type(lines) ~= "table" then
 			return
+		end
+		local u = ui
+		if u and u.playersPanel.Visible and type(lines[1]) == "string" then
+			u.playerStatus.Text = lines[1]
+			u.playerStatus.TextColor3 = if ok then Palette.UiGood else Palette.UiRed
+			renderPlayers()
 		end
 		for i, line in lines do
 			if type(line) == "string" then
@@ -755,6 +993,40 @@ end
 
 function AdminController:_submit(text: string)
 	submit(text)
+end
+
+-- PLAYERS list: open it, tap a player's row, tap a rank button (same code paths as a real tap)
+function AdminController:_players(on: boolean?)
+	setOpen(true)
+	showPlayers(on ~= false)
+end
+
+function AdminController:_pick(userId: number?, rankName: string?): string
+	selectedId = userId
+	renderPlayers()
+	local u = ui
+	if not u then
+		return "no ui"
+	end
+	if rankName then
+		local choices = u.playerList:FindFirstChild(`Choices_{userId}`)
+		local b = choices and choices:FindFirstChild(`Set{rankName}`)
+		if not b then
+			return `no {rankName} button`
+		end
+		local r = Rules.rankFromName(rankName) or 0
+		submit(`:setrank #{userId} {Rules.rankName(r)}`)
+		selectedId = nil
+		return "submitted"
+	end
+	local out = {}
+	for _, c in u.playerList:GetChildren() do
+		if c:IsA("GuiObject") then
+			table.insert(out, c.Name)
+		end
+	end
+	table.sort(out)
+	return table.concat(out, ",")
 end
 
 return AdminController
