@@ -155,9 +155,9 @@ function HintText.format(text: string, mode: Mode, ctx: Ctx?): string
 			return if e.pad then `{e.pad} {w} ` else nil
 		end)
 	end
-	-- "Hold LEFT CLICK to spray": tools fire while a finger is on the screen / R2 is held
-	s = string.gsub(s, "%f[%a]LEFT CLICK%f[^%a]", if mode == "touch" then "the screen" else "R2")
-	s = string.gsub(s, "%f[%a][Ll]eft[%- ]click%f[^%a]", if mode == "touch" then "the screen" else "R2")
+	-- "Hold LEFT CLICK to spray": the tool fires while the SPRAY button (ToolController) / R2 is held
+	s = string.gsub(s, "%f[%a]LEFT CLICK%f[^%a]", if mode == "touch" then "SPRAY" else "R2")
+	s = string.gsub(s, "%f[%a][Ll]eft[%- ]click%f[^%a]", if mode == "touch" then "SPRAY" else "R2")
 	-- "click" -> "tap" / "press R2"
 	s = string.gsub(s, "%f[%a]([Cc][Ll][Ii][Cc][Kk])%f[^%a]", function(c: string)
 		if mode == "touch" then

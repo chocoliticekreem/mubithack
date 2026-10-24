@@ -21,6 +21,7 @@
 -- Remotes used: Tool/Spray (C->S), Tool/Pushed (S->C), Tool/Fx (S->C) - all declared by ToolService.
 
 local CollectionService = game:GetService("CollectionService")
+local ContextActionService = game:GetService("ContextActionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -636,6 +637,47 @@ local function fovStep(dt: number)
 end
 
 -- input ------------------------------------------------------------------------------------------
+-- Phones / iPads: a big on-screen SPRAY (CHOP for the axe) button while the tool is in hand. Holding it
+-- is the same as holding the mouse: Tool:Activate() / Deactivate(), so every Activated hook (spray
+-- stream, axe wind-up) runs unchanged. Desktop has no touch buttons, so binding it there is harmless.
+local TOUCH_ACTION = "ToolUse"
+local touchTool: Tool? = nil
+
+local function bindTouch(tool: Tool, label: string)
+	touchTool = tool
+	ContextActionService:BindAction(TOUCH_ACTION, function(_, state: Enum.UserInputState)
+		local t = touchTool
+		if not t or t.Parent ~= LocalPlayer.Character then
+			return Enum.ContextActionResult.Pass
+		end
+		if state == Enum.UserInputState.Begin then
+			t:Activate()
+		elseif state == Enum.UserInputState.End or state == Enum.UserInputState.Cancel then
+			t:Deactivate()
+		end
+		return Enum.ContextActionResult.Sink
+	end, true)
+	ContextActionService:SetTitle(TOUCH_ACTION, label)
+	-- above the jump button, clear of DROP / THROW / SWAP (InventoryController)
+	ContextActionService:SetPosition(TOUCH_ACTION, UDim2.new(1, -118, 1, -235))
+	local b = ContextActionService:GetButton(TOUCH_ACTION)
+	if b then
+		b.Size = UDim2.fromOffset(86, 86)
+		local title = b:FindFirstChild("ActionTitle")
+		if title and title:IsA("TextLabel") then
+			title.TextScaled = true
+			title.Font = Enum.Font.FredokaOne
+		end
+	end
+end
+
+local function unbindTouch(tool: Tool)
+	if touchTool == tool then
+		touchTool = nil
+		ContextActionService:UnbindAction(TOUCH_ACTION)
+	end
+end
+
 local function hookTool(inst: Instance)
 	if not inst:IsA("Tool") or hookedTools[inst] then
 		return
@@ -646,6 +688,19 @@ local function hookTool(inst: Instance)
 	end
 	hookedTools[inst] = true
 	local tool = inst :: Tool
+	local touchLabel = if name == "Axe" then "CHOP" else "SPRAY"
+	tool.Equipped:Connect(function()
+		bindTouch(tool, touchLabel)
+	end)
+	tool.Unequipped:Connect(function()
+		unbindTouch(tool)
+	end)
+	tool.Destroying:Connect(function()
+		unbindTouch(tool)
+	end)
+	if tool.Parent == LocalPlayer.Character then
+		bindTouch(tool, touchLabel)
+	end
 	if name == "Axe" then
 		-- press = wind-up, release = the chop (ClientLib/AxeArm): the whoosh is on release
 		tool.Deactivated:Connect(function()
