@@ -321,11 +321,20 @@ function BattlePassService.Start(self: any)
 		return
 	end
 
-	local ok, ds = pcall(function()
-		return DataStoreService:GetDataStore("BattlePass_" .. SEASON)
+	-- Studio playtests keep the pass in memory, like DataService's profiles (Studio has no DataStore
+	-- access unless the place enables it, and every GetAsync would log an error)
+	local memoryOnly = false
+	pcall(function()
+		local DataConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
+		memoryOnly = game:GetService("RunService"):IsStudio() and DataConfig.UseMemoryInStudio == true
 	end)
-	if ok then
-		store = ds
+	if not memoryOnly then
+		local ok, ds = pcall(function()
+			return DataStoreService:GetDataStore("BattlePass_" .. SEASON)
+		end)
+		if ok then
+			store = ds
+		end
 	end
 
 	local ns = if type(Cfg.RemoteNamespace) == "string" then Cfg.RemoteNamespace else "BattlePass"
