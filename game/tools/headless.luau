@@ -246,6 +246,7 @@ H.jsonDecode = jsonDecode
 -- ============================================================================ scheduler
 
 local now = 0
+local ticks = 0
 local FRAME = 1 / 30
 local queue: { { co: thread, wake: number, args: { any }? } } = {}
 local threadScript: { [thread]: string } = setmetatable({}, { __mode = "k" }) :: any
@@ -750,7 +751,23 @@ CF.__tostring = function(c)
 	return tostring(c.p) .. ", " .. table.concat(c.r, ", ")
 end
 function CFmethods.Inverse(c)
-	local rt = transpose(c.r)
+	-- the true inverse, not the transpose: with a transpose, rounding error in a rotation squares on every
+	-- PivotTo (a walking character's matrix blew up to NaN within ~50 frames)
+	local m = c.r
+	local a, b, cc, dd, e, f, g, h, i = m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9]
+	local A, B, C = e * i - f * h, -(dd * i - f * g), dd * h - e * g
+	local det = a * A + b * B + cc * C
+	local rt
+	if math.abs(det) < 1e-12 then
+		rt = transpose(m)
+	else
+		local k = 1 / det
+		rt = {
+			A * k, -(b * i - cc * h) * k, (b * f - cc * e) * k,
+			B * k, (a * i - cc * g) * k, -(a * f - cc * dd) * k,
+			C * k, -(a * h - b * g) * k, (a * e - b * dd) * k,
+		}
+	end
 	local inv = fromRot(Vector3.zero, rt)
 	local x, y, z = cfRot(inv, -c.p.X, -c.p.Y, -c.p.Z)
 	return fromRot(v3(x, y, z), rt)
@@ -1345,6 +1362,16 @@ local function classDefault(dd: any, k: string): any
 	elseif k == "ViewportSize" then
 		approxed("camera: ViewportSize 1280x720")
 		return v2(1280, 720)
+	elseif k == "Material" and isA(cls, "BasePart") then
+		return Enum.Material.Plastic
+	elseif k == "ContentText" then
+		return (string.gsub(tostring(dd.props.Text or ""), "<[^>]->", ""))
+	elseif k == "TextBounds" then
+		approxed("ui: TextBounds from character count")
+		local size = dd.props.TextSize or 14
+		return v2(#tostring(dd.props.Text or "") * size * 0.5, size)
+	elseif k == "TextFits" then
+		return true
 	elseif k == "AbsoluteContentSize" then
 		needStudio("ui layout: AbsoluteContentSize")
 		return v2(100, 100)
@@ -4080,7 +4107,8 @@ end
 -- ============================================================================ run
 
 local function stepFrame()
-	now += FRAME
+	ticks += 1
+	now = ticks / 30 -- exact multiples of a frame (no drift: task.wait(60) is 60 s, not 59.999)
 	local rs = d(RunService).signals
 	for _, n in { "Stepped", "PreSimulation" } do
 		if rs[n] then
