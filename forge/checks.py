@@ -426,10 +426,10 @@ def bundle(game_dir: Path, opts: dict) -> str:
         src = (game_dir / e["path"]).read_text(encoding="utf-8", errors="replace")
         lines.append(f"H.add({json.dumps(e['path'])}, {json.dumps(e['class'])}, {fsync.long_string(src)})")
     o = dict(opts)
-    check_body = o.pop("check", None)
+    long_fields = {k: o.pop(k) for k in ("check", "code") if o.get(k) is not None}
     fields = [f"{k} = {json.dumps(v)}" for k, v in sorted(o.items()) if isinstance(v, (int, float, str))]
-    if check_body is not None:
-        fields.append(f"check = {fsync.long_string(check_body)}")
+    for k, v in long_fields.items():
+        fields.append(f"{k} = {fsync.long_string(v)}")
     lines.append("H.main({ " + ", ".join(fields) + " })")
     return "\n".join(lines) + "\n"
 

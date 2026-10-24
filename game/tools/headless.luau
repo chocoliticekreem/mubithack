@@ -33,17 +33,21 @@ local function clip(s: any, n: number): string
 	return str
 end
 
-local function addError(message: any, trace: string?, scriptName: string?)
+local clientErrors = 0
+local function addError(message: any, trace: string?, scriptName: string?, client: boolean?)
 	local msg = clip(message, 500)
 	local e = errorIndex[msg]
 	if e then
 		e.count += 1
 		return
 	end
+	if client then
+		clientErrors += 1
+	end
 	if #errors >= MAX_ITEMS then
 		return
 	end
-	e = { message = msg, trace = clip(trace or "", 1000), script = scriptName or "", count = 1 }
+	e = { message = msg, trace = clip(trace or "", 1000), script = scriptName or "", count = 1, client = client or nil }
 	errorIndex[msg] = e
 	table.insert(errors, e)
 end
@@ -56,6 +60,32 @@ end
 
 local function miss(what: string)
 	misses[what] = (misses[what] or 0) + 1
+end
+
+-- Honesty: what the fake can't model. needs_studio = the game used something only a real engine can
+-- answer (physics movers, impulses, camera projection, UI layout, shape casts): a check that hits one is
+-- never a headless pass, it goes to Studio. approx = modelled roughly (straight-line pathfinding, box
+-- raycasts, kinematic walking, velocity without gravity): trusted for logic, listed in the report.
+local needsStudio: { [string]: { count: number, script: string, first: number } } = {}
+local approx: { [string]: number } = {}
+local needsCount = 0
+local simNow: () -> number = function()
+	return 0
+end
+local currentScript: () -> string = function()
+	return "?"
+end
+local function needStudio(feature: string)
+	local e = needsStudio[feature]
+	needsCount += 1
+	if e then
+		e.count += 1
+		return
+	end
+	needsStudio[feature] = { count = 1, script = currentScript(), first = simNow() }
+end
+local function approxed(feature: string)
+	approx[feature] = (approx[feature] or 0) + 1
 end
 
 -- ============================================================================ JSON
@@ -219,9 +249,36 @@ local now = 0
 local FRAME = 1 / 30
 local queue: { { co: thread, wake: number, args: { any }? } } = {}
 local threadScript: { [thread]: string } = setmetatable({}, { __mode = "k" }) :: any
+-- Which side a thread runs on: nil = the server, a Player = that player's client (LocalScripts,
+-- their callbacks, OnClientEvent/OnClientInvoke handlers). Server and clients share one Instance tree
+-- (no replication filtering), but Players.LocalPlayer, RunService:IsClient(), require() caches and
+-- remotes all follow the thread's side.
+local threadCtx: { [thread]: any } = setmetatable({}, { __mode = "k" }) :: any
 
 local function scriptOf(co: thread?): string
 	return (co and threadScript[co]) or "?"
+end
+
+local function curCtx(): any
+	local co = coroutine.running()
+	return co and threadCtx[co]
+end
+simNow = function()
+	return now
+end
+currentScript = function()
+	return scriptOf(coroutine.running())
+end
+
+local function inherit(co: thread, parent: thread?)
+	if parent then
+		if threadScript[parent] then
+			threadScript[co] = threadScript[parent]
+		end
+		if threadCtx[parent] then
+			threadCtx[co] = threadCtx[parent]
+		end
+	end
 end
 
 local function resume(co: thread, ...)
@@ -230,16 +287,13 @@ local function resume(co: thread, ...)
 	end
 	local ok, err = coroutine.resume(co, ...)
 	if not ok then
-		addError(err, debug.traceback(co), scriptOf(co))
+		addError(err, debug.traceback(co), scriptOf(co), threadCtx[co] ~= nil)
 	end
 end
 
 local function spawnThread(fn: any, ...): thread
 	local co = if type(fn) == "thread" then fn else coroutine.create(fn)
-	local parent = coroutine.running()
-	if parent and threadScript[parent] then
-		threadScript[co] = threadScript[parent]
-	end
+	inherit(co, coroutine.running())
 	resume(co, ...)
 	return co
 end
@@ -268,19 +322,13 @@ local task = {
 	end,
 	defer = function(fn: any, ...)
 		local co = if type(fn) == "thread" then fn else coroutine.create(fn)
-		local parent = coroutine.running()
-		if parent and threadScript[parent] then
-			threadScript[co] = threadScript[parent]
-		end
+		inherit(co, coroutine.running())
 		schedule(co, 0, table.pack(...))
 		return co
 	end,
 	delay = function(t: number?, fn: any, ...)
 		local co = if type(fn) == "thread" then fn else coroutine.create(fn)
-		local parent = coroutine.running()
-		if parent and threadScript[parent] then
-			threadScript[co] = threadScript[parent]
-		end
+		inherit(co, coroutine.running())
 		schedule(co, t or 0, table.pack(...))
 		return co
 	end,
@@ -312,7 +360,9 @@ Connection.__type = "RBXScriptConnection"
 
 function Signal:Connect(fn)
 	local running = coroutine.running()
-	local c = setmetatable({ fn = fn, Connected = true, signal = self, owner = running and threadScript[running] }, Connection)
+	local c = setmetatable({
+		fn = fn, Connected = true, signal = self, owner = running and threadScript[running], ctx = running and threadCtx[running],
+	}, Connection)
 	table.insert(self.conns, c)
 	return c
 end
@@ -337,21 +387,31 @@ function Signal:Wait()
 	return coroutine.yield()
 end
 
-function Signal:Fire(...)
+-- only: fire just the connections (and waiting threads) of one side; "server" or a Player
+function Signal:FireOn(only: any, ...)
 	for _, c in table.clone(self.conns) do
-		if c.Connected then
+		if c.Connected and (only == nil or (c.ctx or "server") == only) then
 			local co = coroutine.create(c.fn)
 			local parent = coroutine.running()
-			-- the callback belongs to the script that connected it
+			-- the callback belongs to the script (and the side) that connected it
 			threadScript[co] = c.owner or (parent and threadScript[parent]) or nil
+			threadCtx[co] = c.ctx
 			resume(co, ...)
 		end
 	end
 	local waiting = self.waiting
 	self.waiting = {}
 	for _, co in waiting do
-		resume(co, ...)
+		if only == nil or (threadCtx[co] or "server") == only then
+			resume(co, ...)
+		else
+			table.insert(self.waiting, co)
+		end
 	end
+end
+
+function Signal:Fire(...)
+	self:FireOn(nil, ...)
 end
 
 function Connection:Disconnect()
@@ -1103,6 +1163,22 @@ local data: { [any]: any } = setmetatable({}, { __mode = "k" }) :: any
 local Inst = { __type = "Instance" }
 local Methods: { [string]: any } = {}
 local ClassMethods: { [string]: { [string]: any } } = {}
+-- registries the simulation step walks (weak: a destroyed, unreferenced instance drops out)
+local humanoids: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local prompts: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local touchListeners: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local movingParts: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+-- classes whose effect is real physics: creating one means the game relies on what the fake can't do
+local PHYSICS_MOVERS: { [string]: boolean } = {}
+for _, n in {
+	"BodyVelocity", "BodyPosition", "BodyGyro", "BodyForce", "BodyAngularVelocity", "BodyThrust",
+	"LinearVelocity", "AngularVelocity", "VectorForce", "AlignPosition", "AlignOrientation", "LineForce",
+	"Torque", "SpringConstraint", "RopeConstraint", "HingeConstraint", "PrismaticConstraint",
+	"CylindricalConstraint", "BallSocketConstraint", "RodConstraint", "PlaneConstraint", "VehicleSeat",
+	"Explosion",
+} do
+	PHYSICS_MOVERS[n] = true
+end
 local tagged: { [string]: { [any]: boolean } } = {}
 local tagAdded: { [string]: any } = {}
 local tagRemoved: { [string]: any } = {}
@@ -1153,8 +1229,11 @@ for _, n in {
 	"Focused", "Chatted", "Idled", "MessageOut", "Error", "PromptProductPurchaseFinished",
 	"PromptGamePassPurchaseFinished", "PromptPurchaseFinished", "ChildRemoving", "ReachedTarget",
 	"Blocked", "WaypointReached", "OnInvoke_", "KeyframeReached", "LocalToolEquipped", "OnServerInvoke_",
-	"TouchTap", "JumpRequest", "WindowFocused", "WindowFocusReleased", "LastInputTypeChanged",
-	"ProximityPromptTriggered", "PromptTriggered", "MessageReceived", "SendingMessage",
+	"TouchTap", "JumpRequest", "WindowFocused", "WindowFocusReleased", "LastInputTypeChanged", "TouchPinch",
+	"TouchSwipe", "TouchStarted", "TouchMoved", "TouchLongPress", "TouchPan", "TouchRotate", "TouchTapInWorld",
+	"PointerAction", "GamepadConnected", "GamepadDisconnected", "MouseWheelForward", "MouseWheelBackward",
+	"ProximityPromptTriggered", "PromptTriggered", "PromptTriggerEnded", "MouseClick", "RightMouseClick",
+	"MouseHoverEnter", "MouseHoverLeave", "MessageReceived", "SendingMessage",
 } do
 	EVENTS[n] = true
 end
@@ -1260,8 +1339,34 @@ local function classDefault(dd: any, k: string): any
 		return Vector3.zero
 	elseif k == "AnchorPoint" then
 		return Vector2.zero
-	elseif k == "AbsoluteSize" or k == "AbsolutePosition" then
+	elseif k == "AbsoluteSize" or k == "AbsolutePosition" or k == "AbsoluteWindowSize" or k == "AbsoluteCanvasSize" then
+		needStudio("ui layout: " .. k) -- no layout engine: where a GUI ends up on screen is Studio's call
 		return v2(100, 100)
+	elseif k == "ViewportSize" then
+		approxed("camera: ViewportSize 1280x720")
+		return v2(1280, 720)
+	elseif k == "AbsoluteContentSize" then
+		needStudio("ui layout: AbsoluteContentSize")
+		return v2(100, 100)
+	elseif cls == "UserInputService" and (k == "KeyboardEnabled" or k == "MouseEnabled" or k == "MouseIconEnabled") then
+		return true
+	elseif cls == "UserInputService" and (k == "TouchEnabled" or k == "GamepadEnabled" or k == "VREnabled"
+		or k == "AccelerometerEnabled" or k == "GyroscopeEnabled") then
+		return false
+	elseif cls == "UserInputService" and k == "MouseBehavior" then
+		return Enum.MouseBehavior.Default
+	elseif k == "KeyboardKeyCode" then
+		return Enum.KeyCode.E
+	elseif k == "GamepadKeyCode" then
+		return Enum.KeyCode.ButtonX
+	elseif k == "CameraMaxZoomDistance" then
+		return 128
+	elseif k == "CameraMinZoomDistance" then
+		return 0.5
+	elseif k == "CameraMode" then
+		return Enum.CameraMode.Classic
+	elseif k == "Exclusivity" and cls == "ProximityPrompt" then
+		return Enum.ProximityPromptExclusivity.OnePerButton
 	elseif (k == "WorldPosition" or k == "WorldCFrame") and cls == "Attachment" then
 		local parent = dd.Parent
 		local base = if parent and isA(d(parent).ClassName, "BasePart") then Inst.__index(parent, "CFrame") else CFrame.identity
@@ -1303,6 +1408,9 @@ local function setParent(inst: any, parent: any)
 	if old == parent then
 		return
 	end
+	if H._worldDirty then
+		H._worldDirty(inst)
+	end
 	if parent == inst then
 		error("Attempt to set " .. dd.Name .. " as its own parent")
 	end
@@ -1315,28 +1423,47 @@ local function setParent(inst: any, parent: any)
 				break
 			end
 		end
+		if dd.owner then
+			od.clientKids = (od.clientKids or 1) - 1
+		end
 		if od.signals.ChildRemoved then
-			od.signals.ChildRemoved:Fire(inst)
+			od.signals.ChildRemoved:FireOn(dd.owner, inst)
 		end
 	end
 	dd.Parent = parent
 	if parent then
 		local pd = d(parent)
 		table.insert(pd.children, inst)
+		if dd.owner then
+			-- made on a client: only that client sees it (nothing a client creates replicates)
+			pd.clientKids = (pd.clientKids or 0) + 1
+		end
 		if pd.signals.ChildAdded then
-			pd.signals.ChildAdded:Fire(inst)
+			pd.signals.ChildAdded:FireOn(dd.owner, inst)
 		end
 		local a = parent
 		while a do
 			local ad = d(a)
 			if ad.signals.DescendantAdded then
-				ad.signals.DescendantAdded:Fire(inst)
+				ad.signals.DescendantAdded:FireOn(dd.owner, inst)
 			end
 			a = ad.Parent
 		end
 		-- a Script placed in the server tree after boot starts running (like Roblox)
 		if H._booted and dd.ClassName == "Script" and dd.source and not dd.ran then
 			H._runScript(inst)
+		end
+		-- a LocalScript (or a GUI / tool holding some) placed under a player or their character runs on
+		-- that player's client
+		if H.clients and H._booted then
+			local plr = H._clientOwner(inst)
+			if plr then
+				if dd.ClassName == "LocalScript" and not dd.ran then
+					H._runClientScript(inst, plr)
+				elseif #dd.children > 0 then
+					H._sweepClient(inst, plr)
+				end
+			end
 		end
 	end
 	if dd.signals.AncestryChanged then
@@ -1355,6 +1482,11 @@ Inst.__index = function(inst, k)
 		return dd.ClassName
 	elseif k == "Source" and isA(dd.ClassName, "LuaSourceContainer") then
 		return dd.source or ""
+	elseif k == "LocalPlayer" and dd.ClassName == "Players" then
+		return curCtx() -- the player whose client this thread runs on; nil on the server
+	elseif k == "AssemblyRootPart" and isA(dd.ClassName, "BasePart") then
+		approxed("assemblies: every part is its own assembly")
+		return inst
 	end
 	-- class methods first: CollectionService:AddTag(inst, tag) is not Instance:AddTag(tag)
 	local cm = ClassMethods[dd.ClassName]
@@ -1369,7 +1501,7 @@ Inst.__index = function(inst, k)
 	if v ~= nil then
 		return v
 	end
-	for _, c in dd.children do
+	for _, c in (if H.clients then H._kids(inst) else dd.children) do
 		if d(c).Name == k then
 			return c
 		end
@@ -1379,6 +1511,9 @@ Inst.__index = function(inst, k)
 		if not s then
 			s = newSignal(k)
 			dd.signals[k] = s
+			if (k == "Touched" or k == "TouchEnded") and isA(dd.ClassName, "BasePart") then
+				touchListeners[inst] = true
+			end
 		end
 		return s
 	end
@@ -1408,6 +1543,17 @@ Inst.__newindex = function(inst, k, v)
 		fireChanged(inst, "Source")
 		return
 	end
+	if (k == "AssemblyLinearVelocity" or k == "Velocity") and isA(dd.ClassName, "BasePart") and getmetatable(v) == V3 then
+		-- moved by the simulation step (kinematic, no gravity or collisions)
+		if v.Magnitude > 1e-6 then
+			movingParts[inst] = true
+		else
+			movingParts[inst] = nil
+		end
+	end
+	if (k == "CFrame" or k == "Position" or k == "Size") and H._partMoved and isA(dd.ClassName, "BasePart") then
+		H._partMoved(inst)
+	end
 	if k == "CFrame" and getmetatable(v) == CF and isA(dd.ClassName, "BasePart") then
 		dd.props.Position = v.p
 	elseif k == "Position" and getmetatable(v) == V3 and isA(dd.ClassName, "BasePart") then
@@ -1429,6 +1575,15 @@ Inst.__newindex = function(inst, k, v)
 			died:Fire()
 		end
 		return
+	end
+	if k == "OnClientInvoke" and dd.ClassName == "RemoteFunction" then
+		-- one callback per client (each player's LocalScript sets its own)
+		local side = curCtx()
+		if side then
+			dd.clientInvoke = dd.clientInvoke or setmetatable({}, { __mode = "k" })
+			dd.clientInvoke[side] = v
+			return
+		end
 	end
 	if k == "OnInvoke" or k == "OnServerInvoke" or k == "OnClientInvoke" or k == "ProcessReceipt" then
 		dd.props[k] = v
@@ -1452,6 +1607,16 @@ newInstance = function(className: string, parent: any?): any
 		ClassName = className, Name = className, Parent = nil, children = {}, props = {}, propsSet = {},
 		attrs = {}, attrSignals = {}, propSignals = {}, signals = {}, tags = {},
 	}
+	if H.clients then
+		data[inst].owner = curCtx()
+	end
+	if className == "Humanoid" then
+		humanoids[inst] = true
+	elseif className == "ProximityPrompt" then
+		prompts[inst] = true
+	elseif PHYSICS_MOVERS[className] and H._booted then
+		needStudio("physics: " .. className)
+	end
 	if parent then
 		setParent(inst, parent)
 	end
@@ -1459,14 +1624,46 @@ newInstance = function(className: string, parent: any?): any
 end
 
 -- Instance methods ------------------------------------------------------------------
+-- What the calling side can see: a client doesn't see inside ServerStorage / ServerScriptService, and
+-- nobody sees what another client created (H.clients only; the server's own tree is shared).
+local SERVER_ONLY = { ServerStorage = true, ServerScriptService = true }
+local function kids(inst: any): { any }
+	local dd = d(inst)
+	if not H.clients then
+		return dd.children
+	end
+	local side = curCtx()
+	if side and SERVER_ONLY[dd.ClassName] then
+		return {}
+	end
+	if not dd.clientKids or dd.clientKids <= 0 then
+		return dd.children
+	end
+	local out = {}
+	for _, c in dd.children do
+		local o = d(c).owner
+		if o == nil or o == side then
+			table.insert(out, c)
+		end
+	end
+	return out
+end
+H._kids = kids
+local function visibleDescendants(inst: any, out: { any }): { any }
+	for _, c in kids(inst) do
+		table.insert(out, c)
+		visibleDescendants(c, out)
+	end
+	return out
+end
 function Methods.FindFirstChild(self, name, recursive)
-	for _, c in d(self).children do
+	for _, c in kids(self) do
 		if d(c).Name == name then
 			return c
 		end
 	end
 	if recursive then
-		for _, c in d(self).children do
+		for _, c in kids(self) do
 			local f = Methods.FindFirstChild(c, name, true)
 			if f then
 				return f
@@ -1476,7 +1673,7 @@ function Methods.FindFirstChild(self, name, recursive)
 	return nil
 end
 function Methods.FindFirstChildOfClass(self, cls)
-	for _, c in d(self).children do
+	for _, c in kids(self) do
 		if d(c).ClassName == cls then
 			return c
 		end
@@ -1484,7 +1681,7 @@ function Methods.FindFirstChildOfClass(self, cls)
 	return nil
 end
 function Methods.FindFirstChildWhichIsA(self, cls, recursive)
-	for _, c in (if recursive then descendants(self, {}) else d(self).children) do
+	for _, c in (if recursive then visibleDescendants(self, {}) else kids(self)) do
 		if isA(d(c).ClassName, cls) then
 			return c
 		end
@@ -1522,7 +1719,7 @@ function Methods.FindFirstAncestorWhichIsA(self, cls)
 	return nil
 end
 function Methods.FindFirstDescendant(self, name)
-	for _, c in descendants(self, {}) do
+	for _, c in visibleDescendants(self, {}) do
 		if d(c).Name == name then
 			return c
 		end
@@ -1555,10 +1752,10 @@ function Methods.WaitForChild(self, name, timeout)
 	end
 end
 function Methods.GetChildren(self)
-	return table.clone(d(self).children)
+	return table.clone(kids(self))
 end
 function Methods.GetDescendants(self)
-	return descendants(self, {})
+	return visibleDescendants(self, {})
 end
 function Methods.IsA(self, cls)
 	return isA(d(self).ClassName, cls)
@@ -1749,17 +1946,9 @@ function Methods.GetPrimaryPartCFrame(self)
 end
 function Methods.MoveTo(self, pos)
 	if d(self).ClassName == "Humanoid" then
-		local char = d(self).Parent
-		task.delay(0.5, function()
-			local root = char and Methods.FindFirstChild(char, "HumanoidRootPart")
-			if root then
-				Inst.__newindex(root, "CFrame", cf(pos.X, pos.Y, pos.Z))
-			end
-			local s = d(self).signals.MoveToFinished
-			if s then
-				s:Fire(true)
-			end
-		end)
+		-- walked by the simulation step at WalkSpeed (H.walkers); MoveToFinished(true) on arrival,
+		-- (false) after 8 s like Roblox
+		H.walkers[self] = { target = pos, t0 = now }
 		return
 	end
 	local p = Methods.GetPivot(self)
@@ -1805,12 +1994,18 @@ function Methods.GetJoints()
 	return {}
 end
 function Methods.ApplyImpulse(self, v)
+	needStudio("physics: ApplyImpulse")
 	local cur = Inst.__index(self, "AssemblyLinearVelocity") or Vector3.zero
 	d(self).props.AssemblyLinearVelocity = cur + v
 end
-function Methods.ApplyAngularImpulse() end
-function Methods.ApplyImpulseAtPosition() end
+function Methods.ApplyAngularImpulse()
+	needStudio("physics: ApplyAngularImpulse")
+end
+function Methods.ApplyImpulseAtPosition()
+	needStudio("physics: ApplyImpulseAtPosition")
+end
 function Methods.GetVelocityAtPosition()
+	needStudio("physics: GetVelocityAtPosition")
 	return Vector3.zero
 end
 function Methods.GetRootPart(self)
@@ -1892,22 +2087,145 @@ local function logRemote(self, kind, ...)
 		table.insert(H.remoteLog, { remote = d(self).Name, kind = kind, n = select("#", ...) })
 	end
 end
+do
+-- Remotes go client <-> server in-process, a frame later (like the network), with arguments copied
+-- (a table sent is a new table on the other side). Clients are the simulated players (H.join with
+-- clients on); their LocalScripts run on the player's side (threadCtx).
+local function copyArg(v: any, seen: { [any]: any }?): any
+	if type(v) ~= "table" or data[v] or getmetatable(v) ~= nil then
+		return v
+	end
+	seen = seen or {}
+	if (seen :: any)[v] then
+		return (seen :: any)[v]
+	end
+	local out = {}
+	;(seen :: any)[v] = out
+	for k, x in v do
+		out[copyArg(k, seen)] = copyArg(x, seen)
+	end
+	return out
+end
+local function packCopy(...)
+	local t = table.pack(...)
+	for i = 1, t.n do
+		t[i] = copyArg(t[i])
+	end
+	return t
+end
+local function deliver(side: any, fn: any)
+	-- run fn on `side` (nil = server, a Player = that client) at the next frame
+	local co = coroutine.create(fn)
+	threadCtx[co] = side
+	threadScript[co] = "remote"
+	schedule(co, 0, nil)
+end
+local function remoteSignal(self, name: string)
+	local dd = d(self)
+	local s = dd.signals[name]
+	if not s then
+		s = newSignal(name)
+		dd.signals[name] = s
+	end
+	return s
+end
+local function needClient(self, what: string): any
+	local plr = curCtx()
+	if not plr then
+		error(what .. " can only be called from the client (" .. d(self).Name .. ")", 3)
+	end
+	return plr
+end
+local function needServer(self, what: string)
+	if curCtx() then
+		error(what .. " can only be called from the server (" .. d(self).Name .. ")", 3)
+	end
+end
+-- a yielding call answered by `handler(...)` on `side`; an error there comes back as an error here
+local function callAcross(side: any, handler: any, args: any, what: string)
+	local caller = coroutine.running()
+	if not coroutine.isyieldable() then
+		error(what .. " called from a non-yieldable thread")
+	end
+	local co = coroutine.create(function()
+		local res = table.pack(pcall(handler, table.unpack(args, 1, args.n)))
+		local out = { n = res.n }
+		for i = 1, res.n do
+			out[i] = copyArg(res[i])
+		end
+		schedule(caller, 0, out)
+	end)
+	threadCtx[co] = side
+	threadScript[co] = what
+	schedule(co, 0, nil)
+	local back = table.pack(coroutine.yield())
+	if not back[1] then
+		error(back[2], 0)
+	end
+	return table.unpack(back, 2, back.n)
+end
+local MISSING_HANDLER_WAIT = 5 -- simulated seconds a call waits for its callback (Roblox waits forever)
+local function waitHandler(get: () -> any, what: string): any
+	local t0 = now
+	local f = get()
+	while not f and now - t0 < MISSING_HANDLER_WAIT and coroutine.isyieldable() do
+		yieldFor(FRAME)
+		f = get()
+	end
+	if not f then
+		error(what .. ": no callback set after " .. MISSING_HANDLER_WAIT .. "s (Roblox would wait forever)", 0)
+	end
+	return f
+end
 function Methods.FireClient(self, player, ...)
+	needServer(self, "FireClient")
 	logRemote(self, "FireClient", ...)
+	local args = packCopy(...)
+	deliver(player, function()
+		if d(player).Parent then
+			remoteSignal(self, "OnClientEvent"):FireOn(player, table.unpack(args, 1, args.n))
+		end
+	end)
 end
 function Methods.FireAllClients(self, ...)
+	needServer(self, "FireAllClients")
 	logRemote(self, "FireAllClients", ...)
+	for _, p in ClassMethods.Players.GetPlayers(H.Players) do
+		local args = packCopy(...)
+		deliver(p, function()
+			remoteSignal(self, "OnClientEvent"):FireOn(p, table.unpack(args, 1, args.n))
+		end)
+	end
 end
 function Methods.FireServer(self, ...)
+	local plr = needClient(self, "FireServer")
 	logRemote(self, "FireServer", ...)
+	local args = packCopy(...)
+	deliver(nil, function()
+		remoteSignal(self, "OnServerEvent"):FireOn("server", plr, table.unpack(args, 1, args.n))
+	end)
 end
-function Methods.InvokeClient(self, ...)
+function Methods.InvokeClient(self, player, ...)
+	needServer(self, "InvokeClient")
 	logRemote(self, "InvokeClient", ...)
-	return nil
+	local dd = d(self)
+	local f = waitHandler(function()
+		return dd.clientInvoke and dd.clientInvoke[player]
+	end, "InvokeClient " .. dd.Name .. " (" .. tostring(d(player).Name) .. ")")
+	return callAcross(player, f, packCopy(...), "InvokeClient")
 end
 function Methods.InvokeServer(self, ...)
+	local plr = needClient(self, "InvokeServer")
 	logRemote(self, "InvokeServer", ...)
-	return nil
+	local dd = d(self)
+	local f = waitHandler(function()
+		return dd.props.OnServerInvoke
+	end, "InvokeServer " .. dd.Name)
+	local args = packCopy(...)
+	table.insert(args, 1, plr)
+	args.n += 1
+	return callAcross(nil, f, args, "InvokeServer")
+end
 end
 -- humanoid
 function Methods.TakeDamage(self, n)
@@ -1919,8 +2237,57 @@ end
 function Methods.GetState()
 	return Enum.HumanoidStateType.Running
 end
-function Methods.ChangeState() end
+function Methods.ChangeState(self, st)
+	if d(self).ClassName == "Humanoid" and st and st.Name == "Jumping" then
+		Inst.__newindex(self, "Jump", true)
+	end
+end
+H.walkers = setmetatable({}, { __mode = "k" }) :: { [any]: any }
+function Methods.Move(self, dir, relative)
+	if d(self).ClassName ~= "Humanoid" then
+		return
+	end
+	if relative then
+		approxed("Humanoid:Move relative to camera (taken as world)")
+	end
+	if dir.Magnitude < 1e-6 then
+		H.walkers[self] = nil
+		d(self).props.MoveDirection = Vector3.zero
+	else
+		H.walkers[self] = { dir = Vector3.new(dir.X, 0, dir.Z).Unit, t0 = now }
+	end
+end
+-- ProximityPrompt input (client side: the LocalPlayer holds the prompt's key)
+H.holds = {} :: { any }
+function Methods.InputHoldBegin(self)
+	local plr = curCtx()
+	if not plr then
+		error("InputHoldBegin can only be called from the client", 2)
+	end
+	H.holdBegin(self, plr)
+end
+function Methods.InputHoldEnd(self)
+	local plr = curCtx()
+	if not plr then
+		error("InputHoldEnd can only be called from the client", 2)
+	end
+	H.holdEnd(self, plr)
+end
 function Methods.SetStateEnabled() end
+function Methods.Activate(self)
+	if d(self).ClassName == "Tool" then
+		local s = d(self).signals.Activated
+		if s then
+			s:Fire()
+		end
+		task.delay(0.1, function()
+			local e = d(self).signals.Deactivated
+			if e then
+				e:Fire()
+			end
+		end)
+	end
+end
 function Methods.GetStateEnabled()
 	return true
 end
@@ -2077,39 +2444,335 @@ d(workspace).props.CurrentCamera = newInstance("Camera", workspace)
 d(workspace).props.Terrain = newInstance("Terrain", workspace)
 d(d(workspace).props.CurrentCamera).Name = "Camera"
 d(d(workspace).props.Terrain).Name = "Terrain"
+do
+-- Spatial queries over oriented part boxes (every BasePart is a box; meshes, wedges, spheres and terrain
+-- are approximated by their bounding box; terrain is not there at all).
+-- A uniform grid of part bounding boxes, built on the first query and then kept up to date incrementally:
+-- reparented subtrees and moved/resized parts are re-bucketed lazily at the next query.
+local CELL = 32
+local BIG = 48 -- a part spanning more cells than this on an axis sits in `bigParts`, checked by every query
+local gridOn = false
+local grid: { [number]: { [any]: boolean } } = {}
+local cellsOf: { [any]: { number } } = setmetatable({}, { __mode = "k" }) :: any
+local bigParts: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local pendingRoots: { any } = {}
+local movedParts: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local function cellKey(x: number, y: number, z: number): number
+	return ((x + 4096) * 8192 + (y + 4096)) * 8192 + (z + 4096)
+end
+H._worldDirty = function(inst: any)
+	if gridOn then
+		table.insert(pendingRoots, inst)
+	end
+end
+H._partMoved = function(inst: any)
+	if gridOn then
+		movedParts[inst] = true
+	end
+end
+local aabbOf
+local function gridRemove(p: any)
+	local keys = cellsOf[p]
+	if keys then
+		for _, k in keys do
+			local c = grid[k]
+			if c then
+				c[p] = nil
+			end
+		end
+		cellsOf[p] = nil
+	end
+	bigParts[p] = nil
+end
+local function gridInsert(p: any)
+	gridRemove(p)
+	local a, b, c, x, y, z = aabbOf(p)
+	local x0, y0, z0 = math.floor(a / CELL), math.floor(b / CELL), math.floor(c / CELL)
+	local x1, y1, z1 = math.floor(x / CELL), math.floor(y / CELL), math.floor(z / CELL)
+	if x1 - x0 > BIG or y1 - y0 > BIG or z1 - z0 > BIG then
+		bigParts[p] = true
+		return
+	end
+	local keys = {}
+	for i = x0, x1 do
+		for j = y0, y1 do
+			for k = z0, z1 do
+				local key = cellKey(i, j, k)
+				local cell = grid[key]
+				if not cell then
+					cell = {}
+					grid[key] = cell
+				end
+				cell[p] = true
+				table.insert(keys, key)
+			end
+		end
+	end
+	cellsOf[p] = keys
+end
+local function isWorldPart(p: any): boolean
+	local pd = d(p)
+	return pd ~= nil and not pd.destroyed and isA(pd.ClassName, "BasePart") and pd.ClassName ~= "Terrain"
+		and Methods.IsDescendantOf(p, workspace)
+end
+local function gridSync()
+	if not gridOn then
+		gridOn = true
+		for _, c in descendants(workspace, {}) do
+			if isWorldPart(c) then
+				gridInsert(c)
+			end
+		end
+		return
+	end
+	if #pendingRoots > 0 then
+		local roots = pendingRoots
+		pendingRoots = {}
+		local seen = {}
+		for _, r in roots do
+			if d(r) and not seen[r] then
+				seen[r] = true
+				local list = descendants(r, {})
+				table.insert(list, r)
+				for _, p in list do
+					if isA(d(p).ClassName, "BasePart") then
+						if isWorldPart(p) then
+							gridInsert(p)
+						else
+							gridRemove(p)
+						end
+						movedParts[p] = nil
+					end
+				end
+			end
+		end
+	end
+	for p in movedParts do
+		movedParts[p] = nil
+		if isWorldPart(p) then
+			gridInsert(p)
+		else
+			gridRemove(p)
+		end
+	end
+end
+-- candidate parts whose box may overlap the AABB (a superset; callers test exactly)
+local function partsNear(minX, minY, minZ, maxX, maxY, maxZ): { any }
+	gridSync()
+	local out, seen = {}, {}
+	local x0, y0, z0 = math.floor(minX / CELL), math.floor(minY / CELL), math.floor(minZ / CELL)
+	local x1, y1, z1 = math.floor(maxX / CELL), math.floor(maxY / CELL), math.floor(maxZ / CELL)
+	if (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > 20000 then
+		for p in cellsOf do
+			if not seen[p] then
+				seen[p] = true
+				table.insert(out, p)
+			end
+		end
+	else
+		for i = x0, x1 do
+			for j = y0, y1 do
+				for k = z0, z1 do
+					local cell = grid[cellKey(i, j, k)]
+					if cell then
+						for p in cell do
+							if not seen[p] then
+								seen[p] = true
+								table.insert(out, p)
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	for p in bigParts do
+		if not seen[p] then
+			seen[p] = true
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+local function boxOf(p: any)
+	local c = Inst.__index(p, "CFrame")
+	local s = Inst.__index(p, "Size") or v3(4, 1, 2)
+	return c.p, c.r, s.X / 2, s.Y / 2, s.Z / 2
+end
+aabbOf = function(p: any): (number, number, number, number, number, number)
+	local pos, r, hx, hy, hz = boxOf(p)
+	local ex = math.abs(r[1]) * hx + math.abs(r[2]) * hy + math.abs(r[3]) * hz
+	local ey = math.abs(r[4]) * hx + math.abs(r[5]) * hy + math.abs(r[6]) * hz
+	local ez = math.abs(r[7]) * hx + math.abs(r[8]) * hy + math.abs(r[9]) * hz
+	return pos.X - ex, pos.Y - ey, pos.Z - ez, pos.X + ex, pos.Y + ey, pos.Z + ez
+end
+H._aabbOf = aabbOf
+local function filterFn(params: any, queryKey: string): (any) -> boolean
+	local list = params and params.FilterDescendantsInstances or {}
+	local ft = params and params.FilterType and tostring(params.FilterType.Name or params.FilterType) or "Exclude"
+	local include = ft == "Include" or ft == "Whitelist"
+	local respect = params and params.RespectCanCollide
+	return function(p)
+		local pd = d(p)
+		if pd.destroyed or pd.props[queryKey] == false then
+			return false
+		end
+		if respect and pd.props.CanCollide == false then
+			return false
+		end
+		local inList = false
+		for _, f in list do
+			if f == p or Methods.IsDescendantOf(p, f) then
+				inList = true
+				break
+			end
+		end
+		return if include then inList else not inList
+	end
+end
+local function raycast(origin: any, dir: any, params: any): any
+	approxed("raycast: part boxes, no terrain")
+	local keep = filterFn(params, "CanQuery")
+	local bestT, best, bestN = math.huge, nil, nil
+	local ex = origin + dir
+	for _, p in partsNear(
+		math.min(origin.X, ex.X), math.min(origin.Y, ex.Y), math.min(origin.Z, ex.Z),
+		math.max(origin.X, ex.X), math.max(origin.Y, ex.Y), math.max(origin.Z, ex.Z)
+	) do
+		if keep(p) then
+			local pos, r, hx, hy, hz = boxOf(p)
+			local ox, oy, oz = origin.X - pos.X, origin.Y - pos.Y, origin.Z - pos.Z
+			-- into the part's local frame (R transposed)
+			local lo = { r[1] * ox + r[4] * oy + r[7] * oz, r[2] * ox + r[5] * oy + r[8] * oz, r[3] * ox + r[6] * oy + r[9] * oz }
+			local ld = {
+				r[1] * dir.X + r[4] * dir.Y + r[7] * dir.Z,
+				r[2] * dir.X + r[5] * dir.Y + r[8] * dir.Z,
+				r[3] * dir.X + r[6] * dir.Y + r[9] * dir.Z,
+			}
+			local h = { hx, hy, hz }
+			local tmin, tmax, axis, sign = 0, 1, 0, 0
+			local hit = true
+			for i = 1, 3 do
+				if math.abs(ld[i]) < 1e-9 then
+					if lo[i] < -h[i] or lo[i] > h[i] then
+						hit = false
+						break
+					end
+				else
+					local t1, t2 = (-h[i] - lo[i]) / ld[i], (h[i] - lo[i]) / ld[i]
+					local s = -1
+					if t1 > t2 then
+						t1, t2, s = t2, t1, 1
+					end
+					if t1 > tmin then
+						tmin, axis, sign = t1, i, s
+					end
+					tmax = math.min(tmax, t2)
+					if tmin > tmax then
+						hit = false
+						break
+					end
+				end
+			end
+			if hit and axis > 0 and tmin < bestT then
+				bestT, best = tmin, p
+				local n = { 0, 0, 0 }
+				n[axis] = sign
+				bestN = v3(r[1] * n[1] + r[2] * n[2] + r[3] * n[3], r[4] * n[1] + r[5] * n[2] + r[6] * n[3], r[7] * n[1] + r[8] * n[2] + r[9] * n[3])
+			end
+		end
+	end
+	if not best then
+		return nil
+	end
+	local hitPos = origin + dir * bestT
+	return setmetatable({
+		Instance = best, Position = hitPos, Normal = bestN, Distance = (dir * bestT).Magnitude,
+		Material = Inst.__index(best, "Material") or Enum.Material.Plastic,
+	}, { __type = "RaycastResult" })
+end
+local function partsInBox(minX, minY, minZ, maxX, maxY, maxZ, params: any, max: number?): { any }
+	approxed("overlap query: part bounding boxes")
+	local keep = filterFn(params, "CanQuery")
+	local out = {}
+	for _, p in partsNear(minX, minY, minZ, maxX, maxY, maxZ) do
+		if keep(p) then
+			local a, b, c, x, y, z = aabbOf(p)
+			if a <= maxX and x >= minX and b <= maxY and y >= minY and c <= maxZ and z >= minZ then
+				table.insert(out, p)
+				if max and max > 0 and #out >= max then
+					break
+				end
+			end
+		end
+	end
+	return out
+end
+local function boxQuery(cfr: any, size: any, params: any)
+	local r = cfr.r
+	local hx, hy, hz = size.X / 2, size.Y / 2, size.Z / 2
+	local ex = math.abs(r[1]) * hx + math.abs(r[2]) * hy + math.abs(r[3]) * hz
+	local ey = math.abs(r[4]) * hx + math.abs(r[5]) * hy + math.abs(r[6]) * hz
+	local ez = math.abs(r[7]) * hx + math.abs(r[8]) * hy + math.abs(r[9]) * hz
+	local p = cfr.p
+	return partsInBox(p.X - ex, p.Y - ey, p.Z - ez, p.X + ex, p.Y + ey, p.Z + ez, params, params and params.MaxParts)
+end
+local function legacyRay(ray: any, ignore: any)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = if type(ignore) == "table" then ignore elseif ignore then { ignore } else {}
+	local res = raycast(ray.Origin, ray.Direction, params)
+	if res then
+		return res.Instance, res.Position, res.Normal, res.Material
+	end
+	return nil, ray.Origin + ray.Direction, Vector3.new(0, 1, 0), Enum.Material.Air
+end
+local function needsCast(name: string)
+	return function()
+		needStudio("physics query: " .. name)
+		return nil
+	end
+end
 ClassMethods.Workspace = {
-	Raycast = function()
-		return nil
+	Raycast = function(self, origin, dir, params)
+		return raycast(origin, dir, params)
 	end,
-	Blockcast = function()
-		return nil
+	Blockcast = needsCast("Blockcast"),
+	Spherecast = needsCast("Spherecast"),
+	Shapecast = needsCast("Shapecast"),
+	GetPartBoundsInBox = function(self, cfr, size, params)
+		return boxQuery(cfr, size, params)
 	end,
-	Spherecast = function()
-		return nil
+	GetPartBoundsInRadius = function(self, pos, radius, params)
+		return partsInBox(pos.X - radius, pos.Y - radius, pos.Z - radius, pos.X + radius, pos.Y + radius, pos.Z + radius, params, params and params.MaxParts)
 	end,
-	Shapecast = function()
-		return nil
+	GetPartsInPart = function(self, part, params)
+		local a, b, c, x, y, z = aabbOf(part)
+		local out = {}
+		for _, p in partsInBox(a, b, c, x, y, z, params) do
+			if p ~= part then
+				table.insert(out, p)
+			end
+		end
+		return out
 	end,
-	GetPartBoundsInBox = function()
-		return {}
+	FindPartsInRegion3 = function(self, region, ignore, max)
+		local c, s = region.CFrame, region.Size
+		local params = OverlapParams.new()
+		params.FilterDescendantsInstances = if ignore then { ignore } else {}
+		params.MaxParts = max or 20
+		return boxQuery(c, s, params)
 	end,
-	GetPartBoundsInRadius = function()
-		return {}
+	FindPartsInRegion3WithIgnoreList = function(self, region, ignore, max)
+		local params = OverlapParams.new()
+		params.FilterDescendantsInstances = ignore or {}
+		params.MaxParts = max or 20
+		return boxQuery(region.CFrame, region.Size, params)
 	end,
-	GetPartsInPart = function()
-		return {}
+	FindPartOnRay = function(self, ray, ignore)
+		return legacyRay(ray, ignore)
 	end,
-	FindPartsInRegion3 = function()
-		return {}
-	end,
-	FindPartsInRegion3WithIgnoreList = function()
-		return {}
-	end,
-	FindPartOnRay = function()
-		return nil
-	end,
-	FindPartOnRayWithIgnoreList = function()
-		return nil
+	FindPartOnRayWithIgnoreList = function(self, ray, ignore)
+		return legacyRay(ray, ignore)
 	end,
 	GetServerTimeNow = function()
 		return os.time() + now
@@ -2126,6 +2789,7 @@ ClassMethods.Workspace = {
 		end
 	end,
 }
+end
 ClassMethods.Terrain = {
 	FillBlock = function() end,
 	FillBall = function() end,
@@ -2231,6 +2895,14 @@ function H.spawnCharacter(plr: any)
 		end
 	end
 	pd.props.Character = char
+	if H.clients then
+		for _, c in d(d(StarterPlayer).props.StarterCharacterScripts).children do
+			local cc = Methods.Clone(c)
+			if cc then
+				setParent(cc, char)
+			end
+		end
+	end
 	setParent(char, workspace)
 	if pd.signals.CharacterAdded then
 		pd.signals.CharacterAdded:Fire(char)
@@ -2273,11 +2945,21 @@ function H.join(name: string?): any
 	end
 	local ps = newInstance("PlayerScripts", plr)
 	d(ps).Name = "PlayerScripts"
+	if H.clients then
+		for _, c in d(d(StarterPlayer).props.StarterPlayerScripts).children do
+			local cc = Methods.Clone(c)
+			if cc then
+				setParent(cc, ps)
+			end
+		end
+	end
 	setParent(plr, Players)
 	local s = d(Players).signals.PlayerAdded
 	if s then
 		s:Fire(plr)
 	end
+	-- the client starts: its PlayerScripts and StarterGui LocalScripts run on its side
+	H._sweepClient(plr, plr)
 	if Inst.__index(Players, "CharacterAutoLoads") ~= false then
 		H.spawnCharacter(plr)
 	end
@@ -2290,10 +2972,10 @@ ClassMethods.RunService = {
 		return true
 	end,
 	IsServer = function()
-		return true
+		return curCtx() == nil
 	end,
 	IsClient = function()
-		return false
+		return curCtx() ~= nil
 	end,
 	IsRunning = function()
 		return true
@@ -2570,14 +3252,18 @@ ClassMethods.PathfindingService = {
 		ClassMethods.Path = ClassMethods.Path
 			or {
 				ComputeAsync = function(self, a, b)
+					approxed("pathfinding: straight line")
 					d(self).props._a, d(self).props._b = a, b
 				end,
 				GetWaypoints = function(self)
-					local b = d(self).props._b
+					local a, b = d(self).props._a, d(self).props._b
 					if not b then
 						return {}
 					end
-					return { setmetatable({ Position = b, Action = Enum.PathWaypointAction.Walk, Label = "" }, { __type = "PathWaypoint" }) }
+					local function wp(p)
+						return setmetatable({ Position = p, Action = Enum.PathWaypointAction.Walk, Label = "" }, { __type = "PathWaypoint" })
+					end
+					return if a then { wp(a), wp(b) } else { wp(b) }
 				end,
 				CheckOcclusionAsync = function()
 					return -1
@@ -2686,6 +3372,62 @@ ClassMethods.UserInputService = {
 	GetLastInputType = function()
 		return Enum.UserInputType.Keyboard
 	end,
+	GetMouseDelta = function()
+		return v2(0, 0)
+	end,
+	GetConnectedGamepads = function()
+		return {}
+	end,
+	GetKeysPressed = function()
+		return {}
+	end,
+	IsMouseButtonPressed = function()
+		return false
+	end,
+}
+ClassMethods.Lighting = {
+	GetSunDirection = function()
+		return Vector3.new(0.3, 0.8, 0.5).Unit
+	end,
+	GetMoonDirection = function()
+		return Vector3.new(-0.3, 0.8, -0.5).Unit
+	end,
+	GetMinutesAfterMidnight = function(self)
+		return 14 * 60
+	end,
+	SetMinutesAfterMidnight = function(self, m)
+		d(self).props.ClockTime = (m / 60) % 24
+	end,
+}
+do
+local function projection(name: string)
+	return function(self, p)
+		needStudio("camera: " .. name)
+		if name == "ViewportPointToRay" or name == "ScreenPointToRay" then
+			return Ray.new(Vector3.zero, Vector3.new(0, 0, -1))
+		end
+		return Vector3.new(640, 360, 10), true
+	end
+end
+ClassMethods.Camera = {
+	WorldToViewportPoint = projection("WorldToViewportPoint"),
+	WorldToScreenPoint = projection("WorldToScreenPoint"),
+	ViewportPointToRay = projection("ViewportPointToRay"),
+	ScreenPointToRay = projection("ScreenPointToRay"),
+	GetPartsObscuringTarget = function()
+		needStudio("camera: GetPartsObscuringTarget")
+		return {}
+	end,
+}
+end
+ClassMethods.GuiService = {
+	GetGuiInset = function()
+		return v2(0, 58), v2(0, 0)
+	end,
+	IsTenFootInterface = function()
+		return false
+	end,
+	CloseInspectMenu = function() end,
 }
 ClassMethods.ContextActionService = {
 	BindAction = function() end,
@@ -2879,26 +3621,38 @@ G.require = function(target: any)
 	if dd.ClassName ~= "ModuleScript" then
 		error("Attempted to call require with invalid argument(s).")
 	end
-	if cache[target] ~= nil then
-		return cache[target]
+	-- each side has its own module cache (a client requiring a shared module gets its own copy)
+	local side = curCtx() or "server"
+	local sideCache = cache[side]
+	if not sideCache then
+		sideCache = {}
+		cache[side] = sideCache
 	end
-	if loading[target] then
+	local sideLoading = loading[side]
+	if not sideLoading then
+		sideLoading = {}
+		loading[side] = sideLoading
+	end
+	if sideCache[target] ~= nil then
+		return sideCache[target]
+	end
+	if sideLoading[target] then
 		error("Requested module was required recursively: " .. fullName(target))
 	end
 	if not dd.source then
 		error("ModuleScript " .. fullName(target) .. " has no source")
 	end
-	loading[target] = true
+	sideLoading[target] = true
 	local ok, res = pcall(compile(target))
-	loading[target] = nil
+	sideLoading[target] = nil
 	if not ok then
-		addError(res, nil, fullName(target))
+		addError(res, nil, fullName(target), side ~= "server")
 		error("Requested module experienced an error while loading: " .. fullName(target) .. ": " .. tostring(res), 0)
 	end
 	if res == nil then
 		error("Module code did not return exactly one value: " .. fullName(target), 0)
 	end
-	cache[target] = res
+	sideCache[target] = res
 	return res
 end
 
@@ -2916,6 +3670,56 @@ function H._runScript(inst: any)
 	local co = coroutine.create(fn)
 	threadScript[co] = fullName(inst)
 	resume(co)
+end
+
+-- A LocalScript on one player's side. Only with clients on (H.clients): simulated players run their
+-- StarterPlayerScripts, StarterGui and StarterCharacterScripts LocalScripts like a real client would.
+function H._runClientScript(inst: any, plr: any)
+	local dd = d(inst)
+	if dd.ran or dd.props.Disabled == true or dd.props.Enabled == false or not dd.source then
+		return
+	end
+	dd.ran = true
+	local ok, fn = pcall(compile, inst)
+	if not ok then
+		addError(fn, nil, fullName(inst), true)
+		return
+	end
+	local co = coroutine.create(fn)
+	threadScript[co] = fullName(inst)
+	threadCtx[co] = plr
+	resume(co)
+end
+
+-- the player whose client owns `inst` (under the Player, or in their character), if any
+function H._clientOwner(inst: any): any
+	local cur = inst
+	while cur and d(cur) do
+		local cd = d(cur)
+		if cd.ClassName == "Player" then
+			return if cd.Parent == H.Players then cur else nil
+		end
+		if cd.ClassName == "Model" and cd.Parent == workspace then
+			local plr = ClassMethods.Players.GetPlayerFromCharacter(H.Players, cur)
+			if plr then
+				return plr
+			end
+		end
+		cur = cd.Parent
+	end
+	return nil
+end
+
+-- run every LocalScript under `root` that hasn't run yet, on plr's side
+function H._sweepClient(root: any, plr: any)
+	if not H.clients or not root then
+		return
+	end
+	for _, c in descendants(root, {}) do
+		if d(c).ClassName == "LocalScript" and not d(c).ran then
+			H._runClientScript(c, plr)
+		end
+	end
 end
 
 -- ============================================================================ file tree
@@ -2970,6 +3774,309 @@ function H.add(path: string, class: string, source: string)
 	return inst
 end
 
+local simStep: (number) -> ()
+-- ============================================================================ simulation
+do
+-- Simple kinematics, no physics engine: characters walk straight at WalkSpeed (no collisions, no gravity,
+-- the root settles 3 studs above the target point), parts with a velocity drift at it, overlaps of
+-- characters / moving parts with parts that listen fire Touched / TouchEnded, simulated clients see
+-- ProximityPrompts in range (PromptShown / PromptHidden) and can hold them (InputHoldBegin/End).
+
+local PPS = service("ProximityPromptService")
+local HIP = 3 -- root height above the point a character stands on
+local function inWorld(inst: any): boolean
+	local dd = d(inst)
+	return dd ~= nil and not dd.destroyed and Methods.IsDescendantOf(inst, workspace)
+end
+local function rootOf(hum: any): (any, any)
+	local char = d(hum).Parent
+	if not char or not inWorld(char) then
+		return nil, nil
+	end
+	return char, Methods.FindFirstChild(char, "HumanoidRootPart")
+end
+local function placeChar(char: any, root: any, pos: any, face: any?)
+	local cur = Inst.__index(root, "CFrame")
+	local target = if face and face.Magnitude > 1e-6 then lookAt(pos, pos + face) else fromRot(pos, cur.r)
+	Methods.PivotTo(char, target)
+end
+
+local function stepWalkers(dt: number)
+	for hum, w in H.walkers do
+		local char, root = rootOf(hum)
+		local hd = d(hum)
+		if not root or (Inst.__index(hum, "Health") or 100) <= 0 then
+			H.walkers[hum] = nil
+			hd.props.MoveDirection = Vector3.zero
+			if not w.dir and hd.signals.MoveToFinished then
+				hd.signals.MoveToFinished:Fire(false)
+			end
+			continue
+		end
+		approxed("movement: kinematic walk (no collisions, no gravity)")
+		local speed = Inst.__index(hum, "WalkSpeed") or 16
+		local pos = Inst.__index(root, "Position")
+		if w.dir then
+			placeChar(char, root, pos + w.dir * speed * dt, w.dir)
+			hd.props.MoveDirection = w.dir
+			continue
+		end
+		local target = w.target
+		local goalY = target.Y + HIP
+		local flat = Vector3.new(target.X - pos.X, 0, target.Z - pos.Z)
+		local dist = flat.Magnitude
+		local stepXZ = speed * dt
+		local dy = goalY - pos.Y
+		local ny = pos.Y + math.clamp(dy, -math.max(speed, 50) * dt, math.max(speed, 50) * dt)
+		if dist <= stepXZ + 0.05 and math.abs(goalY - ny) < 0.05 then
+			placeChar(char, root, Vector3.new(target.X, goalY, target.Z), if dist > 1e-3 then flat.Unit else nil)
+			H.walkers[hum] = nil
+			hd.props.MoveDirection = Vector3.zero
+			if hd.signals.MoveToFinished then
+				hd.signals.MoveToFinished:Fire(true)
+			end
+		elseif now - w.t0 > 8 then
+			H.walkers[hum] = nil
+			hd.props.MoveDirection = Vector3.zero
+			if hd.signals.MoveToFinished then
+				hd.signals.MoveToFinished:Fire(false)
+			end
+		else
+			local dir = if dist > 1e-3 then flat.Unit else Vector3.zero
+			local move = if dist > stepXZ then dir * stepXZ else flat
+			placeChar(char, root, Vector3.new(pos.X + move.X, ny, pos.Z + move.Z), if dist > 1e-3 then dir else nil)
+			hd.props.MoveDirection = dir
+		end
+	end
+	for hum in humanoids do
+		local hd = d(hum)
+		if hd and hd.props.Jump == true then
+			hd.props.Jump = false
+			approxed("jump: state only, no height")
+			if hd.signals.Jumping then
+				hd.signals.Jumping:Fire(true)
+			end
+			if hd.signals.StateChanged then
+				hd.signals.StateChanged:Fire(Enum.HumanoidStateType.Running, Enum.HumanoidStateType.Jumping)
+			end
+		end
+	end
+end
+
+local function stepMovingParts(dt: number)
+	for part in movingParts do
+		local pd = d(part)
+		if not pd or pd.destroyed then
+			movingParts[part] = nil
+		elseif pd.props.Anchored ~= true and inWorld(part) then
+			local v = pd.props.AssemblyLinearVelocity or pd.props.Velocity
+			if v and v.Magnitude > 1e-6 then
+				approxed("physics: velocity integrated (no gravity, no collisions)")
+				Inst.__newindex(part, "CFrame", Inst.__index(part, "CFrame") + v * dt)
+			end
+		end
+	end
+end
+
+-- touching pairs: contacts[listener][mover part] = true
+local contacts: { [any]: { [any]: boolean } } = setmetatable({}, { __mode = "k" }) :: any
+local function overlap(a, b, eps: number): boolean
+	return a[1] <= b[4] + eps and a[4] >= b[1] - eps and a[2] <= b[5] + eps and a[5] >= b[2] - eps
+		and a[3] <= b[6] + eps and a[6] >= b[3] - eps
+end
+local function fireTouch(part: any, name: string, other: any)
+	local s = d(part).signals[name]
+	if s then
+		s:Fire(other)
+	end
+end
+local function stepTouch()
+	local movers = {}
+	for hum in humanoids do
+		local char, root = rootOf(hum)
+		if root and d(root).props.CanTouch ~= false then
+			local p = Inst.__index(root, "Position")
+			table.insert(movers, { part = root, model = char, hum = hum, box = { p.X - 1, p.Y - HIP, p.Z - 1, p.X + 1, p.Y + 2, p.Z + 1 } })
+		end
+	end
+	for part in movingParts do
+		if d(part) and not d(part).destroyed and d(part).props.CanTouch ~= false and inWorld(part) then
+			table.insert(movers, { part = part, box = { H._aabbOf(part) } })
+		end
+	end
+	for l in touchListeners do
+		local ld = d(l)
+		if not ld or ld.destroyed then
+			touchListeners[l] = nil
+			continue
+		end
+		local was = contacts[l]
+		local nowTouching: { [any]: boolean } = {}
+		if ld.props.CanTouch ~= false and #movers > 0 and inWorld(l) then
+			local lb = { H._aabbOf(l) }
+			for _, m in movers do
+				if m.part ~= l and not (m.model and Methods.IsDescendantOf(l, m.model)) and overlap(lb, m.box, 0.05) then
+					nowTouching[m.part] = true
+					if not (was and was[m.part]) then
+						fireTouch(l, "Touched", m.part)
+						fireTouch(m.part, "Touched", l)
+						if m.hum and d(m.hum).signals.Touched then
+							d(m.hum).signals.Touched:Fire(l, m.part)
+						end
+					end
+				end
+			end
+		end
+		if was then
+			for p in was do
+				if not nowTouching[p] then
+					fireTouch(l, "TouchEnded", p)
+					if d(p) then
+						fireTouch(p, "TouchEnded", l)
+					end
+				end
+			end
+		end
+		contacts[l] = if next(nowTouching) then nowTouching else nil
+	end
+end
+
+-- what each simulated client sees: shown[player][prompt] = true
+local shown: { [any]: { [any]: boolean } } = setmetatable({}, { __mode = "k" }) :: any
+local function promptPos(prompt: any): any
+	local parent = d(prompt).Parent
+	if not parent then
+		return nil
+	end
+	local cls = d(parent).ClassName
+	if cls == "Attachment" then
+		return Inst.__index(parent, "WorldPosition")
+	elseif isA(cls, "BasePart") then
+		return Inst.__index(parent, "Position")
+	elseif cls == "Model" then
+		return Methods.GetPivot(parent).p
+	end
+	return nil
+end
+local function stepPrompts()
+	if not H.clients then
+		return
+	end
+	for _, plr in ClassMethods.Players.GetPlayers(Players) do
+		local char = d(plr).props.Character
+		local root = char and Methods.FindFirstChild(char, "HumanoidRootPart")
+		local mine = shown[plr] or {}
+		shown[plr] = mine
+		local want: { [any]: boolean } = {}
+		if root and inWorld(root) then
+			local rp = Inst.__index(root, "Position")
+			local nearest: { [string]: any } = {}
+			for prompt in prompts do
+				local pd = d(prompt)
+				if pd and not pd.destroyed and pd.props.Enabled ~= false and inWorld(prompt) then
+					local pp = promptPos(prompt)
+					if pp then
+						local dist = (pp - rp).Magnitude
+						if dist <= (pd.props.MaxActivationDistance or 10) then
+							local excl = pd.props.Exclusivity
+							if excl and excl.Name == "AlwaysShow" then
+								want[prompt] = true
+							else
+								local key = tostring(pd.props.KeyboardKeyCode and pd.props.KeyboardKeyCode.Name or "E")
+								local cur = nearest[key]
+								if not cur or dist < cur.dist then
+									nearest[key] = { prompt = prompt, dist = dist }
+								end
+							end
+						end
+					end
+				end
+			end
+			for _, n in nearest do
+				want[n.prompt] = true
+			end
+		end
+		for prompt in mine do
+			if not want[prompt] then
+				mine[prompt] = nil
+				if d(prompt) and d(prompt).signals.PromptHidden then
+					d(prompt).signals.PromptHidden:FireOn(plr)
+				end
+				Inst.__index(PPS, "PromptHidden"):FireOn(plr, prompt)
+			end
+		end
+		for prompt in want do
+			if not mine[prompt] then
+				mine[prompt] = true
+				local input = Enum.ProximityPromptInputType.Keyboard
+				if d(prompt).signals.PromptShown then
+					d(prompt).signals.PromptShown:FireOn(plr, input)
+				end
+				Inst.__index(PPS, "PromptShown"):FireOn(plr, prompt, input)
+			end
+		end
+	end
+end
+
+local function triggerPrompt(prompt: any, plr: any)
+	fireTouch(prompt, "Triggered", plr)
+	Inst.__index(PPS, "PromptTriggered"):Fire(prompt, plr)
+end
+-- a server-side shortcut for tests: fire the prompt for plr as if they held it (no range check)
+function H.trigger(prompt: any, plr: any)
+	triggerPrompt(prompt, plr)
+end
+function H.holdBegin(prompt: any, plr: any)
+	local pd = d(prompt)
+	if pd.props.Enabled == false or not (shown[plr] and shown[plr][prompt]) then
+		return -- Roblox ignores input on a prompt it isn't showing this player
+	end
+	fireTouch(prompt, "PromptButtonHoldBegan", plr)
+	Inst.__index(PPS, "PromptButtonHoldBegan"):Fire(prompt, plr)
+	table.insert(H.holds, { prompt = prompt, plr = plr, t0 = now, done = false })
+end
+function H.holdEnd(prompt: any, plr: any)
+	for i = #H.holds, 1, -1 do
+		local h = H.holds[i]
+		if h.prompt == prompt and h.plr == plr then
+			table.remove(H.holds, i)
+			if h.done == true then
+				fireTouch(prompt, "TriggerEnded", plr)
+				Inst.__index(PPS, "PromptTriggerEnded"):Fire(prompt, plr)
+			else
+				fireTouch(prompt, "PromptButtonHoldEnded", plr)
+				Inst.__index(PPS, "PromptButtonHoldEnded"):Fire(prompt, plr)
+			end
+		end
+	end
+end
+local function stepHolds()
+	for _, h in H.holds do
+		if not h.done then
+			local pd = d(h.prompt)
+			if not pd or pd.destroyed or not (shown[h.plr] and shown[h.plr][h.prompt]) then
+				h.done = "cancelled"
+			elseif now - h.t0 >= (pd.props.HoldDuration or 0) then
+				h.done = true
+				triggerPrompt(h.prompt, h.plr)
+			end
+		end
+	end
+end
+
+local frameNo = 0
+simStep = function(dt: number)
+	frameNo += 1
+	stepWalkers(dt)
+	stepMovingParts(dt)
+	stepTouch()
+	if frameNo % 3 == 0 then
+		stepPrompts()
+	end
+	stepHolds()
+end
+
+end
 -- ============================================================================ run
 
 local function stepFrame()
@@ -2980,6 +4087,7 @@ local function stepFrame()
 			rs[n]:Fire(now, FRAME)
 		end
 	end
+	simStep(FRAME)
 	for _, n in { "Heartbeat", "PostSimulation" } do
 		if rs[n] then
 			rs[n]:Fire(FRAME)
@@ -3039,12 +4147,52 @@ local function counters(): { [string]: number }
 	return out
 end
 
+do
+local function needsList(since: { [string]: number }?): { any }
+	local out = {}
+	for feature, e in needsStudio do
+		local before = since and since[feature] or 0
+		if e.count > before then
+			table.insert(out, { feature = feature, count = e.count - before, script = e.script })
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.feature < b.feature
+	end)
+	return out
+end
+local function needsSnapshot(): { [string]: number }
+	local snap = {}
+	for feature, e in needsStudio do
+		snap[feature] = e.count
+	end
+	return snap
+end
+local function missSnapshot(): { [string]: number }
+	return table.clone(misses)
+end
+local function missesSince(snap: { [string]: number }): { string }
+	local out = {}
+	for k, n in misses do
+		if n > (snap[k] or 0) then
+			table.insert(out, k)
+		end
+	end
+	table.sort(out)
+	return out
+end
+
 function H.report(): { [string]: any }
 	local missList = {}
-	for k, n in misses do
+	for k in misses do
 		table.insert(missList, k)
 	end
 	table.sort(missList)
+	local approxList = {}
+	for k in approx do
+		table.insert(approxList, k)
+	end
+	table.sort(approxList)
 	return {
 		uptime = math.floor(now * 10 + 0.5) / 10,
 		errors = errors,
@@ -3055,49 +4203,150 @@ function H.report(): { [string]: any }
 		misses = missList,
 		remotes = #H.remoteLog,
 		prints = prints,
+		needs_studio = needsList(nil),
+		approx = approxList,
+		client_errors = clientErrors,
+		clients = H.clients == true,
+		engine = "headless",
 	}
 end
 
--- Runs a check body (same contract as runs/<slug>/checks/*.luau) in the booted server.
-function H.check(body: string, timeout: number?): { [string]: any }
-	local fn, err = loadstring(body, "=check")
-	if not fn then
-		return { ok = false, error = "check does not compile: " .. tostring(err) }
+-- the side a datamodel name stands for: "Server" -> nil; "Client" / "Client:2" / "Client:<name>" -> a player
+local function sideFor(dm: string?): any
+	if dm == nil or dm == "" or dm == "Server" or dm == "Edit" then
+		return nil
 	end
-	local holder = newInstance("Script")
-	d(holder).Name = "ForgeCheck"
+	local which = string.match(dm, "^Client:?(.*)$")
+	if which == nil then
+		error("unknown datamodel '" .. tostring(dm) .. "' (Server, Client or Client:<n|name>)")
+	end
+	local list = ClassMethods.Players.GetPlayers(Players)
+	if which == "" then
+		which = "1"
+	end
+	local idx = tonumber(which)
+	if idx then
+		return list[idx] or error("no player " .. which .. " for the Client datamodel")
+	end
+	for _, p in list do
+		if d(p).Name == which then
+			return p
+		end
+	end
+	error("no player named " .. which)
+end
+
+-- Runs Luau like Studio MCP's execute_luau: the chunk may yield (task.wait); its return values come back
+-- as text. The simulated clock runs until it returns (at most `timeout` simulated seconds).
+-- -> { ok, text?, error?, sim, needs_studio = [...] used meanwhile, misses = [...] new meanwhile }
+function H.exec(code: string, dm: string?, timeout: number?): { [string]: any }
+	local side = sideFor(dm)
+	local fn, err = loadstring(code, "=exec")
+	if not fn then
+		return { ok = false, error = "does not compile: " .. tostring(err), sim = 0, needs_studio = {}, misses = {} }
+	end
+	local holder = newInstance(if side then "LocalScript" else "Script")
+	d(holder).Name = "ForgeExec"
 	setfenv(fn, envFor(holder))
-	local done, result, failure = false, nil, nil
+	local needs0, miss0, t0 = needsSnapshot(), missSnapshot(), now
+	local done, packed, failure = false, nil, nil
 	local co = coroutine.create(function()
-		local ok, res = pcall(fn)
+		local res = table.pack(pcall(fn))
 		done = true
-		if ok then
-			result = res
+		if res[1] then
+			packed = res
 		else
-			failure = res
+			failure = res[2]
 		end
 	end)
-	threadScript[co] = "ForgeCheck"
+	threadScript[co] = "ForgeExec"
+	threadCtx[co] = side
 	resume(co)
 	local limit = now + (timeout or 30)
 	while not done and now < limit do
 		stepFrame()
 	end
+	local out: { [string]: any } = {
+		sim = math.floor((now - t0) * 100 + 0.5) / 100,
+		needs_studio = needsList(needs0),
+		misses = missesSince(miss0),
+	}
 	if not done then
-		return { ok = false, error = "check timed out (simulated " .. tostring(timeout or 30) .. "s)" }
+		task.cancel(co)
+		out.ok = false
+		out.error = "timed out (simulated " .. tostring(timeout or 30) .. "s)"
+	elseif failure ~= nil then
+		out.ok = false
+		out.error = tostring(failure)
+	else
+		local parts = {}
+		for i = 2, packed.n do
+			parts[#parts + 1] = tostring(packed[i])
+		end
+		out.ok = true
+		out.text = table.concat(parts, "\t")
 	end
-	if failure ~= nil then
-		return { ok = false, error = tostring(failure) }
-	end
-	if type(result) ~= "table" then
-		return { ok = false, error = "check must return { ok = bool, detail = string }" }
-	end
-	return { ok = result.ok == true, detail = tostring(result.detail or "") }
+	return out
 end
 
--- opts: { mode = "boot"|"check", boot = seconds, play = seconds, players = n, check = body, timeout = s }
+-- Runs a raw check body (same contract as runs/<slug>/checks/*.luau) in the booted server.
+-- forge/checks.py sends the wrapped body (checks.wrap, with the `forge` helpers) through H.exec instead.
+function H.check(body: string, timeout: number?): { [string]: any }
+	local r = H.exec(
+		"local __http = game:GetService(\"HttpService\")\nlocal __ok, __res = pcall(function()\n" .. body .. "\nend)\n"
+			.. "if not __ok then return __http:JSONEncode({ ok = false, error = tostring(__res) }) end\n"
+			.. "if type(__res) ~= \"table\" then return __http:JSONEncode({ ok = false, error = \"check must return { ok = bool, detail = string }\" }) end\n"
+			.. "return __http:JSONEncode({ ok = __res.ok == true, detail = tostring(__res.detail or \"\") })",
+		nil,
+		timeout
+	)
+	local out: { [string]: any } = { needs_studio = r.needs_studio, misses = r.misses, sim = r.sim }
+	if not r.ok then
+		out.ok, out.error = false, (if string.find(r.error or "", "timed out", 1, true) then "check " else "") .. tostring(r.error)
+	else
+		local res = jsonDecode(r.text)
+		out.ok, out.detail, out.error = res.ok == true, res.detail, res.error
+	end
+	return out
+end
+
+-- Session mode (forge/headless.py): the bundle runs under `luau -i` and Python writes one H.rpc(...) line
+-- per call; each answers with one OUT_MARK line. Between calls the world is paused.
+function H.rpc(op: string, a: any, b: any, c: any)
+	local out: { [string]: any }
+	local ok, err = pcall(function()
+		if op == "exec" then
+			out = H.exec(a, b, c)
+		elseif op == "run" then
+			H.run(tonumber(a) or 1)
+			out = { ok = true, sim = tonumber(a) or 1 }
+		elseif op == "report" then
+			out = { ok = true, report = H.report() }
+		elseif op == "join" then
+			local plr = H.join(a)
+			out = { ok = true, name = d(plr).Name, userId = d(plr).props.UserId }
+		elseif op == "leave" then
+			local plr = Methods.FindFirstChild(Players, a)
+			if plr then
+				Methods.Destroy(plr)
+			end
+			out = { ok = plr ~= nil }
+		else
+			out = { ok = false, error = "unknown op " .. tostring(op) }
+		end
+	end)
+	if not ok then
+		out = { ok = false, error = "headless rpc: " .. tostring(err) }
+	end
+	out.now = math.floor(now * 100 + 0.5) / 100
+	realPrint(OUT_MARK .. jsonEncode(out))
+end
+
+-- opts: { mode = "boot"|"check"|"exec"|"serve", boot = seconds, play = seconds, players = n, clients = bool,
+--         check = body (raw, mode check) or code (mode exec: Luau like execute_luau), timeout = s, dm = "Server" }
 function H.main(opts: { [string]: any })
 	local out: { [string]: any } = {}
+	H.clients = opts.clients == true
 	local ok, err = pcall(function()
 		H.boot(opts.boot or 2)
 		for i = 1, (opts.players or 1) do
@@ -3106,15 +4355,22 @@ function H.main(opts: { [string]: any })
 		H.run(opts.play or 3)
 		if opts.mode == "check" then
 			out.check = H.check(opts.check or "", opts.timeout)
+		elseif opts.mode == "exec" then
+			out.exec = H.exec(opts.code or "", opts.dm, opts.timeout)
 		end
 	end)
 	if not ok then
 		addError("headless runner: " .. tostring(err), nil, "headless")
 	end
+	if opts.mode == "serve" then
+		realPrint(OUT_MARK .. jsonEncode({ ok = ok, ready = true, report = H.report(), now = now }))
+		return
+	end
 	out.report = H.report()
 	realPrint(OUT_MARK .. jsonEncode(out))
 end
 
+end
 H.game = game
 H.G = G
 H.now = function()
