@@ -81,14 +81,22 @@ end
 local currentScript: () -> string = function()
 	return "?"
 end
+local currentIsClient: () -> boolean = function()
+	return false
+end
 local function needStudio(feature: string)
+	-- taint: a hit that can change what the server sees. A client reading its own UI layout or camera
+	-- only shapes that client's screen, so it is reported but doesn't void a server-side check.
+	local presentation = string.sub(feature, 1, 10) == "ui layout:" or string.sub(feature, 1, 7) == "camera:"
+	local taint = if presentation and currentIsClient() then 0 else 1
 	local e = needsStudio[feature]
 	needsCount += 1
 	if e then
 		e.count += 1
+		e.taint += taint
 		return
 	end
-	needsStudio[feature] = { count = 1, script = currentScript(), first = simNow() }
+	needsStudio[feature] = { count = 1, taint = taint, script = currentScript(), first = simNow() }
 end
 local function approxed(feature: string)
 	approx[feature] = (approx[feature] or 0) + 1
@@ -275,6 +283,9 @@ simNow = function()
 end
 currentScript = function()
 	return scriptOf(coroutine.running())
+end
+currentIsClient = function()
+	return curCtx() ~= nil
 end
 
 local function inherit(co: thread, parent: thread?)
@@ -4207,12 +4218,14 @@ local function counters(): { [string]: number }
 end
 
 do
+-- since: a needsSnapshot (taint counts) -> only the hits that can affect the server since then
 local function needsList(since: { [string]: number }?): { any }
 	local out = {}
 	for feature, e in needsStudio do
+		local now_ = if since then e.taint else e.count
 		local before = since and since[feature] or 0
-		if e.count > before then
-			table.insert(out, { feature = feature, count = e.count - before, script = e.script })
+		if now_ > before then
+			table.insert(out, { feature = feature, count = now_ - before, script = e.script })
 		end
 	end
 	table.sort(out, function(a, b)
@@ -4223,7 +4236,7 @@ end
 local function needsSnapshot(): { [string]: number }
 	local snap = {}
 	for feature, e in needsStudio do
-		snap[feature] = e.count
+		snap[feature] = e.taint
 	end
 	return snap
 end

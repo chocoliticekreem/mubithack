@@ -435,3 +435,23 @@ gui.Parent = lp:WaitForChild("PlayerGui")
     assert hidden["done"] is False and "no visible button" in hidden["detail"]
     assert shop["done"] is True and shop["changed"] is True
     assert "Buy a dropper" in shop["effect"]["appeared"]
+
+
+def test_client_ui_layout_reads_do_not_void_a_server_check(tmp_path):
+    """A client polling AbsolutePosition only shapes its own screen: reported, but a server check still passes.
+    (An autopilot round once rolled back a good UI fix because of this.)"""
+    root = _game(tmp_path)
+    _write(root, "StarterPlayerScripts/Layout.client.luau", r"""
+local gui = Instance.new("ScreenGui")
+local f = Instance.new("Frame")
+f.Parent = gui
+gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+while true do local _ = f.AbsolutePosition task.wait(0.1) end
+""")
+    ok = checks.run_check_offline(root, _check("task.wait(1) return { ok = workspace:FindFirstChild('Pad') ~= nil, detail = '' }"))
+    assert ok["verdict"] == "pass", ok
+    server_layout = checks.run_check_offline(root, _check(
+        "local g = Instance.new('Frame') local _ = g.AbsoluteSize return { ok = true, detail = '' }", "srv"))
+    assert server_layout["verdict"] == "needs_studio"
+    rep = checks.boot_offline(root, clients=True)
+    assert any(n["feature"] == "ui layout: AbsolutePosition" for n in rep["needs_studio"])

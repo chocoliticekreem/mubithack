@@ -1297,9 +1297,12 @@ def studio_measure(ap: Autopilot, r: int, tag: str, focus: str) -> dict:
             from forge.scenarios import save_results
             save_results(store.dir, results)
     m.update(compile_errors=compile_errors, boot_errors=len(boot.get("errors") or []) if boot else None, t0=t0,
-             checks={"pass": sum(1 for x in results if x.get("ok")), "fail": sum(1 for x in results if not x.get("ok")),
+             # an unknown (setup failure, or needs Studio to judge) is neither: it must not read as a regression
+             checks={"pass": sum(1 for x in results if x.get("ok")),
+                     "fail": sum(1 for x in results if not x.get("ok") and not x.get("setup")),
                      "passing": [x["id"] for x in results if x.get("ok")],
-                     "failing": [x["id"] for x in results if not x.get("ok")]} if results else {})
+                     "failing": [x["id"] for x in results if not x.get("ok") and not x.get("setup")],
+                     "unknown": [x["id"] for x in results if not x.get("ok") and x.get("setup")]} if results else {})
     m["declared"] = evm.declared_counters(gapmod.game_sources(store.game_dir), _read(store.spec_path, {}) or {})
     m["bridge_events"] = [e for e in evm.bridge_events() if float(e.get("time") or 0) >= t0 - 1]
     if ap.opts.critic and not compile_errors and (ap.calls_left() is None or ap.calls_left() > 4):
