@@ -699,7 +699,7 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
                     faults: list[dict], goal: str, rounds: int = 3, players=None, steps: int = 15,
                     log: Callable[[str], None] = print, fix: bool = False, max_fixes: int = 3,
                     extra_anomalies: list[dict] | None = None, resync: Resync | None = None,
-                    edit_human: bool = False) -> dict:
+                    edit_human: bool = False, focus: Callable[[dict], bool] | None = None) -> dict:
     store = ImproveStore(settings, slug)
     spec = store.run.load_spec() if store.run.spec_path.exists() else {"pitch": slug, "core_loop": ""}
     n = len(store.scores()) + 1
@@ -745,6 +745,9 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
     store.learn([by_id[fid].get("lesson", "") for fid in sc["missed"]])
 
     real = [found["anomalies"][i] for i in sc["unmatched_anomalies"]] + list(extra_anomalies or [])
+    # focus (e.g. one feature): only these anomalies are fixed and count as open; the rest is a backlog
+    backlog = [a for a in real if focus is not None and not focus(a)]
+    real = [a for a in real if focus is None or focus(a)]
     code_fixes: list[dict] = []
     if fix and real:
         resync = resync or studio_resync(harness)
@@ -765,6 +768,7 @@ async def run_cycle(settings: Settings, slug: str, *, llm: LLM, harness, playtes
         "score": sc, "audit": found, "correction": correction, "verdicts": verdicts,
         "before": before, "open": sum(1 for a in real if a["severity"] in FIX_SEVERITIES),
         "code_fixes": code_fixes, "code_kept": sum(1 for f in code_fixes if f["status"] == "kept"),
+        "backlog": backlog,
     }
     path = store.save_cycle(cycle)
     log(f"[cycle {n}] detected {cycle['detected']}/{cycle['planted']}, unmatched anomalies "
