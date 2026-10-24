@@ -301,6 +301,8 @@ function Minimap.new()
 	-- minimap -----------------------------------------------------------------------------------
 	local size = tonumber(NavigationConfig.MinimapSize) or 190
 	local gui = UiKit.screen("NavMinimap", 5)
+	gui.IgnoreGuiInset = true -- up level with the Roblox menu buttons (top-right of the screen is free)
+	gui.ScreenInsets = Enum.ScreenInsets.None
 	self.gui = gui
 	local root = frame(gui, "Root")
 	root.AnchorPoint = Vector2.new(1, 0)

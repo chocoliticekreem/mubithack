@@ -926,9 +926,11 @@ local function placePip()
 	local k = if scale then scale.Scale else 1
 	local lp = anchorPanel()
 	if lp then
+		-- beside the level panel, up in the top-bar row (under it would cover the objective card)
 		local rel = lp.AbsolutePosition - (pip.Parent :: GuiObject).AbsolutePosition
-		local y = (rel.Y + lp.AbsoluteSize.Y) / k + 14
-		pip.Position = UDim2.fromOffset(rel.X / k + 8, y)
+		local x = (rel.X + lp.AbsoluteSize.X) / k + 10
+		local y = (rel.Y + (lp.AbsoluteSize.Y - pip.AbsoluteSize.Y) / 2) / k
+		pip.Position = UDim2.fromOffset(x, y)
 	else
 		pip.Position = UDim2.fromOffset(24, 14)
 	end

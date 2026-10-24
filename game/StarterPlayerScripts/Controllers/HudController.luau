@@ -207,7 +207,7 @@ local function build(): Ui
 	local squad = Instance.new("Frame")
 	squad.Name = "Squad"
 	squad.AnchorPoint = Vector2.new(1, 0)
-	squad.Position = UDim2.new(1, -14, 0, 10)
+	squad.Position = UDim2.new(1, -14, 0, 150) -- under the minimap (which sits up in the top-bar row)
 	squad.Size = UDim2.fromOffset(220, 4 * 46)
 	squad.BackgroundTransparency = 1
 	local squadLayout = Instance.new("UIListLayout")
