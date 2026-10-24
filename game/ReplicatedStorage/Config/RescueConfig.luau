@@ -43,10 +43,10 @@ return Config.define({
 	PanicCircle = 4, -- studs: radius of the panic circle
 	PanicSpeed = 12, -- studs/s while running in circles
 	PanicCalm = 3, -- s with no fire near before the panic stops
-	FireHurtRadius = 7, -- studs to a Burning part that hurts
-	FireDps = 12, -- HP/s at FireLevel 2, point blank
+	FireHurtRadius = 5, -- studs to a Burning part that hurts
+	FireDps = 2.5, -- HP/s at FireLevel 2, point blank (~40 s next to a fire, ~27 s in a blaze)
 	CarriedFireMult = 0.5, -- damage multiplier while being carried
-	LandInFireDamage = 45, -- HP lost when yeeted into a burning spot
+	LandInFireDamage = 30, -- HP lost when yeeted into a burning spot
 	TickHz = 8, -- AI / fire / delivery tick
 	-- sounds (client side; "" = silent)
 	SoundScream = "",
