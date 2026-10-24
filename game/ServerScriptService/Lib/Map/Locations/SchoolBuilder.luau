@@ -1238,6 +1238,26 @@ function SchoolBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	rescueSpawn(rs, "R4", "Civilian", "Teacher", GYM_BID, at(56, FY + 3.5, -21, 90), "lying")
 	rescueSpawn(rs, "R5", "Cat", "ClassPet", BID, at(-5, FY + 3.8, -24.5, 180), "sitting")
 
+	-- the whole building burns, not one corner: a fire start in every wing (Class 1, Class 2, the
+	-- library, the office, Class 4, the gym mats) and kids spread through every room
+	local extra = folder(bld, "MoreFireStarts")
+	local function startBox(id: string, name: string, x: number, z: number, sx: number, sy: number, sz: number, color: Color3, bid: string)
+		local p = box(extra, name, x, FY + sy / 2, z, sx, sy, sz, color)
+		fireStart(p, id, bid)
+	end
+	startBox("F4", "BookCart", -55, -24, 4, 4, 2, C.Wood, BID)
+	startBox("F5", "Bookshelf", 33, -26, 8, 6, 1.5, C.Wood, BID)
+	startBox("F6", "FilingCabinets", 5, 27, 6, 5, 2, C.SchoolPillar, BID)
+	startBox("F7", "ArtSupplies", 30, 26, 5, 3, 3, C.SchoolLocker, BID)
+	startBox("F8", "GymMats", 62, 22, 8, 2, 5, C.SchoolPillar, GYM_BID)
+	startBox("F9", "ScienceFair", -22, -25, 5, 4, 2, C.SchoolWall, BID)
+	rescueSpawn(rs, "R6", "Civilian", "Kid", BID, at(-28, FY, -8, 0), "sitting")
+	rescueSpawn(rs, "R7", "Civilian", "Kid", BID, at(25, FY, -6, 0), "stand")
+	rescueSpawn(rs, "R8", "Civilian", "Kid", BID, at(20, FY, 14, 180), "sitting")
+	rescueSpawn(rs, "R9", "Civilian", "Kid", GYM_BID, at(75, FY, 8, 90), "stand")
+	rescueSpawn(rs, "R10", "Civilian", "Kid", BID, at(-40, FY, 25, 180), "sitting")
+	rescueSpawn(rs, "R11", "Civilian", "Teacher", BID, at(-1, FY, 15, 180), "lying")
+
 	bld.PrimaryPart = bld:FindFirstChild("HallFloor") :: BasePart?
 end
 

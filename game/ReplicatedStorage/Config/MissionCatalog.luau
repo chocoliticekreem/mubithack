@@ -11,6 +11,11 @@
 -- v2 dispatch: a mission runs at any IncidentSite whose MissionTypes attr lists its id; `call` is the
 -- dispatch line ("DISPATCH: House fire at 12 Maple St"), `seconds` is the on-scene timer (MissionService
 -- adds a driving allowance on top).
+-- Escalation (MissionService): `escalation` = phases { at, fires, up?, setPiece?, radius?, rescue?, rescueText?,
+-- text }. Each fires `at` s after arrival (or early once the scene goes quiet): `fires` more fires (scaled with
+-- the squad), on the upper floors when `up`, round a "flashover" | "explosion" | "collapse" set piece,
+-- `rescue` extra people at spare RescueSpawn markers, and the `text` banner. "All clear" can't end a call
+-- while a phase is still to come, so a call lasts ~4-7 minutes; `seconds` leaves room for every phase.
 
 local Missions = {
 	{
@@ -21,13 +26,17 @@ local Missions = {
 		locationId = "Town",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 180,
+		seconds = 330,
 		atmosphere = "DuskSuburb",
 		objectives = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 5, text = "Carry everyone to truck 67" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 6, starts = "FireStart" },
+		escalation = {
+			{ at = 80, fires = 4, up = true, text = "The kitchen fire's climbed the stairs! The bedrooms are going up!", rescue = 1, rescueText = "Someone's banging on an upstairs window!" },
+			{ at = 170, fires = 5, setPiece = "flashover", text = "FLASHOVER in the living room! Back the hose up!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 2 },
 			{ kind = "Cat", count = 1 },
@@ -50,13 +59,17 @@ local Missions = {
 		locationId = "Apartment",
 		enabled = true,
 		players = { min = 1, max = 8 }, -- best with 2+ (the trampoline needs two holders); solo still rolls out
-		seconds = 240,
+		seconds = 420,
 		atmosphere = "NightStreet",
 		objectives = {
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 5, text = "Catch the jumpers, carry the rest out" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 7, starts = "FireStart" },
+		escalation = {
+			{ at = 90, fires = 5, up = true, text = "It's spreading up the stairwell! The top floor's on fire!", rescue = 1, rescueText = "Someone's trapped on the top floor!" },
+			{ at = 200, fires = 5, setPiece = "explosion", radius = 20, text = "The basement gas meter BLEW! The laundry's on fire!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 2, variant = "Jumper" },
 			{ kind = "Civilian", count = 2 },
@@ -78,13 +91,17 @@ local Missions = {
 		locationId = "School",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 240,
+		seconds = 420,
 		atmosphere = "DuskSuburb",
 		objectives = {
 			{ kind = "rescue", count = 9, text = "Get every kid and the teacher out" },
 			{ kind = "extinguish", text = "Put out every fire" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 8, starts = "FireStart" },
+		escalation = {
+			{ at = 90, fires = 5, up = true, text = "The fire's spreading to the second-floor classrooms!", rescue = 2, rescueText = "Two kids are hiding upstairs!" },
+			{ at = 200, fires = 6, setPiece = "explosion", radius = 22, text = "The chem lab gas tank BLEW! The science wing's on fire!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 8, variant = "Kid" },
 			{ kind = "Civilian", count = 1, variant = "Teacher" },
@@ -94,7 +111,7 @@ local Missions = {
 		stars = {
 			{ id = "finish", text = "Finish the shift" },
 			{ id = "allRescued", text = "Full attendance" },
-			{ id = "underTime", text = "Out before the bell", seconds = 150 },
+			{ id = "underTime", text = "Out before the bell", seconds = 330 },
 		},
 	},
 	{
@@ -105,14 +122,18 @@ local Missions = {
 		locationId = "Farm",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 200,
+		seconds = 330,
 		atmosphere = "FireGlow",
 		objectives = {
 			{ kind = "custom", text = "Slap the cigarette out of the farmer's hand" },
 			{ kind = "extinguish", text = "Save the hay" },
 			{ kind = "rescue", count = 2, text = "Get the farmer and his dog clear" },
 		},
-		fires = { count = 3, starts = "Scripted" }, -- the cigarette relights hay until confiscated
+		fires = { count = 6, starts = "Scripted" }, -- the cigarette relights hay until confiscated
+		escalation = {
+			{ at = 90, fires = 5, text = "The wind's pushing it into the barn! The hay loft's going up!" },
+			{ at = 180, fires = 5, setPiece = "flashover", radius = 26, text = "HAY FLASHOVER! The whole stack just caught!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Farmer" },
 			{ kind = "Dog", count = 1 },
@@ -133,13 +154,17 @@ local Missions = {
 		locationId = "Forest",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 240,
+		seconds = 390,
 		atmosphere = "FireGlow",
 		objectives = {
 			{ kind = "rescue", count = 3, text = "Find the campers and the lost dog" },
 			{ kind = "survive", text = "Hold the fire line" },
 		},
-		fires = { count = 5, starts = "Scripted" }, -- spreads from the RV campsite
+		fires = { count = 8, starts = "Scripted" }, -- spreads from the RV campsite
+		escalation = {
+			{ at = 90, fires = 6, text = "The wildfire jumped the trail! New flames on the ridge!", rescue = 1, rescueText = "Another camper is calling on the walkie!" },
+			{ at = 200, fires = 6, setPiece = "flashover", radius = 30, text = "CROWN FIRE! The treetops are going up!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 2, variant = "Camper" },
 			{ kind = "Dog", count = 1 },
@@ -160,14 +185,18 @@ local Missions = {
 		locationId = "Storage",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 180,
+		seconds = 330,
 		atmosphere = "NightStreet",
 		objectives = {
 			{ kind = "custom", text = "Cut the power at the fuse box" },
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 2, text = "Get the night guard and his dog out" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 6, starts = "FireStart" },
+		escalation = {
+			{ at = 80, fires = 4, text = "It's spreading unit to unit down the row!", rescue = 1, rescueText = "There's a cat locked in one of the units!" },
+			{ at = 180, fires = 5, setPiece = "explosion", radius = 20, text = "A unit full of FIREWORKS just went off!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Guard" },
 			{ kind = "Dog", count = 1 },
@@ -188,13 +217,17 @@ local Missions = {
 		locationId = "Field",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 180,
+		seconds = 330,
 		atmosphere = "FireGlow",
 		objectives = {
 			{ kind = "custom", text = "Kill the fire tornado with water" },
 			{ kind = "extinguish", text = "Put out the field" },
 		},
-		fires = { count = 6, starts = "Random" },
+		fires = { count = 8, starts = "Random" },
+		escalation = {
+			{ at = 90, fires = 6, text = "Embers are blowing across the field! New fires downwind!" },
+			{ at = 190, fires = 6, setPiece = "flashover", radius = 30, text = "The dry corn just EXPLODED into flame!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Farmer" },
 		},
@@ -214,13 +247,17 @@ local Missions = {
 		locationId = "Dam",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 300,
+		seconds = 450,
 		atmosphere = "FireGlow",
 		objectives = {
 			{ kind = "rescue", count = 6, text = "Move civilians to high ground" },
 			{ kind = "custom", text = "Plant 3 charges on the dam and detonate" },
 		},
 		fires = { count = 12, starts = "Random" },
+		escalation = {
+			{ at = 120, fires = 8, text = "The firestorm's rolling toward the dam!", rescue = 2, rescueText = "More people are stuck below the dam!" },
+			{ at = 240, fires = 8, setPiece = "explosion", radius = 24, text = "A transformer by the dam just BLEW!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 6 },
 		},
@@ -229,7 +266,7 @@ local Missions = {
 		stars = {
 			{ id = "finish", text = "The city is out" },
 			{ id = "allRescued", text = "Nobody in the flood path" },
-			{ id = "underTime", text = "Blown in time", seconds = 240 },
+			{ id = "underTime", text = "Blown in time", seconds = 360 },
 		},
 	},
 	{
@@ -240,13 +277,17 @@ local Missions = {
 		locationId = "Zoo",
 		enabled = true,
 		players = { min = 1, max = 8 }, -- best with 2+ (the panda is a 2-carrier); solo still rolls out
-		seconds = 180,
+		seconds = 330,
 		atmosphere = "DuskSuburb",
 		objectives = {
 			{ kind = "rescue", count = 3, text = "Carry the panda and the keepers out" },
 			{ kind = "extinguish", text = "Save the enclosure" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 6, starts = "FireStart" },
+		escalation = {
+			{ at = 90, fires = 5, text = "The fire jumped to the next enclosure!", rescue = 1, rescueText = "A keeper is stuck behind the bamboo!" },
+			{ at = 180, fires = 5, setPiece = "flashover", radius = 24, text = "The whole bamboo grove just went WHOOSH!" },
+		},
 		rescues = {
 			{ kind = "Panda", count = 1 },
 			{ kind = "Civilian", count = 2, variant = "Keeper" },
@@ -267,13 +308,17 @@ local Missions = {
 		locationId = "Nightclub",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 210,
+		seconds = 390,
 		atmosphere = "NightStreet",
 		objectives = {
 			{ kind = "rescue", count = 8, text = "Get every partygoer and the DJ out" },
 			{ kind = "extinguish", text = "Put out every fire" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 7, starts = "FireStart" },
+		escalation = {
+			{ at = 90, fires = 5, up = true, text = "It's spreading up to the VIP balcony!", rescue = 1, rescueText = "Somebody passed out in the VIP booth!" },
+			{ at = 190, fires = 5, setPiece = "explosion", radius = 20, text = "The fog machine's gas bottle BLEW! The dance floor's on fire!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 6, variant = "Partygoer" },
 			{ kind = "Civilian", count = 1, variant = "DJ" },
@@ -284,7 +329,7 @@ local Missions = {
 		stars = {
 			{ id = "finish", text = "Finish the shift" },
 			{ id = "allRescued", text = "Nobody left on the dance floor" },
-			{ id = "underTime", text = "Out before the drop", seconds = 150 },
+			{ id = "underTime", text = "Out before the drop", seconds = 300 },
 		},
 	},
 	{
@@ -295,13 +340,17 @@ local Missions = {
 		locationId = "Skyscraper",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 300,
+		seconds = 480,
 		atmosphere = "NightStreet",
 		objectives = {
 			{ kind = "rescue", count = 7, text = "Reach everyone trapped up high (one is on the roof)" },
 			{ kind = "extinguish", text = "Put out the upper floors" },
 		},
-		fires = { count = 6, starts = "FireStart" }, -- the roof crate stack always burns (FireStart Priority)
+		fires = { count = 9, starts = "FireStart" }, -- the roof crate stack always burns (FireStart Priority)
+		escalation = {
+			{ at = 100, fires = 6, up = true, text = "It's climbing floor to floor! The upper offices are burning!", rescue = 1, rescueText = "Someone's trapped in a corner office!" },
+			{ at = 220, fires = 6, up = true, setPiece = "flashover", radius = 24, text = "FLASHOVER on the upper floors! The whole storey just lit up!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 6, variant = "Office" },
 			{ kind = "Cat", count = 1, variant = "Windowsill" },
@@ -325,14 +374,18 @@ local Missions = {
 		locationId = "Diner",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 180,
+		seconds = 330,
 		atmosphere = "NightStreet",
 		objectives = {
 			{ kind = "custom", text = "Smother the deep fryer (extinguisher or the lid, NOT water)" },
 			{ kind = "extinguish", text = "Put out every fire" },
 			{ kind = "rescue", count = 3, text = "Get the cook and the customers out" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 5, starts = "FireStart" },
+		escalation = {
+			{ at = 80, fires = 4, up = true, text = "The grease in the vent hood caught! It's in the roof!", rescue = 1, rescueText = "A customer is hiding in the restroom!" },
+			{ at = 170, fires = 5, setPiece = "explosion", radius = 18, text = "The propane tank out back BLEW!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Cook" },
 			{ kind = "Civilian", count = 2, variant = "Customer" },
@@ -358,21 +411,25 @@ local Missions = {
 		id = "gas_leak",
 		title = "Pump Panic",
 		call = "Gas leak",
-		blurb = "The pumps are spraying fuel and a tanker is parked right next to them. Shut the valves before it blows.",
+		blurb = "Six pumps are spraying fuel, the gas cloud is growing and a tanker is parked right next to them. Shut the valves before it all blows.",
 		locationId = "GasStation",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 200,
+		seconds = 390,
 		atmosphere = "DuskSuburb",
 		objectives = {
-			{ kind = "custom", text = "Shut every leaking pump valve before the tanker blows" },
+			{ kind = "custom", text = "Shut every leaking pump valve before the tanker blows (a second leak WILL start)" },
 			{ kind = "extinguish", text = "Put out every fire" },
-			{ kind = "rescue", count = 3, text = "Get the clerk and the drivers clear" },
+			{ kind = "rescue", count = 4, text = "Get the clerk and the drivers clear" },
 		},
-		fires = { count = 3, starts = "FireStart" },
+		fires = { count = 5, starts = "FireStart" },
+		escalation = {
+			{ at = 110, fires = 4, text = "The fire's reached the kiosk storeroom! Snacks are burning!", rescue = 1, rescueText = "A driver is hiding in the restroom!" },
+			{ at = 230, fires = 5, setPiece = "flashover", radius = 24, text = "A fuel puddle just went WHOOSH across the forecourt!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Clerk" },
-			{ kind = "Civilian", count = 1, variant = "Driver" },
+			{ kind = "Civilian", count = 2, variant = "Driver" },
 			{ kind = "Dog", count = 1 },
 		},
 		hazards = { "gas_leak" },
@@ -385,10 +442,11 @@ local Missions = {
 		guide = {
 			headline = "Leaking pumps plus a tanker equals a countdown. Shut the valves!",
 			steps = {
-				"When you arrive a countdown starts over the tanker.",
-				"Stand at each leaking pump and hold E on its red valve wheel to shut it. Split up: one pump each.",
-				"Every valve shut before zero means the tanker is safe. Miss one and it explodes and lights the forecourt.",
-				"Then put out the fires and get the clerk, the driver and the dog out.",
+				"When you arrive a countdown starts over the tanker and a gas cloud starts growing over the pumps.",
+				"Stand at each leaking pump and hold E on its red valve wheel to shut it. It takes a few seconds: split up, one pump each.",
+				"Halfway through, another pump ruptures. Listen for the hiss and shut that one too.",
+				"Miss one and the tanker goes up in a HUGE fireball: it flings everyone nearby, drops the canopy and sets the forecourt on fire.",
+				"Then put out the fires and get the clerk, the drivers and the dog out.",
 			},
 		},
 	},
@@ -400,14 +458,18 @@ local Missions = {
 		locationId = "Highway",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 210,
+		seconds = 360,
 		atmosphere = "DuskSuburb",
 		objectives = {
 			{ kind = "custom", text = "Pry the jammed doors open (Halligan, crowbar or axe)" },
 			{ kind = "rescue", count = 3, text = "Carry the drivers to the truck" },
 			{ kind = "extinguish", text = "Put out the burning cars" },
 		},
-		fires = { count = 4, starts = "FireStart" },
+		fires = { count = 6, starts = "FireStart" },
+		escalation = {
+			{ at = 90, fires = 4, text = "A fuel line caught! Another car's burning!" },
+			{ at = 180, fires = 5, setPiece = "explosion", radius = 20, text = "A car's gas tank just BLEW!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 3, variant = "Driver" },
 		},
@@ -416,7 +478,7 @@ local Missions = {
 		stars = {
 			{ id = "finish", text = "Finish the shift" },
 			{ id = "allRescued", text = "Every driver out" },
-			{ id = "underTime", text = "Cleared before rush hour", seconds = 150 },
+			{ id = "underTime", text = "Cleared before rush hour", seconds = 270 },
 		},
 		guide = {
 			headline = "The drivers are pinned. Pry the doors, then carry them out.",
@@ -436,13 +498,17 @@ local Missions = {
 		locationId = "Town",
 		enabled = true,
 		players = { min = 1, max = 8 },
-		seconds = 180,
+		seconds = 300,
 		atmosphere = "DuskSuburb",
 		objectives = {
 			{ kind = "rescue", count = 2, text = "Ladder the tree, get the cat down, get the owner out" },
 			{ kind = "extinguish", text = "Put out the candle fire" },
 		},
-		fires = { count = 2, starts = "FireStart" },
+		fires = { count = 4, starts = "FireStart" },
+		escalation = {
+			{ at = 80, fires = 3, up = true, text = "The candle fire spread to the curtains upstairs!" },
+			{ at = 160, fires = 4, setPiece = "flashover", radius = 20, text = "The cat's scratching post caught! The whole lounge is on fire!" },
+		},
 		rescues = {
 			{ kind = "Civilian", count = 1, variant = "Owner" },
 		},

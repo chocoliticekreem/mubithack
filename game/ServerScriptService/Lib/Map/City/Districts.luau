@@ -372,7 +372,8 @@ Districts.CorridorFeature = { Station = "cityhall" }
 -- special incident sites on a district's corridor frontage, one lot each (on different runs, never the
 -- big-site/feature run), placed before the regular CorridorSites picks: the Sky Tower rises on the hub's
 -- own downtown frontage (a short, dramatic drive), a nightclub on each downtown district's avenue
-Districts.CorridorSpecial = { Station = { "skyscraper", "nightclub" }, Apartment = { "nightclub" } }
+-- The hub frontage also gets the QUICK STOP gas station (the gas_leak call, GameConfig.NearDispatch).
+Districts.CorridorSpecial = { Station = { "skyscraper", "nightclub", "gas" }, Apartment = { "nightclub" } }
 
 export type Corridor = {
 	district: string,

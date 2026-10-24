@@ -5,9 +5,9 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	Enabled = true,
-	Chance = 0.45, -- per call: the odds that it gets a crazy event at all
-	FirstAfter = { min = 25, max = 70 }, -- seconds after the squad arrives (RoundState Active)
-	MaxPerMission = 1,
+	Chance = 0.7, -- per call: the odds that it gets a crazy event at all (calls run 4-7 minutes now)
+	FirstAfter = { min = 40, max = 110 }, -- seconds after the squad arrives (RoundState Active)
+	MaxPerMission = 2, -- a second one can follow 60 s after the first
 	-- which events can roll, and how likely each one is (0 = off)
 	Weights = {
 		news_heli = 1,

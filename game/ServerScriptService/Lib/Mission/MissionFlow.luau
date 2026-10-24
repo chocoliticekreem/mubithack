@@ -47,6 +47,7 @@ export type Obs = {
 	players: number, -- squad members still in the server
 	alive: number, -- squad members not Downed
 	arrived: boolean?, -- v2: a squad member or their truck is inside the site's ArrivalZone
+	held: boolean?, -- escalation phases still to come (MissionService): "all clear" can't end the call yet
 }
 export type Run = {
 	state: State,
@@ -76,6 +77,7 @@ export type Summary = {
 	downs: number, -- times any squad member was downed
 	hadFires: boolean?, -- false when nothing was ever lit (stubs): allOut still counts
 	integrity: number?, -- building integrity 0..100 at the end (StructureService); nil = never burned
+	firesOut: number?, -- fires the squad put out (nil = unknown, counts as progress)
 }
 
 local MissionFlow = {}
@@ -129,9 +131,25 @@ function MissionFlow.sinceDispatch(run: Run, now: number): number
 	return math.max(0, stop - run.startedAt)
 end
 
--- Every objective done: nothing burning and nobody left to deliver.
+-- Escalation (MissionCatalog `escalation`, MissionService): is phase fired+1 due now? It fires on its
+-- schedule (`at` seconds after arrival), or early once the scene has been quiet (nothing burning) for
+-- opts.lull seconds, but never sooner than opts.minGap after the previous phase (or arrival).
+--   phases: { { at: number } }, fired: phases already fired, since: seconds since arrival,
+--   quiet: seconds nothing has burned, lastAt: `since` when the previous phase fired (0 = arrival)
+function MissionFlow.escalationDue(phases: { any }, fired: number, since: number, quiet: number, lastAt: number, opts: { lull: number, minGap: number }): boolean
+	local nextPhase = phases[fired + 1]
+	if not nextPhase then
+		return false
+	end
+	if since >= (tonumber(nextPhase.at) or 0) then
+		return true
+	end
+	return quiet >= opts.lull and since - lastAt >= opts.minGap
+end
+
+-- Every objective done: nothing burning, nobody left to deliver, and no escalation phase still to come.
 function MissionFlow.objectivesDone(obs: Obs): boolean
-	return obs.burning == 0 and obs.trapped == 0
+	return obs.burning == 0 and obs.trapped == 0 and obs.held ~= true
 end
 
 local function finishInto(run: Run, now: number, outcome: Outcome, out: { string })
@@ -231,26 +249,31 @@ function MissionFlow.endReason(outcome: Outcome?): "time" | "allOut" | "forced"
 	return "forced"
 end
 
--- One star per satisfied rule. Unknown rule ids never earn a star.
---   finish     the squad finished the shift (success or timer), not wiped or aborted
---   allOut     nothing burning at the end
---   allRescued at least one rescue delivered and nobody left behind
---   underTime  finished successfully within rule.seconds
---   noDowns    nobody in the squad was downed
+-- One star per satisfied rule. Unknown rule ids never earn a star. Only a SUCCESS (all clear) finishes
+-- the shift: a timed-out call keeps just the stars for work actually done (everyone delivered, or every
+-- fire out after the squad put some out), so a time-out with nothing done is always 0 stars.
+--   finish        all clear (success)
+--   allOut        nothing burning at the end (success, or a time-out where the squad put fires out)
+--   allRescued    at least one rescue delivered and nobody left behind (success or time-out)
+--   underTime     finished successfully within rule.seconds
+--   buildingSaved success with the building's integrity >= rule.min
+--   noDowns       success with nobody in the squad downed
 function MissionFlow.starEarned(rule: StarRule, s: Summary): boolean
-	local finished = s.outcome == "success" or s.outcome == "time"
+	local success = s.outcome == "success"
+	local ranOut = s.outcome == "time"
+	local putOut = s.firesOut == nil or s.firesOut > 0
 	if rule.id == "finish" then
-		return finished
+		return success
 	elseif rule.id == "allOut" then
-		return finished and s.burningAtEnd == 0
+		return (success or (ranOut and putOut)) and s.burningAtEnd == 0
 	elseif rule.id == "allRescued" then
-		return finished and s.rescued > 0 and s.trapped == 0 and (s.lost or 0) == 0
+		return (success or ranOut) and s.rescued > 0 and s.trapped == 0 and (s.lost or 0) == 0
 	elseif rule.id == "underTime" then
-		return s.outcome == "success" and s.elapsed <= (rule.seconds or math.huge)
+		return success and s.elapsed <= (rule.seconds or math.huge)
 	elseif rule.id == "buildingSaved" then
-		return finished and (s.integrity == nil or s.integrity >= (rule.min or 50))
+		return success and (s.integrity == nil or s.integrity >= (rule.min or 50))
 	elseif rule.id == "noDowns" then
-		return finished and s.downs == 0
+		return success and s.downs == 0
 	end
 	return false
 end

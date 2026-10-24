@@ -496,10 +496,13 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 	local center = pos :: Vector3
 	local radius = tonumber(params.radius) or HazardConfig.ExplosionRadius
 	local culprit: Player? = params.culprit
+	local big = params.big == true -- the tanker: huge flash/shake for everyone nearby, louder, more debris
+	local maxDamage = tonumber(params.damage) or HazardConfig.ExplosionDamage
+	local igniteCap = tonumber(params.ignite) or HazardConfig.ExplosionIgnite
 	-- visual-only engine explosion (we do our own knockback)
 	local e = Instance.new("Explosion")
 	e.Position = center
-	e.BlastRadius = radius
+	e.BlastRadius = if big then math.min(radius, 40) else radius
 	e.BlastPressure = 0
 	e.DestroyJointRadiusPercent = 0
 	e.ExplosionType = Enum.ExplosionType.NoCraters
@@ -512,10 +515,21 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 	holder.Size = Vector3.one
 	holder.Position = center
 	holder.Parent = workspace
-	sound(holder, HazardConfig.ExplosionSoundId, 1.5)
-	Debris:AddItem(holder, 6)
-	debrisBurst(center, HazardConfig.ExplosionDebris)
-	fx("explosion", center, { radius = radius })
+	local boom = sound(holder, HazardConfig.ExplosionSoundId, if big then 3 else 1.5)
+	if big and boom then
+		boom.RollOffMaxDistance = 1200
+		boom.RollOffMinDistance = 60
+		-- a second, slower copy: the deep rumble under the bang
+		local rumble = sound(holder, HazardConfig.ExplosionSoundId, 3)
+		if rumble then
+			rumble.PlaybackSpeed = 0.55
+			rumble.RollOffMaxDistance = 1200
+			rumble.RollOffMinDistance = 60
+		end
+	end
+	Debris:AddItem(holder, 8)
+	debrisBurst(center, if big then HazardConfig.ExplosionDebris * 2 else HazardConfig.ExplosionDebris)
+	fx("explosion", center, { radius = radius, big = big })
 	count("explosions")
 
 	for _, p in playersIn(instanceId, root) do
@@ -528,7 +542,7 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 		if d >= radius * 1.4 then
 			continue
 		end
-		local dmg = HazardMath.blastDamage(d, radius, HazardConfig.ExplosionDamage)
+		local dmg = HazardMath.blastDamage(d, radius, maxDamage)
 		if dmg > 0 then
 			hurt(p, dmg, "explosion")
 		end
@@ -536,7 +550,11 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 		local away = hrp.Position - center
 		away = if away.Magnitude > 0.1 then away.Unit else Vector3.new(0, 1, 0)
 		ragdoll(char, HazardConfig.ExplosionRagdollSeconds, (away + Vector3.new(0, 1.1, 0)).Unit * speed)
-		HazardService.Flung:Fire(p, "explosion")
+		-- Flung = Downed (SquadService): only in the blast's core. The outer ring just sends you flying, so a
+		-- big blast (the tanker's 60-stud radius) doesn't wipe a squad that kept its distance.
+		if d < radius * (HazardConfig.ExplosionDownShare or 0.45) then
+			HazardService.Flung:Fire(p, "explosion")
+		end
 	end
 	-- NPCs and loose props go flying too
 	for _, npc in CollectionService:GetTagged(Names.Tag.Rescuable) do
@@ -556,7 +574,7 @@ local function explosion(instanceId: string, root: Instance, params: { [string]:
 			away = if away.Magnitude > 0.1 then away.Unit else Vector3.yAxis
 			part.AssemblyLinearVelocity += (away + Vector3.new(0, 0.8, 0)).Unit * 70
 		end
-		if lit < HazardConfig.ExplosionIgnite and part:HasTag(Names.Tag.Flammable) then
+		if lit < igniteCap and part:HasTag(Names.Tag.Flammable) then
 			ignite(part, culprit)
 			lit += 1
 		end
@@ -1436,8 +1454,15 @@ local function twistCtx(instanceId: string, root: Instance, a: Armed): any
 		alive = function(): boolean
 			return armed[instanceId] == a and root.Parent ~= nil
 		end,
-		explode = function(pos: Vector3, radius: number?, culprit: Player?)
-			HazardService:Trigger(instanceId, "explosion", { position = pos, radius = radius, culprit = culprit })
+		explode = function(pos: Vector3, radius: number?, culprit: Player?, extra: { [string]: any }?)
+			local params: { [string]: any } = { position = pos, radius = radius, culprit = culprit }
+			for k, v in extra or {} do
+				params[k] = v
+			end
+			HazardService:Trigger(instanceId, "explosion", params)
+		end,
+		heat = function(p: Player, amount: number, source: string)
+			hurt(p, amount, source)
 		end,
 		players = function(): { Player }
 			return playersIn(instanceId, root)
@@ -1617,6 +1642,10 @@ end
 function HazardService:_twistSpray(instanceId: string, kind: string, userId: number?): number
 	local player = if userId then Players:GetPlayerByUserId(userId) else Players:GetPlayers()[1]
 	return if player then Twists.testSpray(instanceId, player, kind) else 0
+end
+
+function HazardService:_blowTanker(instanceId: string): boolean
+	return Twists.blowTanker(instanceId)
 end
 
 function HazardService:_twists(instanceId: string): { any }

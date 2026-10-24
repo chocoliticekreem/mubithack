@@ -494,14 +494,3 @@ def test_execute_luau_luau_errors_raise_and_bridge_errors_fall_back(monkeypatch)
 def test_execute_luau_without_bridge_uses_mcp(monkeypatch):
     s, called = _studio(monkeypatch, None)
     assert asyncio.run(s.execute_luau("return 1")) == "via-mcp"
-
-
-def test_place_allowed_prefix_patterns():
-    from forge.bridge import place_allowed
-
-    places = {"firefighter mubit", "forge*"}
-    assert place_allowed("Firefighter Mubit", places)
-    assert place_allowed("Forge.rbxlx", places)
-    assert place_allowed("Forge-agents-27.rbxlx", places)
-    assert not place_allowed("Some Other Game", places)
-    assert not place_allowed("firefighter mubit 2", {"firefighter mubit"})

@@ -113,6 +113,15 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   and floors, never within `FireAvoidRescueStuds` of a RescueSpawn). Rescues: +1 per
   `RescuesPerExtraPlayers` extra players (`MissionFlow.scaledRescues`, where the site has markers). The
   results payload carries `firesLit` and `squadSize`.
+- **Escalation** (calls run ~4-7 min): each catalog mission has `escalation` phases `{ at, fires, up?,
+  setPiece?, radius?, rescue?, rescueText?, text }` (fallback `GameConfig.Escalation.Default`). A phase
+  fires `at` s after arrival, or early once nothing has burned for `Escalation.LullSeconds` (at least
+  `MinGapSeconds` after the previous one): more fires (squad-scaled), on the upper floors when `up`,
+  round a `flashover` / `explosion` / `collapse` set piece, extra people at RescueSpawn markers left empty
+  at dispatch, and a banner. "All clear" can't end a call while a phase is still to come
+  (`MissionFlow.escalationDue`, `obs.held`). `FlareUpService` re-lights parts next to live fires only at
+  sites with an Active run. Stars: only a success earns `finish` / `noDowns` / `buildingSaved`; a
+  time-out with nothing done is 0 stars. DevHook: `MissionService _escalate(runId)`, `_runInfo(runId)`.
 - City-only calls: `nightclub_fire` (BlockFiller `nightclub`: Club Inferno, neon sign, dance floor, DJ
   booth + fog-machine gas bottle, 9 rescue markers) and `skyscraper_fire` (BlockFiller `skyscraper`:
   Sky Tower, 6 playable storeys + a roof deck, a tall cheap tower + spire behind the deck). Stairs: one
@@ -127,9 +136,14 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   each has a `guide = { headline, steps }` for the mission guide):
   - `diner_grease` (diner): a burning deep fryer. Extinguisher or "Slam the lid" (hold E) puts it out;
     HOSE water on it = a grease fireball that relights the kitchen.
-  - `gas_leak` (gas): the pumps spray fuel and a tanker parks behind them with a countdown
-    (`HazardConfig.LeakSeconds` from arrival). Hold "Shut valve" on every pump; time out = the tanker
-    blows and the fuel puddles burn.
+  - `gas_leak` (gas; `GameConfig.NearDispatch` sends it to the nearest free gas lot, the QUICK STOP on
+    the hub's avenue frontage, `Districts.CorridorSpecial.Station`): 6 pumps under a wide canopy, 4 leak
+    on arrival (hiss, growing puddles, a swelling gas cloud), 2 more rupture `LeakSecondAt` s in; a tanker
+    parks behind them with a countdown (`HazardConfig.LeakSeconds`, warnings at 60/30/10 s, an alarm bell
+    for the last 15 s). Hold "Shut valve" (`ValveHoldSeconds`) on every pump; time out = a HUGE blast:
+    fireball, shockwave ring, smoke column, a white-out flash + long camera shake for everyone near,
+    `TankerBlastRadius` knockback, the tank flies, flaming debris lights what it lands on, a scorch crater,
+    the canopy drops and burns, the puddles and wreck burn. DevHook: `HazardService _blowTanker(runId)`.
   - `highway_pileup` (new site kind `reststop`, `CityConfig.HighwaySites` W at z 675): a crumpled car is
     built round each driver, who is pinned until someone holding a Halligan / crowbar / axe holds "Pry
     door". Burning parked cars and picnic tables sit 30+ studs away (no panic circles in the wrecks).

@@ -49,15 +49,8 @@ local function placeName()
 	return if ok and type(v) == "string" then v else game.Name
 end
 local listed = false
--- each entry is a place key, or a prefix ending in "*" ("forge*" = Forge.rbxlx + every Forge-agents-N)
-local myKey = placeKey(placeName())
 for key in string.gmatch(PLACES, "[^,]+") do
-	if string.sub(key, -1) == "*" then
-		local prefix = string.sub(key, 1, -2)
-		if string.sub(myKey, 1, #prefix) == prefix then listed = true end
-	elseif key == myKey then
-		listed = true
-	end
+	if key == placeKey(placeName()) then listed = true end
 end
 if not listed then
 	return

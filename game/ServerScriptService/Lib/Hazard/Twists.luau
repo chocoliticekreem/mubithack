@@ -5,9 +5,14 @@
 --
 --   grease_fire  diner: a burning deep fryer. Extinguisher spray or the "Slam the lid" prompt puts it out;
 --                HOSE water on it = a grease fireball (explosion, relights the kitchen, fryer back to full).
---   gas_leak     gas station: every Pump (attr Pump) sprays fuel; a tanker parks behind them with a
---                countdown (LeakSeconds from arrival). Hold "Shut valve" on each pump. Time out = the
---                tanker blows and the fuel puddles catch fire.
+--   gas_leak     gas station: LeakFirstPumps pumps (attr Pump; more are added if the lot has too few)
+--                spray fuel, hiss and grow puddles; a gas cloud swells over them; a tanker parks behind
+--                the back row with a countdown (LeakSeconds from arrival, warnings at 60/30/10 s, an alarm
+--                bell for the last 15 s, coughing heat in the cloud). LeakSecondAt s in, LeakSecondPumps
+--                more pumps rupture. Hold "Shut valve" (ValveHoldSeconds) on each. Time out = a HUGE blast:
+--                fireball + shockwave + smoke column, a big flash/shake for everyone near (Hazard/Fx big),
+--                TankerBlastRadius knockback, the tank flies, flaming debris lights what it lands on, a
+--                scorch crater, the canopy drops and burns, the puddles and the wreck burn.
 --   pileup       rest stop: a crumpled car is built round every Civilian rescue of the run; the driver is
 --                pinned (ProximityPrompt off, attr Pinned) until someone holding a pry tool (ItemDefs
 --                `pry`: Halligan, Crowbar) or an axe holds "Pry door".
@@ -59,6 +64,7 @@ type Target = {
 }
 
 local targets: { [string]: { Target } } = {}
+local gasRuns: { [string]: any } = {} -- instanceId -> gas_leak ctx (ctx.blowTanker for the DevHook)
 local lastSpray: { [Player]: number } = {}
 local started = false
 
@@ -333,6 +339,17 @@ end
 
 function Twists.clear(instanceId: string)
 	targets[instanceId] = nil
+	gasRuns[instanceId] = nil
+end
+
+-- DevHook (HazardService:_blowTanker): blow this run's gas_leak tanker right now.
+function Twists.blowTanker(instanceId: string): boolean
+	local ctx = gasRuns[instanceId]
+	if ctx and type(ctx.blowTanker) == "function" and ctx.alive() then
+		ctx.blowTanker()
+		return true
+	end
+	return false
 end
 
 function Twists.targets(instanceId: string): { any }
@@ -489,6 +506,245 @@ local function buildTanker(parent: Instance, cf: CFrame): (Model, BasePart)
 	return m, tank
 end
 
+-- A flaming chunk of tanker: flies out, sets fire to the Flammable part it lands on (inside the site).
+local function flamingChunk(ctx: any, from: Vector3, speed: number)
+	local root: Model = ctx.root
+	local c = Instance.new("Part")
+	c.Name = "TankerChunk"
+	local s = 1 + math.random() * 1.8
+	c.Size = V(s * 1.6, s * 0.5, s)
+	c.Color = Color3.fromHex("#2E2A28")
+	c.Material = Enum.Material.CorrodedMetal
+	c.CFrame = CF(from + V(0, 3, 0)) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+	c.CanCollide = true
+	c.CanQuery = false
+	c.CanTouch = true
+	local fire = Instance.new("Fire")
+	fire.Size = 6
+	fire.Heat = 12
+	fire.Color = Color3.fromRGB(255, 140, 40)
+	fire.SecondaryColor = Color3.fromRGB(255, 220, 90)
+	fire.Parent = c
+	c.Parent = workspace
+	local ang = math.random() * math.pi * 2
+	local out = math.random() * 0.6 + 0.4
+	c.AssemblyLinearVelocity = V(math.cos(ang) * speed * out, speed * (0.55 + math.random() * 0.5), math.sin(ang) * speed * out)
+	c.AssemblyAngularVelocity = V(math.random(-12, 12), math.random(-12, 12), math.random(-12, 12))
+	Debris:AddItem(c, 9)
+	local Fire = ctx.services and ctx.services.FireService
+	local done = false
+	local function igniteAt(hit: BasePart?)
+		if done or not (Fire and type(Fire.Ignite) == "function") then
+			return
+		end
+		local target: BasePart? = nil
+		if hit and hit:HasTag(Names.Tag.Flammable) and hit:IsDescendantOf(root) then
+			target = hit
+		else
+			local op = OverlapParams.new()
+			op.FilterType = Enum.RaycastFilterType.Include
+			op.FilterDescendantsInstances = { root }
+			for _, p in workspace:GetPartBoundsInRadius(c.Position, 9, op) do
+				if p:HasTag(Names.Tag.Flammable) and not p:HasTag(Names.Tag.Burning) then
+					target = p
+					break
+				end
+			end
+		end
+		if target then
+			done = true
+			pcall(Fire.Ignite, Fire, target, nil)
+			count("gas_debris_ignites")
+		end
+	end
+	c.Touched:Connect(function(hit: BasePart)
+		if hit:HasTag(Names.Tag.Flammable) then
+			igniteAt(hit)
+		end
+	end)
+	task.delay(2.5, function()
+		if c.Parent then
+			igniteAt(nil)
+		end
+	end)
+end
+
+-- The fireball: nested neon spheres that swell and fade, a shockwave ring racing out along the ground,
+-- and a smoke column that hangs over the forecourt. All anchored, cleaned up by Debris.
+local function fireball(at: Vector3, ground: Vector3, radius: number)
+	local fx = Instance.new("Model")
+	fx.Name = "TankerFireball"
+	fx.Parent = workspace
+	Debris:AddItem(fx, 14)
+	local layers = {
+		{ Color3.fromRGB(255, 250, 210), radius * 0.9, 0.55 },
+		{ Color3.fromRGB(255, 190, 60), radius * 1.3, 0.9 },
+		{ Color3.fromRGB(255, 110, 30), radius * 1.7, 1.3 },
+	}
+	for i, l in layers do
+		local b = part(fx, "Fireball", CF(at), V(4, 4, 4), l[1], {
+			collide = false,
+			query = false,
+			shadow = false,
+			material = Enum.Material.Neon,
+			shape = Enum.PartType.Ball,
+			transparency = 0.05 * i,
+		})
+		local grow = TweenService:Create(b, TweenInfo.new(l[3], Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = V(l[2], l[2], l[2]),
+			CFrame = CF(at + V(0, l[2] * 0.25, 0)),
+		})
+		grow:Play()
+		grow.Completed:Once(function()
+			TweenService:Create(b, TweenInfo.new(1.4 + i * 0.3), {
+				Transparency = 1,
+				Color = Color3.fromRGB(70, 50, 40),
+				CFrame = CF(at + V(0, l[2] * 0.7, 0)),
+			}):Play()
+		end)
+	end
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 160, 60)
+	glow.Range = 60
+	glow.Brightness = 12
+	glow.Shadows = false
+	glow.Parent = fx:FindFirstChild("Fireball")
+	TweenService:Create(glow, TweenInfo.new(2.5), { Brightness = 0 }):Play()
+	-- shockwave ring along the ground
+	local ring = part(fx, "Shockwave", CF(ground + V(0, 0.6, 0)) * CFrame.Angles(0, 0, math.pi / 2), V(1.5, 6, 6), Color3.fromRGB(255, 235, 200), {
+		collide = false,
+		query = false,
+		shadow = false,
+		material = Enum.Material.Neon,
+		shape = Enum.PartType.Cylinder,
+		transparency = 0.25,
+	})
+	TweenService:Create(ring, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = V(0.4, radius * 4.5, radius * 4.5),
+		Transparency = 1,
+	}):Play()
+	-- the smoke column: a tall invisible part emitting big dark puffs for a few seconds
+	local col = part(fx, "SmokeColumn", CF(at + V(0, 6, 0)), V(radius * 0.6, 4, radius * 0.6), Color3.new(), {
+		collide = false,
+		query = false,
+		shadow = false,
+		transparency = 1,
+	})
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Name = "MushroomSmoke"
+	smoke.Color = ColorSequence.new(Color3.fromRGB(70, 60, 55), Color3.fromRGB(40, 36, 34))
+	smoke.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 10), NumberSequenceKeypoint.new(1, 34) })
+	smoke.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.7, 0.45), NumberSequenceKeypoint.new(1, 1) })
+	smoke.Lifetime = NumberRange.new(5, 8)
+	smoke.Speed = NumberRange.new(22, 36)
+	smoke.SpreadAngle = Vector2.new(18, 18)
+	smoke.Acceleration = V(0, 4, 0)
+	smoke.Drag = 1.2
+	smoke.Rate = 40
+	smoke.RotSpeed = NumberRange.new(-30, 30)
+	smoke.EmissionDirection = Enum.NormalId.Top
+	smoke.Parent = col
+	local embers = Instance.new("ParticleEmitter")
+	embers.Name = "Embers"
+	embers.Color = ColorSequence.new(Color3.fromRGB(255, 200, 80), Color3.fromRGB(255, 90, 30))
+	embers.LightEmission = 1
+	embers.Size = NumberSequence.new(0.6, 0)
+	embers.Lifetime = NumberRange.new(2, 4)
+	embers.Speed = NumberRange.new(30, 70)
+	embers.SpreadAngle = Vector2.new(60, 60)
+	embers.Acceleration = V(0, -20, 0)
+	embers.Rate = 0
+	embers.EmissionDirection = Enum.NormalId.Top
+	embers.Parent = col
+	embers:Emit(160)
+	task.delay(5, function()
+		smoke.Enabled = false
+	end)
+end
+
+-- Scorch mark + crater rim where the tanker was (stays until the site resets).
+local function scorch(root: Model, ground: Vector3, d: number)
+	part(root, "BlastScorch", CF(ground + V(0, 0.08, 0)) * CFrame.Angles(0, 0, math.pi / 2), V(0.12, d, d), Color3.fromHex("#1C1816"), {
+		collide = false,
+		query = false,
+		shadow = false,
+		material = Enum.Material.Slate,
+		shape = Enum.PartType.Cylinder,
+	})
+	part(root, "BlastCrater", CF(ground + V(0, 0.1, 0)) * CFrame.Angles(0, 0, math.pi / 2), V(0.16, d * 0.45, d * 0.45), Color3.fromHex("#0E0C0B"), {
+		collide = false,
+		query = false,
+		shadow = false,
+		material = Enum.Material.Basalt,
+		shape = Enum.PartType.Cylinder,
+	})
+	for i = 1, 10 do
+		local a = i / 10 * math.pi * 2
+		local r = d * 0.24
+		part(root, "CraterRim", CF(ground + V(math.cos(a) * r, 0.5, math.sin(a) * r)) * CFrame.Angles(math.random() * 0.6, a, math.random() * 0.6), V(3.2, 1.2, 2.2), Color3.fromHex("#2A2420"), {
+			collide = false,
+			query = false,
+			material = Enum.Material.Slate,
+		})
+	end
+end
+
+-- The canopy over the pumps: tips and drops one edge onto the forecourt, scorched and on fire (a
+-- scripted fire the hose cools); the pillars nearest the blast buckle.
+local function collapseCanopy(ctx: any, blastAt: Vector3)
+	local root: Model = ctx.root
+	local canopy: BasePart? = nil
+	local pillars: { BasePart } = {}
+	for _, d in root:GetDescendants() do
+		if d:IsA("BasePart") then
+			if d.Name == "Canopy" then
+				canopy = d
+			elseif d.Name == "Pillar" then
+				table.insert(pillars, d)
+			end
+		end
+	end
+	if not canopy then
+		return
+	end
+	local c = canopy :: BasePart
+	-- hinge along the canopy's edge farthest from the blast; the near edge drops toward the ground
+	local rel = c.CFrame:PointToObjectSpace(blastAt)
+	local side = if rel.X >= 0 then 1 else -1
+	local half = c.Size.X / 2
+	local hinge = c.CFrame * CF(-side * half, 0, 0)
+	local drop = math.asin(math.clamp((c.Position.Y - 2) / c.Size.X, 0, 0.9)) * 0.85
+	local target = hinge * CFrame.Angles(0, 0, -side * drop) * CF(side * half, 0, 0)
+	for _, d in root:GetDescendants() do
+		if d:IsA("BasePart") and d.Name == "CanopyBand" then
+			d.Anchored = false
+			d.CanCollide = false
+			d.AssemblyLinearVelocity = V(math.random(-20, 20), 30, math.random(-20, 20))
+			Debris:AddItem(d, 6)
+		end
+	end
+	c.Color = Color3.fromHex("#3A3230")
+	c.Material = Enum.Material.CorrodedMetal
+	TweenService:Create(c, TweenInfo.new(0.9, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), { CFrame = target }):Play()
+	for _, p in pillars do
+		local pr = c.CFrame:PointToObjectSpace(p.Position)
+		if pr.X * side > 0 then
+			p.Color = Color3.fromHex("#3A3230")
+			TweenService:Create(p, TweenInfo.new(0.7, Enum.EasingStyle.Quad), {
+				CFrame = p.CFrame * CF(0, -p.Size.Y * 0.3, 0) * CFrame.Angles(math.rad(math.random(-25, 25)), 0, math.rad(side * 35)),
+			}):Play()
+		end
+	end
+	task.delay(1, function()
+		if not c.Parent then
+			return
+		end
+		local t = addTarget(ctx.instanceId, newTarget(c, true, 3, "cool", true))
+		light(t)
+		count("gas_canopy_collapsed")
+	end)
+end
+
 local function gasLeak(ctx: any): boolean
 	local root: Model = ctx.root
 	local pumps: { BasePart } = {}
@@ -498,30 +754,89 @@ local function gasLeak(ctx: any): boolean
 		end
 	end
 	local F = root:GetPivot()
-	if #pumps == 0 then
-		-- not a gas site (fallback instance): two pumps on the apron
-		for _, x in { -8, 8 } do
-			local g = groundBelow((F * CF(x, 0, 9)).Position, characters())
-			local p = part(root, "Pump", CF(g) * (F - F.Position) * CF(0, 2.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#C8232B"))
+	local yaw = F - F.Position
+	local want = HazardConfig.LeakFirstPumps + HazardConfig.LeakSecondPumps
+	if #pumps < want then
+		-- an old/small gas lot (or a fallback instance): pumps spread across the apron until there are enough
+		local base = if #pumps > 0 then pumps[1].Position else (F * CF(0, 0, 9)).Position
+		local added = 0
+		while #pumps < want and added < 8 do
+			added += 1
+			local x = (if added % 2 == 0 then 1 else -1) * (6 + 6 * math.ceil(added / 2))
+			local g = groundBelow((CF(base) * yaw * CF(x, 0, 0)).Position, characters(), 3)
+			local p = part(root, "Pump", CF(g) * yaw * CF(0, 2.5, 0), V(2.4, 5, 1.6), Color3.fromHex("#C8232B"))
+			part(root, "PumpTop", CF(g) * yaw * CF(0, 5.4, 0), V(2.6, 0.8, 1.8), Color3.fromHex("#F2EDE4"))
 			table.insert(pumps, p)
 		end
 	end
+	-- shuffle so the second leak isn't always the same pumps
+	for i = #pumps, 2, -1 do
+		local j = math.random(1, i)
+		pumps[i], pumps[j] = pumps[j], pumps[i]
+	end
 	local centre = Vector3.zero
+	local backMost = -math.huge
+	local back = -V(F.LookVector.X, 0, F.LookVector.Z).Unit -- +Z of the site frame: away from the street
 	for _, p in pumps do
 		centre += p.Position
+		backMost = math.max(backMost, (p.Position - F.Position):Dot(back))
 	end
 	centre /= #pumps
-	local back = -V(F.LookVector.X, 0, F.LookVector.Z).Unit -- +Z of the site frame: away from the street
-	local g = groundBelow(centre + back * 6.5, characters(), 2) -- under the canopy
+	-- the tanker parks just behind the back row of pumps (under the canopy's back edge)
+	local along = centre + back * (backMost - (centre - F.Position):Dot(back) + 5)
+	local g = groundBelow(along, characters(), 2)
 	local tcf = CFrame.fromMatrix(g, F.RightVector, Vector3.yAxis)
 	local tanker, tank = buildTanker(root, tcf)
-	local label = billboard(tank, "FUEL LEAK", Color3.fromRGB(255, 220, 80), 6, Vector2.new(260, 60))
+	local label = billboard(tank, "FUEL LEAK", Color3.fromRGB(255, 220, 80), 6, Vector2.new(300, 70))
+	local groundY = groundBelow(centre, characters(), 2).Y
+
+	-- the gas cloud: a sickly translucent dome over the pumps that swells as the countdown runs
+	local cloud = part(root, "GasCloud", CF(V(centre.X, groundY, centre.Z)), V(6, 6, 6), Color3.fromHex("#C8D86A"), {
+		collide = false,
+		query = false,
+		shadow = false,
+		shape = Enum.PartType.Ball,
+		transparency = 0.82,
+		material = Enum.Material.SmoothPlastic,
+	})
+	cloud.CanTouch = false
+	local haze = Instance.new("ParticleEmitter")
+	haze.Name = "GasHaze"
+	haze.Color = ColorSequence.new(Color3.fromHex("#D6E27A"), Color3.fromHex("#9FB04A"))
+	haze.Size = NumberSequence.new(4, 12)
+	haze.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.75), NumberSequenceKeypoint.new(1, 1) })
+	haze.Lifetime = NumberRange.new(3, 5)
+	haze.Speed = NumberRange.new(1, 3)
+	haze.SpreadAngle = Vector2.new(180, 180)
+	haze.Rate = 6
+	haze.Parent = cloud
 
 	local leaking = 0
 	local blown = false
+	local stopped = false
 	local puddles: { BasePart } = {}
 	local valves: { [BasePart]: ProximityPrompt } = {}
-	for _, pump in pumps do
+	local hisses: { Sound } = {}
+
+	local function hiss(parentPart: BasePart): Sound?
+		if HazardConfig.HissSoundId == "" then
+			return nil
+		end
+		local s = Instance.new("Sound")
+		s.Name = "LeakHiss"
+		s.SoundId = HazardConfig.HissSoundId
+		s.Looped = true
+		s.Volume = 0.5
+		s.PlaybackSpeed = 0.8 + math.random() * 0.3
+		s.RollOffMinDistance = 8
+		s.RollOffMaxDistance = 90
+		s.Parent = parentPart
+		s:Play()
+		table.insert(hisses, s)
+		return s
+	end
+
+	local function startLeak(pump: BasePart, burst: boolean)
 		leaking += 1
 		local att = Instance.new("Attachment")
 		att.Name = "LeakFx"
@@ -539,19 +854,27 @@ local function gasLeak(ctx: any): boolean
 		spray.Rate = 35
 		spray.EmissionDirection = Enum.NormalId.Top
 		spray.Parent = att
+		local snd = hiss(pump)
+		if burst then
+			spray:Emit(60)
+			Popup.show(pump, "PSSSHHH! It ruptured!", "bad")
+		end
 		local foot = pump.Position - V(0, pump.Size.Y / 2, 0)
-		local puddle = part(root, "FuelPuddle", CF(foot + V(0, 0.06, 0)) * CFrame.Angles(0, 0, math.pi / 2), V(0.1, 8, 8), Color3.fromHex("#B5C94A"), {
+		local puddle = part(root, "FuelPuddle", CF(foot + V(0, 0.06, 0)) * CFrame.Angles(0, 0, math.pi / 2), V(0.1, 4, 4), Color3.fromHex("#B5C94A"), {
 			shape = Enum.PartType.Cylinder,
 			collide = false,
 			query = false,
 			transparency = 0.35,
 			shadow = false,
 		})
+		TweenService:Create(puddle, TweenInfo.new(25, Enum.EasingStyle.Linear), { Size = V(0.1, 11, 11) }):Play()
 		table.insert(puddles, puddle)
 		local valve = part(root, "ValveWheel", pump.CFrame * CF(pump.Size.X / 2 + 0.25, -0.4, 0), V(0.3, 1.8, 1.8), Color3.fromHex("#E03A2E"), {
 			shape = Enum.PartType.Cylinder,
 			collide = false,
 		})
+		local vlabel = billboard(valve, "SHUT ME", Color3.fromRGB(255, 90, 60), 3.2, Vector2.new(110, 32))
+
 		local pr = makePrompt(ctx, valve, "Shut valve", "Leaking pump", HazardConfig.ValveHoldSeconds, 9)
 		valves[valve] = pr
 		onTrigger(pr, function(player: Player)
@@ -561,18 +884,21 @@ local function gasLeak(ctx: any): boolean
 			valves[valve] = nil
 			pr:Destroy()
 			spray.Enabled = false
+			if snd then
+				snd:Stop()
+			end
 			valve.Color = Color3.fromHex("#4CAF50")
+			vlabel.Text = "SHUT"
+			vlabel.TextColor3 = Color3.fromRGB(120, 230, 120)
 			TweenService:Create(puddle, TweenInfo.new(1.5), { Transparency = 0.85 }):Play()
 			leaking -= 1
 			count("gas_valves_shut")
 			Popup.show(valve, if leaking > 0 then `Valve shut! {leaking} still leaking` else "Last valve shut!", "good", player)
-			if leaking <= 0 and not blown then
-				count("gas_leak_stopped")
-				label.Text = "TANKER SAFE :)"
-				label.TextColor3 = Color3.fromRGB(120, 230, 120)
-				tell(ctx, "Every pump shut! The tanker lives. Now the fires.", "good")
-			end
 		end)
+	end
+
+	for i = 1, math.min(HazardConfig.LeakFirstPumps, #pumps) do
+		startLeak(pumps[i], false)
 	end
 
 	local function blow()
@@ -580,14 +906,40 @@ local function gasLeak(ctx: any): boolean
 		count("gas_tanker_blown")
 		label.Text = "KABOOM"
 		label.TextColor3 = Color3.fromRGB(255, 90, 60)
+		for _, s in hisses do
+			s:Stop()
+		end
+		local at = tank.Position
+		local ground = groundBelow(at, { tanker, cloud }, 2)
 		for _, d in tanker:GetDescendants() do
 			if d:IsA("BasePart") then
 				d.Color = Color3.fromHex("#2E2A28")
-				d.Material = Enum.Material.Slate
+				d.Material = Enum.Material.CorrodedMetal
 			end
 		end
-		ctx.explode(tank.Position, HazardConfig.TankerBlastRadius, nil)
-		-- the fuel still on the ground goes up: each live puddle becomes a scripted fire (water cools it)
+		-- the tank itself goes flying (anchored props everywhere else, so this is the one big physics moment)
+		tank.Anchored = false
+		tank.CanCollide = true
+		tank.AssemblyLinearVelocity = V(math.random(-25, 25), 140, math.random(-25, 25))
+		tank.AssemblyAngularVelocity = V(math.random(-6, 6), math.random(-6, 6), math.random(-6, 6))
+		local tankFire = Instance.new("Fire")
+		tankFire.Size = 14
+		tankFire.Heat = 20
+		tankFire.Parent = tank
+		cloud:Destroy()
+		fireball(at, ground, HazardConfig.TankerBlastRadius * 0.55)
+		ctx.explode(at, HazardConfig.TankerBlastRadius, nil, {
+			big = true,
+			damage = HazardConfig.TankerBlastDamage,
+			ignite = HazardConfig.TankerIgnite,
+		})
+		scorch(root, ground, HazardConfig.TankerScorch)
+		for _ = 1, HazardConfig.TankerDebris do
+			flamingChunk(ctx, at, HazardConfig.TankerDebrisSpeed)
+		end
+		collapseCanopy(ctx, at)
+		-- the fuel still on the ground goes up: each live puddle becomes a scripted fire (water cools it),
+		-- plus a burning wreck where the tanker stood
 		for _, pud in puddles do
 			if pud.Transparency < 0.6 then
 				pud.Color = Color3.fromHex("#3A2A1A")
@@ -595,30 +947,124 @@ local function gasLeak(ctx: any): boolean
 				light(t)
 			end
 		end
-		tell(ctx, "KABOOM! The tanker went up. Put out the forecourt!", "bad")
+		local wreck = part(root, "TankerWreck", CF(ground + V(0, 1.2, 0)), V(10, 2.4, 5), Color3.fromHex("#2E2A28"), {
+			material = Enum.Material.CorrodedMetal,
+		})
+		light(addTarget(ctx.instanceId, newTarget(wreck, true, 4, "cool", true)))
+		tell(ctx, "KABOOM!!! The tanker went up and took the canopy with it! Put out the forecourt!", "bad")
+		task.delay(3, function()
+			if ctx.alive() then
+				tell(ctx, "Flaming debris everywhere! Check the kiosk and the cars!", "bad")
+			end
+		end)
 	end
 
 	onArrive(ctx, function()
 		local seconds = HazardConfig.LeakSeconds
-		tell(ctx, `GAS LEAK! Hold E on every pump valve before the tanker blows ({seconds}s).`, "bad")
-		local endsAt = os.clock() + seconds
+		tell(ctx, `GAS LEAK! {leaking} pumps spraying fuel. Hold E on every red valve before the tanker blows ({seconds}s)!`, "bad")
+		local startAt = os.clock()
+		local endsAt = startAt + seconds
+		local secondAt = startAt + HazardConfig.LeakSecondAt
+		local secondDone = false
 		local warned: { [number]: boolean } = {}
-		while ctx.alive() and leaking > 0 and not blown do
-			local left = math.max(0, math.ceil(endsAt - os.clock()))
-			label.Text = string.format("TANKER BLOWS IN %d:%02d", left // 60, left % 60)
-			for _, mark in { 30, 10 } do
-				if left <= mark and not warned[mark] then
-					warned[mark] = true
-					tell(ctx, `{mark} SECONDS! {leaking} pump(s) still leaking!`, "bad")
+		local beep: Sound? = nil
+		while ctx.alive() and not blown do
+			local now = os.clock()
+			-- the second leak: more pumps rupture mid-call (and get their own valves)
+			if not secondDone and now >= secondAt then
+				secondDone = true
+				local first = math.min(HazardConfig.LeakFirstPumps, #pumps)
+				local n = 0
+				for i = first + 1, math.min(first + HazardConfig.LeakSecondPumps, #pumps) do
+					startLeak(pumps[i], true)
+					n += 1
+				end
+				if n > 0 then
+					count("gas_second_leak")
+					tell(ctx, `ANOTHER PUMP RUPTURED! {leaking} leaking now. Listen for the hiss!`, "bad")
 				end
 			end
-			if left <= 0 then
+			if leaking <= 0 and secondDone then
+				break
+			end
+			local left = math.max(0, math.ceil(endsAt - now))
+			label.Text = if leaking > 0 then string.format("TANKER BLOWS IN %d:%02d", left // 60, left % 60) else "VALVES SHUT... FOR NOW"
+			if left <= 15 and leaking > 0 then
+				label.TextColor3 = if math.floor(now * 4) % 2 == 0 then Color3.fromRGB(255, 60, 40) else Color3.fromRGB(255, 240, 120)
+				if not beep and HazardConfig.WarnBeepSoundId ~= "" then
+					local s = Instance.new("Sound")
+					s.Name = "TankerAlarm"
+					s.SoundId = HazardConfig.WarnBeepSoundId
+					s.Looped = true
+					s.Volume = 0.9
+					s.RollOffMaxDistance = 160
+					s.Parent = tank
+					s:Play()
+					beep = s
+				end
+			elseif beep then
+				beep:Stop()
+				beep:Destroy()
+				beep = nil
+			end
+			-- the cloud swells with the countdown (shrinks back as valves shut)
+			local share = math.clamp((now - startAt) / seconds, 0, 1)
+			local active = if leaking > 0 then 1 else 0.3
+			local diam = 8 + (HazardConfig.GasCloudMax - 8) * share * active
+			cloud.Size = V(diam, diam * 0.55, diam)
+			cloud.Transparency = 0.86 - 0.12 * share * active
+			haze.Rate = 4 + 20 * share * active
+			for _, s in hisses do
+				s.Volume = 0.4 + 0.5 * share
+			end
+			-- coughing in the thick of it near the end
+			if leaking > 0 and left <= 30 and type(ctx.heat) == "function" then
+				for _, p in ctx.players() do
+					local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if hrp and (hrp.Position - cloud.Position).Magnitude < diam * 0.35 then
+						ctx.heat(p, HazardConfig.GasCloudHeat * 0.5, "gas")
+					end
+				end
+			end
+			for _, mark in { 60, 30, 10 } do
+				if left <= mark and leaking > 0 and not warned[mark] then
+					warned[mark] = true
+					local msg = if mark == 60
+						then `60 SECONDS! The gas cloud is growing! {leaking} pump(s) still leaking!`
+						elseif mark == 30 then `30 SECONDS!!! {leaking} pump(s) still leaking! It's getting hard to breathe!`
+						else `10 SECONDS!!! GET CLEAR OF THE TANKER!`
+					tell(ctx, msg, "bad")
+				end
+			end
+			if left <= 0 and leaking > 0 then
+				if beep then
+					beep:Destroy()
+				end
 				blow()
 				break
 			end
 			task.wait(0.5)
 		end
+		if beep then
+			beep:Destroy()
+		end
+		if not blown and leaking <= 0 and ctx.alive() then
+			stopped = true
+			count("gas_leak_stopped")
+			label.Text = "TANKER SAFE :)"
+			label.TextColor3 = Color3.fromRGB(120, 230, 120)
+			TweenService:Create(cloud, TweenInfo.new(4), { Transparency = 1, Size = V(4, 2, 4) }):Play()
+			haze.Enabled = false
+			tell(ctx, "Every pump shut! The tanker lives. Now the fires.", "good")
+		end
 	end)
+	-- DevHook: blow the tanker now (screenshots / tests)
+	ctx.blowTanker = function()
+		if not blown and not stopped then
+			blow()
+		end
+	end
+	gasRuns[ctx.instanceId] = ctx
 	return true
 end
 

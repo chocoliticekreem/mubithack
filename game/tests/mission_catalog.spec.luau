@@ -89,6 +89,36 @@ Spec.test("every entry has the MissionDef shape", function()
 	end
 end)
 
+Spec.test("every call is big and escalates: >= 4 fires, 2+ phases, enough time for them", function()
+	local SET_PIECES = { flashover = true, explosion = true, collapse = true }
+	for _, m in Missions do
+		local id = m.id
+		Spec.truthy(m.fires.count >= 4, `{id} starts with at least 4 fires`)
+		Spec.truthy(m.seconds >= 240 and m.seconds <= 540, `{id}.seconds is a 4-9 minute call`)
+		Spec.eq(type(m.escalation), "table", `{id}.escalation`)
+		Spec.truthy(#m.escalation >= 2, `{id} has 2+ escalation phases`)
+		local last = 0
+		local setPiece = false
+		for i, ph in m.escalation do
+			Spec.truthy(type(ph.at) == "number" and ph.at > last, `{id} phase {i} after the previous one`)
+			Spec.truthy(type(ph.fires) == "number" and ph.fires >= 1, `{id} phase {i} fires`)
+			Spec.eq(type(ph.text), "string", `{id} phase {i} banner`)
+			if ph.setPiece ~= nil then
+				Spec.truthy(SET_PIECES[ph.setPiece], `{id} phase {i} setPiece {ph.setPiece}`)
+				setPiece = true
+			end
+			last = ph.at
+		end
+		Spec.truthy(setPiece, `{id} has a set piece`)
+		Spec.truthy(m.seconds >= last + 120, `{id}: 2+ minutes left after the last phase`)
+		for _, s in m.stars do
+			if s.id == "underTime" then
+				Spec.truthy(s.seconds > last + 60, `{id} underTime is reachable after the last phase`)
+			end
+		end
+	end
+end)
+
 Spec.test("v3 crazy calls: twist hazard, 1-8 players, a guide with steps", function()
 	for id, hazard in TWISTS do
 		local m = byId[id]

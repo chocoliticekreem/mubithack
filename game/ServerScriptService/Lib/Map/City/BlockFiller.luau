@@ -336,9 +336,10 @@ local Build = {}
 
 function Build.house(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
-	local w = math.min(maxW, rng:NextInteger(24, 30))
-	local d = math.min(maxD, rng:NextInteger(20, 24))
-	local storeys = if rng:NextNumber() < 0.6 then 2 else 1
+	-- every call house is a proper two-storey family home: several rooms a floor for the fire to spread through
+	local w = math.min(maxW, rng:NextInteger(30, 36))
+	local d = math.min(maxD, rng:NextInteger(24, 28))
+	local storeys = 2
 	local color = pick(rng, C.Walls)
 	local floors = shell(site, F, {
 		w = w,
@@ -371,16 +372,20 @@ function Build.house(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numbe
 	box(site, "Fridge", F * CF(w * 0.1 + 6, fy, d - 2), V(3, 7, 2.6), C.Trim)
 	SK.fireStart(site, "F1", counter.CFrame * CF(0, 2.5, 0))
 	SK.fireStart(site, "F2", sofa.CFrame * CF(0, 2.5, 0))
-	if storeys > 1 then
-		local up = floors[2]
-		local bed = box(site, "Bed", F * CF(w * 0.25, up, d * 0.6), V(5, 2.2, 8), pick(rng, C.Furniture), true)
-		box(site, "Dresser", F * CF(0, up, d - 2), V(5, 4, 2), C.Wood, true)
-		SK.fireStart(site, "F3", bed.CFrame * CF(0, 2.5, 0))
-	else
-		local shelf = box(site, "Bookshelf", F * CF(-w * 0.3, fy, d - 1.8), V(5, 7, 1.6), C.Wood, true)
-		SK.fireStart(site, "F3", shelf.CFrame * CF(0, 1, -2))
-	end
+	local shelf = box(site, "Bookshelf", F * CF(-w * 0.3, fy, d - 1.8), V(5, 7, 1.6), C.Wood, true)
+	SK.fireStart(site, "F4", shelf.CFrame * CF(0, 1, -2))
+	local up = floors[2]
+	local bed = box(site, "Bed", F * CF(w * 0.25, up, d * 0.6), V(5, 2.2, 8), pick(rng, C.Furniture), true)
+	box(site, "Dresser", F * CF(0, up, d - 2), V(5, 4, 2), C.Wood, true)
+	SK.fireStart(site, "F3", bed.CFrame * CF(0, 2.5, 0))
+	-- the kids' room / study at the other end of the landing
+	-- (clear of the stair hole: lane A runs along the left wall, x < -w/2 + 5)
+	local bunk = box(site, "BunkBed", F * CF(-w / 2 + 9.5, up, d - 3), V(7, 5, 4), pick(rng, C.Furniture), true)
+	box(site, "Desk", F * CF(-w * 0.1, up, 2.5), V(5, 2.6, 2), C.Wood, true)
+	SK.fireStart(site, "F5", bunk.CFrame * CF(0, 3, 0))
 	houseRescues(site, F, w, d, floors)
+	-- nobody's spawned here on the call: an escalation phase can find someone upstairs
+	SK.rescue(site, "R6", "Civilian", F * CF(-w * 0.15, up, d * 0.55), "lying")
 	-- chimney + front path
 	SK.part(site, "Chimney", F * CF(w * 0.3, floors.top + 5, d * 0.7), V(3, 10, 3), C.Brick)
 end
@@ -531,24 +536,38 @@ end
 
 function Build.gas(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
-	-- canopy over the pumps right behind the apron, kiosk behind it
-	local cw = math.min(maxW, 40)
-	local canopyD = 18
-	for _, s in { { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 } } do
+	-- a wide canopy over two rows of pumps (3 islands, 6 pumps: the gas_leak call shuts each valve),
+	-- room behind the back row for the tanker (Twists gas_leak), the kiosk behind that
+	local cw = math.min(maxW, 58)
+	local canopyD = 24
+	for _, s in { { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 }, { 0, 1 }, { 0, -1 } } do
 		SK.part(site, "Pillar", F * CF(s[1] * (cw / 2 - 3), GY + 7, canopyD / 2 + s[2] * (canopyD / 2 - 3)), V(1.6, 14, 1.6), C.Trim)
 	end
 	SK.part(site, "Canopy", F * CF(0, GY + 14.6, canopyD / 2), V(cw, 1.2, canopyD), C.Trim)
 	local band = SK.part(site, "CanopyBand", F * CF(0, GY + 14.6, -0.1), V(cw, 2, 0.4), C.Red)
 	SK.sign(band, "GAS  ·  SNACKS  ·  NO SMOKING (PLEASE)", Enum.NormalId.Front, C.Trim)
-	for k, x in { -cw * 0.22, cw * 0.22 } do
-		local pump = SK.part(site, "Pump", F * CF(x, GY + 2.5, canopyD / 2), V(2.4, 5, 1.6), C.Red)
-		SK.part(site, "PumpTop", F * CF(x, GY + 5.4, canopyD / 2), V(2.6, 0.8, 1.8), C.Trim)
-		local tank = SK.part(site, `GasTank{k}`, F * CF(x, GY + 0.6, canopyD / 2 + 2.2), V(3, 1.2, 2), Color3.fromHex("#E9C46A"))
-		SK.hazard(tank, "explosion")
-		pump:SetAttribute("Pump", true)
+	local k = 0
+	for _, z in { 5.5, 14 } do
+		for _, x in { -cw * 0.32, 0, cw * 0.32 } do
+			k += 1
+			SK.part(site, "Island", F * CF(x, GY + 0.25, z), V(4.5, 0.5, 3), C.Concrete)
+			local pump = SK.part(site, "Pump", F * CF(x, GY + 2.5, z), V(2.4, 5, 1.6), C.Red)
+			SK.part(site, "PumpTop", F * CF(x, GY + 5.4, z), V(2.6, 0.8, 1.8), C.Trim)
+			pump:SetAttribute("Pump", true)
+			pump:SetAttribute("PumpNo", k)
+			if k == 2 or k == 5 then
+				local tank = SK.part(site, `GasTank{k}`, F * CF(x + 3.2, GY + 0.6, z), V(2, 1.2, 3), Color3.fromHex("#E9C46A"))
+				SK.hazard(tank, "explosion")
+			end
+		end
 	end
-	local kw, kd = math.min(maxW, 26), math.min(maxD - canopyD - 2, 16)
-	storefront(ctx, site, F * CF(0, 0, canopyD + 2), kw, kd, pick(rng, C.Walls), "QUICK STOP", C.Red)
+	-- oil-drum stack + tyre rack by the canopy edge: something for the blast to set alight
+	for j = 0, 2 do
+		box(site, "OilDrums", F * CF(cw / 2 - 2, GY, canopyD - 3 - j * 3.2), V(2.6, 3.4, 2.6), Color3.fromHex("#3D5A80"), true)
+	end
+	box(site, "TyreRack", F * CF(-cw / 2 + 2, GY, canopyD - 5), V(2.6, 4, 7), C.MetalDark, true)
+	local kw, kd = math.min(maxW, 34), math.clamp(maxD - canopyD - 6, 10, 18)
+	storefront(ctx, site, F * CF(0, 0, canopyD + 6), kw, kd, pick(rng, C.Walls), "QUICK STOP", C.Red)
 end
 
 function Build.storage(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
@@ -651,7 +670,7 @@ function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numb
 		local y = floors[s]
 		for k = -2, 2 do
 			local desk = box(site, "Desk", F * CF(k * w * 0.16, y, d * 0.55), V(6, 2.6, 3), C.Wood, true)
-			if (k == -1 or k == 2) and fires < 4 then
+			if k ~= 0 and fires < 8 then -- a fire start in every classroom on both floors
 				fires += 1
 				SK.fireStart(site, `F{fires}`, desk.CFrame * CF(0, 2, 0))
 			end
@@ -668,6 +687,9 @@ function Build.school(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numb
 		SK.rescue(site, `R{k}`, "Civilian", F * CF(((k - 1) % 4 - 1.5) * w * 0.18, floors[s], d * 0.35), if k % 3 == 0 then "sitting" else "stand", "Kid")
 	end
 	SK.rescue(site, "R9", "Civilian", F * CF(w * 0.3, floors[2], d * 0.7), "stand", "Teacher")
+	-- spares (empty at dispatch): escalation finds kids hiding at the far ends upstairs
+	SK.rescue(site, "R10", "Civilian", F * CF(-w * 0.42, floors[2], d * 0.3), "sitting", "Kid")
+	SK.rescue(site, "R11", "Civilian", F * CF(w * 0.42, floors[2], d * 0.3), "sitting", "Kid")
 	-- bell tower, sign, flag
 	SK.part(site, "BellTower", F * CF(0, floors.top + 6, d * 0.5), V(10, 12, 10), C.Trim)
 	SK.wedge(site, "BellRoof1", F * CF(0, floors.top + 14, d * 0.5 - 2.6), V(11, 4, 5.5), C.Red)

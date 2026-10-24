@@ -26,11 +26,26 @@ return Config.define({
 	-- rounded (solo = the catalog count; 4 players ~x2). Fires beyond the site's FireStart markers go on
 	-- Flammable parts spread round the site, never within FireAvoidRescueStuds of a RescueSpawn.
 	FireScalePerPlayer = 0.35,
-	MinArrivalFires = 3,
+	MinArrivalFires = 5,
+	-- escalation (MissionService): every call grows while the squad works it. Phases come from the
+	-- catalog's `escalation`, else Default; each fires `at` s after arrival, or early once nothing has
+	-- burned for LullSeconds (but at least MinGapSeconds after the previous phase). "All clear" can't end
+	-- a call while a phase is still to come. Phase fires scale with the squad like the arrival fires.
+	Escalation = {
+		LullSeconds = 8,
+		MinGapSeconds = 30,
+		Default = {
+			{ at = 90, fires = 4, up = true, text = "The fire's spreading to the upper floor!" },
+			{ at = 180, fires = 4, setPiece = "flashover", text = "FLASHOVER! A whole room just went up!" },
+		},
+	},
 	FireAvoidRescueStuds = 8,
 	RescuesPerExtraPlayers = 2, -- +1 rescuable per 2 extra players (where the site has spawn markers)
 	RekindleSeconds = 4, -- nothing has burned at the site this long after arrival: light the site's FireStart markers
 	MinDispatchStuds = 700, -- dispatch prefers sites at least this far from the station (a real drive)
+	-- ...except these calls, which go to the nearest free site: the gas_leak call is the QUICK STOP on the
+	-- hub's own avenue frontage (Districts.CorridorSpecial.Station), a short siren run from the station
+	NearDispatch = { gas_leak = true },
 	SiteTieStuds = 60, -- free sites within this of the nearest one are a tie, picked at random
 	TravelSpeed = 45, -- studs/s used to size the driving allowance added to the timer
 	TravelMinSeconds = 20,
