@@ -132,6 +132,12 @@ local function collect(r: Renderer): boolean
 			r.atts[k + 1] = a
 		end
 		local w = Cfg.Thickness * 1.15
+		-- battle pass hose colour (BattlePassService attrs PassHose / PassHoseStripe on the owner)
+		local owner = Players:GetPlayerByUserId(tonumber(r.model:GetAttribute("Owner")) or 0)
+		local body = owner and owner:GetAttribute("PassHose")
+		local stripe = owner and owner:GetAttribute("PassHoseStripe")
+		local BODY = if typeof(body) == "Color3" then body else BODY
+		local STRIPE = if typeof(stripe) == "Color3" then stripe else STRIPE
 		for k = 1, n + 1 do
 			local a0, a1 = r.atts[k], r.atts[k + 1]
 			r.layers[k] = {

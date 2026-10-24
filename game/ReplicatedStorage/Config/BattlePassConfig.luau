@@ -9,7 +9,7 @@
 --   hose    the hose tool, the hose line beams and the first-person nozzle hose (Color, Stripe)
 --   truck   neon underglow under your fire truck (Color, optional Pulse)
 --   nozzle  the hose tool's tip (Color, Sparkle)
---   emote   [J] in the lobby, or DANCE in the panel's locker (Style "spin" | "flex")
+--   emote   [K] in the lobby, or DANCE in the panel's locker (Style "spin" | "flex")
 --   boost   not equipped: every claimed boost adds Pct % to the pass XP you earn (capped)
 -- Colours are hex strings so the pure rules / specs never touch Color3.
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
@@ -107,7 +107,7 @@ return Config.define({
 
 	-- Client
 	UiToggleKey = Enum.KeyCode.P,
-	EmoteKey = Enum.KeyCode.J,
+	EmoteKey = Enum.KeyCode.K, -- J is the onboarding SKIP key
 	EmoteCooldown = 2.5,
 
 	-- Studio switch (server side): player:SetAttribute("BattlePassPremiumDebug", true) = premium.
