@@ -203,6 +203,7 @@ def test_pull_luau_inline_manifest(tmp_path):
     plain = sync.pull_luau(4321)
     assert "local MANIFEST_JSON: string? = nil" in plain and "local INLINE_JSON: string? = nil" in plain
     assert 'GetAttribute("ForgeHash") == e.hash' in plain
+    assert "local FORCE = false" in plain and "local FORCE = true" in sync.pull_luau(4321, force=True)
 
 
 @needs_luau

@@ -232,6 +232,7 @@ local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
 local BASE = "http://127.0.0.1:__PORT__/"
 local PRUNE = __PRUNE__
+local FORCE = __FORCE__ -- true: ignore ForgeHash and fetch every file (the pre-incremental behaviour)
 local TAG = "ForgeManaged"
 local ROOTS = { "ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts", "ServerStorage", "StarterGui", "Workspace" }
 local MANIFEST_JSON: string? = __MANIFEST__
@@ -303,7 +304,7 @@ local ok, result = pcall(function()
 			inst:Destroy()
 			inst = nil
 		end
-		if inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
+		if not FORCE and inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
 			and inst:GetAttribute("ForgeLen") == e.size and #(inst :: any).Source == e.size then
 			skipped += 1
 		else
@@ -367,15 +368,17 @@ return (if ok then "OK " else "ERROR ") .. tostring(result)
 
 
 def pull_luau(port: int = DEFAULT_PORT, prune: bool = True, manifest: list[dict] | None = None,
-              inline: dict[str, str] | None = None) -> str:
+              inline: dict[str, str] | None = None, force: bool = False) -> str:
     """Luau source for execute_luau (Edit DM) that pulls ROOT from serve_in_thread(ROOT, port).
 
     manifest: send the manifest inside the script instead of fetching tools/manifest.json.
     inline: {path: source} sent inside the script; those files are never fetched over HTTP.
+    force: ignore the ForgeHash skip and fetch every file (the original, non-incremental pull).
     """
     man = long_string(json.dumps(manifest, separators=(",", ":"))) if manifest is not None else "nil"
     inl = long_string(json.dumps(inline, separators=(",", ":"))) if inline else "nil"
-    src = _PULL_TEMPLATE.replace("__PORT__", str(int(port))).replace("__PRUNE__", "true" if prune else "false")
+    src = (_PULL_TEMPLATE.replace("__PORT__", str(int(port))).replace("__PRUNE__", "true" if prune else "false")
+           .replace("__FORCE__", "true" if force else "false"))
     # one pass, so placeholder words inside the inserted sources are never replaced
     return re.sub(r"__MANIFEST__|__INLINE__", lambda m: man if m.group(0) == "__MANIFEST__" else inl, src)
 

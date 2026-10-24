@@ -696,7 +696,7 @@ class Studio:
             if st.get("playing"):
                 await self.stop()
         if not incremental:
-            return await self.execute_luau(fsync.pull_luau(port, prune=prune), "Edit")
+            return await self.execute_luau(fsync.pull_luau(port, prune=prune, force=True), "Edit")
         key = (str(self.studio_id), str(root))
         inline = fsync.inline_plan(root, entries, self._pushed.get(key))
         out = await self.execute_luau(fsync.pull_luau(port, prune=prune, manifest=entries, inline=inline), "Edit")

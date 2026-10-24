@@ -5,6 +5,7 @@ local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
 local BASE = "http://127.0.0.1:34873/"
 local PRUNE = true
+local FORCE = false -- true: ignore ForgeHash and fetch every file (the pre-incremental behaviour)
 local TAG = "ForgeManaged"
 local ROOTS = { "ServerScriptService", "ReplicatedStorage", "StarterPlayerScripts", "ServerStorage", "StarterGui", "Workspace" }
 local MANIFEST_JSON: string? = nil
@@ -76,7 +77,7 @@ local ok, result = pcall(function()
 			inst:Destroy()
 			inst = nil
 		end
-		if inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
+		if not FORCE and inst and e.hash and inst:GetAttribute("ForgeHash") == e.hash
 			and inst:GetAttribute("ForgeLen") == e.size and #(inst :: any).Source == e.size then
 			skipped += 1
 		else
