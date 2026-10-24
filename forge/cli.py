@@ -592,7 +592,7 @@ def cmd_fun(args) -> int:
 
 def cmd_done(args) -> int:
     from forge.done import readiness, render
-    r = readiness(load_settings(), args.slug)
+    r = readiness(load_settings(), args.slug, compare=True)
     print(json.dumps(r, indent=1) if args.json else render(r))
     return 0 if r["ready"] else 1
 
@@ -910,6 +910,8 @@ def build_parser() -> argparse.ArgumentParser:
     _add_assets_parser(sub)
     from forge.bench import add_cli_parser as _add_bench_parser
     _add_bench_parser(sub)
+    from forge.compare import add_cli_parser as _add_compare_parser
+    _add_compare_parser(sub)
     _add_test_parsers(sub)
     sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
 
@@ -1074,7 +1076,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _apply_speed_args(args)
     from forge.bench import cmd_bench
-    handler = {"doctor": cmd_doctor, "bench": cmd_bench, "new": cmd_new, "run": cmd_run,
+    from forge.compare import cmd_compare
+    handler = {"doctor": cmd_doctor, "bench": cmd_bench, "compare": cmd_compare, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "bench-io": cmd_bench_io, "headless": cmd_headless,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
