@@ -20,7 +20,10 @@
 --                                             height?: () -> design units (default obj.Size.Y.Offset)
 --   HudLayout.pin(obj, y)                     obj.Position.Y = screen px y(scale, insetY), converted to
 --                                             obj's ScreenGui (inset or full-bleed) on every resize
---   HudLayout.modal(panel, opts?)             opts.onDismiss (backdrop click), opts.companions = {gui names}
+--   HudLayout.modal(panel, opts?)             opts.onDismiss (backdrop click), opts.companions = {gui names}.
+--                                             While open, a panel sized in offsets that doesn't fit the
+--                                             screen (phones: UiKit's scale stops at 0.55) shrinks its
+--                                             gui's ViewportScale until it does; back on close
 --   HudLayout.modalOpen() -> boolean, HudLayout.ModalChanged (BindableEvent, fires (open: boolean))
 --   HudLayout.celebrate(fn)                   queue a centre card (level up / new gear / tier up); fn shows
 --                                             it and returns its seconds (+ optional hide()). One at a
@@ -302,10 +305,38 @@ function HudLayout.modal(panel: GuiObject, opts: ModalOpts?)
 		return Players.LocalPlayer:FindFirstChild("PlayerGui")
 	end
 
+	-- fit on small screens: the gui's ViewportScale (UiKit) shrinks while this is open so the whole panel
+	-- (and its close button) is on screen; UiKit's own formula comes back on close
+	local function baseScale(): number
+		local cam = workspace.CurrentCamera
+		local v = if cam then cam.ViewportSize else Vector2.new(1280, 720)
+		return math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
+	end
+	local fitted = false
+	local function fit(open: boolean)
+		local vs = g:FindFirstChild("ViewportScale")
+		if not vs or not vs:IsA("UIScale") then
+			return
+		end
+		local sz = panel.Size
+		if open and sz.X.Scale == 0 and sz.Y.Scale == 0 and sz.X.Offset > 0 and sz.Y.Offset > 0 then
+			local area = g.AbsoluteSize
+			local want = math.min(vs.Scale, (area.X - 12) / sz.X.Offset, (area.Y - 12) / sz.Y.Offset)
+			if want < vs.Scale - 1e-3 then
+				fitted = true
+				vs.Scale = want
+			end
+		elseif not open and fitted then
+			fitted = false
+			vs.Scale = baseScale()
+		end
+	end
+
 	local function apply()
 		local open = panel.Visible and panel.Parent ~= nil
 		local was = openModals[panel] == true
 		dim.Visible = open
+		pcall(fit, open)
 		if open then
 			openModals[panel] = true
 			if g.DisplayOrder < HudLayout.ModalOrder then

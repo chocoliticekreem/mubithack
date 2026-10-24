@@ -533,7 +533,7 @@ function Minimap.new()
 		b.TextColor3 = Palette.UiInk
 		b.TextSize = 26
 		b.ZIndex = 6
-		b.Activated:Connect(fn)
+		UiKit.onTap(b, fn) -- 44 px touch pad on phones (these come out ~26 px at UIScale 0.55)
 	end
 	smallButton("Close", "X", UDim2.new(1, -30, 0, 26), function()
 		self:toggleBig(false)
