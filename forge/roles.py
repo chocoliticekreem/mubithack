@@ -418,3 +418,89 @@ def reflect(llm: LLM, lessons: str, iteration_summary: str, *, session_id: str) 
     if not text:
         raise LLMError("reflector returned empty lessons")
     return text + "\n"
+
+
+# ---------------------------------------------------------------------------------------------
+# investigator context (its message is put together in forge/improve.py)
+#
+# Every investigator call re-sends the game's file index and every earlier step. On real runs the step
+# history was 57% of the investigator's input and the index 38%, and the old 12k-char index cut dropped
+# 91 of a seeded game's 175 files (every ServerScriptService/Services module among them).
+
+INDEX_CHARS = 6000
+STEPS_BUDGET = 9000
+STEPS_KEEP = 2          # the newest steps always stay whole: they are what the next action reacts to
+OLD_READ_CHARS = 2000
+OLD_PROBE_CHARS = 700
+OLD_CODE_CHARS = 500
+STEP_ACTION_CHARS = 1500
+
+
+def _step_text(i: int, action: dict, result: str) -> str:
+    return f"{i + 1}. {json.dumps(action, ensure_ascii=False)[:STEP_ACTION_CHARS]}\nResult: {result}"
+
+
+def _cut_step(i: int, step: dict, focus: str) -> str:
+    from forge.patch import relevant_excerpt
+
+    act = dict(step.get("action") or {})
+    result = str(step.get("result", ""))
+    kind = str(act.get("action", "")).lower()
+    if kind == "read" and len(result) > OLD_READ_CHARS:
+        result = (f"[the file read at step {i + 1}, cut to its lines that match the anomaly; read it again "
+                  f"for the rest]\n{relevant_excerpt(result, focus, budget=OLD_READ_CHARS)}")
+    elif kind == "probe":
+        if len(result) > OLD_PROBE_CHARS:
+            result = result[:OLD_PROBE_CHARS] + " ...[cut]"
+        if len(str(act.get("code", ""))) > OLD_CODE_CHARS:
+            act["code"] = str(act["code"])[:OLD_CODE_CHARS] + " ...[cut]"
+    return _step_text(i, act, result)
+
+
+def steps_block(steps: list[dict], focus: str, budget: int = STEPS_BUDGET) -> str:
+    """The investigator's "## Steps so far": every step, oldest first, as before while it fits `budget`. Over
+    it, the oldest steps are cut down one by one until it fits or only the newest STEPS_KEEP (never cut) are
+    left: a file read to its lines that match `focus` (the anomaly), a probe's code and result to their
+    first lines."""
+    rows = [_step_text(i, s.get("action") or {}, str(s.get("result", ""))) for i, s in enumerate(steps)]
+    for i in range(max(0, len(steps) - STEPS_KEEP)):
+        if sum(map(len, rows)) + 2 * (len(rows) - 1) <= budget:
+            break
+        rows[i] = _cut_step(i, steps[i], focus)
+    return "\n\n".join(rows)
+
+
+def _index_score(words: set[str], rel: str, head: str, text: str) -> int:
+    stem, head, text = rel.rsplit("/", 1)[-1].lower(), head.lower(), text.lower()
+    return sum(3 * (w in stem) + 2 * (w in head) + (w in text) for w in words)
+
+
+def compact_index(rows: list[tuple[str, str, str]], focus: str = "", budget: int = INDEX_CHARS) -> str:
+    """A file index for a game too big to list with every file's first comment line (rows: path, first
+    comment line, source). Every file is still named, grouped by folder; the files that best match `focus`
+    (the anomaly, or a feature request) get their comment line too, while the budget lasts."""
+    from forge.patch import _STOP, _WORD
+
+    folders: dict[str, list[str]] = {}
+    for rel, _, _ in rows:
+        folder, _, name = rel.rpartition("/")
+        folders.setdefault(folder, []).append(name)
+    listing = [f"Every file ({len(rows)}), by folder (a path is the folder + the file name):"]
+    listing += [f"{folder or '.'}/: {', '.join(names)}" for folder, names in sorted(folders.items())]
+    tail = "\n".join(listing)
+    if len(tail) > budget:
+        return _truncate(tail, budget, label="file list")
+    words = {w.lower() for w in _WORD.findall(focus or "")} - _STOP
+    ranked = sorted(((_index_score(words, rel, head, text), rel, head) for rel, head, text in rows if head),
+                    key=lambda t: (-t[0], t[1]))
+    heads = ["Files that best match this task (path  -- first comment line):"]
+    used = len(tail) + len(heads[0]) + 2
+    for score, rel, head in ranked:
+        if score <= 0:
+            break
+        line = f"{rel}  -- {head}"
+        if used + len(line) + 1 > budget:
+            continue
+        heads.append(line)
+        used += len(line) + 1
+    return ("\n".join(heads) + "\n\n" + tail) if len(heads) > 1 else tail

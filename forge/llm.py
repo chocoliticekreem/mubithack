@@ -45,6 +45,14 @@ COMPILE_FIX_MARK = "luau-compile failed"
 ABORT_AFTER_CHARS = 1500
 LUAU_ROLES = ("coder", "fixer")
 JSON_ROLES = ("designer", "director", "critic", "fun_critic", "planner", "patcher", "auditor", "verifier", "triage", "investigator")
+# A reply written as a tool call instead of the JSON the prompt asks for: <invoke name="probe"><parameter
+# name="code">...</parameter></invoke>, often with an XML namespace prefix on the tags. 42% of the real
+# investigator calls (348 of 827) were repair calls for exactly this, so it is parsed locally instead.
+_NS = r"(?:[A-Za-z_][\w.-]*:)?"
+_TOOL_CALL = re.compile(r"<" + _NS + r"invoke\s+name=\"([^\"]+)\"\s*>(.*?)</" + _NS + r"invoke>", re.DOTALL)
+_TOOL_PARAM = re.compile(r"<" + _NS + r"parameter\s+name=\"([^\"]+)\"\s*>(.*?)</" + _NS + r"parameter>", re.DOTALL)
+_TOOL_OPEN = re.compile(r"<" + _NS + r"(?:invoke|parameter)\s+name=\"")
+SKIPPED_LOG = "skipped.jsonl"  # next to calls.jsonl: Mubit calls Forge did not need (cache hits, repairs avoided)
 
 
 class LLMError(RuntimeError):
@@ -85,8 +93,8 @@ def stream_verdict(role: str, text: str) -> str:
         if opened is None:
             return "abort" if len(text) >= ABORT_AFTER_CHARS and "```" not in text else "more"
         return "done" if "```" in text[opened.end():] else "more"
-    if role in JSON_ROLES and len(text) >= ABORT_AFTER_CHARS and "{" not in text:
-        return "abort"
+    if role in JSON_ROLES and len(text) >= ABORT_AFTER_CHARS and "{" not in text and not _TOOL_OPEN.search(text):
+        return "abort"  # (a tool-call reply is not prose: it is parsed locally, see _salvage_tool_call)
     return "more"
 
 
@@ -140,19 +148,50 @@ def extract_json_object(text: str, required: list[str] | None = None) -> dict:
     (a fence or a `{}` quoted inside the reply's own strings must not shadow the real reply).
     Raises ValueError with a short reason if none parses.
     """
+    return parse_reply(text, required)[0]
+
+
+def parse_reply(text: str, required: list[str] | None = None) -> tuple[dict, str]:
+    """(object, how) for a JSON-role reply. how is "json" for a clean parse; with `required`, a reply that
+    only parses after a local fix-up says which one, and saves the repair call it used to cost:
+    "lenient" (raw tabs/newlines inside strings, e.g. a patcher's Luau), "bracket" (one closer too many)
+    or "tool_call" (written as <invoke name=...> instead of JSON). Raises ValueError if none parses."""
     if required:
         first: dict | None = None
-        for obj in _json_objects(text):
-            if all(k in obj for k in required):
-                return obj
-            if first is None:
-                first = obj
-        salvaged = _salvage_json(text)
-        if salvaged is not None and all(k in salvaged for k in required):
-            return salvaged
+        for strict, how in ((True, "json"), (False, "lenient")):
+            for obj in _json_objects(text, strict=strict):
+                if all(k in obj for k in required):
+                    return obj, how
+                if first is None:
+                    first = obj
+        for salvage, how in ((_salvage_json, "bracket"), (_salvage_tool_call, "tool_call")):
+            obj = salvage(text)
+            if obj is not None and all(k in obj for k in required):
+                return obj, how
         if first is not None:
-            return first
-    return _first_json_object(text)
+            return first, "json"
+    return _first_json_object(text), "json"
+
+
+def _param_value(raw: str) -> Any:
+    """A tool-call parameter: JSON when it is a JSON object, array, number, bool or null, else the text."""
+    text = raw.strip("\n")
+    try:
+        val = json.loads(text)
+    except ValueError:
+        return text
+    return text if isinstance(val, str) else val
+
+
+def _salvage_tool_call(text: str) -> dict | None:
+    """<invoke name="probe"><parameter name="code">...</parameter></invoke> -> {"action": "probe", "code": ...}.
+    Only the first complete call counts (one action per reply); without one, bare <parameter> tags are read
+    (their "action" parameter names the action). A cut-off call has no closing tag and is not used."""
+    m = _TOOL_CALL.search(text)
+    obj: dict = {"action": m.group(1)} if m else {}
+    for name, raw in _TOOL_PARAM.findall(m.group(2) if m else text):
+        obj.setdefault(name, _param_value(raw))
+    return obj or None
 
 
 def _salvage_json(text: str, max_edits: int = 3) -> dict | None:
@@ -173,11 +212,12 @@ def _salvage_json(text: str, max_edits: int = 3) -> dict | None:
     return None
 
 
-def _json_objects(text: str):
-    """Every top-level JSON object in text, in the order extract_json_object tries them."""
+def _json_objects(text: str, strict: bool = True):
+    """Every top-level JSON object in text, in the order extract_json_object tries them. strict=False also
+    accepts raw control characters (tabs, newlines) inside strings."""
     candidates = [m.group(2) for m in _FENCE_RE.finditer(text) if m.group(1).lower() in ("json", "", "jsonc")]
     candidates.append(text)
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(strict=strict)
     for cand in candidates:
         start = cand.find("{")
         while start != -1:
@@ -254,16 +294,40 @@ class _JSONMixin:
         for attempt in range(JSON_REPAIRS + 1):
             res = self.complete(role, msg, session_id=session_id, max_tokens=max_tokens)
             try:
-                obj = extract_json_object(res.text, required)
+                obj, how = parse_reply(res.text, required)
                 _check_required(obj, required)
-                return obj, res
             except ValueError as e:
                 if attempt == JSON_REPAIRS:
                     raise LLMError(
                         f"{role}: no valid JSON after {JSON_REPAIRS} repairs: {e}"
                     ) from e
                 msg = _repair_message(user, str(e), res.text)
+                continue
+            if how != "json":
+                note_skipped(self, kind="repair_avoided", how=how, role=role, session_id=session_id,
+                             request_id=res.request_id, input_tokens=res.input_tokens)
+            return obj, res
         raise LLMError("unreachable")  # pragma: no cover
+
+
+_SKIP_LOCK = threading.Lock()
+
+
+def note_skipped(llm: Any, **fields) -> None:
+    """Record a Mubit call Forge did not need (a reply-cache hit, a JSON repair parsed away) in skipped.jsonl
+    next to the client's calls.jsonl, which stays the log of real Mubit calls. `forge reflect` reads both."""
+    log_path = getattr(llm, "log_path", None)
+    if not isinstance(log_path, (str, Path)):
+        return
+    rec = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **fields}
+    path = Path(log_path).with_name(SKIPPED_LOG)
+    try:
+        with _SKIP_LOCK:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # bookkeeping never fails a call
 
 
 # ---------------------------------------------------------------------------------------------
@@ -737,6 +801,9 @@ class CachedLLM(_JSONMixin):
                 rec = json.loads(path.read_text(encoding="utf-8"))
                 with self._lock:
                     self.hits += 1
+                note_skipped(self.inner, kind="cache_hit", role=role, session_id=session_id,
+                             request_id=rec.get("request_id"), input_tokens=rec.get("input_tokens"),
+                             output_tokens=rec.get("output_tokens"), latency_ms=rec.get("latency_ms"))
                 return LLMResult(text=rec["text"], role=role, request_id=rec.get("request_id"),
                                  model=rec.get("model", ""), latency_ms=0, input_tokens=rec.get("input_tokens"),
                                  output_tokens=rec.get("output_tokens"), cached=True)

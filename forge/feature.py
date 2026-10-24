@@ -86,7 +86,8 @@ async def add_feature(settings: Settings, slug: str, request: str, *, llm: Any =
 
     with run.stage("feature: plan"):
         raw = await run.call("planner", "feature plan", lambda llm_, *a, **k: llm_.complete_json(*a, **k)[0],
-                             "planner", plan_message(spec, file_index(store.game_dir), request, lessons),
+                             "planner", plan_message(spec, file_index(store.game_dir, limit=12_000, focus=request),
+                                                     request, lessons),
                              session_id=session, required=PLAN_KEYS, max_tokens=4096)
     plan = validate_plan(raw, store.game_dir)
     log(f"[planner] {plan['summary'][:140]} -> {len(plan['new_modules'])} new, {len(plan['edits'])} edits, "

@@ -596,6 +596,7 @@ class Orchestrator:
     def _round(self, r: int) -> bool:
         """One round. Returns False when the loop should stop (stop_reason says why)."""
         t0 = self.clock()
+        round_started = time.time()
         gj = self.queue.add("gaps", f"round {r}: find gaps (Mubit gap_finder)", priority=100,
                             needs=self._needs("gaps"), round=r)
         self._wait(lambda: self._job_done(gj["id"]))
@@ -620,6 +621,8 @@ class Orchestrator:
         (self.dir / "rounds.json").write_text(json.dumps(self.rounds, indent=1, default=str), encoding="utf-8")
         self.log(f"[orchestrator] round {r} done: critic {after['critic']}, ready {after['ready']}, "
                  f"{self.calls_used()} calls used")
+        from forge.reflect import maybe_reflect  # the whole round, its jobs' own reflections included
+        maybe_reflect(self.s, self.slug, label=f"orchestrate round {r}", since=round_started, log=self.log)
         if after["target_met"]:
             self.stop_reason = "target met: forge done is green and critic >= 8"
             return False

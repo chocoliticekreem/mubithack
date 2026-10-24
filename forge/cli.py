@@ -101,8 +101,10 @@ def _apply_speed_args(args) -> None:
 
 def cmd_new(args) -> int:
     from forge.loop import new_game
+    from forge.reflect import maybe_reflect
     slug = asyncio.run(new_game(args.idea, args.iterations, not args.no_studio,
                                 use_director=False if args.no_director else None, jobs=args.jobs))
+    maybe_reflect(load_settings(), slug, label="forge new")
     print(f"\nslug: {slug}   (continue with: forge run {slug})")
     return 0
 
@@ -498,8 +500,12 @@ def cmd_promote_game(args) -> int:
 
 
 def cmd_fix(args) -> int:
+    from forge.reflect import maybe_reflect
     _sigterm_as_interrupt()  # a killed run still restores the file it was testing
-    asyncio.run(_improve(args, faults_on=False, fix=True))
+    try:
+        asyncio.run(_improve(args, faults_on=False, fix=True))
+    finally:  # a stopped run's calls are worth a reflection too
+        maybe_reflect(load_settings(), args.slug, label=f"forge fix (--cycles {args.cycles})")
     return cmd_scores(args)
 
 
@@ -545,6 +551,28 @@ def cmd_ledger(args) -> int:
     from forge.ledger import ledger, render
     data = ledger(load_settings())
     print(json.dumps(data, indent=1) if args.json else render(data, args.recent))
+    return 0
+
+
+def cmd_reflect(args) -> int:
+    from forge import reflect as fr
+    s = load_settings()
+    if args.all:
+        _, text = fr.reflect_all(s)
+        print(text + f"\n\nsaved {s.runs_dir / 'reflection.md'}")
+        return 0
+    if not args.slug:
+        print("error: name a game (forge reflect <slug>) or use --all", file=sys.stderr)
+        return 2
+    if not (s.runs_dir / args.slug).is_dir():
+        raise FileNotFoundError(f"no game {args.slug!r} in {s.runs_dir}")
+    llm = None
+    if args.llm:
+        from forge.llm import make_llm
+        llm = make_llm(s, log_path=s.runs_dir / args.slug / fr.DIR / "calls.jsonl")
+    rec = fr.reflect(s, args.slug, label="forge reflect", llm=llm)
+    if rec is not None:
+        print("\n" + fr.render(rec))
     return 0
 
 
@@ -975,6 +1003,13 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--json", action="store_true")
     lg.add_argument("--recent", type=int, default=12)
 
+    rf = sub.add_parser("reflect", help="reflection since the last one: what ran, kept / rolled back, calls, tokens "
+                                        "and time by role and stage, cache hits, failures by cause, weaknesses")
+    rf.add_argument("slug", nargs="?")
+    rf.add_argument("--all", action="store_true", help="every game's whole record, summed into runs/reflection.md")
+    rf.add_argument("--llm", action="store_true",
+                    help="also send the findings to the reflector (one Mubit call), which updates runs/lessons.md")
+
     dn = sub.add_parser("done", help="is the game ready? checks pass, features verified, nothing open, critic bar")
     dn.add_argument("slug")
     dn.add_argument("--json", action="store_true")
@@ -1043,7 +1078,7 @@ def main(argv: list[str] | None = None) -> int:
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "bench-io": cmd_bench_io, "headless": cmd_headless,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
-               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
+               "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "direct": cmd_direct, "fun": cmd_fun, "ledger": cmd_ledger, "reflect": cmd_reflect, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,

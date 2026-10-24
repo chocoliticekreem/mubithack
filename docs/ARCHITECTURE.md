@@ -98,6 +98,7 @@ forge/                 Python package (uv), entry point `forge`
   prompts/planner.md   Mubit task: feature request -> {summary, new_modules, edits, telemetry, acceptance}
   ledger.py            `forge ledger`: ledger(settings) -> {total_calls, roles[{role, calls, corrections, verified,
                        rejected}], entries} rebuilt from runs/**/traces + improve/<n>.json + state.json corrections
+  reflect.py           `forge reflect <slug> [--llm] | --all`: the reflection log (see "Reflection" below)
   done.py              `forge done`: readiness(settings, slug) -> {ready, parts[{part, ok, detail}]}: checks all pass
                        (latest checks/results.json, dropped ignored),
                        features verified (UI needs a real press), nothing high/medium open, critic >= 8 (n/a if seeded),
@@ -147,6 +148,9 @@ game/                  the Roblox place, file-mapped like Script Sync
   ServerScriptService/ForgeProbe.server.luau  playtest error/telemetry collector (runtime contract)
 runs/<game>/           per-game state, gitignored
   spec.json  state.json  calls.jsonl  iterations/<n>/{report.json,critique.json,screenshot.png}
+  skipped.jsonl        (next to each calls.jsonl) Mubit calls not needed: cache hits, JSON repairs parsed locally
+  reflection/<n>.md  reflection/reflection.jsonl   forge reflect (one per build, fix run, orchestrate round)
+runs/reflection.md     forge reflect --all
 runs/lessons.md        shared lessons, injected into every coder/fixer user message
 forge/ui_kit.py        picks UI kit rules + snippets for UI work (user message only)        [owner: llm]
 forge/ui_library/      the UI kit: README.md (rules + sources), index.json, *.luau snippets
@@ -189,8 +193,15 @@ class LLM(Protocol):
     def complete(self, role: str, user: str, *, session_id: str, max_tokens: int = 4096) -> LLMResult
     def complete_json(self, role: str, user: str, *, session_id: str, required: list[str],
                       max_tokens: int = 4096) -> tuple[dict, LLMResult]
-        # parses the first JSON object in the reply; on failure sends up to 2 repair calls in the
-        # same role (user msg = original user + error + previous output). Raises LLMError after.
+        # parses the first JSON object in the reply (parse_reply); on failure sends up to 2 repair calls in
+        # the same role (user msg = original user + error + previous output). Raises LLMError after.
+
+def parse_reply(text, required=None) -> (dict, how)   # how: "json" | "lenient" (raw tabs/newlines in strings)
+        # | "bracket" (one closer too many) | "tool_call" (<invoke name="probe"><parameter name="code">..., with or
+        # without a namespace prefix -> {"action": "probe", "code": ...}; first complete call only, a cut-off call
+        # is not used). A non-"json" parse saved a repair call and is logged: note_skipped(llm, kind=
+        # "repair_avoided", how, role, session_id, request_id, input_tokens) -> skipped.jsonl next to calls.jsonl
+        # (42% of real investigator calls were repairs of tool-call-shaped replies; 30% of patcher calls of raw tabs)
 
 class MubitLLM(LLM):  # __init__(settings, log_path: Path | None)
     # system prompt = (prompts/<role>.md). Appends one JSON line per call to log_path:
@@ -201,7 +212,9 @@ class FakeLLM(LLM):   # __init__(responses, default=None, log_path=None, latency
 class CachedLLM(LLM): # __init__(inner, cache_dir) — runs/.cache/llm/<role>/<sha256>.json for CACHE_ROLES
                       # (designer, coder, planner, critic, reflector) and compile-error fixes only (a critic,
                       # improve or human fix always reaches Mubit); key = (role, sha256(system prompt), model,
-                      # max_tokens, user msg); hit -> cached=True, no call; aborted / cut-off replies not stored
+                      # max_tokens, user msg); hit -> cached=True, no call, a "cache_hit" line in skipped.jsonl;
+                      # aborted / cut-off replies not stored. No other role is cached: real traces have 1 exact
+                      # repeat in 1,750 calls (playtests, steps and lessons make every input different)
 def make_llm(settings, log_path) -> LLM   # FakeLLM if FORGE_FAKE_LLM=1 (FORGE_FAKE_LATENCY) else
                                           # CachedLLM(MubitLLM) (FORGE_NO_CACHE=1: bare MubitLLM); raises if no key
 def jobs_from_env() -> int                # FORGE_JOBS or DEFAULT_JOBS (8)
@@ -209,7 +222,7 @@ def stream_verdict(role, text) -> "abort" | "done" | "more"   # streaming early 
 ```
 LLMResult also has `cached: bool = False` and `aborted: bool = False`. MubitLLM streams (anthropic;
 FORGE_STREAM=0 turns it off): a code role that writes 1500 chars of prose with no fence (or a JSON role with
-no `{`) is cut short and returned with aborted=True, so the role's own repair/retry path takes over; a code
+no `{` and no tool-call tag) is cut short and returned with aborted=True, so the role's own repair/retry path takes over; a code
 reply stops reading once its ```luau block closes. A 429 gets RATE_LIMIT_TRIES (6) attempts with
 retry-after or exponential backoff with jitter, and every thread waits out the cooldown together.
 Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, ..., `scenarist`
@@ -232,7 +245,7 @@ cycle start: run_suite(checks/*.luau + checks/pending/*.luau)    # before faults
              failing check -> anomaly {kind regression|proven_bug, system "checks", check: <id>, high}
 budget:      max_fixes counts anomalies that reach a fix attempt; unproven / no-file ones are free, but
              at most max_fixes * REPRO_PER_FIX (3) anomalies are investigated + reproduced per cycle
-per anomaly: investigator (as before, its conclusion is a hint)
+per anomaly: investigator (as before, its conclusion is a hint; its context is budgeted, see roles.py below)
              -> reproducer writes a check -> luau-compile -> run in the live playtest
                 ok=false, no error : PROVEN if its `-- consumer:` names a real game line, saved to
                                      checks/pending/<id>.luau; no real consumer -> no_consumer
@@ -265,6 +278,16 @@ def code_module(llm, spec: dict, module: dict, deps: dict[str, str], lessons: st
 def fix_file(llm, path: str, source: str, problem: str, context: str, lessons: str, *, session_id) -> str
 def critique(llm, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id) -> dict
 def reflect(llm, lessons: str, iteration_summary: str, *, session_id) -> str   # new lessons.md text
+# investigator context (message assembled in improve.investigate_message; every call re-sends it):
+def steps_block(steps, focus, budget=STEPS_BUDGET (9000)) -> str   # "## Steps so far"; byte-identical while it
+    # fits, else the oldest steps are cut (never the newest STEPS_KEEP=2): a read to its lines matching focus
+    # (patch.relevant_excerpt, 2000 chars), a probe's code/result to 500/700 chars
+def compact_index(rows[(path, first comment, source)], focus="", budget=INDEX_CHARS (6000)) -> str
+    # a game whose plain index is over budget: every file named by folder + the comment lines of the files that
+    # best match focus. improve.file_index(game_dir, limit=None, focus="") uses it (the old 12k cut dropped 91
+    # of a seeded game's 175 files): investigator (6000, focus = the anomaly), reproducer (no focus, cut at
+    # 5000 in repro.py), feature planner (limit 12_000, focus = the request); investigate() also resolves a
+    # read/conclude path given by file name alone (the one synced file with that name)
 ```
 Code replies: the model returns the full file in one ```luau fenced block; `extract_luau(text)`
 returns its body (raise if missing).
@@ -428,6 +451,35 @@ forge orchestrate <slug> --goal G [--studio P1,P2 | --no-studio] [--workers 4] [
                   [--rounds 3] [--per-round 4] [--min-rank 2] [--no-checks] [--no-fix-cycle]   # team lead loop
 forge gaps <slug> [--find] [--goal G] [--correct NOTE [--reject ID ...]] [--json]  # ranked gap list
 forge queue <slug>                                   # orchestrator jobs, leases, budget
+forge reflect <slug> [--llm]                         # reflection since the last one -> runs/<slug>/reflection/<n>.md
+forge reflect --all                                  # every game summed -> runs/reflection.md
+```
+
+### Reflection (forge/reflect.py)
+`forge new`, `forge fix` (also when it stops early) and every `forge orchestrate` round end with
+`maybe_reflect(settings, slug, label=, since=None)`: no LLM call, never fails the command. A reflection covers
+everything since the previous one (the first: the whole run; an orchestrate round: since the round started, so
+it may overlap its fix job's own reflection). It reads only existing records: every calls.jsonl and skipped.jsonl
+under runs/<slug>/, traces (JSON repair calls, fixer retries), improve/<n>.json, state.json + iteration records,
+timings.json, features.jsonl.
+```python
+def reflect(settings, slug, *, label="", since=None, llm=None, log=print) -> rec | None   # None: nothing new
+    # rec {n, slug, label, ts, since, until, attempted[str], done{ready, ok, of, failing},
+    #      summary{calls, input_tokens, output_tokens, latency_s, errors, cache_hits, repairs_avoided,
+    #              saved_input_tokens, by_role{role: {calls, input_tokens, output_tokens, latency_s, errors, aborted,
+    #              over_run_size (> 8k tokens), repairs, retries, cache_hits, repairs_avoided}}, by_stage{stage: {calls,
+    #              input_tokens, latency_s, share}}, wall_stages, fixes[{cycle, anomaly, path, status, attempts,
+    #              investigation_steps, repro}], kept, rolled_back, unproven, failures{cause: n}},
+    #      weaknesses[{id, finding, evidence, fix, wasted_calls}], llm?}
+    # failures: fix statuses (unproven, no_file, ...), every rejected attempt (check_failed, check_regression,
+    #   regression, fixer_error, ...), reproducer_<status>, setup_error (checks that failed in "setup:"),
+    #   mubit_rate_limit / mubit_overloaded / mubit_error, step_<name> (failed build-loop steps)
+    # weaknesses (heuristics): json_repairs, oversized_calls, aborted_replies, investigator_step_cap,
+    #   investigated_then_unproven, guard_setup_rejections, retry_repeated_failure, cycle_kept_nothing,
+    #   check_setup_errors, verifier_vetoes, mubit_errors, dominant_stage, score_rollbacks
+    # llm (--llm): the findings in the user message of the `reflector` (fixed prompt, session reflect-<slug>-<n>),
+    #   which rewrites runs/lessons.md; rec["llm"] = {ok, lessons_updated, request_id}
+def reflect_all(settings) -> (summary, markdown)   # per game numbers + weaknesses across games, from the records
 ```
 
 ### Orchestrator (forge/orchestrator.py, forge/broker.py, forge/gaps.py)

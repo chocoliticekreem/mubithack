@@ -734,29 +734,53 @@ PROBE_RESULT_CHARS = 1500
 READ_CHARS = 7000
 
 
-def file_index(game_dir: Path, limit: int = 12_000) -> str:
-    """Every Studio-synced Luau file with its first comment line: the investigator's map of the game."""
+def file_index(game_dir: Path, limit: int | None = None, focus: str = "") -> str:
+    """Every Studio-synced Luau file with its first comment line: the investigator's map of the game. A game
+    too big for `limit` (roles.INDEX_CHARS) still has every file named, by folder, with the comment lines of
+    the files that best match `focus` (roles.compact_index)."""
+    from forge import roles
+
     rows = []
     for p in sorted(game_dir.rglob("*.luau")):
         rel = p.relative_to(game_dir).as_posix()
         if rel.startswith(NOT_IN_STUDIO) or "/." in rel:
             continue
+        text = p.read_text(encoding="utf-8", errors="replace")
         head = ""
-        for ln in p.read_text(encoding="utf-8", errors="replace").splitlines()[:6]:
+        for ln in text.splitlines()[:6]:
             if ln.strip().startswith("--") and not ln.strip().startswith("--!"):
                 head = ln.strip().lstrip("-").strip()[:110]
                 break
-        rows.append(f"{rel}" + (f"  -- {head}" if head else ""))
-    text = "\n".join(rows)
-    return text if len(text) <= limit else text[:limit] + "\n...[more files]"
+        rows.append((rel, head, text))
+    full = "\n".join(rel + (f"  -- {head}" if head else "") for rel, head, _ in rows)
+    budget = roles.INDEX_CHARS if limit is None else limit
+    return full if len(full) <= budget else roles.compact_index(rows, focus, budget)
+
+
+def _game_path(root: Path, path: str, *, synced: bool = True) -> str | None:
+    """A game file the investigator named: that path, else the one synced file with that file name (the
+    index of a big game names files by folder)."""
+    path = (path or "").strip().lstrip("/")
+    if not path or ".." in path.split("/"):
+        return None
+    if (root / path).is_file() and not (synced and path.startswith(NOT_IN_STUDIO)):
+        return path
+    name = path.rsplit("/", 1)[-1]
+    hits = [rel for rel in (p.relative_to(root).as_posix() for p in root.rglob("*.luau"))
+            if rel.rsplit("/", 1)[-1] == name and not rel.startswith(NOT_IN_STUDIO) and "/." not in rel]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _focus(anomaly: dict) -> str:
+    return " ".join(str(anomaly.get(k) or "") for k in ("title", "system", "expected", "observed"))
 
 
 def investigate_message(anomaly: dict, index: str, steps: list[dict], verified: str | None) -> str:
+    from forge import roles
+
     parts = ["## Anomaly\n" + json.dumps(anomaly, ensure_ascii=False), "## Game files\n" + index]
     if steps:
-        parts.append("## Steps so far\n" + "\n\n".join(
-            f"{i + 1}. {json.dumps(s['action'], ensure_ascii=False)[:1500]}\nResult: {s['result']}"
-            for i, s in enumerate(steps)))
+        parts.append("## Steps so far\n" + roles.steps_block(steps, _focus(anomaly)))
     if verified:
         parts.append("## Verified outcome\n" + verified)
     parts.append("Reply with ONE action as a JSON object.")
@@ -769,7 +793,7 @@ async def investigate(settings: Settings, slug: str, anomaly: dict, *, llm: LLM,
     """Find an anomaly's root cause with probes in the live playtest and code reads (Mubit task
     `investigator`). Returns {"conclusion": {...} | None, "steps": [...], "request_ids": [...]}."""
     root = RunStore(settings, slug).game_dir
-    index = file_index(root)
+    index = file_index(root, focus=_focus(anomaly))
     steps: list[dict] = []
     rids: list[str] = []
     for n in range(max(1, max_steps)):
@@ -786,18 +810,19 @@ async def investigate(settings: Settings, slug: str, anomaly: dict, *, llm: LLM,
         rids.append(res.request_id)
         kind = str(act.get("action", "")).lower()
         if kind == "conclude":
-            path = str(act.get("file", "")).strip().lstrip("/")
-            act["file"] = path if (root / path).is_file() and not path.startswith(NOT_IN_STUDIO) else None
+            act["file"] = _game_path(root, str(act.get("file", "")))
             log(f"[investigator] root cause: {str(act.get('root_cause', ''))[:160]} -> {act['file']} {res.request_id}")
             return {"conclusion": act, "steps": steps, "request_ids": rids}
         if kind == "read":
             path = str(act.get("path", "")).strip().lstrip("/")
-            target = root / path
-            if ".." in path.split("/") or not target.is_file():
+            rel = _game_path(root, path, synced=False)
+            if rel is None:
                 result = f"no such file: {path}"
             else:
-                src = target.read_text(encoding="utf-8", errors="replace")
+                src = (root / rel).read_text(encoding="utf-8", errors="replace")
                 result = src if len(src) <= READ_CHARS else src[:READ_CHARS] + f"\n...[{len(src) - READ_CHARS} more chars]"
+                if rel != path:
+                    result = f"(the file is {rel})\n{result}"
             log(f"[investigator] read {path}")
         elif kind == "probe":
             dm = "Client" if str(act.get("datamodel", "Server")).lower() == "client" else "Server"
