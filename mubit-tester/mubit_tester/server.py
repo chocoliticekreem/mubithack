@@ -1019,7 +1019,9 @@ async def act(player: str, action: str, args: dict | None = None) -> str:
     counters, HUD text, events): go_touch {path}, go_use {path}, chase {path, touches<=5},
     repeat {action, args, times<=5}; press {path|text} (a real mouse click on one of the
     player's GUI buttons from `observe`'s `ui`; only for a player a Studio window drives; returns whether
-    the button fired and what changed on screen). Any action takes `target_player` to aim at another
+    the button fired and what changed on screen). Obbies (Checkpoint parts with a Stage attribute):
+    teleport_stage {stage}, obby_try {from_stage?, attempts<=5} (a scripted runner to the next checkpoint:
+    reached / fell / stuck and where). Any action takes `target_player` to aim at another
     player. Returns "done: <detail>" or "NOT done: <why>"."""
     with _tool_errors():
         async with _harness() as h:

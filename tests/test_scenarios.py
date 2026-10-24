@@ -298,6 +298,44 @@ def test_run_plan_only_runs_the_rest_and_keeps_headless_passes(settings):
     assert {r["id"] for r in sc.load_results(store.dir)} == {"passes", "bad-check", "real-bug"}
 
 
+SETUP_BODY = ('local p = game.Players:GetPlayers()[1]\nif not p then error("setup: no player") end\n'
+              'return { ok = true, detail = "player" }')
+
+
+def test_check_that_never_asserts_its_setup_gets_one_correction(settings):
+    llm = FakeLLM({"scenarist": [plan_reply(("Has setup", "acceptance: a", SETUP_BODY),
+                                            ("No setup", "acceptance: b", OK_BODY)),
+                                 plan_reply(("No setup", "acceptance: b", SETUP_BODY))]})
+    logs = []
+    saved = sc.plan_checks(settings, "shop", llm=llm, log=logs.append)
+    assert [c.id for c in saved] == ["01-has-setup", "02-no-setup"]
+    assert "setup:" in saved[1].body  # the corrected version replaced the one without a setup assertion
+    fix = llm.calls[1].user
+    assert "never assert their setup" in fix and "### No setup" in fix and "### Has setup" not in fix
+    assert not any("still never asserts" in m for m in logs)
+
+
+def test_a_check_still_without_setup_is_kept_with_a_warning(settings):
+    llm = FakeLLM({"scenarist": [plan_reply(("No setup", "acceptance: b", OK_BODY))]})  # the correction fails
+    logs = []
+    assert [c.id for c in sc.plan_checks(settings, "shop", llm=llm, log=logs.append)] == ["01-no-setup"]
+    assert any("still never asserts its setup" in m for m in logs) and len(llm.calls) == 2
+
+
+def test_a_setup_failure_is_never_an_anomaly():
+    res = [{"id": "r", "title": "R", "ok": False, "verdict": "game_bug",
+            "detail": "startRound failed: setup: round did not start (RoundState=Lobby)"},
+           {"id": "b", "title": "B", "ok": False, "verdict": "game_bug", "detail": "cash 5 -> -5"}]
+    assert [a["check"] for a in sc.as_anomalies(res)] == ["b"]
+
+
+def test_review_message_says_a_setup_failure_proves_nothing(settings):
+    store = RunStore(settings, "shop")
+    rev = sc.review_message(SPEC, "", [(Check("a", "A", "c", OK_BODY), {"error": "setup: no pad"})], store.game_dir)
+    assert 'output says "setup:" never reached its situation' in rev
+    assert 'assert(tierAfter > tierBefore, "setup: no tier-up")' in rev
+
+
 def test_as_anomalies_severity_from_covers_without_review():
     res = [{"id": "a", "title": "A", "covers": "acceptance: x", "ok": False, "detail": "d", "verdict": "game_bug"},
            {"id": "b", "title": "B", "covers": "edge: y", "ok": False, "detail": "d", "verdict": "game_bug"},

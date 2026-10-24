@@ -185,9 +185,13 @@ async def test_testers_are_told_about_ui_and_who_can_press(tmp_path):
     assert "can NOT press" not in users["Alice"]
     assert "You can NOT press UI" in users["Bob"] and "Players who can: Alice" in users["Bob"]
     assert rep["ui_pressers"] == ["Alice"]
-    assert rep["ui_presses"] == [{"t": 9, "player": "Alice", "text": "Pass", "path": "BattlePassGui.PassButton",
-                                  "gui": "BattlePassGui", "fired": True, "changed": True,
-                                  "effect": {"panels_opened": ["BattlePassGui.Panel 'Battle Pass'"]}}]
+    # before free play the scripted UI pass pressed both on-screen buttons (assigned to Alice), then her own press
+    assert [a[2] for a in h.acts if a[1] == "press"] == [{"path": "Gui.Frame.Button0"}, {"path": "Gui.Frame.Button1"},
+                                                          {"text": "Pass"}]
+    assert [r["surface"] for r in rep["ui_pass"]] == ["Button 0", "Button 1"]
+    assert rep["ui_presses"][-1] == {"t": 9, "player": "Alice", "text": "Pass", "path": "BattlePassGui.PassButton",
+                                     "gui": "BattlePassGui", "fired": True, "changed": True,
+                                     "effect": {"panels_opened": ["BattlePassGui.Panel 'Battle Pass'"]}}
 
 
 def test_ui_presses_ignores_other_events():

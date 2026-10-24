@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from forge.checks import (CONSUMER_RULE, Check, check_id, checks_dir, consumer_hits, game_sources, helpers_doc,
-                          load_checks, run_check, save_check, summary, valid_consumer, wrap)
+                          lint_setup, load_checks, run_check, save_check, setup_failure, summary, valid_consumer,
+                          wrap)
 from forge.config import Settings
 from forge.llm import LLM, LLMError
 from forge.memory import RunStore, now_iso
@@ -168,11 +169,19 @@ def _to_checks(raw: Any) -> list[Check]:
     return out
 
 
-def _retry_message(user: str, broken: list[tuple[Check, str]]) -> str:
-    listed = "\n\n".join(f"### {c.title}\ncovers: {c.covers}\nError: {err}\n```luau\n{_clip_block(c.body)}\n```"
-                         for c, err in broken)
-    return (f"{_truncate(user, MAX_USER_CHARS - min(len(listed), 9000) - 300, label='message')}\n\n"
-            f"## Your previous checks did not compile\n{_truncate(listed, 9000, label='checks')}\n\n"
+def _retry_message(user: str, broken: list[tuple[Check, str]], unproven: list[tuple[Check, str]] = ()) -> str:
+    def listed_of(items: list[tuple[Check, str]], label: str) -> str:
+        return "\n\n".join(f"### {c.title}\ncovers: {c.covers}\n{label}: {err}\n```luau\n{_clip_block(c.body)}\n```"
+                           for c, err in items)
+
+    parts = []
+    if broken:
+        parts.append(f"## Your previous checks did not compile\n{_truncate(listed_of(broken, 'Error'), 9000, label='checks')}")
+    if unproven:
+        parts.append("## These checks never assert their setup (keep their title, assert the situation first)\n"
+                     + _truncate(listed_of(list(unproven), "Problem"), 6000, label="checks"))
+    listed = "\n\n".join(parts)
+    return (f"{_truncate(user, MAX_USER_CHARS - min(len(listed), 15000) - 300, label='message')}\n\n{listed}\n\n"
             "Return only the JSON object with corrected versions of these checks.")
 
 
@@ -195,20 +204,28 @@ def plan_checks(settings: Settings, slug: str, *, llm: LLM, max_checks: int = 15
             broken.append((c, err))
         else:
             good.append(c)
-    if broken:
-        log(f"[scenarist] {len(broken)} check(s) do not compile; asking for corrections")
+    unproven = [(c, w) for c in good for w in [lint_setup(c.body)] if w]
+    if broken or unproven:
+        log(f"[scenarist] {len(broken)} check(s) do not compile, {len(unproven)} never assert their setup; "
+            "asking for corrections")
         try:
-            fixed, _ = llm.complete_json("scenarist", _retry_message(user, broken), session_id=sid,
+            fixed, _ = llm.complete_json("scenarist", _retry_message(user, broken, unproven), session_id=sid,
                                          required=PLAN_KEYS, max_tokens=PLAN_MAX_TOKENS)
         except LLMError as e:
             log(f"[scenarist] correction failed: {e}")
             fixed = {}
+        by_id = {c.id: i for i, c in enumerate(good)}
         for c in _to_checks(fixed.get("checks")):
             err = compile_error(c.body)
             if err:
                 log(f"[scenarist] dropped {c.id}: {err.splitlines()[0][:160]}")
+            elif c.id in by_id:
+                good[by_id[c.id]] = c  # the corrected version of a check that never asserted its setup
             else:
                 good.append(c)
+        for c in good:
+            if lint_setup(c.body):
+                log(f"[scenarist] warning: {c.id} still never asserts its setup")
     rank = {c.id: i for i, c in enumerate(planned)}
     good.sort(key=lambda c: rank.get(c.id, len(rank)))
     have = {_base_id(c.id) for c in existing}
@@ -244,7 +261,10 @@ def review_message(spec: dict, code: str, failing: list[tuple[Check, dict]],
     listed = _truncate(listed, 16_000, label="checks")
     head = (f"## Spec\n{spec_block(spec, 3000)}\n\n## Failing checks\n{listed}\n\n"
             f"## Premise rule\n{CONSUMER_RULE}\nEvery game_bug review MUST add \"consumer\": \"<file>:<line>\" "
-            "taken from the lines above; a game_bug without a real consumer is counted as a check bug.\n\n"
+            "taken from the lines above; a game_bug without a real consumer is counted as a check bug.\n"
+            "A check whose output says \"setup:\" never reached its situation (also in a fresh playtest) and proves "
+            "nothing: rewrite it so it reaches the situation, or, when the setup itself shows a game bug (a round "
+            "that never starts), rewrite it to assert that as its behaviour.\n\n"
             f"## Check helpers (for rewrites)\n{helpers_doc(spec)}\n\n")
     tail = "Return only the JSON object, one review per failing check."
     room = max(1500, MAX_USER_CHARS - len(head) - len(tail) - 40)
@@ -331,7 +351,7 @@ async def _run_session(studio: Any, checks: list[Check], log: Callable[[str], No
         await asyncio.sleep(SETTLE_S)
         out = []
         for c in checks:
-            r = await run_check(studio, c)
+            r = await run_check(studio, c, log=log)
             if r["ok"] and "inconclusive" in r.get("detail", "").lower():
                 r["ok"] = False  # a check that could not decide has not shown the game works
             log(f"[checks] {'PASS' if r['ok'] else 'FAIL'} {c.id}: {(r.get('error') or r.get('detail', ''))[:160]}")
@@ -404,6 +424,8 @@ def _apply_verdicts(run_dir: Path, by_id: dict[str, Check], results: list[dict],
             _drop(run_dir, old)
             log(f"[review] dropped {r['id']} (check bug, no usable rewrite): {rev['reason'][:140]}")
             continue
+        if lint_setup(body):
+            log(f"[review] warning: the rewrite of {r['id']} never asserts its setup")
         rewrites.append(Check(id=old.id, title=old.title, covers=old.covers, body=body, path=old.path))
     return rewrites
 
@@ -465,8 +487,8 @@ def as_anomalies(results: list[dict]) -> list[dict]:
     expected, evidence) plus `check`: the id of the check that reproduces it."""
     out = []
     for r in results:
-        if r.get("ok") or r.get("verdict") != "game_bug":
-            continue
+        if r.get("ok") or r.get("verdict") != "game_bug" or setup_failure(r):
+            continue  # a check that never reached its situation proves no bug
         observed = r.get("error") or r.get("detail") or "(no detail)"
         sev = r.get("severity") if r.get("severity") in SEVERITIES else (
             "high" if _ACCEPT.match(r.get("covers") or "") else "medium")

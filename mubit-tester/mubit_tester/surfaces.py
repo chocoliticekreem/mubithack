@@ -7,6 +7,10 @@ buttons behind it ("Claim", "Get Premium Pass"). They come from three places, al
 - the spec (title, pitch, core loop, acceptance) to rank surfaces the design names first.
 A script surface is kept only when the live UI or the spec confirms it, so a stale or foreign script
 never adds work. At most MAX_SURFACES per round.
+
+Before free play a scripted pass (mubit_tester.ai.ui_pass, no LLM) presses every assigned surface once and
+each of its actions that is on screen once it is open; the helpers here pick those buttons (pick_button,
+order_actions, close_button, new_buttons) and pass_note tells the presser what it already did.
 """
 
 from __future__ import annotations
@@ -22,6 +26,9 @@ _NEW = re.compile(r'local\s+(\w+)\s*=\s*Instance\.new\(\s*"(TextButton|ImageButt
 _PROP = re.compile(r'\b(\w+)\.(Text|Name)\s*=\s*"([^"\n]*)"')
 _WORDS = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
 _NOISE = {"gui", "button", "btn", "panel", "frame", "screen", "main", "hud", "ui", "the", "and", "get"}
+CLOSE_TEXTS = {"x", "close", "back", "×", "✕", "✖"}
+# a purchase prompt can cover the screen for the clicks after it, so these actions go last
+_PURCHASE = re.compile(r"\b(buy|purchase|premium|robux|unlock|gift)\b", re.IGNORECASE)
 
 
 def _meaningful(text: str) -> bool:
@@ -148,8 +155,73 @@ def tasks_text(tasks: list[dict]) -> str:
         line = f"- {s['name']}" + (f" (gui {s['gui']})" if s.get("gui") else "")
         if s.get("actions"):
             line += f", then: {', '.join(s['actions'])}"
+        if s.get("scripted"):
+            line += f" [already pressed by the scripted UI pass: {s['scripted']}]"
         lines.append(line)
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- the scripted UI pass (ai.ui_pass)
+
+
+def pick_button(buttons: list[dict], text: str | None, path: str | None = None) -> dict | None:
+    """The on-screen button (from `ui`) for a surface or action: same path, else same text, else a text
+    that contains it. None when it is not on screen (or not interactable) right now."""
+    if path:
+        hit = next((b for b in buttons if b.get("path") == path), None)
+        if hit is not None:
+            return hit
+    want = (text or "").strip().lower()
+    if not want:
+        return None
+    texts = [(b, str(b.get("text") or "").strip().lower()) for b in buttons]
+    # a state label ("Claimed") contains its action's word but is not the action
+    return (next((b for b, t in texts if t == want), None)
+            or next((b for b, t in texts if t and want in t and not _is_state(t)), None))
+
+
+def order_actions(actions: list[str]) -> list[str]:
+    """The surface's actions, purchase-like ones last (stable)."""
+    return sorted(actions or [], key=lambda a: bool(_PURCHASE.search(a)))
+
+
+def close_button(buttons: list[dict], gui: str | None) -> dict | None:
+    """A close button (X, Close, Back) in that ScreenGui."""
+    return next((b for b in buttons if (not gui or str(b.get("gui") or "") == gui)
+                 and str(b.get("text") or "").strip().lower() in CLOSE_TEXTS), None)
+
+
+def opened(effect: dict) -> bool:
+    """A press's effect opened a panel or a GUI (so the pass closes it again)."""
+    return bool((effect or {}).get("panels_opened") or (effect or {}).get("guis_opened"))
+
+
+def new_buttons(effect: dict, limit: int = MAX_ACTIONS) -> list[str]:
+    """Texts of the buttons a press made appear ("text @ path" in its effect): a live surface's actions."""
+    out: list[str] = []
+    for item in (effect or {}).get("buttons_new") or []:
+        text = str(item).split(" @ ", 1)[0].strip()
+        if text != "?" and _meaningful(text) and not _is_state(text) and text not in out:
+            out.append(text)
+    return out[:limit]
+
+
+def pass_note(rec: dict) -> str:
+    """One line of what the scripted pass did on a surface: 'PASS: fired, opened a panel; Claim: ...'."""
+    if rec.get("blocked"):
+        return "not pressed: " + str(rec["blocked"])
+    parts = []
+    for p in rec.get("presses") or []:
+        if not p.get("fired"):
+            state = "did NOT fire"
+        elif opened(p.get("effect") or {}):
+            state = "fired, opened a panel"
+        else:
+            state = "fired, " + ("changed the screen" if p.get("changed") else "changed nothing on screen")
+        parts.append(f"{p.get('button')}: {state}")
+    if rec.get("skipped"):
+        parts.append("not on screen to press: " + ", ".join(rec["skipped"]))
+    return "; ".join(parts)
 
 
 def _hits(s: dict, p: dict) -> str | None:
@@ -166,8 +238,11 @@ def _hits(s: dict, p: dict) -> str | None:
     return None
 
 
-def coverage(surfaces: list[dict], presses: list[dict]) -> dict:
-    """{surfaces: [...pressed, fired, actions_pressed], pressed, total, gaps: ["Pass: never pressed ..."]}"""
+def coverage(surfaces: list[dict], presses: list[dict], scripted: list[dict] | None = None) -> dict:
+    """{surfaces: [...pressed, fired, actions_pressed, scripted?], pressed, total, gaps: ["Pass: never pressed ..."],
+    scripted_presses}. `presses` are every real click of the round (the event log's ui_press, the scripted pass
+    included); `scripted` is ai.ui_pass's record, summarised per surface."""
+    by_surface = {r.get("surface"): r for r in scripted or [] if isinstance(r, dict)}
     out, gaps = [], []
     for s in surfaces or []:
         hits = [(h, p) for p in presses or [] if isinstance(p, dict) for h in [_hits(s, p)] if h]
@@ -177,10 +252,13 @@ def coverage(surfaces: list[dict], presses: list[dict]) -> dict:
                 "presses": len(hits), "fired": len(fired),
                 "changed": sum(1 for p in fired if p.get("changed")), "actions_pressed": actions,
                 "actions": s.get("actions") or []}
+        if s["name"] in by_surface:
+            item["scripted"] = pass_note(by_surface[s["name"]])
         out.append(item)
         label = s["name"] + (f" ({s['gui']})" if s.get("gui") else "")
         if not hits:
-            why = "" if s.get("assigned") else "; no tester could press UI this run"
+            blocked = (by_surface.get(s["name"]) or {}).get("blocked")
+            why = f"; {blocked}" if blocked else "" if s.get("assigned") else "; no tester could press UI this run"
             gaps.append(f"{label}: never pressed, its panel was never opened{why}")
         elif not fired:
             gaps.append(f"{label}: pressed {len(hits)}x but the button never fired")
@@ -189,4 +267,5 @@ def coverage(surfaces: list[dict], presses: list[dict]) -> dict:
             missing = [a for a in s.get("actions") or [] if a.lower() not in done]
             if missing:
                 gaps.append(f"{label}: opened, but {', '.join(missing)} never pressed")
-    return {"surfaces": out, "pressed": sum(1 for x in out if x["presses"]), "total": len(out), "gaps": gaps}
+    return {"surfaces": out, "pressed": sum(1 for x in out if x["presses"]), "total": len(out), "gaps": gaps,
+            "scripted_presses": sum(len(r.get("presses") or []) for r in by_surface.values())}

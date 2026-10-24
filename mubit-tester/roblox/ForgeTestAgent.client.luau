@@ -913,10 +913,28 @@ local function panels(pg: Instance): { any }
 	return out
 end
 
+-- A minimized or hidden Studio window renders no game view during play: the viewport is 1x1, every
+-- scale-sized button has no size, and real clicks (Studio MCP user_mouse_input) never land.
+local MIN_VIEWPORT = 50
+
+local function viewportSize(): { number }
+	local vp = viewport()
+	return { math.floor(vp.X + 0.5), math.floor(vp.Y + 0.5) }
+end
+
+local function notRendering(): string?
+	local vp = viewportSize()
+	if vp[1] >= MIN_VIEWPORT and vp[2] >= MIN_VIEWPORT then
+		return nil
+	end
+	return string.format("the game view is not rendering (viewport %dx%d): the Studio window that drives this player "
+		.. "is minimized or hidden, so no GUI button can be seen or clicked until it is restored", vp[1], vp[2])
+end
+
 local function uiView(args: any)
 	local pg = lp:FindFirstChildOfClass("PlayerGui")
 	if not pg then
-		return { buttons = {}, panels = {}, total = 0 }
+		return { buttons = {}, panels = {}, total = 0, viewport = viewportSize(), not_rendering = notRendering() }
 	end
 	local all = {}
 	for _, b in visibleButtons(pg) do
@@ -938,7 +956,7 @@ local function uiView(args: any)
 		all[i].order = nil
 		table.insert(buttons, all[i])
 	end
-	return { buttons = buttons, panels = panels(pg), total = #all }
+	return { buttons = buttons, panels = panels(pg), total = #all, viewport = viewportSize(), not_rendering = notRendering() }
 end
 
 -- path: below PlayerGui ("BattlePassGui.PassButton"), or a full path through PlayerGui.
@@ -1020,7 +1038,9 @@ local function uiTarget(args: any)
 	local b, names = findButton(args)
 	if not b then
 		local what = if args.path then "path '" .. tostring(args.path) .. "'" else "text '" .. tostring(args.text) .. "'"
-		error("no visible button matches " .. what .. "; visible: [" .. table.concat(names, ", ") .. "]")
+		local blind = notRendering()
+		error("no visible button matches " .. what .. "; visible: [" .. table.concat(names, ", ") .. "]"
+			.. (if blind then "; " .. blind else ""))
 	end
 	local pg = lp:FindFirstChildOfClass("PlayerGui") :: PlayerGui
 	local info = describe(b, pg)

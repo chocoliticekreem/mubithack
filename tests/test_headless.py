@@ -220,3 +220,72 @@ def test_real_games_boot_headless(game):
     rep = checks.boot_offline(root, boot=1, play=1)
     assert "error" not in rep, rep
     assert rep["players"] == 1
+
+
+# ---------------------------------------------------------------- forge.startRound across rounds (Flame and Blame run 2)
+
+ROUND_GAME = """
+local HttpService = game:GetService("HttpService")
+-- the last round is still showing its results; the game frees its players only back in the lobby
+workspace:SetAttribute("RoundState", "Results")
+task.delay(12, function()
+	workspace:SetAttribute("RoundState", "Lobby")
+end)
+local f = Instance.new("BindableFunction")
+f.Name = "ForgeTest"
+f.OnInvoke = function(cmd, argsJson)
+	local args = HttpService:JSONDecode(argsJson)
+	-- like MissionService:StartRound: nobody is free during Results, so a start then does nothing
+	if cmd == "round" and args.state == "Active" and workspace:GetAttribute("RoundState") == "Lobby" then
+		workspace:SetAttribute("RoundState", "Active")
+	end
+	return HttpService:JSONEncode({ ok = true, result = { via = "MissionService:StartRound" } })
+end
+f.Parent = game:GetService("ServerStorage")
+"""
+
+
+def _with_helpers(body: str) -> str:
+    """A check body with the `forge` helpers in front (the headless engine runs bodies unwrapped)."""
+    return ('local __http = game:GetService("HttpService")\n' + checks.HELPERS
+            + "return (function()\n" + body + "\nend)()\n")
+
+
+def test_start_round_waits_out_the_last_rounds_results_phase(tmp_path):
+    _write(tmp_path, "ServerScriptService/Round.server.luau", ROUND_GAME)
+    _write(tmp_path, "ServerScriptService/MissionService.luau", "return {}\n")  # the game drives its rounds
+    body = ("forge.startRound(15)\n"
+            "return { ok = workspace:GetAttribute('RoundState') == 'Active', "
+            "detail = tostring(workspace:GetAttribute('RoundState')) }")
+    res = checks.run_check_offline(tmp_path, checks.parse(_with_helpers(body), "round"))
+    assert res["ok"] is True and res["detail"] == "Active", res
+    # what run 2's helper did: start at once and wait for Active, which never comes
+    old = ("forge.harness('round', { state = 'Active' })\n"
+           "local up = forge.waitFor(function() return workspace:GetAttribute('RoundState') == 'Active' end, 15)\n"
+           "return { ok = up == true, detail = tostring(workspace:GetAttribute('RoundState')) }")
+    res = checks.run_check_offline(tmp_path, checks.parse(_with_helpers(old), "old"))
+    assert res["ok"] is False and res["detail"] == "Lobby", res
+
+
+ATTRIBUTE_GAME = """
+local HttpService = game:GetService("HttpService")
+workspace:SetAttribute("RoundState", "Results")  -- left by the harness's own `round Results`: nothing ends it
+local f = Instance.new("BindableFunction")
+f.Name = "ForgeTest"
+f.OnInvoke = function(cmd, argsJson)
+	local args = HttpService:JSONDecode(argsJson)
+	if cmd == "round" and args.state then
+		workspace:SetAttribute("RoundState", args.state)  -- no MissionService: the harness sets the attribute
+	end
+	return HttpService:JSONEncode({ ok = true, result = { via = "attribute" } })
+end
+f.Parent = game:GetService("ServerStorage")
+"""
+
+
+def test_start_round_does_not_wait_when_no_game_code_drives_rounds(tmp_path):
+    _write(tmp_path, "ServerScriptService/Round.server.luau", ATTRIBUTE_GAME)
+    body = ("local t0 = os.clock()\nforge.startRound(15)\n"
+            "return { ok = workspace:GetAttribute('RoundState') == 'Active', detail = tostring(os.clock() - t0) }")
+    res = checks.run_check_offline(tmp_path, checks.parse(_with_helpers(body), "attr"))
+    assert res["ok"] is True and float(res["detail"]) < 2, res

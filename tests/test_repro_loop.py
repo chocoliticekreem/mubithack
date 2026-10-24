@@ -43,7 +43,10 @@ class StudioHarness(FakeHarness):
         self.studio = studio
 
 
-def repro_reply(title=REPRO, body="return { ok = false, detail = 'x' }", consumer=f"{HOSE_FILE}:1"):
+SETUP = 'if not workspace then error("setup: no workspace") end\n'  # every check asserts its setup
+
+
+def repro_reply(title=REPRO, body=SETUP + "return { ok = false, detail = 'x' }", consumer=f"{HOSE_FILE}:1"):
     head = f"-- consumer: {consumer}\n" if consumer else ""
     return f"```luau\n-- check: {title}\n-- covers: anomaly: {HOSE['title']}\n{head}{body}\n```"
 
@@ -204,7 +207,7 @@ def test_reproducer_prompt_and_message():
 
 # ---------------------------------------------------------------- premise: a proven bug names its consumer
 
-REMOTES_BODY = ('local f = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")\n'
+REMOTES_BODY = (SETUP + 'local f = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")\n'
                 'return { ok = f ~= nil, detail = "missing ReplicatedStorage.Remotes" }')
 
 
@@ -294,3 +297,69 @@ async def test_unfixed_pending_check_stays_failing_in_results_json(settings):
     await cycle_with(settings, llm, {REPRO: fixed}, game)
     [r] = load_results(run_dir)
     assert r["ok"] is False and r["pending"] is True and r["verdict"] == "game_bug"
+
+
+# ---------------------------------------------------------------- setup: prove the situation, never count a setup gap
+
+async def test_check_without_a_setup_assertion_gets_one_correction_before_it_runs(settings):
+    game = _seeded_game(settings)
+    llm = llm_for([repro_reply(body="return { ok = false, detail = 'no tier-up seen' }"), repro_reply()],
+                  ["return {hose = 2}"], ["fixed"])
+    cycle, _, studio = await cycle_with(settings, llm, {REPRO: fixed}, game)
+    fx = cycle["code_fixes"][0]
+    assert [a["status"] for a in fx["repro"]["attempts"]] == ["no_setup", "proven"] and fx["status"] == "kept"
+    retry = [c.user for c in llm.calls if c.role == "reproducer"][1]
+    assert "never asserts its setup" in retry and "no tier-up seen" in retry
+    # the lint costs no Studio time: the check without a setup assertion never ran
+    assert not any("no tier-up seen" in code for code in studio.ran)
+
+
+async def test_a_check_that_cannot_set_up_is_retried_not_proven(settings):
+    game = _seeded_game(settings)
+
+    def no_round(h):
+        raise RuntimeError("setup: round did not start (RoundState=Lobby)")
+
+    llm = llm_for([repro_reply("Needs a round"), repro_reply()], ["return {hose = 2}"], ["fixed"])
+    cycle, _, _ = await cycle_with(settings, llm, {"Needs a round": no_round, REPRO: fixed}, game)
+    fx = cycle["code_fixes"][0]
+    assert [a["status"] for a in fx["repro"]["attempts"]] == ["setup", "proven"]
+    assert "could not set up its situation" in [c.user for c in llm.calls if c.role == "reproducer"][1]
+
+
+async def test_a_guard_that_only_fails_to_set_up_does_not_block_a_fix(settings):
+    """Run 2: a round guard failed with 'setup: round did not start' after every fix and blocked good fixes."""
+    from forge.improve import _check_rejection
+
+    game = _seeded_game(settings)
+    run_dir = ImproveStore(settings, "fab").run.dir
+    save_check(run_dir, Check("round-guard", "Round guard", "acceptance: round", "return {ok = true}"))
+
+    def round_guard(h):
+        if "hose = 2" in h:  # after the fix this playtest can no longer start a round
+            raise RuntimeError("setup: round did not start (RoundState=Lobby, via MissionService:StartRound)")
+        return True, "round Active"
+
+    llm = llm_for([repro_reply()], ["return {hose = 2}"], ["fixed"])
+    cycle, _, _ = await cycle_with(settings, llm, {REPRO: fixed, "Round guard": round_guard}, game)
+    fx = cycle["code_fixes"][0]
+    assert fx["status"] == "kept" and [t["status"] for t in fx["attempts"]] == ["fixed"]
+    [guard] = fx["attempts"][0]["checks"]["guards"]
+    assert guard["id"] == "round-guard" and guard["setup"] is True
+    # a real assertion failure still blocks the fix
+    broke = {"repro": {"ok": True}, "guards": [{"id": "g", "ok": False, "detail": "cash 5 -> -5"}]}
+    assert _check_rejection(broke)[0] == "check_regression"
+
+
+async def test_a_suite_check_that_cannot_set_up_is_unknown_not_an_anomaly(settings):
+    _seeded_game(settings)
+    run_dir = ImproveStore(settings, "fab").run.dir
+    save_check(run_dir, Check("round-guard", "Round guard", "acceptance: round", "return {ok = true}"))
+
+    class NoRound:
+        async def execute_luau(self, code, datamodel="Edit", timeout=None):
+            return json.dumps({"ok": False, "detail": "startRound failed: setup: round did not start"})
+
+    got = await frepro.run_suite(NoRound(), run_dir, log=lambda _: None)
+    assert got["anomalies"] == [] and got["unknown"] == ["round-guard"]
+    assert got["results"][0]["setup"] is True

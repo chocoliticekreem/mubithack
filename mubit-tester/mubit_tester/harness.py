@@ -38,6 +38,11 @@ MACRO_ACTIONS = ("go_touch", "go_use", "chase")
 MACRO_TIMEOUT = 20.0  # in-game default per macro (clamped 2-60 there, too)
 REPEAT_MAX = 5
 MCP_CALL_LIMIT = 115.0  # one execute_luau must answer inside forge.studio's 120s MCP call timeout
+# obby commands (ForgeTest teleport_stage / obby_try): testers use them like actions, but they are commands
+OBBY_COMMANDS = ("teleport_stage", "obby_try")
+OBBY_TIMEOUT = 20.0   # in-game default per obby_try attempt (clamped 3-60 there)
+OBBY_ATTEMPTS = 5
+OBBY_OVERHEAD = 15.0  # per attempt besides the run (respawn, settle, teleport, path), as in the game
 
 
 def repeat_times(v: Any) -> int:
@@ -64,6 +69,11 @@ def act_budget(action: str, args: dict) -> float:
         return num("timeout", 20) + 10
     if action == "use":
         return num("seconds", 1) + 10
+    if action == "obby_try":  # each attempt: respawn wait + teleport + one run
+        tries = max(1, min(int(num("attempts", 1)), OBBY_ATTEMPTS))
+        return min(MCP_CALL_LIMIT, tries * (max(3.0, min(num("timeout", OBBY_TIMEOUT), 60.0)) + OBBY_OVERHEAD) + 5)
+    if action == "teleport_stage":
+        return 20.0
     return 0.0
 # Run in a window's Client datamodel: which player it drives, in which ForgeTest session.
 WHO_LUAU = (
@@ -227,7 +237,20 @@ class Harness:
             return await self.press(user_id, path=args.get("path"), text=args.get("text"))
         if action == "repeat" and args.get("action") == "press":
             return await self._repeat_press(user_id, args)
+        if action in OBBY_COMMANDS:
+            return await self.call(action, userId=user_id, **args, _timeout=act_budget(action, args))
         return await self.call("act", userId=user_id, action=action, args=args, _timeout=act_budget(action, args))
+
+    # ---- obbies (Checkpoint-tagged parts with a Stage attribute)
+
+    async def teleport_stage(self, user_id: Any, stage: int) -> dict:
+        return await self.act(user_id, "teleport_stage", stage=stage)
+
+    async def obby_try(self, user_id: Any, from_stage: int | None = None, attempts: int = 1,
+                       timeout: float | None = None) -> dict:
+        """A deterministic run from checkpoint `from_stage` to the next one -> {done, reached, attempts, detail}."""
+        return await self.act(user_id, "obby_try", **_clean({"from_stage": from_stage, "attempts": attempts,
+                                                             "timeout": timeout}))
 
     async def _repeat_press(self, user_id: Any, args: dict) -> dict:
         """repeat of a GUI press: every click is a real one, so the loop runs here, not in the game."""
