@@ -34,6 +34,7 @@ local AudioOk, Audio = pcall(function()
 end)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local ThumbLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ThumbLayout") :: ModuleScript)
 
 local InventoryController = {}
 InventoryController.Priority = 65
@@ -369,12 +370,13 @@ local function rebind()
 		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
 		ContextActionService:SetTitle("InvDrop", "DROP")
 		ContextActionService:SetTitle("InvThrow", "THROW")
-		-- touch buttons hug the jump button (left of it, under the minimap) so they stay clear of the
-		-- lobby squad strip / GO NOW button in the bottom centre on phones
-		ContextActionService:SetPosition("InvDrop", UDim2.new(1, -215, 1, -120))
-		ContextActionService:SetPosition("InvThrow", UDim2.new(1, -170, 1, -75))
+		-- touch: one thumb cluster around the jump button (ClientLib/ThumbLayout), clear of the squad strip
+		ThumbLayout.place("InvDrop", "upleft")
+		ThumbLayout.place("InvThrow", "left")
 		boundItem = true
 	elseif not wantItem and boundItem then
+		ThumbLayout.forget("InvDrop")
+		ThumbLayout.forget("InvThrow")
 		ContextActionService:UnbindAction("InvDrop")
 		ContextActionService:UnbindAction("InvThrow")
 		boundItem = false
@@ -384,9 +386,10 @@ local function rebind()
 	if wantSwap and not boundSwap then
 		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
 		ContextActionService:SetTitle("InvSwap", "SWAP")
-		ContextActionService:SetPosition("InvSwap", UDim2.new(1, -165, 1, -140))
+		ThumbLayout.place("InvSwap", "above")
 		boundSwap = true
 	elseif not wantSwap and boundSwap then
+		ThumbLayout.forget("InvSwap")
 		ContextActionService:UnbindAction("InvSwap")
 		boundSwap = false
 	end

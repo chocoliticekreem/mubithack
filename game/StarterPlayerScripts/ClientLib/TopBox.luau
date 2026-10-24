@@ -21,11 +21,21 @@ local NUDGE_Y = 6 -- a touch below the Roblox buttons' centre line
 
 local box: Frame? = nil
 local sections: { [string]: Frame } = {}
+-- Roblox's voice-chat mic sits right after the menu / chat buttons but is not always counted in
+-- TopbarInset (it covered the level badge on phones), so leave room for it when voice is on
+local micRoom = 0
 
 local function place(b: Frame)
 	local bar = GuiService.TopbarInset
 	-- the free part of the top bar starts after Roblox's menu / chat buttons (Min.X); 0 before it loads
-	local left = if bar.Min.X > 0 then bar.Min.X else 164
+	local left = (if bar.Min.X > 0 then bar.Min.X else 164) + micRoom
+	-- narrow screens (phones): a touch smaller so it ends well short of the minimap
+	local cam = workspace.CurrentCamera
+	local vpX = if cam then cam.ViewportSize.X else 1280
+	local sc = b:FindFirstChildOfClass("UIScale")
+	if sc then
+		sc.Scale = if vpX < 1100 then 0.82 else 1
+	end
 	local barH = if bar.Height > 0 then bar.Height else 58
 	local h = math.clamp(barH - 12, 32, 40)
 	TopBox.Height = h
@@ -78,6 +88,8 @@ local function get(): Frame
 	pad.PaddingLeft = UDim.new(0, 4)
 	pad.PaddingRight = UDim.new(0, 6)
 	pad.Parent = b
+	local uiScale = Instance.new("UIScale")
+	uiScale.Parent = b
 	local list = Instance.new("UIListLayout")
 	list.FillDirection = Enum.FillDirection.Horizontal
 	list.VerticalAlignment = Enum.VerticalAlignment.Center
@@ -87,6 +99,25 @@ local function get(): Frame
 	place(b)
 	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(function()
 		place(b)
+	end)
+	local cam = workspace.CurrentCamera
+	if cam then
+		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			place(b)
+		end)
+	end
+	local UIS = game:GetService("UserInputService")
+	task.spawn(function()
+		if not (UIS.TouchEnabled and not UIS.MouseEnabled) then
+			return -- desktop: TopbarInset already covers the mic
+		end
+		local ok, on = pcall(function()
+			return game:GetService("VoiceChatService"):IsVoiceEnabledForUserIdAsync(Players.LocalPlayer.UserId)
+		end)
+		if ok and on then
+			micRoom = 52
+			place(b)
+		end
 	end)
 	g.Parent = pg
 	box = b
