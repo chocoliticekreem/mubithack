@@ -28,6 +28,9 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local FireConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("FireConfig") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
+local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
+local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
 
 local TEX_FIRE = "rbxasset://textures/particles/fire_main.dds"
 local TEX_SMOKE = "rbxasset://textures/particles/smoke_main.dds"
@@ -355,18 +358,34 @@ local function poof(origin: Vector3)
 	end)
 end
 
+-- How big / dense the douse steam is for a fire this far from the camera: the fire you spray at arm's
+-- length must not white out the screen (ToolMath.lensFade; lighter still on phones / EFFECTS: CALM).
+local function steamLook(puff: ParticleEmitter, s: number, dist: number): number
+	local k = 0.3 + 0.7 * ToolMath.lensFade(dist, ToolConfig.SprayLensNear, ToolConfig.SprayLensFar)
+	local calm = Calm.on()
+	if calm then
+		k *= 0.7
+	end
+	puff.Size = seq({ { 0, 1.5 * s * k }, { 1, 6 * s * k } })
+	local t0 = if calm then 0.45 else 0.1
+	puff.Transparency = seq({ { 0, t0 + (1 - k) * 0.35 }, { 0.5, 0.45 + (1 - k) * 0.3 }, { 1, 1 } })
+	return k
+end
+
 -- Put out (not charred): steam puff + lingering wisps + hiss, sometimes a cartoon poof.
 local function steamPuff(part: BasePart)
 	local cam = cameraPos()
 	if not cam or (part.Position - cam).Magnitude > FireConfig.FxDistance then
 		return
 	end
+	local dist = (part.Position - cam).Magnitude
 	local s = sizeFactor(part)
 	local existing = part:FindFirstChild("SteamFx")
 	if existing then -- doused again while the last puff is still up: re-puff, don't stack attachments
 		local e = existing:FindFirstChild("Steam") :: ParticleEmitter?
 		if e then
-			e:Emit(math.floor(12 + 4 * s))
+			local k = steamLook(e, s, dist)
+			e:Emit(math.floor((12 + 4 * s) * k + 0.5))
 		end
 		return
 	end
@@ -378,8 +397,7 @@ local function steamPuff(part: BasePart)
 	puff.Enabled = false
 	puff.LightInfluence = 0.6
 	puff.Color = ColorSequence.new(Palette.SmokeWhite)
-	puff.Transparency = seq({ { 0, 0.1 }, { 0.5, 0.45 }, { 1, 1 } })
-	puff.Size = seq({ { 0, 1.5 * s }, { 1, 6 * s } })
+	local k = steamLook(puff, s, dist)
 	puff.Lifetime = NumberRange.new(0.8, 1.3)
 	puff.Speed = NumberRange.new(6, 10)
 	puff.SpreadAngle = Vector2.new(40, 40)
@@ -398,7 +416,7 @@ local function steamPuff(part: BasePart)
 	wisp.Rate = 2
 	wisp.EmissionDirection = Enum.NormalId.Top
 	a.Parent = part
-	puff:Emit(math.floor(18 + 6 * s))
+	puff:Emit(math.floor((18 + 6 * s) * k + 0.5))
 	playSound(a, FireConfig.SfxHiss :: string, 0.7, false)
 	task.delay(math.max(0, FireConfig.FxWispSeconds - 1.5), function()
 		wisp.Enabled = false

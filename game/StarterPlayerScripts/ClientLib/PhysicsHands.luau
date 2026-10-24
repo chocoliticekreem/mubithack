@@ -45,6 +45,7 @@ local HandsConfig =
 local Viewmodel = require(script.Parent:WaitForChild("Viewmodel") :: ModuleScript)
 local WorldPopup = require(script.Parent:WaitForChild("WorldPopup") :: ModuleScript)
 local AxeArm = require(script.Parent:WaitForChild("AxeArm") :: ModuleScript)
+local Calm = require(script.Parent:WaitForChild("Calm") :: ModuleScript)
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -129,7 +130,7 @@ export type PhysicsHands = typeof(setmetatable(
 
 -- helpers ----------------------------------------------------------------------------------------
 local function scale(): number
-	return math.clamp(tonumber(HandsConfig.GloveScale) or 0.5, 0.2, 1.5)
+	return Viewmodel.gloveScale() -- GloveScale, or GloveScaleTouch on touch / phone-size screens
 end
 
 local function remote(name: string): any
@@ -547,7 +548,14 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 	local model = Instance.new("Model")
 	model.Name = "HeldItem"
 	model.Parent = self.folder -- in the world before welding, so WeldConstraints record real offsets
-	local handleCF = hand.gripAtt.WorldCFrame * tool.Grip:Inverse()
+	-- the first-person copy is drawn a bit smaller than the real tool (smaller still on touch / phone-size
+	-- screens): at arm's length a full-size hose nozzle covered a third of a phone screen
+	local k = tonumber(if Viewmodel.compactScreen() then HandsConfig.HeldItemScaleTouch else HandsConfig.HeldItemScale) or 1
+	k = math.clamp(k, 0.3, 1)
+	local function shrink(cf: CFrame): CFrame
+		return CFrame.new(cf.Position * k) * cf.Rotation
+	end
+	local handleCF = hand.gripAtt.WorldCFrame * shrink(tool.Grip):Inverse()
 	local srcHandle = handle :: BasePart
 	local clones: { [BasePart]: BasePart } = {}
 	for _, d in tool:GetDescendants() do
@@ -571,7 +579,20 @@ function PhysicsHands._equip(self: PhysicsHands, tool: Tool?)
 			c.Massless = true
 			c.CastShadow = false
 			c.LocalTransparencyModifier = 0
-			c.CFrame = handleCF * srcHandle.CFrame:ToObjectSpace(d.CFrame)
+			if k ~= 1 then
+				c.Size *= k
+				for _, x in c:GetChildren() do
+					if x:IsA("Attachment") then
+						x.CFrame = shrink(x.CFrame)
+					elseif x:IsA("SpecialMesh") then
+						x.Offset *= k
+						if x.MeshType == Enum.MeshType.FileMesh then
+							x.Scale *= k -- FileMesh scale is absolute; brick / cylinder meshes follow Size
+						end
+					end
+				end
+			end
+			c.CFrame = handleCF * shrink(srcHandle.CFrame:ToObjectSpace(d.CFrame))
 			c.Parent = model
 			clones[d] = c
 		end
@@ -751,11 +772,31 @@ local function tweak(p: HandsMath.Pose, name: string, side: string): HandsMath.P
 			drx, dry, drz = rot.X, rot.Y, rot.Z
 		end
 	end
+	-- phones / iPads: further out and down, so the ground and the hotbar stay visible
+	local tf = HandsConfig.TouchFrame
+	if tf and name ~= "carry" and Viewmodel.compactScreen() then
+		-- (the hose support glove is a left hand given in right-hand terms: push it out to the left)
+		dx += (tf.x or 0) * (if name == "hoseSupport" then -1 else 1)
+		dy += tf.y or 0
+		dz += tf.z or 0
+	end
 	if dx == 0 and dy == 0 and dz == 0 and drx == 0 and dry == 0 and drz == 0 then
 		return p
 	end
 	local m = if side == "L" then -1 else 1
 	return { x = p.x + dx * m, y = p.y + dy, z = p.z + dz, rx = p.rx + drx, ry = p.ry + dry * m, rz = p.rz + drz * m }
+end
+
+-- Camera-space shoulder where the stretchy sleeve starts; wider and lower on touch / phone-size screens
+-- (HandsConfig.TouchShoulder), so the sleeves come in from the bottom corners, not up the middle.
+local function shoulderOffset(sign: number): Vector3
+	local x, y = HandsConfig.ShoulderX, HandsConfig.ShoulderY
+	local ts = HandsConfig.TouchShoulder
+	if ts and Viewmodel.compactScreen() then
+		x += ts.x or 0
+		y += ts.y or 0
+	end
+	return Vector3.new(x * sign, y, HandsConfig.ShoulderZ)
 end
 
 function PhysicsHands._basePose(self: PhysicsHands, hand: Hand, cam: CFrame, f: Frame, char: Model?): HandsMath.Pose
@@ -911,7 +952,7 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 				hand.target = wristCF
 				hand.stuck = 0
 				local shoulder = base
-					* Vector3.new(HandsConfig.ShoulderX * hand.sign, HandsConfig.ShoulderY, HandsConfig.ShoulderZ)
+					* shoulderOffset(hand.sign)
 				hand.curl += (0.95 - hand.curl) * math.min(1, dt * 14)
 				Viewmodel.poseRig(hand.rig, wristCF, shoulder, cam.UpVector, hand.curl, rigParts, rigCFrames)
 			end
@@ -984,7 +1025,7 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 
 		-- the glove you see, drawn on the physics palm, sleeve stretched from the shoulder
 		local shoulder = base
-			* Vector3.new(HandsConfig.ShoulderX * hand.sign, HandsConfig.ShoulderY, HandsConfig.ShoulderZ)
+			* shoulderOffset(hand.sign)
 		hand.curl += (self:_curlTarget(hand) - hand.curl) * math.min(1, dt * 14)
 		Viewmodel.poseRig(hand.rig, hand.wrist.WorldCFrame, shoulder, cam.UpVector, hand.curl, rigParts, rigCFrames)
 	end
@@ -999,6 +1040,7 @@ function PhysicsHands.Update(self: PhysicsHands, dt: number, cam: CFrame, f: Fra
 				then HandsConfig.HoseKickImpulse * (f.pressure or 1)
 				elseif item.kind == "extinguisher" then HandsConfig.ExtSputterKick * HandsMath.sputter(self.t, f.pressure or 1)
 				else 0
+			amount = Calm.fx(amount) -- phones / EFFECTS: CALM: the nozzle bucks less (it flew over the view)
 			if amount > 0 then
 				local palm = self.hands.R.palm
 				local kick = (-cam.LookVector * rng:NextNumber(0.6, 1.2) + cam.UpVector * rng:NextNumber(0.2, 0.9) + cam.RightVector * rng:NextNumber(-0.5, 0.5))

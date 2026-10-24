@@ -8,20 +8,27 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	Enabled = true, -- false = the simple camera-attached viewmodel everywhere (no grabbing)
 	MobileEnabled = true, -- touch-only devices get the physics hands too (false = the simple viewmodel)
-	GloveScale = 0.6, -- glove rig size (1 = a 1-stud-wide palm); the collider palm matches it
+	GloveScale = 0.55, -- glove rig size (1 = a 1-stud-wide palm); the collider palm matches it
+	GloveScaleTouch = 0.48, -- touch devices / phone-size screens: smaller gloves (built once, at spawn)
 	IdleCurl = 0.24, -- 0 open .. 1 fist: how curled the relaxed gloves' fingers are
 
 	-- framing on top of the HandsMath poses (studs / degrees, right hand; the left mirrors).
 	-- Live-tune in Studio with Camera attributes HandsTweak_<name> / HandsTweakRot_<name>.
+	-- The gloves sit low and out toward the bottom corners, so the ground ahead, the crosshair and
+	-- the hotbar stay clear; the held tool still pokes up out of the right fist.
 	PoseTweak = {
-		idle = { x = 0.1, y = 0.2, z = 0.05, rx = 45, ry = 12, rz = -32 },
-		lowered = { x = 0.1, y = 0.4, z = -0.1, rx = 35, ry = 10, rz = -25 },
+		idle = { x = 0.3, y = -0.05, z = 0.05, rx = 45, ry = 12, rz = -32 },
+		lowered = { x = 0.35, y = 0.1, z = -0.1, rx = 35, ry = 10, rz = -25 },
 		-- held tools: the fist rolls thumb-up so the handle stands up out of it
-		hose = { x = 0.25, y = -0.1, z = -0.35, rx = 0, ry = 0, rz = -65 },
-		extinguisher = { x = 0.1, y = 0.1, z = -0.2, rx = 0, ry = 0, rz = -80 },
-		item = { x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = -80 },
+		hose = { x = 0.4, y = -0.25, z = -0.35, rx = 0, ry = 0, rz = -65 },
+		hoseSupport = { x = 0, y = -0.25, z = 0, rx = 0, ry = 0, rz = 0 },
+		extinguisher = { x = 0.35, y = -0.1, z = -0.2, rx = 0, ry = 0, rz = -80 },
+		item = { x = 0.2, y = -0.15, z = 0, rx = 0, ry = 0, rz = -80 },
 		axe = { x = 0, y = 0, z = 0, rx = 30, ry = 0, rz = -80 },
 	},
+	-- phones / iPads (touch) and phone-size screens: every pose (not carry / reach / grab) moves this much
+	-- further out and down on top of PoseTweak (right hand; the left mirrors)
+	TouchFrame = { x = 0.2, y = -0.15, z = 0 },
 
 	-- hand springs: the target pose is sprung (lag, overshoot, wobble) and the physical palm is
 	-- pulled to it by AlignPosition/AlignOrientation, so walls and props push back
@@ -38,6 +45,7 @@ return Config.define({
 	ShoulderX = 1.0, -- camera-space shoulder where the stretchy sleeve starts
 	ShoulderY = -1.75,
 	ShoulderZ = 0.3,
+	TouchShoulder = { x = 0.3, y = -0.25 }, -- added on touch / phone-size screens: sleeves from the corners
 
 	-- reach and grab (LMB = left hand, RMB = right hand; holding a tool, LMB uses it and RMB is the
 	-- free left hand). Hold to keep gripping, release to let go (throws keep their momentum).
@@ -112,8 +120,10 @@ return Config.define({
 	AxeBonkLift = 18,
 
 	-- held tools
+	HeldItemScale = 0.85, -- the first-person copy of the held hose / extinguisher, x the real tool's size
+	HeldItemScaleTouch = 0.7, -- ... on touch / phone-size screens
 	HoseKick = 1, -- recoil amount on the nozzle (x pressure)
-	HoseKickImpulse = 0.9, -- random shove on the hand at HoseKickHz while spraying
+	HoseKickImpulse = 0.9, -- random shove on the hand at HoseKickHz while spraying (x Calm.fx on phones)
 	HoseKickHz = 9,
 	ExtSputterKick = 1.2,
 

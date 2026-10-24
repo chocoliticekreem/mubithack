@@ -128,10 +128,35 @@ local function scaled(offset: CFrame, s: number): CFrame
 	return CFrame.new(offset.Position * s) * offset.Rotation
 end
 
+-- Touch devices and phone-size screens get smaller gloves (HandsConfig.GloveScaleTouch), so they hold
+-- the tool without hiding the bottom third of a small screen. InputHints / Calm load lazily.
+local screenLibs: any = nil
+local function compactScreen(): boolean
+	if screenLibs == nil then
+		local ok, libs = pcall(function()
+			return {
+				ih = require(script.Parent:WaitForChild("InputHints") :: ModuleScript) :: any,
+				calm = require(script.Parent:WaitForChild("Calm") :: ModuleScript) :: any,
+			}
+		end)
+		screenLibs = if ok then libs else false
+	end
+	local libs = screenLibs
+	if not libs then
+		return false
+	end
+	return libs.ih.isTouch() == true or libs.calm.small() == true
+end
+Viewmodel.compactScreen = compactScreen
+
 local function scale(): number
 	local s = tonumber(HandsConfig.GloveScale) or 0.5
+	if compactScreen() then
+		s = tonumber(HandsConfig.GloveScaleTouch) or s
+	end
 	return math.clamp(s, 0.2, 1.5)
 end
+Viewmodel.gloveScale = scale
 
 -- glove rig ---------------------------------------------------------------------------------------
 -- Wrist frame: origin at the wrist, fingers toward -Z, back of the hand up (+Y), sleeve toward +Z.

@@ -4,6 +4,9 @@
 --     (Catmull-Rom tangents through the physical joints), three layers (shadow, body, red stripe),
 --     brass couplings at both ends, and hides the server's physics cylinders locally. A kinked
 --     segment (attr Kinked) pinches and flushes red.
+--   * first person: your own line skips the segments that pass right by the lens (the last one runs
+--     up to the hidden real tool in your hand, a thick slab over the bottom right of the screen); the
+--     glove's hose nozzle is what you see there.
 --   * applies HoseLine/Yank (the end-of-the-line tug) and HoseLine/Trip (the stumble fallback) to
 --     the local character, which this client owns.
 -- Reads: Model attrs Owner, SegLen, Segments; segment attrs Index, Kinked; HoseLineConfig.
@@ -221,9 +224,18 @@ local function orient(a: Attachment, p: Vector3, t: Vector3)
 	a.WorldCFrame = CFrame.lookAt(p, p + dir, up) * ROT
 end
 
+local LENS_CLEAR = 5 -- studs: your own line hides segments with an end this close to the camera
+
+local function firstPerson(cam: Camera?): boolean
+	local char = LocalPlayer.Character
+	local head = char and char:FindFirstChild("Head") :: BasePart?
+	return cam ~= nil and head ~= nil and (cam.CFrame.Position - head.Position).Magnitude < 1.6
+end
+
 local function render()
 	local cam = workspace.CurrentCamera
 	local camPos = if cam then cam.CFrame.Position else Vector3.zero
+	local fp = firstPerson(cam)
 	for model, r in renderers do
 		if r.dirty then
 			r.dirty = not collect(r)
@@ -248,6 +260,7 @@ local function render()
 			continue
 		end
 		setVisible(r, true)
+		local mine = fp and tonumber(model:GetAttribute("Owner")) == LocalPlayer.UserId
 
 		local m = #pts
 		local tangents: { Vector3 } = {}
@@ -260,6 +273,11 @@ local function render()
 			orient(r.atts[k], pts[k], tangents[k])
 		end
 		for k = 1, m - 1 do
+			if mine and ((pts[k] - camPos).Magnitude < LENS_CLEAR or (pts[k + 1] - camPos).Magnitude < LENS_CLEAR) then
+				for _, l in r.layers[k] do
+					l.beam.Enabled = false
+				end
+			end
 			local seg = r.segs[k]
 			local kinked = seg ~= nil and seg:GetAttribute("Kinked") == true
 			local c0 = tangents[k].Magnitude / 3
@@ -283,6 +301,9 @@ local function render()
 		local tail = pts[m]
 		local tailT = if tangents[m].Magnitude > 1e-4 then tangents[m] else Vector3.xAxis
 		c2.CFrame = CFrame.lookAt(tail, tail + tailT) * ROT
+		if mine and (tail - camPos).Magnitude < LENS_CLEAR then
+			c2.Transparency = 1
+		end
 	end
 end
 
