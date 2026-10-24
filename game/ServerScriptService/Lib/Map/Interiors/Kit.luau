@@ -1049,4 +1049,449 @@ function Kit.splat(parent: Instance, cf: CFrame, o: Opts?): Model
 	return done(m, parent, s)
 end
 
+---------------------------------------------------------------------------------------------------
+-- homes: living room, kitchen, bedrooms, bathroom
+---------------------------------------------------------------------------------------------------
+-- Sofa (faces -Z): seat, back, arms, two cushions. o.w (7), o.color.
+function Kit.sofa(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local w = op.w or 7
+	local col = op.color or C.Teal
+	local m = model("Sofa")
+	local seat = P(m, "SofaSeat", cf * CF(0, 0.85, 0.15), V(w, 1.7, 3.1), col, { solid = true, fuel = 25 })
+	P(m, "SofaBack", cf * CF(0, 2.35, 1.3), V(w, 1.9, 0.8), col:Lerp(C.Black, 0.1), { fuel = 15 })
+	for _, x in { -w / 2 + 0.4, w / 2 - 0.4 } do
+		P(m, "SofaArm", cf * CF(x, 2, 0.15), V(0.8, 1.2, 3.1), col:Lerp(C.Black, 0.15))
+	end
+	for _, x in { -w / 4, w / 4 } do
+		P(m, "Cushion", cf * CF(x, 1.85, 0.1), V(w / 2 - 1, 0.4, 2.4), col:Lerp(C.White, 0.12), { fuel = 6 })
+	end
+	if op.pillow ~= false then
+		P(m, "Pillow", cf * CF(-w / 2 + 1.3, 2.4, 0.6) * ANG(0.3, 0, 0.2), V(1.2, 1.2, 0.4), op.accent or C.Mustard, { fuel = 4 })
+	end
+	return done(m, parent, seat)
+end
+
+-- Low coffee table with a magazine and a mug. o.w (4), o.d (2.4).
+function Kit.coffeeTable(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w, d = op.w or 4, op.d or 2.4
+	local m = model("CoffeeTable")
+	local top = P(m, "TableTop", cf * CF(0, 1.5, 0), V(w, 0.3, d), op.color or C.WoodLight, { solid = true, fuel = 12 })
+	P(m, "TableBase", cf * CF(0, 0.7, 0), V(w - 0.8, 1.3, d - 0.6), C.Wood)
+	P(m, "Magazine", cf * CF(-0.6, 1.7, 0) * ANG(0, rng:NextNumber(-0.5, 0.5), 0), V(1.1, 0.08, 1.4), pick(rng, Kit.Bright), { fuel = 3 })
+	cylY(m, "Mug", cf * CF(0.9, 1.65, 0.2), 0.5, 0.45, pick(rng, Kit.Bright))
+	return done(m, parent, top)
+end
+
+-- TV on a low stand (screen faces -Z), glowing cartoon on screen. o.w (5).
+function Kit.tv(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w = op.w or 5
+	local m = model("TV")
+	local stand = P(m, "TVStand", cf * CF(0, 1, 0), V(w + 1, 2, 1.8), op.color or C.Wood, { solid = true, fuel = 18 })
+	P(m, "TVBody", cf * CF(0, 3.6, 0.2), V(w, 3, 0.35), C.Ink)
+	local scr = P(m, "TVScreen", cf * CF(0, 3.6, 0.0), V(w - 0.4, 2.6, 0.06), C.Navy, { neon = true })
+	local g = gui(scr, Enum.NormalId.Front, 20, true)
+	rect(g, 0, 0.7, 1, 0.3, C.Green)
+	sunDoodle(g, 0.65, 0.08, 0.3, C.Mustard)
+	penguinDoodle(g, 0.15 + rng:NextNumber(0, 0.3), 0.3, 0.45, C.Ink)
+	P(m, "GameConsole", cf * CF(w / 2 - 0.5, 2.15, -0.2), V(1, 0.3, 0.8), C.White)
+	return done(m, parent, stand)
+end
+
+-- Floor lamp with a warm PointLight.
+function Kit.floorLamp(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("FloorLamp")
+	cylY(m, "LampBase", cf * CF(0, 0.15, 0), 0.3, 1.2, C.Iron)
+	P(m, "LampPole", cf * CF(0, 2.6, 0), V(0.2, 4.8, 0.2), C.Iron)
+	local shade = cylY(m, "LampShade", cf * CF(0, 5.4, 0), 1.2, 1.6, op.color or C.Cream, { fuel = 4 })
+	local l = Instance.new("PointLight")
+	l.Color = C.LampWarm
+	l.Range = 12
+	l.Brightness = 0.9
+	l.Shadows = false
+	l.Parent = shade
+	return done(m, parent, shade)
+end
+
+-- Ceiling pendant (cf = ceiling point): cord + glowing shade + PointLight.
+function Kit.pendant(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("Pendant")
+	P(m, "PendantCord", cf * CF(0, -0.9, 0), V(0.12, 1.8, 0.12), C.Iron)
+	local bulb = ball(m, "PendantBulb", cf * CF(0, -2, 0), 0.9, C.Lamp, { neon = true })
+	P(m, "PendantShade", cf * CF(0, -1.75, 0), V(1.6, 0.5, 1.6), op.color or C.Mustard)
+	if op.light ~= false then
+		local l = Instance.new("PointLight")
+		l.Color = C.LampWarm
+		l.Range = op.range or 16
+		l.Brightness = 0.9
+		l.Shadows = false
+		l.Parent = bulb
+	end
+	return done(m, parent, bulb)
+end
+
+-- Dining table with chairs (chairs on +-X sides). o.w (5), o.n (chairs per side, 2).
+function Kit.diningSet(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w = op.w or 5
+	local m = model("DiningSet")
+	local top = P(m, "DiningTop", cf * CF(0, 2.6, 0), V(w, 0.3, 3), op.color or C.WoodLight, { solid = true, fuel = 18 })
+	P(m, "DiningLegs", cf * CF(0, 1.2, 0), V(w - 1, 2.4, 1.8), C.Wood)
+	local seat = op.seat or pick(rng, Kit.Bright)
+	local n = op.n or 2
+	for k = 1, n do
+		local x = -w / 2 + (k - 0.5) * w / n
+		for _, sz in { -1, 1 } do
+			P(m, "ChairSeat", cf * CF(x, 1.55, sz * 2.1), V(1.7, 0.3, 1.6), seat, { solid = true, fuel = 6 })
+			P(m, "ChairBack", cf * CF(x, 2.6, sz * 2.8), V(1.7, 1.8, 0.25), C.Wood, { fuel = 4 })
+		end
+	end
+	P(m, "FruitBowl", cf * CF(0, 2.9, 0), V(1.2, 0.3, 1.2), C.Cream)
+	ball(m, "Fruit", cf * CF(0.2, 3.15, 0), 0.5, C.Red)
+	ball(m, "Fruit", cf * CF(-0.25, 3.15, 0.15), 0.5, C.Orange)
+	return done(m, parent, top)
+end
+
+-- Wall cabinets above a counter (cf = wall face at floor height). o.w, o.y (bottom), o.color.
+function Kit.wallCabinets(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local w = op.w or 6
+	local m = model("WallCabinets")
+	local c = P(m, "Cupboards", cf * CF(0, (op.y or 6.4) + 1, -0.8), V(w, 2, 1.4), op.color or C.Cream)
+	local g = gui(c, Enum.NormalId.Front, 16)
+	local k = math.max(1, math.floor(w / 2))
+	for i = 0, k - 1 do
+		rect(g, i / k + 0.03 / k, 0.08, 0.94 / k, 0.84, (op.color or C.Cream):Lerp(C.Black, 0.1), 0.05)
+		rect(g, i / k + 0.45 / k, 0.7, 0.1 / k, 0.06, C.Chrome, 0.5)
+	end
+	return done(m, parent, c)
+end
+
+-- Bed (headboard on +Z, foot toward -Z): frame, mattress, blanket, pillows. o.w (5), o.l (8), o.color.
+function Kit.bed(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w, l = op.w or 5, op.l or 8
+	local col = op.color or pick(rng, Kit.Bright)
+	local m = model("Bed")
+	local frame = P(m, "BedFrame", cf * CF(0, 0.6, 0), V(w, 1.2, l), op.frame or C.Wood, { solid = true, fuel = 20 })
+	P(m, "Mattress", cf * CF(0, 1.55, 0), V(w - 0.2, 0.7, l - 0.2), C.White, { fuel = 10 })
+	P(m, "Blanket", cf * CF(0, 1.95, -l * 0.12), V(w, 0.25, l * 0.72), col, { fuel = 8 })
+	P(m, "Headboard", cf * CF(0, 2.2, l / 2 + 0.15), V(w + 0.2, 3.2, 0.4), op.frame or C.Wood, { fuel = 10 })
+	for _, x in { -w / 4, w / 4 } do
+		if w >= 4.5 or x < 0 then
+			P(m, "BedPillow", cf * CF(x, 2.15, l / 2 - 1.1), V(w / 2 - 0.4, 0.5, 1.2), C.Cream, { fuel = 3 })
+		end
+	end
+	if op.plush ~= false and rng:NextNumber() < 0.5 then
+		local pc = cf * CF(w / 4, 2.6, l / 2 - 2)
+		ball(m, "Plushie", pc, 0.9, pick(rng, { C.Pink, C.Mustard, C.Ink }))
+	end
+	return done(m, parent, frame)
+end
+
+-- Nightstand with a small glowing lamp.
+function Kit.nightstand(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("Nightstand")
+	local b = P(m, "Nightstand", cf * CF(0, 1, 0), V(1.8, 2, 1.6), op.color or C.WoodLight, { solid = true, fuel = 10 })
+	cylY(m, "LampFoot", cf * CF(0, 2.3, 0.2), 0.6, 0.4, C.Iron)
+	local sh = cylY(m, "LampShade", cf * CF(0, 2.9, 0.2), 0.7, 0.9, op.shade or C.Mustard, { neon = true })
+	local l = Instance.new("PointLight")
+	l.Color = C.LampWarm
+	l.Range = 8
+	l.Brightness = 0.6
+	l.Shadows = false
+	l.Parent = sh
+	return done(m, parent, b)
+end
+
+-- Wardrobe / dresser (drawers drawn). o.w (4), o.h (7 wardrobe | 3.6 dresser), o.color.
+function Kit.wardrobe(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local w, h = op.w or 4, op.h or 7
+	local col = op.color or C.WoodLight
+	local m = model(if h > 5 then "Wardrobe" else "Dresser")
+	local b = P(m, "Cabinet", cf * CF(0, h / 2, 0), V(w, h, 2), col, { solid = true, fuel = 25 })
+	local g = gui(b, Enum.NormalId.Front, 16)
+	if h > 5 then
+		rect(g, 0.04, 0.03, 0.44, 0.94, col:Lerp(C.Black, 0.1), 0.03)
+		rect(g, 0.52, 0.03, 0.44, 0.94, col:Lerp(C.Black, 0.1), 0.03)
+		rect(g, 0.42, 0.45, 0.03, 0.1, C.Chrome, 0.5)
+		rect(g, 0.55, 0.45, 0.03, 0.1, C.Chrome, 0.5)
+	else
+		for k = 0, 2 do
+			rect(g, 0.05, 0.05 + k * 0.31, 0.9, 0.27, col:Lerp(C.Black, 0.1), 0.05)
+			rect(g, 0.42, 0.15 + k * 0.31, 0.16, 0.06, C.Chrome, 0.5)
+		end
+		if op.mirror ~= false then
+			P(m, "Mirror", cf * CF(0, h + 1.6, 0.6), V(w * 0.6, 2.6, 0.15), C.Glass, { refl = 0.3 })
+		end
+		cylY(m, "Perfume", cf * CF(w * 0.3, h + 0.35, -0.2), 0.7, 0.4, C.Pink)
+	end
+	return done(m, parent, b)
+end
+
+-- Bunk bed along local X (ladder at +X end). o.color.
+function Kit.bunkBed(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local m = model("BunkBed")
+	local first
+	for k, y in { 0.9, 4.2 } do
+		local base = P(m, "BunkFrame", cf * CF(0, y, 0), V(7, 0.6, 3.6), C.WoodLight, { solid = true, fuel = 14 })
+		first = first or base
+		P(m, "BunkMattress", cf * CF(0, y + 0.55, 0), V(6.6, 0.5, 3.3), C.White, { fuel = 6 })
+		P(m, "BunkBlanket", cf * CF(-0.6, y + 0.85, 0), V(5, 0.2, 3.4), if k == 1 then (op.color or pick(rng, Kit.Bright)) else pick(rng, Kit.Bright), { fuel = 5 })
+	end
+	for _, x in { -3.4, 3.4 } do
+		for _, z in { -1.7, 1.7 } do
+			P(m, "BunkPost", cf * CF(x, 2.8, z), V(0.35, 5.6, 0.35), C.Wood)
+		end
+	end
+	P(m, "BunkRail", cf * CF(0, 5.4, -1.7), V(7, 0.3, 0.2), C.Wood)
+	for k = 0, 3 do
+		P(m, "LadderRung", cf * CF(3.65, 1 + k * 1.1, -0.6), V(0.2, 0.2, 1.4), C.Wood)
+	end
+	return done(m, parent, first)
+end
+
+-- Study desk against a wall (kid sits on +Z), lamp + laptop + chair. o.w (4).
+function Kit.desk(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w = op.w or 4
+	local m = model("Desk")
+	local top = P(m, "DeskTop", cf * CF(0, 2.65, 0), V(w, 0.3, 2), op.color or C.WoodLight, { solid = true, fuel = 12 })
+	P(m, "DeskDrawers", cf * CF(w / 2 - 0.8, 1.25, 0), V(1.4, 2.5, 1.8), C.Wood)
+	P(m, "Laptop", cf * CF(-0.4, 2.9, -0.1), V(1.4, 0.1, 1), C.Ink)
+	local scr = P(m, "LaptopScreen", cf * CF(-0.4, 3.45, -0.55) * ANG(math.rad(-15), 0, 0), V(1.4, 1, 0.08), C.Sky, { neon = true })
+	scr.CastShadow = false
+	cylY(m, "DeskLampShade", cf * CF(w / 2 - 0.5, 3.6, -0.4), 0.5, 0.7, op.lamp or pick(rng, Kit.Bright), { neon = true })
+	P(m, "DeskLampArm", cf * CF(w / 2 - 0.5, 3.1, -0.4), V(0.12, 0.9, 0.12), C.Iron)
+	P(m, "ChairSeat", cf * CF(0, 1.6, 1.8), V(1.8, 0.3, 1.7), op.chair or pick(rng, Kit.Bright), { solid = true, fuel = 6 })
+	P(m, "ChairBack", cf * CF(0, 2.7, 2.6), V(1.8, 1.9, 0.25), op.chair or C.Navy, { fuel = 4 })
+	P(m, "ChairLeg", cf * CF(0, 0.75, 1.8), V(0.35, 1.5, 0.35), C.Iron)
+	return done(m, parent, top)
+end
+
+-- Toy box overflowing with toys (flammable).
+function Kit.toyBox(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local m = model("ToyBox")
+	local b = P(m, "ToyChest", cf * CF(0, 1, 0), V(3, 2, 1.8), op.color or C.Red, { solid = true, fuel = 15 })
+	ball(m, "ToyBall", cf * CF(-0.6, 2.2, 0), 0.9, pick(rng, Kit.Bright))
+	P(m, "ToyBlock", cf * CF(0.5, 2.2, 0.2) * ANG(0.3, 0.4, 0), V(0.8, 0.8, 0.8), pick(rng, Kit.Bright), { fuel = 3 })
+	P(m, "ToyBlock", cf * CF(1.6, 0.4, -1.4) * ANG(0, 0.7, 0), V(0.8, 0.8, 0.8), pick(rng, Kit.Bright), { fuel = 3 })
+	return done(m, parent, b)
+end
+
+-- Bathtub along local X (tap at -X end).
+function Kit.bathtub(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("Bathtub")
+	local tub = P(m, "Tub", cf * CF(0, 1, 0), V(5.4, 2, 2.8), op.color or C.White, { solid = true })
+	P(m, "TubWater", cf * CF(0, 1.85, 0), V(4.8, 0.2, 2.2), C.PaleBlue, { tr = 0.2 })
+	P(m, "TubTap", cf * CF(-2.4, 2.4, 0), V(0.3, 0.6, 0.3), C.Chrome)
+	ball(m, "RubberDuck", cf * CF(0.8, 2.15, 0.3), 0.5, C.Mustard)
+	P(m, "BathCurtain", cf * CF(0, 4, -1.35), V(5.4, 4, 0.1), op.curtain or C.PaleBlue, { fuel = 5 }).Transparency = 0.15
+	return done(m, parent, tub)
+end
+
+-- Toilet (seat toward -Z, tank on +Z).
+function Kit.toilet(parent: Instance, cf: CFrame, o: Opts?): Model
+	local m = model("Toilet")
+	local bowl = cylY(m, "ToiletBowl", cf * CF(0, 0.75, -0.2), 1.5, 1.5, C.White, { solid = true })
+	P(m, "ToiletTank", cf * CF(0, 1.9, 0.8), V(1.4, 1.6, 0.7), C.White)
+	P(m, "ToiletLid", cf * CF(0, 1.55, -0.2), V(1.4, 0.12, 1.4), C.Cream)
+	return done(m, parent, bowl)
+end
+
+-- Bathroom vanity (basin + mirror, cf = wall face).
+function Kit.vanity(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("Vanity")
+	local c = P(m, "VanityCabinet", cf * CF(0, 1.4, -1), V(3, 2.8, 1.8), op.color or C.Cream, { solid = true, fuel = 10 })
+	P(m, "VanityBasin", cf * CF(0, 2.85, -1.1), V(1.6, 0.1, 1.1), C.White)
+	P(m, "VanityTap", cf * CF(0, 3.2, -0.4), V(0.2, 0.6, 0.2), C.Chrome)
+	P(m, "VanityMirror", cf * CF(0, 4.9, -0.12), V(2.4, 2.4, 0.1), C.Glass, { refl = 0.35 })
+	P(m, "Toothbrushes", cf * CF(1, 3.1, -0.6), V(0.4, 0.5, 0.4), C.Pink)
+	return done(m, parent, c)
+end
+
+-- Picture frame on a wall: o.y, o.w, o.h, o.kind ("art" | "photo").
+function Kit.picture(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w, h = op.w or 2.4, op.h or 1.8
+	local m = model("Picture")
+	P(m, "PictureFrame", cf * CF(0, op.y or 6, -0.06), V(w + 0.3, h + 0.3, 0.1), op.frame or C.Wood)
+	local p = P(m, "PictureCanvas", cf * CF(0, op.y or 6, -0.14), V(w, h, 0.08), C.Cream, { fuel = 3 })
+	local g = gui(p, Enum.NormalId.Front, 24)
+	if (op.kind or pick(rng, { "art", "photo", "sea" })) == "photo" then
+		rect(g, 0, 0.6, 1, 0.4, C.Green)
+		rect(g, 0, 0, 1, 0.6, C.Sky)
+		penguinDoodle(g, 0.2, 0.3, 0.55, C.Ink)
+		penguinDoodle(g, 0.55, 0.38, 0.45, C.Ink)
+	elseif op.kind == "sea" or rng:NextNumber() < 0.4 then
+		rect(g, 0, 0, 1, 0.55, C.Peach)
+		rect(g, 0, 0.55, 1, 0.45, C.Blue)
+		sunDoodle(g, 0.6, 0.12, 0.3, C.Orange)
+	else
+		for _ = 1, 4 do
+			local s2 = rng:NextNumber(0.2, 0.45)
+			rect(g, rng:NextNumber(0, 0.7), rng:NextNumber(0, 0.7), s2, s2 * w / h, pick(rng, Kit.Bright), rng:NextNumber(0, 1))
+		end
+	end
+	return done(m, parent, p)
+end
+
+---------------------------------------------------------------------------------------------------
+-- shops / diner
+---------------------------------------------------------------------------------------------------
+-- Goods shelf (gondola) along local X, goods drawn on both long faces. o.w (8), o.h (5), o.goods colours.
+function Kit.shopShelf(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w, h = op.w or 8, op.h or 5
+	local goods = op.goods or Kit.Bright
+	local m = model("ShopShelf")
+	local parts = chunked(m, "Gondola", cf * CF(0, h / 2, 0), V(w, h, op.depth or 1.6), op.color or C.Cream, { solid = true, fuel = 22 })
+	for _, part in parts do
+		for _, face in (if op.oneSided then { Enum.NormalId.Front } else { Enum.NormalId.Front, Enum.NormalId.Back }) do
+			local g = gui(part, face, 16)
+			local rows = math.max(2, math.floor(h / 1.4))
+			for r = 0, rows - 1 do
+				local y0 = 0.04 + r * (0.94 / rows)
+				local rh = 0.94 / rows - 0.04
+				rect(g, 0.02, y0 + rh, 0.96, 0.025, C.Steel)
+				local x = 0.04
+				while x < 0.92 do
+					local bw = rng:NextNumber(0.05, 0.11) * 8 / part.Size.X
+					local bh = rh * rng:NextNumber(0.55, 0.9)
+					rect(g, x, y0 + rh - bh, math.min(bw, 0.95 - x), bh, pick(rng, goods), 0.15)
+					x += bw + 0.012
+				end
+			end
+		end
+	end
+	-- a few boxed goods stacked on top (reads from above / far away)
+	for k = 1, math.max(2, math.floor(w / 2.5)) do
+		local bx = -w / 2 + (k - 0.5) * w / math.max(2, math.floor(w / 2.5))
+		local sz = V(rng:NextNumber(0.9, 1.5), rng:NextNumber(0.7, 1.3), rng:NextNumber(0.8, 1.2))
+		P(m, "Goods", cf * CF(bx, h + sz.Y / 2, rng:NextNumber(-0.2, 0.2)) * ANG(0, rng:NextNumber(-0.3, 0.3), 0), sz, pick(rng, goods), { fuel = 4 })
+	end
+	return done(m, parent, parts[1])
+end
+
+-- Glass-front drinks cooler (glows). o.w (4).
+function Kit.cooler(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w = op.w or 4
+	local m = model("Cooler")
+	local b = P(m, "CoolerBody", cf * CF(0, 3.5, 0.1), V(w, 7, 2.2), C.White, { solid = true })
+	local glass = P(m, "CoolerGlass", cf * CF(0, 3.4, -1.0), V(w - 0.4, 6, 0.1), C.PaleBlue, { neon = true, tr = 0.3 })
+	local g = gui(glass, Enum.NormalId.Front, 16, true)
+	for r = 0, 3 do
+		for c = 0, 5 do
+			rect(g, 0.06 + c * 0.15, 0.08 + r * 0.23, 0.1, 0.16, pick(rng, { C.Red, C.Green, C.Orange, C.Blue, C.Mustard }), 0.3)
+		end
+	end
+	return done(m, parent, b)
+end
+
+-- Checkout counter with a register, a candy rack and a tip jar (cashier on +Z). o.w (6), o.color.
+function Kit.checkout(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local w = op.w or 6
+	local m = model("Checkout")
+	local body = chunked(m, "CheckoutCounter", cf * CF(0, 1.8, 0), V(w, 3.6, 2.4), op.color or C.Wood, { solid = true, fuel = 25 })
+	P(m, "CounterTop", cf * CF(0, 3.7, 0), V(w + 0.2, 0.25, 2.6), C.Cream, { solid = true })
+	local reg = P(m, "Register", cf * CF(w / 2 - 1.3, 4.3, 0.2), V(1.6, 1, 1.4), C.Ink)
+	local disp = P(m, "RegisterScreen", cf * CF(w / 2 - 1.3, 5, 0.6) * ANG(math.rad(15), 0, 0), V(1.2, 0.7, 0.1), C.Green, { neon = true })
+	disp.CastShadow = false
+	local _ = reg
+	P(m, "CandyRack", cf * CF(-w / 2 + 1, 4.6, -0.6), V(1.4, 1.6, 0.8), C.Red)
+	for k = 0, 2 do
+		P(m, "Candy", cf * CF(-w / 2 + 0.6 + k * 0.4, 4.6 + (k % 2) * 0.5, -1.05), V(0.3, 0.4, 0.1), pick(rng, Kit.Bright))
+	end
+	cylY(m, "TipJar", cf * CF(0, 4.1, -0.4), 0.8, 0.6, C.Glass, { mat = Enum.Material.Glass, tr = 0.4 })
+	return done(m, parent, body[1])
+end
+
+-- Stack of cardboard boxes (flammable).
+function Kit.boxes(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local rng = rngOf(op)
+	local m = model("Boxes")
+	local kraft = Color3.fromHex("#C99A62")
+	local b = P(m, "CardBox", cf * CF(0, 1, 0), V(2.4, 2, 2.2), kraft, { solid = true, fuel = 12 })
+	P(m, "CardBox", cf * CF(1.6, 0.8, 0.4) * ANG(0, 0.3, 0), V(2, 1.6, 1.8), kraft:Lerp(C.White, 0.1), { solid = true, fuel = 10 })
+	P(m, "CardBox", cf * CF(0.2, 2.75, 0.1) * ANG(0, rng:NextNumber(-0.4, 0.4), 0), V(1.8, 1.5, 1.6), kraft:Lerp(C.Black, 0.08), { fuel = 8 })
+	return done(m, parent, b)
+end
+
+-- Diner booth: table between two bench seats (seats on +-Z). o.color.
+function Kit.booth(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local col = op.color or C.Red
+	local m = model("Booth")
+	local top = P(m, "BoothTable", cf * CF(0, 2.6, 0), V(4.4, 0.3, 2.4), C.Cream, { solid = true, fuel = 10 })
+	P(m, "BoothPost", cf * CF(0, 1.25, 0), V(0.5, 2.5, 0.5), C.Chrome)
+	for _, sz in { -1, 1 } do
+		P(m, "BoothSeat", cf * CF(0, 1.1, sz * 2.3), V(5, 1.2, 1.8), col, { solid = true, fuel = 14 })
+		P(m, "BoothBack", cf * CF(0, 2.7, sz * 3.05), V(5, 2.4, 0.5), col:Lerp(C.Black, 0.12), { fuel = 8 })
+	end
+	P(m, "Ketchup", cf * CF(1.6, 3.15, -0.3), V(0.35, 0.8, 0.35), C.Red)
+	P(m, "Mustard", cf * CF(1.6, 3.15, 0.3), V(0.35, 0.8, 0.35), C.Mustard)
+	P(m, "Plate", cf * CF(-0.8, 2.8, -0.5), V(1.2, 0.08, 1.2), C.White)
+	return done(m, parent, top)
+end
+
+-- Wooden bench along local X (backrest on +Z). o.w (5).
+function Kit.bench(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local w = op.w or 5
+	local m = model("Bench")
+	local seat = P(m, "BenchSeat", cf * CF(0, 1.5, 0), V(w, 0.4, 1.6), op.color or C.WoodLight, { solid = true, fuel = 12 })
+	P(m, "BenchBack", cf * CF(0, 2.6, 0.7), V(w, 1.6, 0.3), op.color or C.WoodLight, { fuel = 8 })
+	for _, x in { -w / 2 + 0.5, w / 2 - 0.5 } do
+		P(m, "BenchLeg", cf * CF(x, 0.65, 0), V(0.4, 1.3, 1.4), C.Iron)
+	end
+	return done(m, parent, seat)
+end
+
+-- Counter stool (spins in spirit).
+function Kit.stool(parent: Instance, cf: CFrame, o: Opts?): Model
+	local op = o or {}
+	local m = model("Stool")
+	local seat = cylY(m, "StoolSeat", cf * CF(0, 2.6, 0), 0.5, 1.6, op.color or C.Red, { solid = true, fuel = 5 })
+	P(m, "StoolPost", cf * CF(0, 1.2, 0), V(0.3, 2.4, 0.3), C.Chrome)
+	cylY(m, "StoolFoot", cf * CF(0, 0.1, 0), 0.2, 1.2, C.Chrome)
+	return done(m, parent, seat)
+end
+
+-- Jukebox (glows).
+function Kit.jukebox(parent: Instance, cf: CFrame): Model
+	local m = model("Jukebox")
+	local b = P(m, "JukeBody", cf * CF(0, 2.5, 0), V(3, 5, 2), C.Red, { solid = true, fuel = 15 })
+	local face = P(m, "JukeGlow", cf * CF(0, 3, -1.02), V(2.4, 3.4, 0.08), C.Mustard, { neon = true })
+	local g = gui(face, Enum.NormalId.Front, 20, true)
+	for k = 0, 4 do
+		rect(g, 0.1, 0.1 + k * 0.17, 0.8, 0.08, Kit.Bright[k + 1], 0.5)
+	end
+	return done(m, parent, b)
+end
+
+
 return Kit

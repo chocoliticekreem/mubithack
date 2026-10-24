@@ -133,6 +133,13 @@ local function newCtx(site: Model, F: CFrame, w: number, d: number, H: number, s
 	return ctx :: Ctx
 end
 
+-- Builder placeholder boxes that the home layouts swap for real furniture (not keep-outs: the swap
+-- itself decides where the real piece goes).
+Furnish.Swappable = {
+	Sofa = true, Table = true, Counter = true, Fridge = true, Bookshelf = true, Bed = true, Dresser = true,
+	BunkBed = true, Desk = true, Shelf = true, Crates = true, Booth = true,
+}
+
 -- Keep-outs from what the site already has: doors (both sides), stairs (+ walk-in / landing strips),
 -- rescue spots, jump windows and any solid furniture the builder left (lockers, the gas tank).
 local function collectKeepouts(ctx: Ctx, opts: { [string]: any })
@@ -175,17 +182,26 @@ local function collectKeepouts(ctx: Ctx, opts: { [string]: any })
 			local hx = math.abs(lcf.RightVector.X) * p.Size.X / 2 + math.abs(lcf.LookVector.X) * p.Size.Z / 2
 			local hz = math.abs(lcf.RightVector.Z) * p.Size.X / 2 + math.abs(lcf.LookVector.Z) * p.Size.Z / 2
 			local r = Plan.span(lp.X - hx - 0.5, lp.Z - hz - 4, lp.X + hx + 0.5, lp.Z + hz + 3)
+			-- room to walk up to the foot and off the landing from the open side (+X for stairs on
+			-- the left wall, -X on the right), not just the flight's own width
+			local side = if lp.X < 0 then 1 else -1
+			local ox0, ox1 = lp.X - hx - 0.5, lp.X + hx + 0.5
+			local wideX0, wideX1 = if side > 0 then ox0 else ox0 - 5.5, if side > 0 then ox1 + 5.5 else ox1
+			local foot = Plan.span(wideX0, lp.Z - hz - 4, wideX1, lp.Z - hz + 1.5)
+			local land = Plan.span(wideX0, lp.Z + hz - 1.5, wideX1, lp.Z + hz + 4)
 			for k = 1, ctx.storeys do
 				local y0 = ctx.floors[k]
 				if lp.Y + p.Size.Y / 2 >= y0 - 1 and lp.Y - p.Size.Y / 2 <= y0 + ctx.H then
 					ctx.placers[k]:keep(r)
+					-- the foot is on the storey the flight leaves, the landing on the one it reaches
+					ctx.placers[k]:keep(if lp.Y - p.Size.Y / 2 >= y0 - 1 then foot else land)
 				end
 			end
 		elseif p:HasTag(Names.Tag.Window) and p:GetAttribute("Jump") == true then
 			if s then
 				ctx.placers[s]:keep(Plan.rect(lp.X, lp.Z, 6, 6))
 			end
-		elseif p.CanCollide and p.Transparency < 0.9 and s and base ~= "Floor" and base ~= "Foundation" and base ~= "Ceiling"
+		elseif p.CanCollide and p.Transparency < 0.9 and s and not (opts.swaps and Furnish.Swappable[base]) and base ~= "Floor" and base ~= "Foundation" and base ~= "Ceiling"
 			and string.sub(base, 1, 4) ~= "Wall" and base ~= "Lintel" and base ~= "Sill" and string.sub(base, 1, 4) ~= "Roof"
 			and base ~= "Parapet" and not p:HasTag(Names.Tag.Window)
 		then
@@ -300,7 +316,7 @@ function Furnish.site(site: Model): (number, number)
 		end
 		local ctx = newCtx(site, F, w, d, H, storeys, if type(fy) == "number" then fy else 1.72)
 		local ok, err = pcall(function()
-			collectKeepouts(ctx, { keepFireStarts = kind ~= "school" })
+			collectKeepouts(ctx, { keepFireStarts = false, swaps = kind ~= "school" })
 			layout(ctx)
 		end)
 		if not ok then
@@ -334,7 +350,7 @@ function Furnish.site(site: Model): (number, number)
 end
 
 -- Layout modules register themselves here (Interiors/School, ...).
-for _, name in { "School" } do
+for _, name in { "School", "Home" } do
 	local mod = script.Parent:FindFirstChild(name)
 	if mod and mod:IsA("ModuleScript") then
 		local ok, layout = pcall(require, mod)

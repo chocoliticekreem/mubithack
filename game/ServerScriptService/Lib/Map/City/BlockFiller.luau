@@ -319,6 +319,17 @@ local function shell(site: Instance, F: CFrame, spec: any): { number }
 	return floors
 end
 
+-- Interior opt-in (Lib/Map/Interiors/Furnish builds the layout `kind` when a run binds the site).
+local function interior(site: Instance, kind: string, F: CFrame, w: number, d: number, H: number, storeys: number, fy: number)
+	site:SetAttribute("Interior", kind)
+	site:SetAttribute("InteriorFrame", F)
+	site:SetAttribute("InteriorW", w)
+	site:SetAttribute("InteriorD", d)
+	site:SetAttribute("InteriorH", H)
+	site:SetAttribute("InteriorStoreys", storeys)
+	site:SetAttribute("InteriorFloorY", fy)
+end
+
 -- Five rescue markers for house_fire (2 civilians, cat, dog, panda) spread over the floors.
 local function houseRescues(site: Model, F: CFrame, w: number, d: number, floors: { number }, prefix: string?)
 	local p = prefix or "R"
@@ -366,6 +377,7 @@ function Build.house(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numbe
 		end,
 	})
 	local fy = floors[1]
+	interior(site, "house", F, w, d, 11, storeys, fy)
 	-- ground floor: living room + kitchen
 	local sofa = box(site, "Sofa", F * CF(w * 0.2, fy, d * 0.45), V(7, 3, 3), pick(rng, C.Furniture), true)
 	box(site, "Table", F * CF(-w * 0.05, fy, d * 0.45), V(4, 2.6, 3), C.Wood, true)
@@ -425,6 +437,7 @@ function Build.apartment(ctx: any, site: Model, F: CFrame, maxW: number, maxD: n
 			return { { at = dd / 2, w = 4, kind = "window" } }
 		end,
 	})
+	interior(site, "apartment", F, w, d, 10, storeys, floors[1])
 	-- balconies under the upper front windows (the jumpers stand on them)
 	for s = 2, storeys do
 		SK.part(site, "Balcony", F * CF(0, floors[s] - 0.3, -1.5), V(w * 0.7, 0.6, 2.5), C.Concrete)
@@ -490,6 +503,7 @@ local function storefront(ctx: any, site: Model, F: CFrame, w: number, d: number
 		end,
 	})
 	local fy, top = floors[1], floors.top
+	interior(site, "shop", F, w, d, 12, 1, fy)
 	-- striped awning sloping toward the street
 	local n = 6
 	for k = 1, n do
@@ -522,6 +536,7 @@ function Build.diner(ctx: any, site: Model, F: CFrame, maxW: number, maxD: numbe
 	local rng: Random = ctx.rng
 	local w, d = math.min(maxW, 46), math.min(maxD, 26)
 	local floors = storefront(ctx, site, F, w, d, Color3.fromHex("#D6D8DC"), "DINER", Color3.fromHex("#C8232B"), true)
+	site:SetAttribute("Interior", "diner")
 	-- booths along the front glass
 	for k = -1, 1 do
 		box(site, "Booth", F * CF(k * w * 0.28, floors[1], 3), V(6, 2.8, 2.5), C.Red, true)
