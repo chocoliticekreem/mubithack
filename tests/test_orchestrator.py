@@ -18,6 +18,26 @@ def fast_poll(monkeypatch):
     monkeypatch.setattr(orchestrator, "POLL_S", 0.02)
 
 
+def _fake_checks(monkeypatch, headless_pass: bool):
+    """One saved check; checks.triage says it passed headless, or that it still needs Studio."""
+    import forge.checks as chk
+    import forge.scenarios as sc
+
+    c = chk.Check(id="cash-rises", title="cash rises", covers="acceptance: cash rises", body="return {ok=true}")
+    monkeypatch.setattr(chk, "load_checks", lambda run_dir: [c])
+    monkeypatch.setattr(chk, "triage", lambda game_dir, checks: (
+        ([{"id": "cash-rises", "ok": True, "detail": "headless"}], []) if headless_pass else ([], [c])))
+    saved = []
+
+    def save(run_dir, results):
+        saved.append(results)
+        (run_dir / "checks").mkdir(parents=True, exist_ok=True)
+        (run_dir / "checks" / "results.json").write_text(json.dumps(results))
+
+    monkeypatch.setattr(sc, "save_results", save)
+    return saved
+
+
 def _settings(tmp_path):
     return dataclasses.replace(load_settings(), runs_dir=tmp_path / "runs")
 
@@ -92,7 +112,8 @@ class FakeKeeper:
 def _orch(tmp_path, llm, runner, **opts):
     s = _settings(tmp_path)
     slots = StudioSlots(tmp_path / "slots", running=lambda n: True)
-    broker = Broker(tmp_path / "broker", {"llm": ["llm-1", "llm-2"], "game": ["game:g"], "sync": ["34901"],
+    broker = Broker(tmp_path / "broker", {"llm": ["llm-1", "llm-2", "llm-3", "llm-4"],
+                                         "game": ["game:g#1", "game:g#2", "game:g#3"], "sync": ["34901"],
                                          "studio": ["Forge-agents-30"]}, studio_slots=slots)
     o = Options(goal="10x better tycoon", workers=3, studios=["Forge-agents-30"], max_calls=None, minutes=5,
                 **opts)
@@ -111,6 +132,7 @@ def test_round_runs_gaps_then_builds_then_verifies_until_target(tmp_path, monkey
         return {**r, "ready": ok}
 
     monkeypatch.setattr(forge.done, "readiness", readiness)
+    _fake_checks(monkeypatch, headless_pass=False)
     llm = FakeLLM({"gap_finder": [_gaps(("Saving", 9, "feature", None), ("Belt sticks", 8, "fix",
                                                                          "ServerScriptService/Tycoon.luau"),
                                         ("Sparkles", 6, "visual", None), ("Tiny", 1, "feature", None))]})
@@ -130,8 +152,10 @@ def test_round_runs_gaps_then_builds_then_verifies_until_target(tmp_path, monkey
     assert rounds[0]["gaps"][0]["id"] == "saving" and all(j["status"] == "done" for j in rounds[0]["jobs"])
     status = json.loads((run / "orchestrator" / "status.json").read_text())
     assert status["state"] == "finished" and status["after"]["ready"]
-    timings = json.loads((run / "orchestrator" / "timings.json").read_text())
-    assert timings["lanes"] and timings["calls"] and timings["stages"][0]["name"] == "round 1"
+    timings = json.loads((run / "orchestrator" / "timings.json").read_text())  # forge.timings format
+    assert [st["name"] for st in timings["stages"]] == ["resume", "round 1"]
+    assert {c["role"] for c in timings["calls"]} >= {"gap_finder", "coder", "fixer", "critic", "tester", "auditor"}
+    assert all(c["end"] is not None and c["lane"] for c in timings["calls"]) and not timings["running"]
 
 
 def test_loops_rounds_and_feeds_done_jobs_back(tmp_path):
@@ -201,3 +225,54 @@ def test_mcp_tools_start_the_orchestrator(tmp_path, monkeypatch):
     assert seen[1][1] == ["gaps", "g", "--goal", "", "--correct", "saving matters less", "--reject", "saving"]
     assert "No gap list" in fm.gaps("g")
     assert "never run" in fm.orchestrator("g")
+
+
+class SlowFixRunner(FakeRunner):
+    """Fix jobs take a moment, so overlapping ones are visible; records which files were being fixed at once."""
+
+    def __init__(self, run):
+        super().__init__(run, scores=[])
+        self.editing: list = []
+        self.peak_fixes = 0
+        self.same_file_overlap = False
+
+    def __call__(self, job, env, should_stop, beat):
+        import time
+
+        path = (job.get("args") or {}).get("path")
+        if job["kind"] == "fix":
+            with self.lock:
+                self.same_file_overlap |= path in self.editing
+                self.editing.append(path)
+                self.peak_fixes = max(self.peak_fixes, len(self.editing))
+            time.sleep(0.3)
+            with self.lock:
+                self.editing.remove(path)
+        return super().__call__(job, env, should_stop, beat)
+
+
+def test_fixes_to_different_files_run_in_parallel_and_same_file_never(tmp_path):
+    run = _game(tmp_path)
+    llm = FakeLLM({"gap_finder": [_gaps(("A broken", 9, "fix", "A.luau"), ("B broken", 8, "fix", "B.luau"),
+                                        ("C broken", 7, "fix", "C.luau"), ("A again", 6, "fix", "A.luau"))]})
+    for name in ("A", "B", "C"):
+        (run / "game" / f"{name}.luau").write_text("return {}\n")
+    runner = SlowFixRunner(run)
+    _orch(tmp_path, llm, runner, rounds=1, per_round=4, checks=False, fix_cycle=False).run()
+    assert runner.peak_fixes == 3  # A, B, C at once (3 workers); the second A fix waits for the first
+    assert not runner.same_file_overlap
+    kinds = [c[0] for c in runner.calls]
+    assert kinds.count("fix") == 4 and kinds[-1] == "playtest"  # the whole-game writer waits for every fix
+
+
+def test_checks_that_pass_headless_never_take_a_studio_lease(tmp_path, monkeypatch):
+    run = _game(tmp_path)
+    saved = _fake_checks(monkeypatch, headless_pass=True)
+    llm = FakeLLM({"gap_finder": [_gaps(("Saving", 9, "fix", "ServerScriptService/Tycoon.luau"))]})
+    runner = FakeRunner(run, scores=[6])
+    _orch(tmp_path, llm, runner, rounds=1, fix_cycle=False).run()
+    assert "checks" not in [c[0] for c in runner.calls]  # the Studio checks job was marked done, not run
+    assert saved and saved[0][0]["source"] == "headless"
+    q = {j["kind"]: j for j in JobQueue(run / "orchestrator").jobs()}
+    assert q["checks"]["status"] == "done" and "headless" in q["checks"]["result"]["skipped"]
+    assert q["checks_offline"]["result"]["headless_passed"] == 1
