@@ -7,7 +7,7 @@
 --   * Passes:   GamePasses.UnlimitedFoam = 123456789        (Passes tab, the pass's "ID")
 --   * Donations: DonationProducts[1].id = 987654321          (Developer Products tab)
 -- 0 = not configured: the store shows "COMING SOON", the server never prompts, nothing errors.
--- BattlePassConfig.GamePassId reads GamePasses.PremiumPass from here (one source of truth).
+-- BattlePassService unlocks the premium track from Player attr Pass_PremiumPass (GamePasses.PremiumPass).
 --
 -- Studio testing without real ids (server side, e.g. execute_luau on the Server datamodel):
 --   player:SetAttribute("PassDebug_UnlimitedFoam", true)   -- Studio only; MonetizationService mirrors

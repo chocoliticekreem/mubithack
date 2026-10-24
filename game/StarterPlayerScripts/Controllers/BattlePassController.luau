@@ -623,11 +623,11 @@ local function buildLocker(area: Frame)
 		local row = frame(list, slot, UDim2.new(1, -16, 0, 128), UDim2.fromOffset(0, 0), Color3.new(), nil)
 		row.BackgroundTransparency = 1
 		row.LayoutOrder = i
-		local tag = UiKit.panel(row, "Label", UDim2.fromOffset(120, 116), UDim2.fromOffset(2, 6))
+		local tag = UiKit.panel(row, "Label", UDim2.fromOffset(100, 116), UDim2.fromOffset(2, 6))
 		tag.BackgroundColor3 = Palette.UiFlameMid
 		local tl = text(tag, "T", SLOT_LABEL[slot], UDim2.new(1, -8, 0, 60), UDim2.fromOffset(4, 10), UiKit.Header, 22, Palette.UiCream, true)
 		tl.TextWrapped = true
-		local off = UiKit.button(tag, "Off", "REMOVE", UDim2.fromOffset(100, 30), UDim2.new(0.5, 0, 1, -22), Palette.UiPanelDark)
+		local off = UiKit.button(tag, "Off", "REMOVE", UDim2.fromOffset(86, 30), UDim2.new(0.5, 0, 1, -22), Palette.UiPanelDark)
 		off.TextSize = 16
 		off.Activated:Connect(function()
 			sfx("Click")
@@ -635,18 +635,19 @@ local function buildLocker(area: Frame)
 		end)
 		for j, it in items do
 			local r = Cfg.Rewards[it.id]
-			local f = frame(row, it.id, UDim2.fromOffset(112, 116), UDim2.fromOffset(132 + (j - 1) * 120, 6), FREE_CARD, 12)
+			-- 10 helmets fit across the panel without scrolling sideways: 110 + 10 x 93 px
+			local f = frame(row, it.id, UDim2.fromOffset(88, 116), UDim2.fromOffset(110 + (j - 1) * 93, 6), FREE_CARD, 12)
 			local st = UiKit.stroke(f, 3, Palette.UiInk)
-			local ic = icon(f, r, 64)
-			ic.Position = UDim2.fromOffset(24, 4)
-			local nm = text(f, "Name", tostring(r.Name), UDim2.new(1, -8, 0, 30), UDim2.fromOffset(4, 66), UiKit.Body, 14, Palette.UiInk, false)
+			local ic = icon(f, r, 60)
+			ic.Position = UDim2.fromOffset(14, 4)
+			local nm = text(f, "Name", tostring(r.Name), UDim2.new(1, -6, 0, 30), UDim2.fromOffset(3, 64), UiKit.Body, 13, Palette.UiInk, false)
 			nm.ZIndex = 3
 			local tg = text(f, "Tag", "EQUIP", UDim2.new(1, 0, 0, 18), UDim2.fromOffset(0, 96), UiKit.Header, 15, Palette.UiInk, false)
 			tg.ZIndex = 4
 			local shade = frame(f, "Shade", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Palette.UiPanelDark, 12)
 			shade.BackgroundTransparency = 0.5
 			shade.ZIndex = 3
-			local lockText = text(shade, "Req", (if it.track == "premium" then "★ " else "") .. `TIER {it.tier}`, UDim2.new(1, 0, 0, 24), UDim2.fromOffset(0, 40), UiKit.Header, 20, Palette.UiCream, true)
+			local lockText = text(shade, "Req", (if it.track == "premium" then "★ " else "") .. `TIER {it.tier}`, UDim2.new(1, 0, 0, 24), UDim2.fromOffset(0, 40), UiKit.Header, 17, Palette.UiCream, true)
 			lockText.ZIndex = 4
 			local hit = Instance.new("TextButton")
 			hit.Name = "Hit"
@@ -676,11 +677,7 @@ local function buildLocker(area: Frame)
 				UiKit.punch(f, 0.1)
 			end)
 		end
-		local w = 132 + #items * 120
-		row.Size = UDim2.new(0, math.max(w, 400), 0, 128)
 	end
-	list.ScrollingDirection = Enum.ScrollingDirection.XY
-	list.AutomaticCanvasSize = Enum.AutomaticSize.XY
 end
 
 local function setTab(name: string)
@@ -733,7 +730,7 @@ local function toggle()
 end
 
 local function build()
-	local g = UiKit.screen("BattlePassGui", 15) -- above the HUD markers / onboarding arrows
+	local g = UiKit.screen("BattlePassGui", 30) -- above the onboarding edge arrows (26) and mission guide (24)
 	ui.gui = g
 
 	-- left-edge chip (above the STORE chip)
