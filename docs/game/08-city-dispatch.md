@@ -114,7 +114,7 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
 - **Hose:** grabbing the nozzle from your truck's reel calls `HoseLine.attach(player, reelPart)`.
   You can't wander farther than the hose length from the truck, and dropping the nozzle leaves it
   on the ground still attached.
-- API: `InventoryService:Give(player, itemId)`, `Drop(player)`, `GetHand(player): string?`, signal
+- API: `InventoryService:Give(player, itemId)`, `Drop(player)`, `GetHand(player): string?`, `StowHose(player)` (mission over: hose back on the reel), signal
   `Changed(player)`. Tools stay `Tool` instances under the character while held, so ToolService keeps
   working. Inventory owns where they come from.
 - Custom hotbar UI (big chunky slots), plus a pickup prompt and "E to grab" world highlights.

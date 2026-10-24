@@ -293,19 +293,21 @@ end
 
 -- observation for MissionFlow.tick -----------------------------------------------------------------
 
-local function rescueCounts(run: Live): (number, number)
-	local rescued, trapped = 0, 0
+local function rescueCounts(run: Live): (number, number, number)
+	local rescued, trapped, lost = 0, 0, 0
 	for _, m in CollectionService:GetTagged(Names.Tag.Rescuable) do
 		if m:GetAttribute(Names.Attr.InstanceId) == run.id or m:IsDescendantOf(run.model) then
 			local state = m:GetAttribute(Names.Attr.RescueState)
 			if state == "Rescued" then
 				rescued += 1
-			elseif state ~= "Toasted" then -- toasted NPCs are lost, not still trapped
+			elseif state == "Toasted" then -- lost, not still trapped (but still part of the total)
+				lost += 1
+			else
 				trapped += 1
 			end
 		end
 	end
-	return rescued, trapped
+	return rescued, trapped, lost
 end
 
 local function burningCount(run: Live): number
@@ -576,7 +578,7 @@ end
 -- results --------------------------------------------------------------------------------------------
 
 local function buildPayload(run: Live): Types.ResultsPayload
-	local rescued, trapped = rescueCounts(run)
+	local rescued, trapped, lost = rescueCounts(run)
 	local burning = burningCount(run)
 	local charred = 0
 	if run.model.Parent then
@@ -627,6 +629,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		burningAtEnd = burning,
 		rescued = rescued,
 		trapped = trapped,
+		lost = lost,
 		elapsed = elapsed,
 		downs = downs,
 		integrity = integrity,
@@ -638,6 +641,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		burnedParts = charred,
 		rescued = rescued,
 		trapped = trapped,
+		lost = lost, -- toasted: counts toward "RESCUED x / total"
 		burningAtEnd = burning,
 		stars = stars,
 		reason = MissionFlow.endReason(outcome),
@@ -774,6 +778,14 @@ local function onDoneDispatch(run: Live)
 		end
 	end
 	notify(players, "Call closed. Drive back to the station!", "info")
+	safe("StowHose", function()
+		local Inv = services.InventoryService
+		if Inv and type(Inv.StowHose) == "function" then
+			for _, p in players do
+				Inv:StowHose(p)
+			end
+		end
+	end)
 	safe("ClearWaypoint", function()
 		local Nav = services.NavigationService
 		if Nav and type(Nav.ClearWaypoint) == "function" then
@@ -833,6 +845,14 @@ local function onDone(run: Live)
 			if Map and char and char:FindFirstChild("HumanoidRootPart") then
 				local slot = if Squad and type(Squad.GetHelmet) == "function" then Squad:GetHelmet(p) else i
 				char:PivotTo(Map:GetSpawnCFrame(slot))
+			end
+		end
+	end)
+	safe("StowHose", function()
+		local Inv = services.InventoryService
+		if Inv and type(Inv.StowHose) == "function" then
+			for _, p in players do
+				Inv:StowHose(p)
 			end
 		end
 	end)

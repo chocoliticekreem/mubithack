@@ -67,6 +67,7 @@ export type Summary = {
 	burningAtEnd: number,
 	rescued: number,
 	trapped: number,
+	lost: number?, -- toasted rescues
 	elapsed: number, -- seconds the Active phase lasted
 	downs: number, -- times any squad member was downed
 	hadFires: boolean?, -- false when nothing was ever lit (stubs): allOut still counts
@@ -239,7 +240,7 @@ function MissionFlow.starEarned(rule: StarRule, s: Summary): boolean
 	elseif rule.id == "allOut" then
 		return finished and s.burningAtEnd == 0
 	elseif rule.id == "allRescued" then
-		return finished and s.rescued > 0 and s.trapped == 0
+		return finished and s.rescued > 0 and s.trapped == 0 and (s.lost or 0) == 0
 	elseif rule.id == "underTime" then
 		return s.outcome == "success" and s.elapsed <= (rule.seconds or math.huge)
 	elseif rule.id == "buildingSaved" then

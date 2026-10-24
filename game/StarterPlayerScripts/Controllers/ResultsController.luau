@@ -313,7 +313,7 @@ local function show(payload: Types.ResultsPayload)
 	teamLayout.Padding = UDim.new(0, 14)
 	teamLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	teamLayout.Parent = team
-	local total = payload.rescued + payload.trapped
+	local total = payload.rescued + payload.trapped + (tonumber(payload.lost) or 0)
 	local chips = {
 		{ "FIRES OUT", payload.firesOut, "", Palette.FireEdge },
 		{ "RESCUED", payload.rescued, ` / {total}`, Palette.UiGood },

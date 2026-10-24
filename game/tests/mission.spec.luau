@@ -104,6 +104,8 @@ Spec.test("stars: house_fire rules (finish, allOut, allRescued)", function()
 	Spec.eq(n, 1, "timer ran out with work left")
 	n = Flow.stars(rules, { outcome = "wiped", burningAtEnd = 0, rescued = 5, trapped = 0, elapsed = 50, downs = 4 })
 	Spec.eq(n, 0, "a wiped squad earns nothing")
+	n = Flow.stars(rules, { outcome = "success", burningAtEnd = 0, rescued = 2, trapped = 0, lost = 1, elapsed = 90, downs = 0 })
+	Spec.eq(n, 2, "a toasted animal costs the rescue star")
 end)
 
 Spec.test("stars: underTime and noDowns", function()

@@ -1535,6 +1535,34 @@ function InventoryService:Clear(player: Player)
 	apply(player, ps)
 end
 
+-- Put the player's hose back on their truck reel: the held nozzle and any nozzle they left lying
+-- on the ground tethered to their truck (mission over, so the next call starts with a rolled-up hose).
+function InventoryService:StowHose(player: Player): boolean
+	local stowed = false
+	local ps = states[player]
+	if ps and ps.hand and ps.hand.id == "Hose" then
+		ps.hand = nil
+		apply(player, ps)
+		stowed = true
+	end
+	for reel, m in reelLoose do
+		local truck = truckOf(reel)
+		if truck and truck:GetAttribute("OwnerUserId") == player.UserId then
+			removeLoose(m)
+			stowed = true
+		end
+	end
+	for reel, holder in reelHolder do
+		if holder == player then
+			reelHolder[reel] = nil
+		end
+	end
+	if stowed then
+		Telemetry.count("inv_hose_stowed")
+	end
+	return stowed
+end
+
 -- test hooks ---------------------------------------------------------------------------------------
 function InventoryService:_state(player: Player): { [string]: any }
 	local ps = states[player]
