@@ -259,7 +259,7 @@ def _parse_json(text: str) -> Any:
 def compact_observation(obs: dict, limit: int = OBS_MAX_CHARS) -> dict:
     """Trim list fields until the JSON is under `limit` characters."""
     obs = dict(obs)
-    order = ("hud", "things", "prompts")
+    order = ("hud", "things", "touchables", "prompts")
     while len(_dumps(obs)) >= limit:
         trimmed = False
         for key in order:
@@ -416,6 +416,9 @@ def _obs_brief(obs: dict) -> str:
         ))
     if obs.get("prompts"):
         parts.append("prompts=" + ",".join(str(p.get("action")) for p in obs["prompts"][:3]))
+    if obs.get("touchables"):
+        parts.append("touch=" + ",".join(f"{t.get('label') or t.get('name')}@{t.get('dist')}"
+                                         for t in obs["touchables"][:3]))
     if obs.get("hud"):
         parts.append("hud=" + _clip(" | ".join(obs["hud"][:4]), 120))
     return "; ".join(parts)
