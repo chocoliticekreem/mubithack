@@ -298,13 +298,20 @@ Critique: `{"score": 0-10, "summary": "...", "issues": [{"path": "...", "problem
 ### game/tools/sync.py (stdlib only, runnable standalone: `python3 game/tools/sync.py <cmd> --root DIR`)
 - `check --root DIR` → exit 0/1; prints `FAIL <file>\n<msg>` per bad file (uses `luau-compile --null`).
   As a library: `check(root: Path) -> list[tuple[str, str]]` (relative path, error).
-- `manifest --root DIR` → writes `DIR/tools/manifest.json`: `[{service, dirs, name, class, path}]`.
+- `manifest --root DIR` → writes `DIR/tools/manifest.json`: `[{service, dirs, name, class, path, hash, size}]`
+  (`hash` = sha1 of the file, 16 hex; `size` = UTF-8 byte length). Library: `manifest_entries(root)`,
+  `hashes(entries) -> {path: hash}`, `changed_paths(entries, pushed) -> {changed, added, removed}`,
+  `inline_plan(root, entries, pushed, budget) -> {path: source}`, `long_string(text)` (Luau literal).
 - `serve --root DIR --port P` → HTTP file server for DIR on 127.0.0.1. As a library:
   `serve_in_thread(root, port) -> ThreadingHTTPServer`.
-- `pull_luau(port: int, prune: bool = True) -> str` → Luau source for execute_luau that fetches
-  the manifest and every file, creates/updates scripts, and (if prune) deletes scripts under the
-  synced roots that are tagged `ForgeManaged` but no longer in the manifest. Returns a string like
-  `OK n files, changed: a, b` or `ERROR ...`.
+- `pull_luau(port, prune=True, manifest=None, inline=None, force=False) -> str` → Luau source for
+  execute_luau. Incremental: every synced script carries `ForgeHash`/`ForgeLen` attributes and is
+  skipped when they match the manifest; only changed files are written. `manifest`/`inline` embed the
+  manifest and those sources in the script (one MCP call, no HTTP); anything else that changed is
+  fetched from the file server. `force=True` fetches every file (the original behaviour). If prune,
+  deletes scripts under the synced roots tagged `ForgeManaged` but no longer in the manifest. Returns
+  `OK n files, changed: a, b[; pruned: …]; skipped k, fetched m` or `ERROR ...`.
+- `tools/headless.luau`: a fake Roblox engine for the plain `luau` CLI (see checks.py, headless).
 - Mapping: `X.server.luau` → Script, `X.client.luau` → LocalScript, `X.luau` → ModuleScript;
   roots ServerScriptService, ReplicatedStorage, StarterPlayerScripts (→ StarterPlayer.StarterPlayerScripts),
   also ServerStorage, StarterGui, Workspace if present.
@@ -312,7 +319,8 @@ Critique: `{"score": 0-10, "summary": "...", "issues": [{"path": "...", "problem
 ### ForgeProbe runtime contract (game/ServerScriptService/ForgeProbe.server.luau)
 During a playtest it records `ScriptContext.Error` and `LogService.MessageOut` (warnings/errors),
 player joins, and any `ForgeProbe` attribute counters games set. It exposes
-`ServerStorage.ForgeProbe` (BindableFunction): `Invoke("report")` returns a JSON string:
+`ServerStorage.ForgeProbe` (BindableFunction): `Invoke("hotreload", liveModule, clone)` copies the
+clone's functions into the live module table (used by `Studio.hot_reload`); `Invoke("report")` returns a JSON string:
 ```json
 {"uptime": 12.3, "errors": [{"message": "...", "trace": "...", "script": "..."}],
  "warnings": ["..."], "players": 1, "counters": {"coins_collected": 3}, "instances": 412}
@@ -323,18 +331,35 @@ Games may call `require(ReplicatedStorage.ForgeTelemetry).count(name, n)` to bum
 
 ### studio.py
 ```python
-class Studio:  # async context manager; spawns settings.studio_mcp_path over stdio (mcp SDK)
+class Studio:  # async context manager; one StudioMCP session (reconnects once if it dies)
+    timings: list[tuple[str, float]]                      # (tool, seconds) of every call
     async def list_studios(self) -> list[dict]            # [{id, name}]
-    async def select(self, name_hint: str | None = None) -> str   # picks studio_id (first if one)
+    async def select(self, name_hint: str | None = None) -> str   # id, exact name, then substring
     async def call(self, tool: str, **args) -> str        # raw tool call, returns text content
     async def execute_luau(self, code: str, datamodel: str = "Edit") -> str
     async def state(self) -> dict
-    async def play(self) -> None                          # start_stop_play(is_start=True), waits for Server DM
+    async def play(self, ready: bool = True, ready_timeout: float = 30.0) -> dict  # start, Server DM, then wait_ready
+    async def wait_ready(self, timeout=30.0, grace=0.5) -> dict  # one Server call that waits in Studio for
+                                                          # ForgeProbe + ServerBooted (or a character): {ready, reason, waited}
     async def stop(self) -> None
     async def console(self) -> str
     async def screenshot(self, out: Path) -> Path | None  # screen_capture; saves image if returned
     async def probe_report(self) -> dict                  # execute_luau in Server DM: ForgeProbe:Invoke("report")
-    async def sync(self, root: Path, port: int) -> str    # manifest + serve_in_thread + execute pull_luau
+    async def sync(self, root, port=None, prune=True, incremental=True) -> str  # hashed incremental pull in one
+                                                          # call; long-lived file server (free port if taken)
+    async def hot_reload(self, root: Path) -> dict        # during play: changed server ModuleScripts swapped in
+                                                          # place -> {reloaded, restart: [(path, why)], changed}
+def hot_reload_plan(entries, changed, sources, added=()) -> {"reload": [...], "restart": [(path, why)]}
+```
+
+### checks.py: headless runs (no Studio)
+```python
+def boot_offline(game_dir, boot=2.0, play=3.0, players=1) -> dict   # ForgeProbe-shaped report + "misses"
+def run_check_offline(game_dir, check, timeout=30.0) -> dict         # run_check's shape + where="offline"
+def run_checks_offline(game_dir, checks, timeout=30.0, workers=8) -> list[dict]
+def triage(game_dir, checks) -> (offline_passes, checks_needing_studio)  # only passes are trusted offline
+def run_specs(spec_dir) -> list[dict]                                # *.spec.luau with the luau CLI
+# a check file may say `-- needs: studio` (physics, rendering, replication): never run offline
 ```
 
 ### assets.py (docs/game/07-assets.md)
