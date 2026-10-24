@@ -222,7 +222,14 @@ local function onHonk(model: any)
 	end
 end
 
+-- Far cars are moved every FAR_EVERY-th frame only (moving a welded car is the client's top Lua cost;
+-- at 160+ studs a 20 Hz car is indistinguishable from a 60 Hz one).
+local FAR_STUDS2 = 160 * 160
+local FAR_EVERY = 3
+local frame = 0
+
 local function render()
+	frame += 1
 	local now = os.clock()
 	local renderT = now - Cfg.InterpDelay
 	local cam = workspace.CurrentCamera
@@ -243,7 +250,11 @@ local function render()
 		end
 		local last = snaps[n]
 		local d = last.cf.Position - camPos
-		if d.X * d.X + d.Z * d.Z > radius2 then
+		local dist2 = d.X * d.X + d.Z * d.Z
+		if dist2 > radius2 then
+			continue
+		end
+		if dist2 > FAR_STUDS2 and (frame + math.floor(rec.phase * 7)) % FAR_EVERY ~= 0 then
 			continue
 		end
 		lamps(rec, now)

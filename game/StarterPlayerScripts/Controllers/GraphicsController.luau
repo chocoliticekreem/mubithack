@@ -210,11 +210,23 @@ type Box = { cf: CFrame, half: Vector3 }
 local mapBoxes: { [Instance]: Box } = {}
 local boxesAt = -math.huge
 
+local watchedMap: Instance? = nil
+
+-- GetBoundingBox on the City model walks ~31k parts (~0.25 s on the client), so boxes are recomputed
+-- only when Workspace.Map's children change (a location rebuilt), not on a 10 s timer.
 local function refreshBoxes()
 	table.clear(mapBoxes)
 	local map = workspace:FindFirstChild("Map")
 	if not map then
 		return
+	end
+	if watchedMap ~= map then
+		watchedMap = map
+		local function dirty()
+			boxesAt = -math.huge
+		end
+		map.ChildAdded:Connect(dirty)
+		map.ChildRemoved:Connect(dirty)
 	end
 	for _, m in map:GetChildren() do
 		if m:IsA("Model") and m:GetAttribute(Names.Attr.LocationId) ~= nil then
@@ -245,7 +257,7 @@ local function resolveLocation(): (string?, Instance?)
 			return loc, model
 		end
 	end
-	if os.clock() - boxesAt > 10 then
+	if os.clock() - boxesAt > 300 or (next(mapBoxes) == nil and os.clock() - boxesAt > 5) then
 		refreshBoxes()
 	end
 	local cam = workspace.CurrentCamera

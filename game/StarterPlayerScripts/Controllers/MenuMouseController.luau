@@ -69,29 +69,73 @@ local function hasButton(g: Instance): boolean
 	return false
 end
 
-local function menuOpen(pg: PlayerGui): boolean
+-- PlayerGui index, kept up to date by DescendantAdded/Removing: walking PlayerGui with GetDescendants six
+-- times a second (and reading an attribute on every UICorner/label) was this client's top Lua cost in
+-- the lobby. `panels` = Frame/ScrollingFrame/ImageLabel (big-panel test), `menus` = attribute Menu = true
+-- (checked a frame after it's added, since builders set the attribute after parenting).
+local panels: { [GuiObject]: true } = {}
+local menus: { [GuiObject]: true } = {}
+
+-- Menus are top-level panels (ScreenGui > Panel, at most a wrapper or two deep). The minimap's ~1,300
+-- road/label frames sit deeper and never count, so they're left out of the index.
+local MAX_DEPTH = 3
+local function depth(g: Instance): number
+	local n = 0
+	local p = g.Parent
+	while p and not p:IsA("LayerCollector") do
+		n += 1
+		p = p.Parent
+	end
+	return n
+end
+
+local function add(d: Instance)
+	if not d:IsA("GuiObject") then
+		return
+	end
+	local g = d :: GuiObject
+	if (g:IsA("Frame") or g:IsA("ScrollingFrame") or g:IsA("ImageLabel")) and depth(g) <= MAX_DEPTH then
+		panels[g] = true
+	end
+	task.defer(function()
+		if g.Parent and g:GetAttribute("Menu") == true then
+			menus[g] = true
+		end
+	end)
+end
+
+local function track(pg: PlayerGui)
+	for _, d in pg:GetDescendants() do
+		add(d)
+	end
+	pg.DescendantAdded:Connect(add)
+	pg.DescendantRemoving:Connect(function(d)
+		panels[d :: any] = nil
+		menus[d :: any] = nil
+	end)
+end
+
+local function inScreenGui(d: Instance): boolean
+	local lc = d:FindFirstAncestorWhichIsA("LayerCollector")
+	return lc ~= nil and lc:IsA("ScreenGui") and lc.Name ~= "MenuMouse"
+end
+
+local function menuOpen(_pg: PlayerGui): boolean
+	for d in menus do
+		if d.Visible and shown(d) and inScreenGui(d) then
+			return true
+		end
+	end
 	local cam = workspace.CurrentCamera
 	local view = if cam then cam.ViewportSize else Vector2.new(1280, 720)
-	for _, sg in pg:GetChildren() do
-		if not sg:IsA("ScreenGui") or not sg.Enabled or sg.Name == "MenuMouse" then
+	local minX, minY = view.X * MIN_FRACTION, view.Y * MIN_FRACTION
+	for d in panels do
+		if not d.Visible or d.BackgroundTransparency >= 0.6 then
 			continue
 		end
-		for _, d in sg:GetDescendants() do
-			if not d:IsA("GuiObject") then
-				continue
-			end
-			if d:GetAttribute("Menu") == true then
-				if shown(d) then
-					return true
-				end
-				continue
-			end
-			if d:IsA("Frame") or d:IsA("ScrollingFrame") or d:IsA("ImageLabel") then
-				local s = d.AbsoluteSize
-				if s.X >= view.X * MIN_FRACTION and s.Y >= view.Y * MIN_FRACTION and d.BackgroundTransparency < 0.6 and shown(d) and hasButton(d) then
-					return true
-				end
-			end
+		local s = d.AbsoluteSize
+		if s.X >= minX and s.Y >= minY and shown(d) and inScreenGui(d) and hasButton(d) then
+			return true
 		end
 	end
 	return false
@@ -109,6 +153,7 @@ function MenuMouseController:Start()
 	end)
 	task.spawn(function()
 		local pg = player:WaitForChild("PlayerGui") :: PlayerGui
+		track(pg)
 		while true do
 			local b = ensureModal()
 			local ok, isOpen = pcall(menuOpen, pg)
