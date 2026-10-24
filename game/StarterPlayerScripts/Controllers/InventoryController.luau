@@ -121,7 +121,7 @@ local function makeSlot(parent: Instance, key: string, label: string, order: num
 	glyph.TextScaled = true
 	local sizeLimit = Instance.new("UITextSizeConstraint")
 	sizeLimit.MaxTextSize = 26
-	sizeLimit.MinTextSize = 12
+	sizeLimit.MinTextSize = 8 -- phones (UIScale 0.55): "SUPPLY" needs ~9 px in a 44 px tile, 12 clipped it to "SUPPL"
 	sizeLimit.Parent = glyph
 	-- keycap: what this slot's key does (cream chip, ink text, sits on the tile's top edge)
 	local keyChip = chip(tile, "Key", label, UDim2.fromOffset(math.max(30, #label * 8 + 12), 18), UDim2.fromOffset(-4, -9), Palette.UiCream, Palette.UiInk, 12)

@@ -21,8 +21,9 @@ return Config.define({
 		wait = { head = "ROLLING OUT SOON", sub = "Friends can still hop on your pad. Leader can hit GO NOW." },
 	},
 	Hints = {
-		door = { head = "RUN TO BAY {bay}", sub = "Open YOUR truck's door (E)" },
-		seat = { head = "HOP IN!", sub = "Driver's seat: press {enter}" },
+		-- touch: one tap on the truck sits you in (Controllers/TapUseController), no door to open first
+		door = { head = "RUN TO BAY {bay}", sub = "Open YOUR truck's door (E)", subTouch = "Tap YOUR truck to hop in" },
+		seat = { head = "HOP IN!", sub = "Driver's seat: press {enter}", subTouch = "Tap the truck to hop in" },
 		drive = {
 			head = "FOLLOW THE GPS",
 			sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn",
