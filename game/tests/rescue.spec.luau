@@ -111,4 +111,131 @@ Spec.test("shout lines cycle and fall back", function()
 	Spec.eq(type(R.line("Dragon", "nope", 7)), "string")
 end)
 
+-- panic brain v2 -------------------------------------------------------------------------------
+
+local function moodOf(over: { [string]: any }): string
+	local s: { [string]: any } = {
+		kind = "Civilian",
+		fireDist = 5,
+		panicRadius = 20,
+		sees = false,
+		playerDist = 100,
+		boxedIn = false,
+		hideSpot = false,
+		hidden = false,
+		standing = true,
+	}
+	for k, v in over do
+		s[k] = v
+	end
+	return R.mood(s)
+end
+
+Spec.test("mood: civilians flee fire, cower when boxed in, run to a firefighter", function()
+	Spec.eq(moodOf({}), "flee")
+	Spec.eq(moodOf({ boxedIn = true }), "cower")
+	Spec.eq(moodOf({ sees = true, playerDist = 10 }), "approach")
+	Spec.eq(moodOf({ sees = true, boxedIn = true }), "approach", "a firefighter beats cowering")
+	Spec.eq(moodOf({ fireDist = 50 }), "idle", "calm when the fire is far / out")
+	Spec.eq(moodOf({ fireDist = 50, sees = true }), "approach")
+	Spec.eq(moodOf({ standing = false }), "idle", "KO'd NPCs don't run")
+end)
+
+Spec.test("mood: dogs zoom, cats hide, the panda waddles", function()
+	Spec.eq(moodOf({ kind = "Dog" }), "zoom")
+	Spec.eq(moodOf({ kind = "Cat" }), "zoom")
+	Spec.eq(moodOf({ kind = "Cat", hideSpot = true }), "hide")
+	Spec.eq(moodOf({ kind = "Cat", hidden = true, sees = true }), "hide", "a hidden cat stays hidden")
+	Spec.eq(moodOf({ kind = "Cat", boxedIn = true }), "cower")
+	Spec.eq(moodOf({ kind = "Panda" }), "flee")
+	Spec.eq(moodOf({ kind = "Panda", boxedIn = true }), "cower")
+	Spec.eq(moodOf({ kind = "Panda", fireDist = 50, sees = true }), "wave")
+	Spec.eq(moodOf({ kind = "Cat", fireDist = 50, sees = true }), "wave")
+end)
+
+local function base(over: { [string]: any }): { [string]: any }
+	local p: { [string]: any } = { x = 0, z = 0, fx = -5, fz = 0, hx = 0, hz = 0, leash = 14, t = 0, mood = "flee" }
+	for k, v in over do
+		p[k] = v
+	end
+	return p
+end
+
+Spec.test("desire: flee runs away from the fire, approach runs to the target", function()
+	local dx, dz = R.desire(base({}))
+	Spec.truthy(dx > 0.9 and math.abs(dz) < 1e-6, "away from a fire at -X")
+	dx, dz = R.desire(base({ mood = "approach", tx = 0, tz = 8 }))
+	Spec.truthy(dz > 0 and math.abs(dx) < 1e-6, "toward the firefighter")
+end)
+
+Spec.test("desire: the leash pulls it back home near the edge", function()
+	-- at the leash edge, fleeing further out (+X) loses to the pull home (-X)
+	local dx = R.desire(base({ x = 14, fx = 9 }))
+	Spec.truthy(dx < 0, `pulled home, got {dx}`)
+	-- well inside the leash there is no pull
+	dx = R.desire(base({ x = 3, fx = -2 }))
+	Spec.truthy(dx > 0.9)
+end)
+
+Spec.test("desire: zoomies run tangentially around home", function()
+	local dx, dz = R.desire(base({ mood = "zoom", x = 14 * 0.35, z = 0 }))
+	Spec.truthy(math.abs(dx) < 1e-6 and dz > 0.9, `tangent, got {dx},{dz}`)
+end)
+
+Spec.test("headings: wanted direction first, 8 distinct unit headings", function()
+	local h = R.headings(0, 1)
+	Spec.eq(#h, 8)
+	Spec.near(h[1].x, 0, 1e-9)
+	Spec.near(h[1].z, 1, 1e-9)
+	Spec.near(h[8].z, -1, 1e-9, "the opposite way is tried last")
+	for _, v in h do
+		Spec.near(v.x * v.x + v.z * v.z, 1, 1e-9)
+	end
+end)
+
+Spec.test("pickHeading: never into a wall; nil when boxed in", function()
+	local cands = {
+		{ x = 1, z = 0, clear = 0 }, -- wall straight ahead
+		{ x = 0, z = 1, clear = 5 },
+		{ x = 0, z = -1, clear = 1.2 },
+		{ x = -1, z = 0, clear = 8 },
+	}
+	Spec.eq(R.pickHeading(cands, 1, 0, 1), 2, "side with more room beats the back")
+	Spec.eq(R.pickHeading(cands, -1, 0, 1), 4)
+	Spec.eq(R.pickHeading({ { x = 1, z = 0, clear = 0.3 }, { x = -1, z = 0, clear = 0 } }, 1, 0, 1), nil)
+end)
+
+Spec.test("stepOk: stairs yes, ledges and holes no", function()
+	Spec.eq(R.stepOk(10, 11, 1.6, 2.2), true)
+	Spec.eq(R.stepOk(10, 12, 1.6, 2.2), false, "too high")
+	Spec.eq(R.stepOk(10, 7, 1.6, 2.2), false, "balcony drop")
+	Spec.eq(R.stepOk(10, nil, 1.6, 2.2), false, "no floor")
+end)
+
+Spec.test("smokeLevel reads bools, fractions, percents and words", function()
+	Spec.eq(R.smokeLevel(true), 1)
+	Spec.eq(R.smokeLevel(false), 0)
+	Spec.near(R.smokeLevel(0.5), 0.5)
+	Spec.near(R.smokeLevel(80), 0.8)
+	Spec.eq(R.smokeLevel("heavy"), 1)
+	Spec.near(R.smokeLevel("light"), 0.4)
+	Spec.eq(R.smokeLevel(nil), 0)
+	Spec.eq(R.smokeLevel(0 / 0), 0)
+end)
+
+Spec.test("callForHelp: near but out of sight", function()
+	Spec.eq(R.callForHelp(20, false, 45), true)
+	Spec.eq(R.callForHelp(20, true, 45), false, "they can see you: wave instead")
+	Spec.eq(R.callForHelp(60, false, 45), false, "too far to hear")
+end)
+
+Spec.test("new reaction lines exist for every kind", function()
+	for _, kind in { "Civilian", "Dog", "Cat", "Panda" } do
+		for _, mood in { "trapped", "wave", "cower", "cough", "calm" } do
+			Spec.truthy(#R.line(kind, mood, 1) > 0, `{kind}.{mood}`)
+		end
+	end
+	Spec.eq(R.line("Civilian", "trapped", 1), "HELP! IN HERE!")
+end)
+
 return Spec.finish()

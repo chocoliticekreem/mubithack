@@ -43,6 +43,25 @@ return Config.define({
 	PanicCircle = 4, -- studs: radius of the panic circle
 	PanicSpeed = 12, -- studs/s while running in circles
 	PanicCalm = 3, -- s with no fire near before the panic stops
+	-- panic brain v2: steered, wall-aware movement (every step is shapecast before it's taken)
+	PanicLeash = 14, -- studs from its spawn spot an NPC may run (stays in its room/flat)
+	PanicSpeedDog = 17, -- zoomies
+	PanicSpeedCat = 15,
+	PanicSpeedPanda = 5, -- waddle
+	BodyRadius = 0.9, -- spherecast radius (civilian/panda); pets use PetRadius
+	PetRadius = 0.6,
+	WallGap = 0.6, -- studs kept between the body and a wall
+	StepUp = 1.6, -- studs an NPC can step up (stairs, rugs)
+	StepDown = 2.2, -- studs it will step down; bigger drops (balcony, stairwell) are refused
+	SeeRadius = 26, -- studs: a firefighter in line of sight this close = "a firefighter came in"
+	HearRadius = 45, -- studs: a firefighter this close but out of sight = "HELP! IN HERE!"
+	ApproachStop = 4.5, -- studs from the firefighter an approaching NPC stops and waves
+	HelpEvery = 3.5, -- s between "HELP! IN HERE!" shouts
+	CoughEvery = 2.6, -- s between coughs in smoke
+	SmokeAttr = "Smoke", -- room/part attribute (bool, 0..1, 0..100 or "light"/"heavy"); optional
+	SmokeFireRadius = 9, -- studs: a FireLevel>=2 fire this close counts as smoke without the attribute
+	HideReach = 7, -- studs a cat searches for something to hide under
+	CowerDrop = 0.7, -- studs a cowering NPC crouches
 	FireHurtRadius = 5, -- studs to a Burning part that hurts
 	FireDps = 2.5, -- HP/s at FireLevel 2, point blank (~40 s next to a fire, ~27 s in a blaze)
 	CarriedFireMult = 0.5, -- damage multiplier while being carried
