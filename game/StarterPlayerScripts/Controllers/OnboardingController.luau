@@ -15,6 +15,9 @@
 --   * Help (H): a scrollable cheat sheet (attr Menu, so the mouse frees in first person): the 3 slots
 --     drawn like the hotbar, grab / swap / drop / throw, carry + rescue, water, ladders, truck. Keys
 --     come from InventoryConfig / GearConfig / VehicleConfig / MissionGuides.
+--   * First fire (brand-new players, Services/FirstFireService + Config/FirstFireConfig): while Player attr
+--     FirstFire is "burning", a PUT OUT THE FIRE! card + arrow on the training fire (the camera turns to
+--     face it once); then a FIRE OUT! +XP card until the auto-queued first call lands.
 -- Public: OnboardingController:Replay(), :IsActive(): boolean
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -35,6 +38,8 @@ local InventoryConfig = require(ConfigDir:WaitForChild("InventoryConfig") :: Mod
 local GearConfig = require(ConfigDir:WaitForChild("GearConfig") :: ModuleScript) :: any
 local MissionGuideKey: string = (require(ConfigDir:WaitForChild("MissionGuides") :: ModuleScript) :: any).SkipKey or "J"
 local Flow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("OnboardingFlow") :: ModuleScript)
+local FirstFire = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("FirstFire") :: ModuleScript)
+local FireCfg = require(ConfigDir:WaitForChild("FirstFireConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
@@ -744,6 +749,89 @@ local function showTitle(returning: boolean)
 	end)
 end
 
+------------------------------------------------------------------------------------------ first fire
+
+local function trainingFire(): Model?
+	local spot = player:GetAttribute(FireCfg.SpotAttr)
+	local folder = workspace:FindFirstChild("TrainingFires")
+	local m = folder and type(spot) == "number" and folder:FindFirstChild(`Spot{spot}`)
+	return if m and m:IsA("Model") then m else nil
+end
+
+local function burningPart(m: Model): BasePart?
+	local best: BasePart? = nil
+	for _, d in m:GetChildren() do
+		if d:IsA("BasePart") and d:HasTag(Names.Tag.Burning) then
+			if not best or d.Position.Y > best.Position.Y then
+				best = d
+			end
+		end
+	end
+	return best or m.PrimaryPart
+end
+
+local function firstFireGuide(): Guide?
+	local phase = player:GetAttribute(FireCfg.PhaseAttr)
+	if type(phase) ~= "string" then
+		return nil
+	end
+	local doneAt = player:GetAttribute(FireCfg.DoneAtAttr)
+	local since = if type(doneAt) == "number" then workspace:GetServerTimeNow() - doneAt else 0
+	local card = FirstFire.card(phase, since, FireCfg.CelebrateSeconds or 3)
+	if card == "fire" then
+		local m = trainingFire()
+		local click = if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then "the screen" else "LEFT CLICK"
+		return {
+			kind = "firstfire",
+			part = m and burningPart(m),
+			model = m,
+			head = FireCfg.FireCard.head,
+			sub = fill(FireCfg.FireCard.sub, { click = click }),
+			chip = "FIRE!",
+		}
+	elseif card == "done" then
+		return {
+			kind = "firstfiredone",
+			part = nil,
+			model = nil,
+			head = fill(FireCfg.DoneCard.head, { xp = FireCfg.XpReward or 0 }),
+			sub = FireCfg.DoneCard.sub,
+			chip = "NICE!",
+		}
+	end
+	return nil
+end
+
+-- Turn the camera to the training fire once, as soon as FirstFireService has put you at the door.
+local function faceFirstFire()
+	local t0 = os.clock()
+	while os.clock() - t0 < 6 do
+		if player:GetAttribute(FireCfg.PhaseAttr) ~= "burning" then
+			return
+		end
+		local m = trainingFire()
+		local r = root()
+		local cam = workspace.CurrentCamera
+		if m and r and cam and m.PrimaryPart and (m.PrimaryPart.Position - r.Position).Magnitude < 30 then
+			local target = m.PrimaryPart.Position + Vector3.new(0, 2, 0)
+			local flat = (target - r.Position) * Vector3.new(1, 0, 1)
+			if flat.Magnitude > 0.1 then
+				local zoom = FireCfg.CameraZoom or 12
+				local eye = r.Position - flat.Unit * zoom + Vector3.new(0, zoom * 0.6, 0) -- over your helmet
+				cam.CFrame = CFrame.lookAt(eye, target)
+				-- the classic camera keeps its own zoom: force it out for a moment (same trick as
+				-- FirstPersonController's lobby step-out), then hand the wheel back
+				player.CameraMinZoomDistance = zoom
+				task.delay(0.15, function()
+					player.CameraMinZoomDistance = 0.5
+				end)
+			end
+			return
+		end
+		task.wait(0.1)
+	end
+end
+
 ------------------------------------------------------------------------------------------ guide
 
 local function currentGuide(): Guide?
@@ -807,6 +895,10 @@ local function currentGuide(): Guide?
 			sub = fill(h.sub, vars),
 			chip = if hint == "drive" then "GO!" else "CALL!",
 		}
+	end
+	local ff = firstFireGuide()
+	if ff then
+		return ff
 	end
 	if not state.tutorial then
 		return nil
@@ -1097,6 +1189,15 @@ function OnboardingController:Start()
 		-- ShaderController re-enables its button on this change: re-apply after it
 		task.defer(setLobbyClutter)
 	end)
+	player:GetAttributeChangedSignal(FireCfg.PhaseAttr):Connect(function()
+		state.guideKey = ""
+		if player:GetAttribute(FireCfg.PhaseAttr) == "burning" then
+			task.spawn(faceFirstFire)
+		end
+	end)
+	if player:GetAttribute(FireCfg.PhaseAttr) == "burning" then
+		task.spawn(faceFirstFire)
+	end
 	local pg = player:WaitForChild("PlayerGui")
 	pg.ChildAdded:Connect(watchClutter)
 	for _, c in pg:GetChildren() do

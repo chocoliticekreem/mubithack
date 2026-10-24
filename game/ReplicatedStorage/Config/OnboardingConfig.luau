@@ -9,7 +9,7 @@ return Config.define({
 	Title = "STATION 67",
 	Subtitle = "Flame and Blame",
 	Tagline = "Save the day. Blame your friends.",
-	TitleSeconds = 3.2, -- first join (returning players get a short 1.6 s version)
+	TitleSeconds = 2.2, -- first join (returning players get a short 1.6 s version); short: the training fire is waiting
 	ReturningTitleSeconds = 1.6,
 	-- tutorial copy: head = header, sub = small line under it ({rack} {bay} {enter} {siren} {horn} are filled in)
 	Steps = {

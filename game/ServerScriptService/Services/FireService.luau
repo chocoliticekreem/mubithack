@@ -10,7 +10,10 @@
 --   FireService:ExtinguishAll(locationId: string?)          -- nil = every location/instance
 --   FireService:ClearInstance(instanceId: string)            -- v1.5, called by MissionService at mission end
 -- Indexes MapService.LocationBuilt (key = locationId) and v1.5 MapService.InstanceBuilt (key = instanceId).
+--   FireService:IndexLocation(model: Instance, locationId: string)  -- index a model built outside
+--     MapService (FirstFireService's training fire) as its own fire location; Destroying frees it
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?), Charred(part)
+--          Doused(player: Player, hits: number)   -- a player's spray hit at least one burning part
 -- Writes: tag Burning; attrs FireLevel (1..3, nil when out), Charred (true) + Color/Material on burnt-out parts
 -- Budget: every location (mission instance) is stepped on its own and has its own MaxBurningPerLocation
 --   cap, so parallel missions never starve each other; MaxBurning is a server-wide safety net.
@@ -56,6 +59,7 @@ FireService.Ignited = Signal.new() :: Signal.Signal<BasePart, Player?>
 FireService.Spread = Signal.new() :: Signal.Signal<BasePart, BasePart>
 FireService.Extinguished = Signal.new() :: Signal.Signal<BasePart, Player?>
 FireService.Charred = Signal.new() :: Signal.Signal<BasePart>
+FireService.Doused = Signal.new() :: Signal.Signal<Player, number>
 
 local services: { [string]: any } = {}
 local cells: { [BasePart]: Cell } = {}
@@ -308,6 +312,9 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 			end
 		end
 	end
+	if hit > 0 and player then
+		FireService.Doused:Fire(player, hit)
+	end
 	for _, c in out do -- apply after the loop: never remove keys from a set while iterating it
 		stopBurning(c, false)
 		FireService.Extinguished:Fire(c.part, player)
@@ -351,6 +358,13 @@ function FireService:ClearInstance(instanceId: string)
 	end
 	self:ExtinguishAll(instanceId)
 	forget(instanceId)
+end
+
+function FireService:IndexLocation(model: Instance, locationId: string)
+	if typeof(model) ~= "Instance" or type(locationId) ~= "string" then
+		return
+	end
+	index(model, locationId)
 end
 
 -- test hooks -------------------------------------------------------------------------------
