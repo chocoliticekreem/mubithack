@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
-from forge import director
+from forge import director, levels, template
 from forge.config import Settings, load_settings
 from forge.fun import FUN_BAR
 from forge.llm import _JSONMixin, jobs_from_env
@@ -1124,6 +1124,16 @@ async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
 
     copy_base_game(settings, store.game_dir)
     director.install_kit(spec, store.game_dir)  # art pass: GameAssets.luau before the coder runs
+    if template.template_of(spec) and "ReplicatedStorage/Kit/ObbyKit.luau" in director.kit_paths() & {
+            m.get("path") for m in spec.get("modules") or []}:
+        # a template obby: the level designer lays out the course first, then Forge renders Config from its zones
+        lv = spec.get("levels") or {}
+        n, per = int(lv.get("zones") or template.PARK_ZONES), int(lv.get("stages_per_zone") or template.PARK_STAGES_PER_ZONE)
+        with run.stage("levels"):
+            await run.call("level_designer", f"{n} zones x {per} stages",
+                           lambda llm: levels.run_levels(settings, slug, llm=llm, zones=(1, n), stages_per_zone=per,
+                                                         total_zones=n, log=run.ui.print))
+        run.spec = spec = store.load_spec()
     await run.build_all()
     await run.iterate(iterations, use_studio)
     print_summary(run)

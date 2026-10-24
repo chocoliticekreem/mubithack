@@ -62,7 +62,12 @@ def test_index_entries_point_at_real_modules():
     assert len(set(names)) == len(names)
     assert {f"{n}.luau" for n in names} == {p.name for p in MODULES.glob("*.luau")}
     for e in entries:
-        assert set(e) == {"name", "path_in_game", "genres", "keywords", "describe", "api"}, e["name"]
+        assert {"name", "path_in_game", "genres", "keywords", "describe", "api"} <= set(e), e["name"]
+        assert set(e) <= {"name", "path_in_game", "genres", "keywords", "describe", "api", "genres_only", "requires",
+                          "template"}, e["name"]
+        assert set(e.get("requires") or []) <= set(names), e["name"]  # a required kit must exist
+        for f in (e.get("template") or {}).get("files") or []:
+            assert f.split("/", 1)[0] in {"ReplicatedStorage", "ServerScriptService", "StarterPlayerScripts"}, f
         assert e["path_in_game"] == f"ReplicatedStorage/Kit/{e['name']}.luau"
         assert (MODULES / f"{e['name']}.luau").is_file()
         assert (e["genres"] or e["keywords"]) and e["describe"]

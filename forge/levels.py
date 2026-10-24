@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from forge import director, obby
+from forge import director, obby, template
 from forge.config import Settings
 from forge.llm import LLMError
 from forge.memory import RunStore
@@ -290,6 +290,7 @@ def run_levels(settings: Settings, slug: str, *, llm: Any = None, zones: tuple[i
                     "corrections": rec["corrections"], "fallback": rec["fallback"],
                     "errors": [a["errors"] for a in rec["attempts"]]})
     director.install_genre_checks(spec, store.game_dir)
+    template.render(spec, store.game_dir)  # a template game's Config takes its zones from the plan above
     compile_errors = _compile(levels_dir)
     stages = sum(len(json.loads(p.read_text(encoding="utf-8")).get("stages") or [])
                  for p in sorted(rec_dir.glob("zone-*.json")))

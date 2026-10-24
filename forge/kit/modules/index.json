@@ -95,6 +95,44 @@
    "api": [
     "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."
    ]
+  },
+  {
+   "name": "ParkObby",
+   "path_in_game": "ReplicatedStorage/Kit/ParkObby.luau",
+   "genres": [],
+   "keywords": [
+    "amusement park",
+    "theme park",
+    "funfair",
+    "carnival",
+    "fairground",
+    "fun fair",
+    "park obby"
+   ],
+   "describe": "the complete, tested wiring of a themed park obby: WorldKit builds the park (lobby, START stairs, one ride per zone), ObbyKit lays the course into it with ObbyThemes dressing every piece, a working changing room in the lobby, music per zone, and the HUD. The game supplies only content.",
+   "api": [
+    "This game is built on the ParkObby template. Forge renders its Config (ReplicatedStorage/Config.luau: Title, Zones in course order, Costumes, Rewards) and its two bootstraps from the spec, so never write a course, checkpoints, a start gate, a changing room, a coin counter, a music player, a HUD, Config or a bootstrap.",
+    "Config.Zones[i] = { name, theme = 'entrance'|'carousel'|'bumper'|'teacups'|'ferris'|'flume'|'haunted'|'pirate'|'coaster'|'finale', palette = { '#RRGGBB', ... }, mood }: read it with require(ReplicatedStorage.Config).",
+    "Extra feature modules hook the kits: ObbyKit.onStage(fn(player, stage)), ObbyKit.onFinish(fn(player)), ObbyKit.getStage(player), ObbyKit.coins(player), ObbyKit.spend(player, n) -> bool, Cosmetics.grant(player, id)."
+   ],
+   "genres_only": [
+    "obby"
+   ],
+   "requires": [
+    "ObbyKit",
+    "WorldKit",
+    "ObbyThemes",
+    "Cosmetics",
+    "CosmeticsClient",
+    "MusicPlayer"
+   ],
+   "template": {
+    "files": [
+     "ReplicatedStorage/Config.luau",
+     "ServerScriptService/Game.server.luau",
+     "StarterPlayerScripts/Game.client.luau"
+    ]
+   }
   }
  ]
 }

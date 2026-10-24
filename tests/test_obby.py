@@ -274,7 +274,12 @@ def test_index_entries_have_the_schema_and_their_files():
 
 def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     names = lambda t: [e["name"] for e in director.match_kit_modules(t)]  # noqa: E731
-    assert names("An amusement-park obby with 200 stages") == ["ObbyKit"]
+    # a park-themed obby gets the ParkObby template (the tested wiring) by its keywords, plus every kit it requires
+    park = set(names("An amusement-park obby with 200 stages"))
+    requires = next(e for e in director.kit_index() if e["name"] == "ParkObby")["requires"]
+    assert park == {"ParkObby", *requires}
+    # ParkObby is for obbies only: a funfair tycoon never gets the obby template
+    assert "ParkObby" not in names("a funfair tycoon")
     assert names("a parkour climb") == ["ObbyKit"] and names("checkpoints every few stages, then a finish") == ["ObbyKit"]
     assert names("A co-op tower defence: waves walk a path") == [] and names("a cube tycoon") == []
     extra = {"name": "Music", "path_in_game": "ReplicatedStorage/Kit/Music.luau", "genres": ["*"], "keywords": [],
@@ -287,7 +292,7 @@ def test_kit_modules_match_by_genre_or_keyword_only(monkeypatch):
     assert names("An obby with music and lobby costumes") == ["ObbyKit", "MusicPlayer", "Cosmetics", "CosmeticsClient"]
 
 
-OBBY_DOC = {"fantasy": "Run a giant amusement park obby", "core_loop": "jump -> checkpoint -> next zone",
+OBBY_DOC = {"fantasy": "Run a giant candy obby", "core_loop": "jump -> checkpoint -> next zone",
             "systems": [], "juice": [], "first_60_seconds": [], "visual_style": {"palette": ["#FF8A65"]},
             "sounds": [], "module_budget": 5, "acceptance": []}
 
