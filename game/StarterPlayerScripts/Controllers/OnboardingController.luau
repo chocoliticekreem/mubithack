@@ -803,7 +803,7 @@ local function firstFireGuide(): Guide?
 	local card = FirstFire.card(phase, since, FireCfg.CelebrateSeconds or 3)
 	if card == "fire" then
 		local m = trainingFire()
-		local click = if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then "the screen" else "LEFT CLICK"
+		local click = "LEFT CLICK" -- InputHints shows "the screen" on a phone, R2 on a gamepad
 		return {
 			kind = "firstfire",
 			part = m and burningPart(m),
