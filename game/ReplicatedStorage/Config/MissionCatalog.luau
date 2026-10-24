@@ -291,19 +291,19 @@ local Missions = {
 		id = "skyscraper_fire",
 		title = "Sky Tower",
 		call = "High-rise fire",
-		blurb = "Fire on the upper floors of the tallest tower downtown. Ladder the low windows, take the stairs for the rest.",
+		blurb = "Fire on the upper floors and the roof of the tallest tower downtown. Ladder the low windows, take the stairs all the way up.",
 		locationId = "Skyscraper",
 		enabled = true,
 		players = { min = 1, max = 8 },
 		seconds = 300,
 		atmosphere = "NightStreet",
 		objectives = {
-			{ kind = "rescue", count = 6, text = "Reach everyone trapped up high" },
+			{ kind = "rescue", count = 7, text = "Reach everyone trapped up high (one is on the roof)" },
 			{ kind = "extinguish", text = "Put out the upper floors" },
 		},
-		fires = { count = 5, starts = "FireStart" },
+		fires = { count = 6, starts = "FireStart" }, -- the roof crate stack always burns (FireStart Priority)
 		rescues = {
-			{ kind = "Civilian", count = 5, variant = "Office" },
+			{ kind = "Civilian", count = 6, variant = "Office" },
 			{ kind = "Cat", count = 1, variant = "Windowsill" },
 		},
 		hazards = {},

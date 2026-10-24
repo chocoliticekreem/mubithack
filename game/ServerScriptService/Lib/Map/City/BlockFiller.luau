@@ -1396,9 +1396,17 @@ function Build.nightclub(ctx: any, site: Model, F: CFrame, maxW: number, maxD: n
 	SK.rescue(site, "R9", "Civilian", F * CF(-w / 2 + 6.5, fy, d * 0.6), "lying", "Partygoer")
 end
 
--- Sky Tower: a 6-storey office block you can play in (stairwell on every floor, breakable glass so a
--- ladder reaches floors 2-3 from the street), crowned by a tall cheap tower + spire so it rules the
--- skyline next to the station. Fires start on the upper floors; people are trapped high up.
+-- Sky Tower: a 6-storey office block you can climb all the way to the roof, crowned by a tall cheap
+-- tower + spire so it rules the skyline next to the station.
+--   * Stairs: one 12-stud wedge flight per storey (~37 degrees, a Humanoid walks it), alternating
+--     between two lanes along the left wall so no flight runs under the one above it (full headroom).
+--     Flight to floor s rises toward +Z in lane A (s even) or lane B (s odd); each floor has a hole only
+--     over the flight that arrives there. Arrive at the back of a flight, walk round to the front of the
+--     other lane, climb on. The last flight (lane B) comes up through the roof into a stair hut.
+--   * Breakable glass on every upper floor (Window tag): a Ladder from the street reaches floors 2-3.
+--   * Roof deck: parapet railing, a helipad with a big H, a water tower, AC units, a crate stack that
+--     is always one of the fires (FireStart attr Priority) and somebody stranded up there.
+-- Fires start on floors 3-6 and the roof; people are trapped from floor 2 to the roof.
 function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: number)
 	local rng: Random = ctx.rng
 	local w, d = math.min(maxW, 44), math.min(maxD, 40)
@@ -1406,7 +1414,7 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 	local bid = site.Name
 	local body = Color3.fromHex("#8E9AAF")
 	local glass = Color3.fromHex("#6FA8C8")
-	-- ground floor: a full flammable shell with the lobby doors (stairs included)
+	-- ground floor: a full flammable shell with the lobby doors
 	local floors = shell(site, F, {
 		w = w,
 		d = d,
@@ -1430,9 +1438,44 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 		end,
 	})
 	local fy = floors[1]
+	local top = fy + storeys * H -- roof deck surface
+	local L = 16 -- flight run (z 2 .. 18): 12 up over 16 along
+	local z0, z1 = 2, 2 + L
+	-- two stair lanes along the left wall (x ranges, building frame)
+	local lanes = {
+		A = { x0 = -w / 2 + 0.5, x1 = -w / 2 + 5 },
+		B = { x0 = -w / 2 + 5, x1 = -w / 2 + 9.5 },
+	}
+	local function laneFor(s: number): any -- the flight arriving at floor s (2 .. storeys + 1 = roof)
+		return if s % 2 == 0 then lanes.A else lanes.B
+	end
+	local function slab(y: number, hole: any, name: string)
+		local xl, xr = -w / 2 + 0.5, w / 2 - 0.5
+		local zf, zb = 0.5, d - 0.5
+		local function piece(ax: number, bx: number, az: number, bz: number)
+			if bx - ax > 0.2 and bz - az > 0.2 then
+				SK.part(site, name, F * CF((ax + bx) / 2, y - 0.3, (az + bz) / 2), V(bx - ax, 0.6, bz - az), C.Concrete)
+			end
+		end
+		piece(xl, hole.x0, zf, zb)
+		piece(hole.x1, xr, zf, zb)
+		piece(hole.x0, hole.x1, zf, z0)
+		piece(hole.x0, hole.x1, z1, zb)
+	end
+	local function flight(s: number, yTop: number)
+		local lane = laneFor(s)
+		local cx = (lane.x0 + lane.x1) / 2
+		SK.wedge(site, "Stairs", F * CF(cx, yTop - H / 2, (z0 + z1) / 2), V(lane.x1 - lane.x0, H, L), C.Metal)
+		-- handrail on the open side of the flight (between the lanes for A, the room side for B)
+		local railX = if lane == lanes.A then lane.x1 - 0.15 else lane.x1 + 0.15
+		local rail = SK.part(site, "StairRail", F * CF(railX, yTop - H / 2 + 3, (z0 + z1) / 2) * ANG(-math.atan2(H, L), 0, 0), V(0.3, 0.3, math.sqrt(H * H + L * L)), C.MetalDark, {
+			collide = false,
+			cast = false,
+		})
+		rail:SetAttribute("Decor", true)
+	end
 	-- upper storeys, cheap: per face a spandrel + header (flammable cladding) and a band of breakable
-	-- glass panes between them; a floor slab with the stairwell along the left wall, like `shell`
-	local L = math.min(H * 1.35, d - 4)
+	-- glass panes between them
 	local ys = { fy }
 	local faces = {
 		{ cf = CF(0, 0, 0), len = w, panes = 3, rot = CFrame.identity },
@@ -1458,48 +1501,85 @@ function Build.skyscraper(ctx: any, site: Model, F: CFrame, maxW: number, maxD: 
 				})
 			end
 		end
-		SK.part(site, "Floor", F * CF(2.25, y0 - 0.3, d / 2), V(w - 5.5, 0.6, d - 1), C.Concrete)
-		SK.part(site, "Floor", F * CF(-w / 2 + 2.75, y0 - 0.3, (2 + L + d - 0.5) / 2), V(4.5, 0.6, d - 2.5 - L), C.Concrete)
-		SK.wedge(site, "Stairs", F * CF(-w / 2 + 2.75, y0 - H / 2, 2 + L / 2), V(4.5, H, L), C.Metal)
+		slab(y0, laneFor(s + 1), "Floor")
+		flight(s + 1, y0)
 	end
-	local top = fy + storeys * H
-	SK.part(site, "Roof", F * CF(0, top + 0.5, d / 2), V(w + 1, 1, d + 1), C.Concrete)
-	-- the cheap tower above (non-flammable, non-queryable scenery): stepped body, glass bands, spire
-	local w2, d2 = math.floor(w * 0.8), math.floor(d * 0.8)
-	local F2 = F * CF(0, 0, (d - d2) / 2)
+	-- the last flight comes up through the roof deck (lane B on a 6-storey tower)
+	slab(top, laneFor(storeys + 1), "Roof")
+	flight(storeys + 1, top)
+	-- roof: parapet railing all round, a stair hut over the hatch with an open doorway at its back
+	for _, e in { { 0, 0.25, w, 0.5 }, { 0, d - 0.25, w, 0.5 }, { -w / 2 + 0.25, d / 2, 0.5, d }, { w / 2 - 0.25, d / 2, 0.5, d } } do
+		SK.part(site, "Parapet", F * CF(e[1], top + 1.75, e[2]), V(e[3], 3.5, e[4]), C.Trim)
+	end
+	local hut = laneFor(storeys + 1)
+	local hx0, hx1 = hut.x0 - 0.5, hut.x1 + 0.5
+	local hutH = 9
+	SK.part(site, "HutWall", F * CF(hx0 + 0.25, top + hutH / 2, (z0 + z1) / 2 - 0.75), V(0.5, hutH, L + 2.5), C.Trim) -- left
+	SK.part(site, "HutWall", F * CF(hx1 - 0.25, top + hutH / 2, (z0 + z1) / 2 - 0.75), V(0.5, hutH, L + 2.5), C.Trim) -- right
+	SK.part(site, "HutWall", F * CF((hx0 + hx1) / 2, top + hutH / 2, z0 - 1.25), V(hx1 - hx0, hutH, 0.5), C.Trim) -- front
+	SK.part(site, "HutRoof", F * CF((hx0 + hx1) / 2, top + hutH + 0.25, (z0 + z1) / 2 - 0.25), V(hx1 - hx0 + 1, 0.5, L + 4), C.MetalDark)
+	local roofSign = SK.part(site, "RoofSign", F * CF((hx0 + hx1) / 2, top + hutH - 1, z1 + 0.6), V(hx1 - hx0 - 1, 1.4, 0.3), C.Red, { collide = false })
+	SK.sign(roofSign, "ROOF", Enum.NormalId.Back, C.Trim)
+	-- helipad (big H), water tower, AC units, a crate stack (the roof fire) and deck chairs
+	local deckZ = d * 0.55 -- the tower above sits behind this line
+	local pad = SK.cyl(site, "Helipad", F * CF(w * 0.18, top + 0.1, deckZ * 0.5 + 1), 0.2, math.min(17, deckZ - 2), Color3.fromHex("#3B3940"))
+	pad:SetAttribute("Decor", true)
+	local hc = F * CF(w * 0.18, top + 0.22, deckZ * 0.5 + 1)
+	for _, x in { -2.6, 2.6 } do
+		SK.part(site, "HelipadH", hc * CF(x, 0, 0), V(1.2, 0.05, 8), NEON_GOLD, { collide = false, cast = false })
+	end
+	SK.part(site, "HelipadH", hc, V(4, 0.05, 1.2), NEON_GOLD, { collide = false, cast = false })
+	local wt = F * CF(w / 2 - 4.5, top, 4.5)
+	for _, o in { { -1.6, -1.6 }, { 1.6, -1.6 }, { -1.6, 1.6 }, { 1.6, 1.6 } } do
+		SK.part(site, "WaterTowerLeg", wt * CF(o[1], 3, o[2]), V(0.6, 6, 0.6), C.Wood)
+	end
+	SK.cyl(site, "WaterTower", wt * CF(0, 9, 0), 6, 6, Color3.fromHex("#8A5A3C"))
+	SK.cyl(site, "WaterTowerCap", wt * CF(0, 12.3, 0), 0.6, 6.8, C.RoofSlate)
+	for k, z in { deckZ * 0.45, deckZ * 0.75 } do -- along the right parapet, clear of the hut's doorway
+		SK.part(site, `RoofAC{k}`, F * CF(w / 2 - 4.5, top + 1.5, z), V(5, 3, 3.5), C.Metal)
+	end
+	local crates = box(site, "RoofCrates", F * CF(-w * 0.12, top, 4), V(5, 3, 4), C.Wood, true)
+	box(site, "DeckChair", F * CF(-w * 0.11, top, 9), V(2.4, 1.6, 4), C.Awnings[3], true)
+	local roofFire = SK.fireStart(site, "F9", crates.CFrame * CF(0, 2, 0))
+	roofFire:SetAttribute("Priority", true) -- lightFires lights Priority markers first: the roof always burns
+	-- the cheap tower above the back of the deck (non-flammable, non-queryable scenery), spire on top
+	local w2, d2 = math.floor(w * 0.62), math.floor(d - deckZ)
+	local F2 = F * CF(0, 0, d - d2)
 	local h2 = 128 -- taller than every skyline slab round the hub (they top out ~160 total)
-	SK.part(site, "Tower", F2 * CF(0, top + 1 + h2 / 2, d2 / 2), V(w2, h2, d2), body, { query = false })
-	dress(site, F2, w2, d2, h2, rng, { y0 = top + 1, base = 2, band = glass, floor = 7, maxBands = 8, canopy = false, roof = false })
-	local cap = F2 * CF(0, top + 1 + h2, d2 / 2)
-	SK.part(site, "Crown", cap * CF(0, 2, 0), V(w2 - 6, 4, d2 - 6), C.MetalDark, { query = false })
-	SK.part(site, "CrownGlow", cap * CF(0, 4.3, 0), V(w2 - 5.6, 0.6, d2 - 5.6), NEON_CYAN, { neon = true, collide = false, query = false, cast = false })
+	SK.part(site, "Tower", F2 * CF(0, top + h2 / 2, d2 / 2), V(w2, h2, d2), body, { query = false })
+	dress(site, F2, w2, d2, h2, rng, { y0 = top, base = 4, band = glass, floor = 7, maxBands = 8, canopy = false, roof = false })
+	local cap = F2 * CF(0, top + h2, d2 / 2)
+	SK.part(site, "Crown", cap * CF(0, 2, 0), V(w2 - 4, 4, d2 - 4), C.MetalDark, { query = false })
+	SK.part(site, "CrownGlow", cap * CF(0, 4.3, 0), V(w2 - 3.6, 0.6, d2 - 3.6), NEON_CYAN, { neon = true, collide = false, query = false, cast = false })
 	SK.cyl(site, "Spire", cap * CF(0, 18, 0), 28, 1.2, C.Metal, { query = false })
 	SK.ball(site, "SpireBeacon", cap * CF(0, 32.5, 0), 2, C.Red, { neon = true, collide = false, query = false })
 	local sign = SK.part(site, "Sign", F * CF(0, top - 1.5, -0.9), V(w * 0.7, 3, 0.5), Color3.fromHex("#1F2A3A"))
 	SK.sign(sign, "SKY TOWER", Enum.NormalId.Front, NEON_CYAN)
-	-- offices: desks + a filing cabinet per floor; fires on the upper floors
+	-- offices (kept clear of the stair lanes, x > -w/2 + 10): desk, cabinet, plant; fires on floors 3-6
 	local nf = 0
 	for s = 2, storeys do
 		local y = ys[s]
 		local desk = box(site, "Desk", F * CF(w * 0.12, y, d * 0.5), V(7, 2.6, 3.5), C.Wood, true)
 		local cab = box(site, "Cabinet", F * CF(w * 0.36, y, d - 2.2), V(4, 5, 2), C.MetalDark, true)
-		box(site, "Plant", F * CF(-w * 0.15, y, d - 2.5), V(2, 4, 2), C.Leaf[1], true)
-		if s >= 3 and nf < 6 then
+		box(site, "Plant", F * CF(-w * 0.08, y, d - 2.5), V(2, 4, 2), C.Leaf[1], true)
+		if s >= 3 then
 			nf += 1
 			SK.fireStart(site, `F{nf}`, desk.CFrame * CF(0, 2, 0))
-			if s >= 5 and nf < 6 then
+			if s >= 5 then
 				nf += 1
 				SK.fireStart(site, `F{nf}`, cab.CFrame * CF(0, 1, -1.5))
 			end
 		end
 	end
-	-- trapped: two at the 3rd-floor windows (ladder), the rest higher up (stairs), a cat on a sill
-	SK.rescue(site, "R1", "Civilian", F * CF(-w * 0.25, ys[3], 1.6) * FLIP, "stand", "Office")
-	SK.rescue(site, "R2", "Civilian", F * CF(w * 0.25, ys[2], 1.6) * FLIP, "stand", "Office")
-	SK.rescue(site, "R3", "Civilian", F * CF(0, ys[4], d * 0.6), "lying", "Office")
-	SK.rescue(site, "R4", "Civilian", F * CF(w * 0.2, ys[5], d * 0.4), "stand", "Office")
-	SK.rescue(site, "R5", "Civilian", F * CF(-w * 0.1, ys[6], d * 0.7), "sitting", "Office")
-	SK.rescue(site, "R6", "Cat", F * CF(w * 0.3, ys[6], 1.5) * FLIP, "sitting", "Windowsill")
+	-- trapped: R1 on the roof by the helipad (always spawned: first marker), two at the 2nd/3rd-floor
+	-- windows (ladder), the rest higher up (stairs), a cat on a 6th-floor sill
+	SK.rescue(site, "R1", "Civilian", F * CF(w * 0.18, top + 0.2, deckZ - 2.5), "stand", "Office")
+	SK.rescue(site, "R2", "Civilian", F * CF(-w * 0.05, ys[3], 1.6) * FLIP, "stand", "Office")
+	SK.rescue(site, "R3", "Civilian", F * CF(w * 0.25, ys[2], 1.6) * FLIP, "stand", "Office")
+	SK.rescue(site, "R4", "Civilian", F * CF(0, ys[4], d * 0.6), "lying", "Office")
+	SK.rescue(site, "R5", "Civilian", F * CF(w * 0.2, ys[5], d * 0.4), "stand", "Office")
+	SK.rescue(site, "R6", "Civilian", F * CF(w * 0.05, ys[6], d * 0.7), "sitting", "Office")
+	SK.rescue(site, "R7", "Cat", F * CF(w * 0.3, ys[6], 1.5) * FLIP, "sitting", "Windowsill")
 	-- a lobby desk downstairs
 	box(site, "LobbyDesk", F * CF(w * 0.2, fy, d * 0.5), V(8, 3.4, 3), C.Trim)
 end

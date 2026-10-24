@@ -115,8 +115,13 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
   results payload carries `firesLit` and `squadSize`.
 - City-only calls: `nightclub_fire` (BlockFiller `nightclub`: Club Inferno, neon sign, dance floor, DJ
   booth + fog-machine gas bottle, 9 rescue markers) and `skyscraper_fire` (BlockFiller `skyscraper`:
-  Sky Tower, 6 playable storeys with a stairwell and breakable glass, a tall cheap tower + spire above;
-  fires on floors 3-6, people on floors 2-6 so a Ladder reaches the low ones). Their lots come from
+  Sky Tower, 6 playable storeys + a roof deck, a tall cheap tower + spire behind the deck). Stairs: one
+  wedge flight per storey (12 up over 16), alternating between two lanes along the left wall so no
+  flight runs under the next (full headroom); each floor has a hole only over its arriving flight; the
+  last flight comes up through the roof into a stair hut. Roof: parapet railing, helipad, water tower,
+  AC units, a crate stack whose FireStart has attr `Priority` (lightFires lights Priority markers first,
+  so the roof always burns) and rescue R1 stranded by the helipad. Breakable glass on floors 2-6 lets
+  a Ladder reach floors 2-3 from the street. Their lots come from
   `Districts.CorridorSpecial` (hub frontage: skyscraper + nightclub; Apartment frontage: nightclub).
 - `Player.InstanceId` = run id, as before. The HUD and the rest read the run state from
   `Workspace.Runs.<runId>` (a Folder with the attributes the instance Model used to have:
