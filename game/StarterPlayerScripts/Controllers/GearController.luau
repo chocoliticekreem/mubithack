@@ -349,6 +349,9 @@ local function openLocker()
 	local gui = UiKit.screen("GearLocker", 30)
 	lockerGui = gui
 	local panel = UiKit.panel(gui, "Locker", UDim2.fromOffset(820, 560), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	-- a modal: dims the HUD under it, above every HUD gui; click outside closes
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.modal(panel, { onDismiss = closeLocker })
 	UiKit.label(panel, "Title", "LOCKER", UDim2.new(1, 0, 0, 52), UDim2.fromOffset(0, 8), { font = UiKit.Header, textSize = 46, color = Palette.UiRed, stroke = true })
 	local sub = UiKit.label(panel, "Sub", "", UDim2.new(1, -40, 0, 26), UDim2.fromOffset(20, 58), { textSize = 20 })
 	local grid = Instance.new("Frame")
@@ -559,7 +562,12 @@ function GearController:Start()
 		if ok and unlocked then
 			unlocked.OnClientEvent:Connect(function(lvl: any, ids: any)
 				if type(lvl) == "number" and type(ids) == "table" then
-					unlockBanner(lvl, ids)
+					-- centre cards take turns and wait for the results screen to close (ClientLib/HudLayout)
+					local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+					HudLayout.celebrate(function()
+						unlockBanner(lvl, ids)
+						return if #ids > 0 then 6.5 else 4
+					end)
 				end
 			end)
 		end

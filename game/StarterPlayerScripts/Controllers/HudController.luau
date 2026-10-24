@@ -31,6 +31,7 @@ local BlameConfig = require(ConfigFolder:WaitForChild("BlameConfig") :: ModuleSc
 local LobbyConfig = require(ConfigFolder:WaitForChild("LobbyConfig") :: ModuleScript) :: any
 local FeedbackConfig = require(ConfigFolder:WaitForChild("FeedbackConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 
@@ -207,7 +208,7 @@ local function build(): Ui
 	local squad = Instance.new("Frame")
 	squad.Name = "Squad"
 	squad.AnchorPoint = Vector2.new(1, 0)
-	squad.Position = UDim2.new(1, -14, 0, 150) -- under the minimap (which sits up in the top-bar row)
+	squad.Position = UDim2.new(1, -14, 0, 150) -- HudLayout.pin below: under the minimap and its turn-hint slot
 	squad.Size = UDim2.fromOffset(220, 4 * 46)
 	squad.BackgroundTransparency = 1
 	local squadLayout = Instance.new("UIListLayout")
@@ -275,7 +276,9 @@ local function build(): Ui
 	heat.BackgroundTransparency = 1
 	heat.Parent = gui
 	-- big centre warning so you KNOW you're about to drop (the thermometer alone is easy to miss)
-	local heatWarn = UiKit.label(gui, "HeatWarn", "", UDim2.fromOffset(640, 56), UDim2.new(0.5, -320, 0.62, 0), {
+	-- bottom-anchored: always 16 px above the carry slot (RescueController, 1,-122 + 74 tall) whatever the
+	-- screen's aspect; at 0.62 of the height it sat on the carry slot on phones
+	local heatWarn = UiKit.label(gui, "HeatWarn", "", UDim2.fromOffset(640, 56), UDim2.new(0.5, -320, 1, -268), {
 		font = UiKit.Header,
 		textSize = 44,
 		color = Palette.UiFlameTop,
@@ -358,13 +361,13 @@ local function build(): Ui
 	})
 	carry.Visible = false
 
-	-- alarm banner
+	-- alarm banner (top-centre stack under the CALL! card: it pops in place, HudLayout owns its Position)
 	local banner = Instance.new("Frame")
 	banner.Name = "AlarmBanner"
 	banner.AnchorPoint = Vector2.new(0.5, 0)
-	banner.Position = UDim2.new(0.5, 0, 0, -220)
-	banner.Size = UDim2.new(1.2, 0, 0, 84)
-	banner.Visible = false -- parked off-screen it still peeked under the top bar (rotation + safe inset)
+	banner.Position = UDim2.new(0.5, 0, 0, 0)
+	banner.Size = UDim2.fromOffset(520, 72) -- card width: a full-width strip ran over the side columns
+	banner.Visible = false
 	banner.Rotation = -2
 	banner.BackgroundColor3 = Palette.UiRed
 	banner.BorderSizePixel = 0
@@ -377,6 +380,14 @@ local function build(): Ui
 		stroke = true,
 		strokeThickness = 3,
 	})
+	-- long addresses shrink to fit the card-width banner instead of spilling out of it
+	bannerText.Size = UDim2.new(1, -20, 1, -10)
+	bannerText.Position = UDim2.fromOffset(10, 5)
+	bannerText.TextScaled = true
+	local bannerMax = Instance.new("UITextSizeConstraint")
+	bannerMax.MaxTextSize = 44
+	bannerMax.Parent = bannerText
+	UiKit.corner(banner, 12)
 
 	-- toast stack (top centre, just under the timer pill; compact, max 2)
 	local toasts = Instance.new("Frame")
@@ -411,6 +422,19 @@ local function build(): Ui
 			strokeThickness = 3,
 		})
 	downedText.AnchorPoint = Vector2.new(0.5, 0.5)
+
+	-- shared layout (ClientLib/HudLayout): top-centre stack timer -> CALL! card -> banner -> toasts,
+	-- the left column, and the squad strip under the minimap's turn-hint slot
+	HudLayout.add("TopCentre", timerPill, 10)
+	HudLayout.add("TopCentre", banner, 30)
+	HudLayout.add("TopCentre", toasts, 40) -- its fixed 70 px holds the 2 toasts it may show at once
+	HudLayout.add("Left", objectives, 10)
+	HudLayout.pin(squad, function(s, _inset)
+		return HudLayout.RightColumnBelow * s
+	end)
+	for _, w in { timerPill, objectives, squad, tank, heat, carry, refillHint } do
+		HudLayout.reserve(w)
+	end
 
 	local marks = {
 		fire = marker(markers, "FireMarker", "F", Palette.FireEdge),
@@ -536,8 +560,8 @@ local function showBanner(locationName: string)
 	bannerShows += 1
 	local mine = bannerShows
 	u.banner.Visible = true
-	-- below the objective / CALL! card (top centre), so the two never print over each other
-	UiKit.tween(u.banner, 0.35, { Position = UDim2.new(0.5, 0, 0.27, 0) }, Enum.EasingStyle.Back)
+	-- HudLayout's top-centre stack puts it under the CALL! card; pop it in place
+	UiKit.pop(u.banner, 0.35)
 	task.spawn(function()
 		for i = 1, 6 do
 			u.banner.BackgroundColor3 = if i % 2 == 0 then Palette.UiRed else Palette.AlarmRed
@@ -545,12 +569,9 @@ local function showBanner(locationName: string)
 		end
 	end)
 	task.delay(3, function()
-		UiKit.tween(u.banner, 0.3, { Position = UDim2.new(0.5, 0, 0, -220) })
-		task.delay(0.35, function()
-			if bannerShows == mine then
-				u.banner.Visible = false
-			end
-		end)
+		if bannerShows == mine then
+			u.banner.Visible = false
+		end
 	end)
 end
 
@@ -700,6 +721,14 @@ end
 
 -- markers ------------------------------------------------------------------------------------
 
+-- HudLayout claim priority: two markers pointing the same way stack instead of overlapping
+local function markerPrio(m: Marker): number
+	local n = m.root.Name
+	return if n == "FireMarker" then HudLayout.Prio.Fire
+		elseif n == "RescueMarker" then HudLayout.Prio.Rescue
+		else HudLayout.Prio.Truck
+end
+
 local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	local cam = workspace.CurrentCamera
 	if not target or not from or not cam then
@@ -716,7 +745,9 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	-- keep markers out from under the Roblox top bar (HudMarkers is full-bleed: y = 0 is the screen top)
 	local topClear = GuiService:GetGuiInset().Y + 28
 	if onScreen and v.X > margin and v.X < vp.X - margin and v.Y > topClear and v.Y < vp.Y - margin then
-		m.root.Position = UDim2.fromOffset(v.X, v.Y)
+		-- never on top of a HUD panel (minimap, squad strip, cards): nudge it toward the centre
+		local ox, oy = HudLayout.clear(v.X, v.Y, 36, m.root.Name, markerPrio(m))
+		m.root.Position = UDim2.fromOffset(ox, oy)
 		m.tip.Rotation = 90 -- point down at the target
 		return
 	end
@@ -730,7 +761,9 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	end
 	local rx, ry = vp.X * 0.44, math.min(vp.Y * 0.40, vp.Y / 2 - topClear)
 	local k = 1 / math.sqrt((dx / rx) ^ 2 + (dy / ry) ^ 2)
-	m.root.Position = UDim2.fromOffset(cx + dx * k, cy + dy * k)
+	-- off the HUD panels (objectives, squad, gauges...): slide in toward the centre until clear
+	local ex, ey = HudLayout.clear(cx + dx * k, cy + dy * k, 36, m.root.Name, markerPrio(m))
+	m.root.Position = UDim2.fromOffset(ex, ey)
 	m.tip.Rotation = math.deg(math.atan2(dy, dx))
 end
 

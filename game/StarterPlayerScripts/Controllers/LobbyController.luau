@@ -25,6 +25,7 @@ local ConfigDir = ReplicatedStorage:WaitForChild("Config")
 local LobbyConfig = require(ConfigDir:WaitForChild("LobbyConfig") :: ModuleScript) :: any
 local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: { any }
 local LobbyQueue = require(ReplicatedStorage:WaitForChild("Lobby"):WaitForChild("LobbyQueue") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local LobbyController = {}
 LobbyController.Priority = 100
@@ -163,8 +164,12 @@ local function buildUi()
 	toast.Visible = false
 	toast.ZIndex = 45
 	ui.toast = toast
-	-- The objective card is UIScale'd (bottom = top-bar inset + 88 px * scale, ~181 px at 1080p), so a
-	-- fixed 170 px banner / 16 % toast ran into it on big screens; stack them under its real bottom.
+	-- Both join the top-centre stack (ClientLib/HudLayout): under the objective card and the HUD toasts,
+	-- whatever is showing, so they never print over each other. HudLayout owns their Position.Y.
+	HudLayout.add("TopCentre", banner, 35)
+	HudLayout.add("TopCentre", toast, 45, function()
+		return toast.AbsoluteSize.Y
+	end)
 	local function placeTopLines()
 		local cam = workspace.CurrentCamera
 		if not cam then
@@ -172,11 +177,7 @@ local function buildUi()
 		end
 		local v = cam.ViewportSize
 		local s = math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
-		local inset = GuiService:GetGuiInset().Y
-		local y = math.floor(inset + 88 * s + 10)
-		banner.Position = UDim2.new(0.25, 0, 0, y)
 		banner.Size = UDim2.new(0.5, 0, 0, math.floor(40 * math.max(s, 0.8)))
-		toast.Position = UDim2.new(0.3, 0, 0, y + math.floor(46 * math.max(s, 0.8)))
 	end
 	placeTopLines()
 	if workspace.CurrentCamera then
@@ -241,6 +242,12 @@ local function buildUi()
 	sizeLimit.MinSize = Vector2.new(320, 300)
 	sizeLimit.Parent = panel
 	ui.panel = panel
+	-- a modal: dims the HUD under it, above every HUD gui; click outside closes
+	HudLayout.modal(panel, {
+		onDismiss = function()
+			panel.Visible = false
+		end,
+	})
 	local head = label(panel, "Title", UDim2.new(0, 16, 0, 10), UDim2.new(1, -90, 0, 44), "DISPATCH: PICK A CALL", C.Yellow, Enum.Font.LuckiestGuy, 3)
 	head.TextXAlignment = Enum.TextXAlignment.Left
 	head.ZIndex = 31

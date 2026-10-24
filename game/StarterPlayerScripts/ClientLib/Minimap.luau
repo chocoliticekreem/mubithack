@@ -395,9 +395,11 @@ function Minimap.new()
 	self.north = north
 
 	-- hint pill under the map
+	-- right-aligned with the map so it never runs off the screen edge; its slot is reserved in the right
+	-- column (ClientLib/HudLayout.RightColumnBelow), so the squad strip sits under it, never behind it
 	local hint = frame(root, "Hint", Palette.UiPanelDark, 0.08)
-	hint.AnchorPoint = Vector2.new(0.5, 0)
-	hint.Position = UDim2.new(0.5, 0, 1, 8)
+	hint.AnchorPoint = Vector2.new(1, 0)
+	hint.Position = UDim2.new(1, 0, 1, 8)
 	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
 		-- phones: under the map is the jump button + touch actions; put the turn hint beside the map
 		hint.AnchorPoint = Vector2.new(1, 0)
@@ -430,6 +432,9 @@ function Minimap.new()
 	hintSub.TextTruncate = Enum.TextTruncate.AtEnd
 	hintSub.ZIndex = 31
 	self.hint, self.hintIcon, self.hintText, self.hintSub = hint, hintIcon, hintText, hintSub
+	local HudLayout = require(script.Parent:WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.reserve(root)
+	HudLayout.reserve(hint)
 
 	-- "M" map button (also the touch way in)
 	local mapBtn = Instance.new("TextButton")
@@ -455,7 +460,9 @@ function Minimap.new()
 	big.Enabled = false
 	self.bigGui = big
 	local dim = frame(big, "Dim", Color3.new(0, 0, 0), 0.45)
-	dim.Size = UDim2.fromScale(1, 1)
+	-- oversized: the gui respects the top-bar inset, and the dim must cover the top-bar row too
+	dim.Size = UDim2.fromScale(3, 3)
+	dim.Position = UDim2.fromScale(-1, -1)
 	local panel = UiKit.panel(big, "Panel", UDim2.new(0.86, 0, 0.84, 0), UDim2.fromScale(0.5, 0.52), Vector2.new(0.5, 0.5))
 	panel.BackgroundColor3 = Palette.UiPanelDark
 	local pc = Instance.new("UICorner")

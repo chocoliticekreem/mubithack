@@ -702,6 +702,9 @@ local function makeRespawnButton()
 		local w = math.max(200, math.min(math.floor(640 * math.max(s, 0.8)), math.floor(vp.X - 2 * reserve)))
 		local h = if w < 460 then math.floor(48 * math.max(s, 0.8)) else math.floor(34 * math.max(s, 0.8))
 		hint.Size = UDim2.fromOffset(w, h)
+		-- the RESPAWN button scales like the UiKit HUD: unscaled it ran into the PASS / STORE chips on phones
+		b.Position = UDim2.new(0, math.floor(16 * s), 1, -math.floor(150 * s))
+		b.Size = UDim2.fromOffset(math.floor(190 * s), math.floor(46 * s))
 	end
 	layoutHints()
 	if workspace.CurrentCamera then
@@ -719,6 +722,9 @@ local function makeRespawnButton()
 	hint.Parent = gui
 	hintLabel = hint
 	gui.Parent = pg
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.reserve(hint) -- world markers / edge arrows stay off the driving hints
+	HudLayout.reserve(b)
 	respawnButton = b
 end
 

@@ -36,6 +36,7 @@ local GearConfig = require(ConfigDir:WaitForChild("GearConfig") :: ModuleScript)
 local MissionGuideKey: string = (require(ConfigDir:WaitForChild("MissionGuides") :: ModuleScript) :: any).SkipKey or "J"
 local Flow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("OnboardingFlow") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local OnboardingController = {}
 OnboardingController.Priority = 120
@@ -562,6 +563,9 @@ local function buildHud()
 	local scale = Instance.new("UIScale")
 	scale.Parent = card
 	ui.card, ui.chip, ui.chipText, ui.head, ui.sub, ui.cardScale = card, chip, chipText, head, sub, scale
+	-- top-centre stack (ClientLib/HudLayout): under the mission timer when there is one
+	HudLayout.add("TopCentre", card, 20)
+	HudLayout.reserve(card)
 
 	-- edge arrow (target off screen): its own full-bleed, unscaled gui so positions are viewport pixels.
 	-- A yellow "!" badge with a pointer that orbits it toward the target.
@@ -618,6 +622,7 @@ local function buildHud()
 	corner(help, 10)
 	stroke(help, 2)
 	ui.helpChip = help
+	HudLayout.reserve(help)
 
 	-- help panel: a scrollable, skimmable cheat sheet (keys come from the configs, never hard-coded)
 	ui.help = buildHelp(gui)
@@ -855,8 +860,7 @@ local function showCard(g: Guide?)
 		ui.head.Text = g.head
 		ui.sub.Text = g.sub
 		ui.chipText.Text = g.chip
-		card.Visible = true
-		card.Position = UDim2.new(0.5, 0, 0, if inMission() then 76 else 10)
+		card.Visible = true -- HudLayout's top-centre stack places it (under the timer on a mission)
 		ui.cardScale.Scale = 0.6
 		TweenService:Create(ui.cardScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 		UiKit.pop(ui.chip, 0.3)
@@ -909,7 +913,9 @@ local function placeArrow(g: Guide?, t: number)
 	local rel = cam.CFrame:PointToObjectSpace(p.Position)
 	local side = if rel.X >= 0 then 1 else -1
 	local x = if side > 0 then vp.X - 60 else 60
-	ui.edge.Position = UDim2.fromOffset(x, vp.Y * 0.6)
+	-- off the HUD chips / gauges on that edge, and off the other edge arrows
+	local ex, ey = HudLayout.clear(x, vp.Y * 0.6, 32, "OnboardingEdge", HudLayout.Prio.Onboarding)
+	ui.edge.Position = UDim2.fromOffset(ex, ey)
 	ui.pointer.Position = UDim2.fromOffset(26 + side * 30, 26)
 	ui.edge.Visible = true
 end
@@ -955,6 +961,16 @@ end
 ------------------------------------------------------------------------------------------ help
 
 local function setHelp(open: boolean)
+	if not ui.helpModal then
+		-- a modal: dims the HUD under it (click outside closes); the lobby settings buttons stay above
+		ui.helpModal = true
+		HudLayout.modal(ui.help, {
+			onDismiss = function()
+				setHelp(false)
+			end,
+			companions = Cfg.LobbyHiddenGuis,
+		})
+	end
 	state.helpOpen = open
 	ui.help.Visible = open
 	player:SetAttribute(HELP_OPEN_ATTR, open)

@@ -382,6 +382,10 @@ local function ensureBar()
 	end
 	local gui = UiKit.screen("StructureHud", 1)
 	local panel = UiKit.panel(gui, "Integrity", UDim2.fromOffset(260, 52), UDim2.fromOffset(14, 114))
+	-- left column under the objectives card (ClientLib/HudLayout owns its Position.Y)
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.add("Left", panel, 20)
+	HudLayout.reserve(panel)
 	local track = Instance.new("Frame")
 	track.Name = "Track"
 	track.BackgroundColor3 = Palette.UiInk or Color3.fromRGB(42, 20, 16)

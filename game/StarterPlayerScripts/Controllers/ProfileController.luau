@@ -305,9 +305,14 @@ function ProfileController:Start()
 		popup(`+{math.floor(amount)} XP`, if type(reason) == "string" then reason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
 		if type(levelsGained) == "number" and levelsGained > 0 then
 			task.delay(0.5, function()
-				-- low centre: GearController's "LEVEL n: NEW GEAR!" card owns the middle of the screen
-				popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
-				celebrate()
+				-- centre celebrations take turns (ClientLib/HudLayout): this, then NEW GEAR, then TIER UP,
+				-- and only once the results screen has closed
+				local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+				HudLayout.celebrate(function()
+					popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, DataConfig.Ui.LevelUpSeconds, 0.62)
+					celebrate()
+					return (tonumber(DataConfig.Ui.LevelUpSeconds) or 2) + 0.2
+				end)
 			end)
 		end
 	end)

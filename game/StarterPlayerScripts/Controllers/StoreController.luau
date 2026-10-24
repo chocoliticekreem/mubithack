@@ -17,6 +17,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 
 local StoreController = {}
 StoreController.Priority = 120
@@ -243,6 +244,7 @@ local function build()
 	ts.Parent = b
 	b.Activated:Connect(toggle)
 	chip = b
+	HudLayout.reserve(b)
 
 	-- panel
 	local p = UiKit.panel(g, "StorePanel", UDim2.fromOffset(720, 470), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
@@ -250,6 +252,12 @@ local function build()
 	p:SetAttribute("Menu", true)
 	p.ZIndex = 5
 	panel = p
+	-- a modal: dims the HUD under it and sits above every HUD gui while open; click outside closes
+	HudLayout.modal(p, {
+		onDismiss = function()
+			setOpen(false)
+		end,
+	})
 
 	local head = Instance.new("Frame")
 	head.Name = "Header"

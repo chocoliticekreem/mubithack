@@ -319,17 +319,16 @@ function RescueController:Start()
 	local Drop = Net.event("Rescue", "Drop")
 	local Throw = Net.event("Rescue", "Throw")
 
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "Carry"
-	gui.ResetOnSpawn = false
-	gui.DisplayOrder = 2
-	gui.IgnoreGuiInset = false
-	gui.Parent = player:WaitForChild("PlayerGui")
+	-- UiKit.screen: the same viewport UIScale as the hotbar under it, so on a phone the slot shrinks with
+	-- it instead of staying 360 px wide and running into the heat warning above
+	local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript) :: any
+	local gui = UiKit.screen("Carry", 2)
 
 	local slot = Instance.new("Frame")
 	slot.Name = "CarrySlot"
 	slot.AnchorPoint = Vector2.new(0.5, 1)
-	slot.Position = UDim2.new(0.5, 0, 1, -96)
+	-- above the hotbar: its row is 72 + 22 + 4 tall at 1,-4 and the slot tags poke ~12 above it
+	slot.Position = UDim2.new(0.5, 0, 1, -122)
 	slot.Size = UDim2.fromOffset(360, 74)
 	slot.BackgroundColor3 = Palette.UiPanelDark
 	slot.BackgroundTransparency = 0.15
@@ -345,6 +344,8 @@ function RescueController:Start()
 	sizeLimit.MaxSize = Vector2.new(360, 74)
 	sizeLimit.Parent = slot
 	slot.Parent = gui
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.reserve(slot) -- world markers / edge arrows stay off it
 
 	local label = Instance.new("TextLabel")
 	label.Name = "Text"
@@ -460,10 +461,9 @@ function RescueController:Start()
 		local c = charge()
 		fill.Size = UDim2.fromScale(c, 1)
 		fill.BackgroundColor3 = if c >= 1 then Palette.UiRed else Palette.UiFlameMid
-		-- sit above InventoryController's hotbar (its height follows the viewport UIScale)
-		local inv = player.PlayerGui:FindFirstChild("InventoryHud")
-		local bar = inv and inv:FindFirstChild("Hotbar")
-		local baseY = if bar and bar:IsA("GuiObject") and bar.Visible then -math.max(96, math.floor(bar.AbsoluteSize.Y + 16)) else -96
+		-- sit above InventoryController's hotbar: both guis share UiKit's viewport UIScale, so a fixed
+		-- design offset holds on every screen (the hotbar row is 98 tall at 1,-4; its tags poke ~12 above)
+		local baseY = -122
 		if c >= 1 then
 			-- full power: the panel trembles
 			slot.Position = UDim2.new(0.5, math.random(-3, 3), 1, baseY + math.random(-2, 2))
