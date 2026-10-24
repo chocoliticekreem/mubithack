@@ -34,10 +34,27 @@ return Config.define({
 
 	-- the truck tank (truck attrs Water / TankSize) and hydrant supply lines
 	TruckTankSize = 600, -- litres
-	SupplyLength = 45, -- studs of supply line from hydrant to truck
-	SupplySnapFactor = 1.5, -- the truck drove off: the line pops off past length * this
+	-- The supply line is a physical coupling: [R] at a hydrant puts it in your HAND (tethered), [R] at a
+	-- truck's side intake hooks it up (infinite tank), [R] at either end unhooks it.
+	SupplyLength = 60, -- studs of supply line: how far you can walk it, and how far a hooked truck can roll
+	SupplySnapFactor = 2.2, -- teleported apart (ParkAt / respawn): past length * this it just pops off, no blame
 	SupplyRate = 40, -- litres per second into the truck tank
-	SupplyTickHz = 4,
+	SupplyTickHz = 10,
+	SupplyIntakeReach = 10, -- the [R] intake prompt on each side of a truck
+	SupplyTautSlack = 2.5, -- within this of full length the line counts as taut
+	SupplyRipStrain = 2.2, -- seconds of driving against a taut line before it RIPS off the hydrant
+	SupplyStrainDecay = 1.5, -- strain bleeds off this fast (per s) once you stop pulling
+	SupplyWarnSeconds = 2.5, -- the driver's "STILL HOOKED UP" banner repeats this often while pushing
+	SupplyGeyserSeconds = 4, -- a ripped line leaves the hydrant geysering this long
+	SupplyColor = Color3.fromHex("#F2C230"),
+	-- hint strings for the guides (OnboardingController) and anyone else who explains the supply line
+	SupplyHints = {
+		Grab = "Hydrant [R]: grab the supply line",
+		Hook = "Truck side intake [R]: hook it up for infinite water",
+		Unhook = "Unhook it [R] before you drive off!",
+		Warn = "SUPPLY LINE STILL HOOKED UP! Unhook it first",
+		Empty = "Truck tank empty! Grab a hydrant's supply line [R] and hook it to the truck",
+	},
 
 	-- oxygen tank (back slot)
 	OxygenAir = 90, -- seconds of air in a full tank

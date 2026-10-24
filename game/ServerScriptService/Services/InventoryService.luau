@@ -18,14 +18,23 @@
 --   InventoryService:Clear(player)                      -- silently empties every slot (no drops)
 --   InventoryService:TakeHand(player, id): boolean      -- gear: the hand item was used up (placed ladder)
 -- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),
---          Fumbled(player, itemId: string)
+--          Fumbled(player, itemId: string), SupplyRipped(driver: Player, hydrant: BasePart)
 -- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),
 --          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string)
---          kinds: "grab", "drop", "throw", "bonk", "fumble", "supply", "snap", "stow"
+--          kinds: "grab", "drop", "throw", "bonk", "fumble", "supply", "unhook", "snap", "rip", "stow",
+--          "supplywarn" (to the driver only: the big STILL HOOKED UP banner + beep; text = the banner)
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
 --   (attr Item), TruckRefill (the reel: nozzle; anyone's, Cfg.HosesPerTruck nozzles each, grabbed and
---   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart), Hydrant ([E] hose off it, infinite water; [R] supply line to a truck = infinite tank), Truck (attrs OwnerUserId, Water,
---   TankSize), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
+--   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart), Hydrant ([E] hose off it, infinite water; [R] its supply line), Truck (attrs OwnerUserId, Water,
+--   TankSize, Driver), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
+-- Supply line (one per hydrant, one per truck): [R] at a hydrant puts its brass coupling ("SupplyHose") in
+--   your HAND, tethered to the hydrant (Cfg.SupplyLength; a hidden rope to your root tugs you back, no
+--   ragdoll). G drops it (still tethered, anyone can grab it). [R] at a truck's side intake
+--   ("SupplyIntake_L/R", made here) hooks it up: truck attr SupplyLine = true, tank filled at once and
+--   never runs dry. [R] at the intake or the hydrant unhooks it (back on the hydrant). Death, downed,
+--   a ragdoll fumble or StowHose off-call put it back on the hydrant. Driving off hooked up: the driver
+--   gets "supplywarn" on sitting and while pushing; the rope holds the truck at SupplyLength, and
+--   SupplyRipStrain s of pulling taut RIPS it (geyser, blame popup, SupplyRipped).
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
 -- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher
@@ -42,7 +51,8 @@
 --   Backpack is destroyed on every apply; a Tool knocked into the Backpack (UnequipTools) comes back to
 --   the hand once you are not downed or carrying (hooked per character, the Backpack is new each spawn).
 -- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),
---   _fumble(player), _reel(player, reel?, from?: Vector3), _hydrant(player, hydrant), _hydrantHose(player, hydrant)
+--   _fumble(player), _reel(player, reel?, from?: Vector3), _hydrant(player, hydrant), _hydrantHose(player, hydrant),
+--   _intake(player, truck, side?: "L"|"R"), _supply(hydrant) -> { line, truck, strain, rope }
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -69,13 +79,15 @@ InventoryService.Priority = 55
 InventoryService.Changed = Signal.new() :: Signal.Signal<Player>
 InventoryService.Bonked = Signal.new() :: Signal.Signal<Player, Player, string>
 InventoryService.Fumbled = Signal.new() :: Signal.Signal<Player, string>
+InventoryService.SupplyRipped = Signal.new() :: Signal.Signal<Player, BasePart>
 
 local TAG_ITEM = "InventoryItem"
 local TAG_RACK = "GearRack"
 local TAG_COMPARTMENT = "TruckCompartment"
 local ATTR_PROMPT = "InvPrompt"
+local SUPPLY = "SupplyHose" -- the hydrant supply line's coupling (ItemDefs)
 
-type Data = { foam: number?, air: number?, reel: BasePart? }
+type Data = { foam: number?, air: number?, reel: BasePart?, hydrant: BasePart? }
 type Held = { id: string, data: Data }
 type PState = {
 	hand: Held?,
@@ -95,7 +107,17 @@ type PState = {
 }
 type Loose = { id: string, data: Data, born: number, rope: RopeConstraint? }
 type Flyer = { part: BasePart, thrower: Player, born: number, hit: { [Player]: true }, what: string }
-type Supply = { hydrant: BasePart, truck: Model, rope: RopeConstraint, a0: Attachment, a1: Attachment, by: Player }
+type Supply = {
+	hydrant: BasePart,
+	truck: Model,
+	intake: BasePart,
+	rope: RopeConstraint,
+	a1: Attachment,
+	by: Player,
+	strain: number,
+	warned: Player?,
+	warnAt: number,
+}
 
 local services: { [string]: any } = {}
 local states: { [Player]: PState } = {}
@@ -103,7 +125,10 @@ local loose: { [Model]: Loose } = {}
 local looseOrder: { Model } = {}
 local reelLoose: { [BasePart]: { Model } } = {} -- nozzles lying on the ground, still tethered to the reel
 local flyers: { Flyer } = {}
-local supplies: { [BasePart]: Supply } = {}
+local supplies: { [BasePart]: Supply } = {} -- hooked up: hydrant -> truck
+local couplingLoose: { [BasePart]: Model } = {} -- a hydrant's coupling lying on the ground
+local couplingDropper: { [BasePart]: Player } = {} -- who left it there (StowHose cleans it up)
+local hydrantPrompts: { [BasePart]: ProximityPrompt } = {}
 local stockHooked: { [BasePart]: true } = setmetatable({}, { __mode = "k" }) :: any
 local promptHooked: { [ProximityPrompt]: true } = setmetatable({}, { __mode = "k" }) :: any
 local looseFolder: Folder? = nil
@@ -299,6 +324,7 @@ end
 
 -- loose items --------------------------------------------------------------------------------------
 local giveHeld: (player: Player, held: Held) -> (boolean, ItemDefs.Plan?)
+local makeIntakes: (truck: Model) -> ()
 local removeLoose: (m: Model) -> ()
 
 local function folder(): Folder
@@ -324,6 +350,32 @@ local function reelAttachment(reel: BasePart): Attachment
 	return na
 end
 
+local function hydrantAtt(hydrant: BasePart): Attachment
+	local a = hydrant:FindFirstChild("InvSupplyA") :: Attachment?
+	if a then
+		return a
+	end
+	local na = Instance.new("Attachment")
+	na.Name = "InvSupplyA"
+	na.Parent = hydrant
+	return na
+end
+
+-- The fat yellow supply line (visible) or the hidden leash that keeps the holder in reach.
+local function supplyRope(name: string, a0: Attachment, a1: Attachment, length: number, visible: boolean, parent: Instance): RopeConstraint
+	local r = Instance.new("RopeConstraint")
+	r.Name = name
+	r.Attachment0 = a0
+	r.Attachment1 = a1
+	r.Length = length
+	r.Restitution = 0
+	r.Visible = visible
+	r.Thickness = 0.6
+	r.Color = BrickColor.new(Cfg.SupplyColor)
+	r.Parent = parent
+	return r
+end
+
 local function hoseLength(reel: BasePart): number
 	return tonumber(reel:GetAttribute("HoseLength")) or HoseLineConfig.LengthTruck
 end
@@ -335,6 +387,11 @@ end
 removeLoose = function(m: Model)
 	local info = loose[m]
 	loose[m] = nil
+	local hyd = info and info.data.hydrant
+	if hyd and couplingLoose[hyd] == m then
+		couplingLoose[hyd] = nil
+		couplingDropper[hyd] = nil
+	end
 	local i = table.find(looseOrder, m)
 	if i then
 		table.remove(looseOrder, i)
@@ -366,6 +423,11 @@ local function grabLoose(player: Player, m: Model)
 	if reel and not reel:IsDescendantOf(workspace) then
 		held.data = {} -- the truck is gone: just a loose nozzle now
 	end
+	local hyd = info.data.hydrant
+	if info.id == SUPPLY and not (hyd and hyd:IsDescendantOf(workspace)) then
+		removeLoose(m) -- its hydrant is gone (mission site cleared)
+		return
+	end
 	local ok = giveHeld(player, held)
 	if ok then
 		removeLoose(m)
@@ -383,7 +445,7 @@ local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Pl
 	while #looseOrder >= Cfg.MaxLooseItems do
 		local victim = looseOrder[1]
 		for _, m in looseOrder do
-			if not (loose[m] and loose[m].data.reel) then
+			if not (loose[m] and (loose[m].data.reel or loose[m].data.hydrant)) then
 				victim = m
 				break
 			end
@@ -395,11 +457,20 @@ local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Pl
 	m:PivotTo(cf)
 	m:AddTag(TAG_ITEM)
 	local handle = m.PrimaryPart :: BasePart
-	local prompt = invPrompt(handle, `Grab {def.name}`, "", Cfg.GrabDistance)
+	local prompt = invPrompt(handle, `Grab {def.name}`, if held.id == SUPPLY then "Hydrant" else "", Cfg.GrabDistance)
 	m.Parent = folder()
 	local info: Loose = { id = held.id, data = held.data, born = os.clock() }
 	loose[m] = info
 	table.insert(looseOrder, m)
+	local hyd = held.data.hydrant
+	if held.id == SUPPLY and hyd and hyd:IsDescendantOf(workspace) then
+		-- the coupling lies where it fell, still on its line from the hydrant
+		local tail = handle:FindFirstChild("CouplingEnd") :: Attachment?
+		if tail then
+			info.rope = supplyRope("SupplyLine", hydrantAtt(hyd), tail, Cfg.SupplyLength, true, handle)
+		end
+		couplingLoose[hyd] = m
+	end
 	local reel = held.data.reel
 	if reel and reel:IsDescendantOf(workspace) then
 		local hoseEnd = handle:FindFirstChild("HoseEnd") :: Attachment?
@@ -501,6 +572,26 @@ local function equipHand(player: Player, ps: PState)
 			-- a loose nozzle with no truck behind it (Give without a truck): the old personal tank
 			player:SetAttribute(Names.Attr.TankSize, ToolConfig.TankSize)
 			player:SetAttribute(Names.Attr.Water, ToolConfig.TankSize)
+		end
+	elseif held.id == SUPPLY then
+		-- the supply line runs from the hydrant to the coupling in your hand; a hidden leash on your root
+		-- stops you at SupplyLength (the ropes live in the Tool, so they go when it does)
+		local hyd = held.data.hydrant
+		local handle = t:FindFirstChild("Handle")
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if hyd and hyd:IsDescendantOf(workspace) and handle and root then
+			local tail = handle:FindFirstChild("CouplingEnd") :: Attachment?
+			if tail then
+				supplyRope("SupplyLine", hydrantAtt(hyd), tail, Cfg.SupplyLength + 4, true, t)
+			end
+			local tug = root:FindFirstChild("InvSupplyTug") :: Attachment?
+			if not tug then
+				local a = Instance.new("Attachment")
+				a.Name = "InvSupplyTug"
+				a.Parent = root
+				tug = a
+			end
+			supplyRope("SupplyLeash", hydrantAtt(hyd), tug :: Attachment, Cfg.SupplyLength, false, t)
 		end
 	end
 end
@@ -837,6 +928,9 @@ local function doDrop(player: Player): boolean
 		ps.hand = nil
 		apply(player, ps)
 		dropHeldAt(player, held, nil, fwd + Vector3.new(0, 4, 0), nil)
+		if held.id == SUPPLY and held.data.hydrant then
+			couplingDropper[held.data.hydrant] = player
+		end
 	else
 		return false
 	end
@@ -926,6 +1020,13 @@ local function fumble(player: Player)
 		releaseProp(player, ps, scatter(), nil)
 	end
 	local held = ps.hand
+	if held and held.id == SUPPLY then
+		-- knocked flat: the supply line springs back onto its hydrant
+		ps.hand = nil
+		apply(player, ps)
+		say(player, ps, "Whoops! The supply line sprang back to the hydrant", "bad")
+		return
+	end
 	if held then
 		ps.hand = nil
 		apply(player, ps)
@@ -951,7 +1052,7 @@ local function spill(player: Player)
 	ps.hand, ps.back, ps.face = nil, nil, nil
 	apply(player, ps)
 	for _, held in list do
-		if held then
+		if held and held.id ~= SUPPLY then -- the supply coupling goes back on its hydrant
 			dropHeldAt(player, held, nil, scatter(), nil)
 		end
 	end
@@ -1093,6 +1194,7 @@ local function setupTruck(truck: Instance)
 	truck:GetAttributeChangedSignal(Names.Attr.Water):Connect(function()
 		mirrorTank(truck)
 	end)
+	makeIntakes(truck :: Model)
 	local lockers: { BasePart } = {}
 	for _, d in truck:GetDescendants() do
 		if d:IsA("BasePart") and d:HasTag(TAG_COMPARTMENT) then
@@ -1283,96 +1385,328 @@ local function hookReel(inst: Instance)
 end
 
 -- hydrant supply lines -----------------------------------------------------------------------------
-local function disconnectSupply(hydrant: BasePart, text: string?, snapped: boolean?)
+-- One line per hydrant: on the hydrant ("home"), in someone's hand ("held"), on the ground ("loose") or
+-- hooked to a truck's side intake ("hooked"). The hand slot is the source of truth for "held".
+local function holderOf(hydrant: BasePart): Player?
+	for p, ps in states do
+		local held = ps.hand
+		if p.Parent and held and held.id == SUPPLY and held.data.hydrant == hydrant then
+			return p
+		end
+	end
+	return nil
+end
+
+local function lineOf(hydrant: BasePart): string
+	if supplies[hydrant] then
+		return "hooked"
+	elseif holderOf(hydrant) then
+		return "held"
+	end
+	local m = couplingLoose[hydrant]
+	if m and m.Parent then
+		return "loose"
+	end
+	return "home"
+end
+
+local function supplyOfTruck(truck: Model): Supply?
+	for _, s in supplies do
+		if s.truck == truck then
+			return s
+		end
+	end
+	return nil
+end
+
+local function refreshHydrantPrompt(hydrant: BasePart)
+	local p = hydrantPrompts[hydrant]
+	if not p then
+		return
+	end
+	local line = lineOf(hydrant)
+	local text = if line == "hooked" then "Unhook supply line"
+		elseif line == "held" then "Put supply line back"
+		elseif line == "loose" then "Reel in supply line"
+		else "Grab supply line"
+	if p.ActionText ~= text then
+		p.ActionText = text
+	end
+	p.ObjectText = if line == "hooked" then "Hydrant (supplying a truck)" else "Hydrant"
+end
+
+local function driverOf(truck: Model): Player?
+	local id = truck:GetAttribute("Driver")
+	if type(id) ~= "number" or id == 0 then
+		return nil
+	end
+	return Players:GetPlayerByUserId(id)
+end
+
+local function driveSeatOf(truck: Model): VehicleSeat?
+	local seat = truck:FindFirstChild("DriveSeat", true)
+	return if seat and seat:IsA("VehicleSeat") then seat else nil
+end
+
+-- A ripped line: the hydrant geysers for a few seconds.
+local function geyser(hydrant: BasePart)
+	local a = Instance.new("Attachment")
+	a.Name = "InvGeyser"
+	a.Position = Vector3.new(0, hydrant.Size.Y / 2, 0)
+	a.Parent = hydrant
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "Geyser"
+	e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	e.Color = ColorSequence.new(Color3.fromRGB(190, 230, 255), Color3.fromRGB(110, 180, 255))
+	e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 3.5) })
+	e.Lifetime = NumberRange.new(1.2, 1.8)
+	e.Rate = 160
+	e.Speed = NumberRange.new(38, 52)
+	e.SpreadAngle = Vector2.new(9, 9)
+	e.Acceleration = Vector3.new(0, -workspace.Gravity * 0.35, 0)
+	e.EmissionDirection = Enum.NormalId.Top
+	e.LightEmission = 0.2
+	e.Parent = a
+	task.delay(Cfg.SupplyGeyserSeconds, function()
+		e.Enabled = false
+	end)
+	task.delay(Cfg.SupplyGeyserSeconds + 2, function()
+		a:Destroy()
+	end)
+end
+
+-- kind: nil (quiet: something vanished / teleported), "unhook" (by hand), "rip" (driven off)
+local function disconnectSupply(hydrant: BasePart, kind: string?)
 	local s = supplies[hydrant]
 	if not s then
 		return
 	end
 	supplies[hydrant] = nil
 	s.rope:Destroy()
-	s.a0:Destroy()
 	s.a1:Destroy()
 	if s.truck.Parent then
 		s.truck:SetAttribute("SupplyLine", false)
 	end
-	if snapped then
+	if kind == "unhook" and s.intake.Parent then
+		fx("unhook", s.intake.Position, "")
+	elseif kind == "rip" then
 		Telemetry.count("inv_supply_snaps")
 		if hydrant.Parent then
-			fx("snap", hydrant.Position, "")
+			fx("rip", hydrant.Position, "")
+			geyser(hydrant)
 		end
+	elseif kind == nil and hydrant.Parent then
+		fx("snap", hydrant.Position, "")
 	end
-	if text and s.by.Parent then
-		Popup.show(s.by, text, if snapped then "bad" else "info", s.by)
+	refreshHydrantPrompt(hydrant)
+end
+
+local function ripSupply(hydrant: BasePart, s: Supply, driver: Player?)
+	disconnectSupply(hydrant, "rip")
+	local who = driver or s.by
+	if who and who.Parent then
+		Popup.show(who, `{who.DisplayName} drove off with the supply line! RIIIP`, "blame", who)
+		InventoryService.SupplyRipped:Fire(who, hydrant)
 	end
 end
 
-local function pickTruck(player: Player, hydrant: BasePart): Model?
-	local best: Model?, bestD = nil, Cfg.SupplyLength
-	local own = ownedTruck(player)
-	if own then
-		local d = (own:GetPivot().Position - hydrant.Position).Magnitude
-		return if d <= Cfg.SupplyLength then own else nil
+-- The driver of a hooked-up truck: a big banner and a beep (InventoryController draws it).
+local function warnDriver(s: Supply, driver: Player)
+	s.warned = driver
+	s.warnAt = os.clock()
+	if FxRemote then
+		FxRemote:FireClient(driver, "supplywarn", s.intake.Position, Cfg.SupplyHints.Warn)
 	end
-	for _, t in CollectionService:GetTagged(Names.Tag.Truck) do
-		if t:IsA("Model") and t:IsDescendantOf(workspace) then
-			-- no truck of your own nearby: any truck will do (trucks are everyone's now)
-			local d = (t:GetPivot().Position - hydrant.Position).Magnitude
-			if d <= bestD then
-				best, bestD = t, d
-			end
-		end
-	end
-	return best
 end
 
-local function onHydrant(player: Player, hydrant: BasePart)
-	local ps = stateOf(player)
-	if not Net.near(player, hydrant.Position, 14) then
-		return
-	end
-	if supplies[hydrant] then
-		disconnectSupply(hydrant, "Supply line disconnected")
-		return
-	end
-	local truck = pickTruck(player, hydrant)
-	if not truck then
-		say(player, ps, `Park your truck within {Cfg.SupplyLength} studs of the hydrant first!`)
-		return
-	end
-	for h, s in supplies do
-		if s.truck == truck then
-			disconnectSupply(h, nil)
-		end
-	end
-	local anchorPart = reelOfTruck(truck) or truck.PrimaryPart
-	if not anchorPart then
-		return
-	end
+local function hookUp(player: Player, hydrant: BasePart, truck: Model, intake: BasePart)
 	ensureTank(truck)
-	local a0 = Instance.new("Attachment")
-	a0.Name = "InvSupplyA"
-	a0.Parent = hydrant
 	local a1 = Instance.new("Attachment")
 	a1.Name = "InvSupplyB"
-	a1.Parent = anchorPart
-	local rope = Instance.new("RopeConstraint")
-	rope.Name = "SupplyLine"
-	rope.Attachment0 = a0
-	rope.Attachment1 = a1
-	-- slack past the snap distance, so a truck driving off pops the line instead of being leashed
-	rope.Length = Cfg.SupplyLength * Cfg.SupplySnapFactor + 2
-	rope.Visible = true
-	rope.Thickness = 0.5
-	rope.Color = BrickColor.new("Bright yellow")
-	rope.Parent = hydrant
-	supplies[hydrant] = { hydrant = hydrant, truck = truck, rope = rope, a0 = a0, a1 = a1, by = player }
+	a1.Parent = intake
+	local dist = (hydrantAtt(hydrant).WorldPosition - a1.WorldPosition).Magnitude
+	-- the truck can roll to SupplyLength from the hydrant; past that the line holds it (and then rips)
+	local rope = supplyRope("SupplyLine", hydrantAtt(hydrant), a1, math.max(Cfg.SupplyLength, dist + 1), true, hydrant)
+	supplies[hydrant] = {
+		hydrant = hydrant,
+		truck = truck,
+		intake = intake,
+		rope = rope,
+		a1 = a1,
+		by = player,
+		strain = 0,
+		warned = driverOf(truck), -- already in the seat: warned below
+		warnAt = 0,
+	}
 	truck:SetAttribute("SupplyLine", true)
 	-- a hydrant is infinite water: the truck tops up at once and stays full while hooked up
 	truck:SetAttribute(Names.Attr.Water, truck:GetAttribute(Names.Attr.TankSize) or Cfg.TruckTankSize)
 	mirrorTank(truck)
 	Telemetry.count("inv_supply_lines")
-	fx("supply", hydrant.Position, "")
-	Popup.show(player, "Supply line on! Infinite water", "good", player)
+	fx("supply", intake.Position, "")
+	Popup.show(player, "CLUNK! Supply line on: infinite water", "good", player)
+	refreshHydrantPrompt(hydrant)
+	local driver = driverOf(truck)
+	if driver then
+		warnDriver(supplies[hydrant], driver)
+	end
+end
+
+-- [R] at a hydrant: grab its supply line, put it back, reel a dropped one in, or unhook it.
+local function onHydrant(player: Player, hydrant: BasePart)
+	local ps = stateOf(player)
+	if not Net.near(player, hydrant.Position, 14) then
+		return
+	end
+	local holder = holderOf(hydrant)
+	local action = ItemDefs.hydrantAction(lineOf(hydrant), holder == player)
+	if action == "unhook" then
+		disconnectSupply(hydrant, "unhook")
+		say(player, ps, "Supply line unhooked, back on the hydrant")
+	elseif action == "stow" then
+		ps.hand = nil
+		apply(player, ps)
+		fx("stow", hydrant.Position, "Supply Line")
+		say(player, ps, "Supply line back on the hydrant")
+	elseif action == "busy" then
+		say(player, ps, `{if holder then holder.DisplayName else "Someone"} has this supply line!`)
+	elseif action == "reel" then
+		local m = couplingLoose[hydrant]
+		if m then
+			removeLoose(m)
+		end
+		fx("stow", hydrant.Position, "Supply Line")
+		say(player, ps, "Supply line reeled back in")
+	else
+		local hand = ps.hand
+		if hand and hand.id == SUPPLY then
+			say(player, ps, "You already have a supply line!")
+			return
+		end
+		if giveHeld(player, { id = SUPPLY, data = { hydrant = hydrant } }) then
+			Telemetry.count("inv_supply_grabs")
+			fx("grab", hydrant.Position, "Supply Line")
+			say(player, ps, `Got the supply line! {Cfg.SupplyHints.Hook}`, "good")
+		end
+	end
+	refreshHydrantPrompt(hydrant)
+end
+
+-- [R] at a truck's side intake: hook the coupling in your hand up, or unhook the line that's on.
+local function onIntake(player: Player, truck: Model, intake: BasePart)
+	local ps = stateOf(player)
+	local _, _, hum = charOf(player)
+	if (hum and hum.SeatPart) or not truck:IsDescendantOf(workspace) then
+		return
+	end
+	if not Net.near(player, intake.Position, Cfg.SupplyIntakeReach + 4) then
+		return
+	end
+	local hand = ps.hand
+	local hyd = if hand and hand.id == SUPPLY then hand.data.hydrant else nil
+	if hyd and not hyd:IsDescendantOf(workspace) then
+		ps.hand = nil -- its hydrant went away (site cleared)
+		apply(player, ps)
+		return
+	end
+	local current = supplyOfTruck(truck)
+	local dist = if hyd then (hydrantAtt(hyd).WorldPosition - intake.Position).Magnitude else 0
+	local action = ItemDefs.intakeAction(hyd ~= nil, current ~= nil, dist, Cfg.SupplyLength + 2)
+	if action == "unhook" and current then
+		disconnectSupply(current.hydrant, "unhook")
+		say(player, ps, "Supply line unhooked, back on the hydrant")
+	elseif action == "busy" then
+		say(player, ps, "This truck already has a supply line on!")
+	elseif action == "far" then
+		say(player, ps, "The line won't reach! Park the truck closer to the hydrant")
+	elseif action == "hook" and hyd then
+		ps.hand = nil
+		apply(player, ps)
+		hookUp(player, hyd, truck, intake)
+	else
+		say(player, ps, `No supply line! {Cfg.SupplyHints.Grab}`)
+	end
+end
+
+-- Each truck gets a brass intake on both sides (rear, beside the reel) with an [R] prompt.
+makeIntakes = function(truck: Model)
+	local base = truck.PrimaryPart
+	if not base or base:FindFirstChild("SupplyIntake_L") then
+		return
+	end
+	for _, side in { -1, 1 } do
+		local tag = if side < 0 then "L" else "R"
+		local p = Instance.new("Part")
+		p.Name = `SupplyIntake_{tag}`
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(0.6, 1.4, 1.4)
+		p.Color = Color3.fromHex("#C89A3C")
+		p.Material = Enum.Material.Metal
+		p.Anchored = false
+		p.CanCollide = false
+		p.CanTouch = false
+		p.CanQuery = true
+		p.Massless = true
+		p.CFrame = base.CFrame * CFrame.new(side * (base.Size.X / 2 + 0.75), 2.3, 7.6)
+		local cap = Instance.new("Part")
+		cap.Name = `SupplyIntakeCap_{tag}`
+		cap.Shape = Enum.PartType.Cylinder
+		cap.Size = Vector3.new(0.3, 0.9, 0.9)
+		cap.Color = Cfg.SupplyColor
+		cap.Material = Enum.Material.SmoothPlastic
+		cap.Anchored = false
+		cap.CanCollide = false
+		cap.CanTouch = false
+		cap.CanQuery = false
+		cap.Massless = true
+		cap.CFrame = p.CFrame * CFrame.new(side * 0.4, 0, 0)
+		for _, part in { p, cap } do
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = base
+			w.Part1 = part
+			w.Parent = part
+		end
+		p.Parent = base
+		cap.Parent = p
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "SupplyIntakePrompt"
+		prompt.ActionText = "Hook up supply line"
+		prompt.ObjectText = "Truck intake"
+		prompt.KeyboardKeyCode = Enum.KeyCode.R
+		prompt.GamepadKeyCode = Enum.KeyCode.ButtonY
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = Cfg.SupplyIntakeReach
+		prompt.RequiresLineOfSight = false
+		prompt.Style = Enum.ProximityPromptStyle.Custom
+		prompt:SetAttribute(ATTR_PROMPT, true)
+		prompt:SetAttribute("InvIntake", true) -- InventoryController shows it only when it does something
+		prompt.Parent = p
+		promptHooked[prompt] = true
+		prompt.Triggered:Connect(function(player: Player)
+			onIntake(player, truck, p)
+		end)
+	end
+end
+
+-- Off a call: every supply line this player had goes back on its hydrant.
+local function stowSupplies(player: Player): boolean
+	local any = false
+	for hydrant, s in supplies do
+		local truck = s.truck
+		if s.by == player or driverOf(truck) == player or truck:GetAttribute("OwnerUserId") == player.UserId then
+			disconnectSupply(hydrant, "unhook")
+			any = true
+		end
+	end
+	for hydrant, who in couplingDropper do
+		local m = couplingLoose[hydrant]
+		if who == player and m then
+			removeLoose(m)
+			any = true
+		end
+	end
+	return any
 end
 
 -- [E] on a hydrant: a hose line straight off it (infinite water); again to put it back
@@ -1423,12 +1757,17 @@ local function hookHydrant(inst: Instance)
 		return
 	end
 	promptHooked[p] = true
-	p.ActionText = "Supply line to truck"
 	p.KeyboardKeyCode = Enum.KeyCode.R
 	p.GamepadKeyCode = Enum.KeyCode.ButtonY
+	p.HoldDuration = 0
 	p:SetAttribute("InvHydrant", true)
+	hydrantPrompts[hydrant] = p
+	refreshHydrantPrompt(hydrant)
 	p.Triggered:Connect(function(player: Player)
 		onHydrant(player, hydrant)
+	end)
+	hydrant.Destroying:Connect(function()
+		hydrantPrompts[hydrant] = nil
 	end)
 	local hose = Instance.new("ProximityPrompt")
 	hose.Name = "HydrantHose"
@@ -1447,25 +1786,68 @@ local function hookHydrant(inst: Instance)
 	end)
 end
 
+-- One hooked line: keep the tank topped up, warn the driver, and pull / rip when they drive off.
+local function supplyTick(hydrant: BasePart, s: Supply, dt: number, now: number)
+	local chassis = s.truck.PrimaryPart
+	if not hydrant:IsDescendantOf(workspace) or not s.truck:IsDescendantOf(workspace) or not s.a1.Parent or not chassis then
+		disconnectSupply(hydrant, nil)
+		return
+	end
+	local dist = (hydrantAtt(hydrant).WorldPosition - s.a1.WorldPosition).Magnitude
+	if ItemDefs.supplyState(dist, s.rope.Length, Cfg.SupplySnapFactor) == "snap" then
+		disconnectSupply(hydrant, nil) -- the truck was teleported (ParkAt, respawn): it just pops off
+		return
+	end
+	local driver = driverOf(s.truck)
+	local pushing = false
+	if driver then
+		local seat = driveSeatOf(s.truck)
+		local throttle = if seat then seat.ThrottleFloat else 0
+		pushing = math.abs(throttle) > 0.05 or chassis.AssemblyLinearVelocity.Magnitude > 3
+		if driver ~= s.warned or (pushing and now - s.warnAt > Cfg.SupplyWarnSeconds) then
+			warnDriver(s, driver)
+		end
+	else
+		s.warned = nil
+	end
+	local taut = dist >= s.rope.Length - Cfg.SupplyTautSlack
+	s.strain = ItemDefs.supplyStrain(s.strain, pushing and taut, dt, Cfg.SupplyStrainDecay)
+	if s.strain >= Cfg.SupplyRipStrain then
+		ripSupply(hydrant, s, driver)
+		return
+	end
+	local size = (s.truck:GetAttribute(Names.Attr.TankSize) :: number?) or Cfg.TruckTankSize
+	local water = (s.truck:GetAttribute(Names.Attr.Water) :: number?) or 0
+	if water < size then
+		s.truck:SetAttribute(Names.Attr.Water, ItemDefs.supplyStep(water, size, Cfg.SupplyRate, dt))
+	end
+end
+
 local function supplyLoop()
+	local last = os.clock()
 	while true do
-		local dt = 1 / math.max(1, Cfg.SupplyTickHz)
-		task.wait(dt)
+		task.wait(1 / math.max(1, Cfg.SupplyTickHz))
+		local now = os.clock()
+		local dt = math.min(0.5, now - last)
+		last = now
 		for hydrant, s in supplies do
-			if not hydrant:IsDescendantOf(workspace) or not s.truck:IsDescendantOf(workspace) or not s.a1.Parent then
-				disconnectSupply(hydrant, nil)
-				continue
+			supplyTick(hydrant, s, dt, now)
+		end
+		-- a held coupling dragged way out of reach (teleport, Backpack while carrying) goes home
+		for p, ps in states do
+			local held = ps.hand
+			local hyd = held and held.id == SUPPLY and held.data.hydrant
+			if hyd then
+				local _, root = charOf(p)
+				if not hyd:IsDescendantOf(workspace) or (root and (root.Position - hyd.Position).Magnitude > Cfg.SupplyLength * Cfg.SupplySnapFactor) then
+					ps.hand = nil
+					apply(p, ps)
+					say(p, ps, "The supply line popped back onto the hydrant")
+				end
 			end
-			local dist = (s.a0.WorldPosition - s.a1.WorldPosition).Magnitude
-			if ItemDefs.supplyState(dist, Cfg.SupplyLength, Cfg.SupplySnapFactor) == "snap" then
-				disconnectSupply(hydrant, "POP! The supply line ripped off the hydrant", true)
-				continue
-			end
-			local size = (s.truck:GetAttribute(Names.Attr.TankSize) :: number?) or Cfg.TruckTankSize
-			local water = (s.truck:GetAttribute(Names.Attr.Water) :: number?) or 0
-			if water < size then
-				s.truck:SetAttribute(Names.Attr.Water, ItemDefs.supplyStep(water, size, Cfg.SupplyRate, dt))
-			end
+		end
+		for hydrant in hydrantPrompts do
+			refreshHydrantPrompt(hydrant)
 		end
 	end
 end
@@ -1504,7 +1886,7 @@ local function onWaterUsed(player: Player, litres: number)
 	tank:SetAttribute(Names.Attr.Water, left)
 	mirrorTank(tank)
 	if left <= 0 and water > 0 and ps then
-		say(player, ps, "Truck tank empty! Hook a hydrant up to the truck", "bad")
+		say(player, ps, Cfg.SupplyHints.Empty, "bad")
 	end
 end
 
@@ -1546,6 +1928,10 @@ local function upkeepLoop()
 			local reel = info.data.reel
 			local tooOld = now - info.born > Cfg.LooseSeconds
 			local stray = reel ~= nil and (not reel:IsDescendantOf(workspace) or (reel.Position - handle.Position).Magnitude > hoseLength(reel) * 2.5)
+			local hyd = info.data.hydrant
+			if info.id == SUPPLY then
+				stray = not (hyd and hyd:IsDescendantOf(workspace)) or (hyd.Position - handle.Position).Magnitude > Cfg.SupplyLength * 2.5
+			end
 			if tooOld or stray then
 				removeLoose(m)
 			end
@@ -1623,6 +2009,10 @@ local function hookPlayer(player: Player)
 	end)
 	player:GetAttributeChangedSignal(Names.Attr.Downed):Connect(function()
 		local ps = states[player]
+		if ps and player:GetAttribute(Names.Attr.Downed) == true and ps.hand and ps.hand.id == SUPPLY then
+			ps.hand = nil -- downed: the supply line goes back on its hydrant
+			apply(player, ps)
+		end
 		if ps then
 			sweepTools(player, ps)
 		end
@@ -1769,13 +2159,20 @@ end
 
 -- Put the player's hose back on their truck reel: the held nozzle and any nozzle they left lying
 -- on the ground tethered to their truck (mission over, so the next call starts with a rolled-up hose).
+-- Off a call (InstanceId ""), it also puts the supply lines this player had (held, dropped, or hooked
+-- to a truck they drive / own / hooked up) back on their hydrants, so nobody rips one driving home.
 function InventoryService:StowHose(player: Player): boolean
 	local stowed = false
 	local ps = states[player]
-	if ps and ps.hand and ps.hand.id == "Hose" then
+	if ps and ps.hand and (ps.hand.id == "Hose" or ps.hand.id == SUPPLY) then
 		ps.hand = nil
 		apply(player, ps)
 		stowed = true
+	end
+	if ((player:GetAttribute(Names.Attr.InstanceId) :: string?) or "") == "" then
+		if stowSupplies(player) then
+			stowed = true
+		end
 	end
 	for reel, list in reelLoose do
 		local truck = truckOf(reel)
@@ -1853,6 +2250,30 @@ end
 
 function InventoryService:_hydrant(player: Player, hydrant: BasePart)
 	onHydrant(player, hydrant)
+end
+
+function InventoryService:_intake(player: Player, truck: Model, side: string?): boolean
+	local base = truck.PrimaryPart
+	local intake = base and base:FindFirstChild(`SupplyIntake_{side or "L"}`) :: BasePart?
+	if not intake then
+		return false
+	end
+	onIntake(player, truck, intake)
+	return true
+end
+
+function InventoryService:_supply(hydrant: BasePart): { [string]: any }
+	local s = supplies[hydrant]
+	local holder = holderOf(hydrant)
+	return {
+		line = lineOf(hydrant),
+		holder = holder and holder.Name,
+		truck = s and s.truck.Name,
+		strain = s and s.strain,
+		rope = s and s.rope.Length,
+		dist = s and (s.a1.WorldPosition - hydrantAtt(hydrant).WorldPosition).Magnitude,
+		prompt = hydrantPrompts[hydrant] and hydrantPrompts[hydrant].ActionText,
+	}
 end
 
 function InventoryService:_selftest(): (boolean, string)
