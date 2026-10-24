@@ -66,6 +66,26 @@ matching snippets to the coder, fixer or patcher **user message**, under a size 
 modules get nothing. Add a snippet: drop the `.luau` in, add it to `index.json`, run
 `.venv/bin/python -m pytest -q tests/test_ui_kit.py`.
 
+### Kit modules and obbies
+
+Prebuilt, tested Luau modules a game gets by genre or keyword: `forge/kit/modules/<Name>.luau` plus one
+entry in `forge/kit/modules/index.json` (`name, path_in_game, genres, keywords, describe, api`). The
+designer is told they exist, the spec lists them as prebuilt, the art pass copies them into the game and
+every coder call lists their API; the fixer never edits them. Add a module by adding its file and entry.
+
+**ObbyKit** (obby games): checkpoints with a saved `Stage`, respawn, kill parts, falls back to the
+checkpoint, ten obstacle kinds on one Heartbeat loop, and `LevelBuilder`, which builds stages from level data.
+The data comes from the `level_designer` Mubit task:
+
+```bash
+forge levels <slug> --zones 1-10 --stages-per-zone 20   # one call per zone; resumable
+```
+
+`forge/obby.py` checks every jump against the default character (walk 16, jump height 7.2: 10 studs flat,
+7.4 when rising 6, calibrated against a live runner). Broken stages go back to the same Mubit task as a
+correction with the exact errors (up to 2 times), and the zone lands as `ReplicatedStorage/Levels/ZoneNN.luau`.
+The obby checks (`forge/genre_checks/obby/`) are copied into `runs/<slug>/checks/` for `forge checks --run`.
+
 ## Using it from Claude Code
 
 The `forge` plugin's tools:

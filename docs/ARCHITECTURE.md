@@ -127,6 +127,34 @@ forge/                 Python package (uv), entry point `forge`
                        spec["first_60s"] = [{t, beat, counter, min}]; art pass install_kit(spec, game_dir) writes the
                        prebuilt ReplicatedStorage/GameAssets.luau (forge/kit: palette, sounds.json, play/burst/shake/
                        styleLighting/part); coder_notes(spec, lessons) puts style + juice ahead of coder/fixer lessons
+                       kit modules: forge/kit/modules/<Name>.luau + index.json [{name, path_in_game, genres ("*" = all),
+                       keywords, describe, api}]; match_kit_modules(text) (gaps.detect_genre or a keyword) -> the designer's
+                       scope block says PREBUILT, spec module {path, prebuilt, kit: <name>}, install_kit copies the file and
+                       forge/genre_checks/<genre>/*.luau into runs/<slug>/checks/ (resolve_consumers: `-- consumer:
+                       <file>:"<text>"` -> <file>:<line>; __EXPECTED_STAGES__ from spec levels), kit_api_block(spec) in every
+                       coder user message (roles.code_module), protected_paths (kit + level data) never go to the fixer
+                       (Run.base_files), ensure_kit(spec, game_dir, names) for games built before the kit
+  obby.py              obby levels as data: KINDS (11 kinds, defaults/limits), layout(stage) -> surfaces in the course frame,
+                       validate_stage / validate_zone -> exact "stage N ...: gap 12.0 at rise 0.0 > max 10.0" problems (jump
+                       envelope of the default character: walk 16, jump height 7.2, gravity 196.2, reach(rise) = 16 * airtime
+                       + 1.3, rise <= 6, calibrated live; jumppad/trampoline launches; movers sampled over 24 s; tile
+                       timing; lava at floor level; crush; pendulum clearance), fallback_stage, kinds_doc, limits_doc,
+                       render_zone_luau -> ReplicatedStorage/Levels/ZoneNN.luau. ObbyKit's LevelBuilder runs the same rules
+                       (tests/test_obby.py: same messages for the same data)
+  kit/modules/ObbyKit.luau  ObbyKit.start(opts) builds every Levels zone from the start pad and runs checkpoints (Stage
+                       leaderstat, DataStore / Studio memory, SavedStage), respawn, kill parts, falls, coins, jump pads,
+                       trampolines, conveyors; one Heartbeat loop drives movers near players; Obstacles.<kind>(parent, cf,
+                       params); LevelBuilder.build/validate/validateZone/audit; tags Checkpoint, ObbyStart, ObbyStage,
+                       KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline, Conveyor
+  levels.py            `forge levels <slug> [--zones a-b] [--stages-per-zone 20] [--total-zones N]`: per zone one
+                       level_designer call (game, zone, difficulty per stage, mechanics schedule, kinds, limits in the user
+                       message) -> validate -> up to CORRECTIONS (2) corrections in the same task with the exact errors ->
+                       fallback stages for the rest -> runs/<slug>/levels/zone-NN.json + log.jsonl and the Levels module;
+                       resumable (valid zones skipped); spec["levels"] = {zones, stages_per_zone, plan[...]}
+  prompts/level_designer.md  Mubit task: one zone -> {zone, name, theme, palette, material, stages[{stage, name, pieces}]}
+  genre_checks/obby/*.luau   prebuilt obby checks: stage count vs spec, one checkpoint per stage, checkpoint saves + respawn,
+                       kill parts kill, falls return to the checkpoint, reachability (data + built parts), coins collectible,
+                       jump envelope (a live R15 runner), movers carry; each check's waits stay under the 30 s execute_luau limit
   fun.py               quality brain 2 (`forge fun <slug>`): census(studio) (server + client scene census during play,
                        stored as report["census"]), static_census(files), fun_critique(llm, spec, files, report, *,
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
@@ -143,7 +171,8 @@ forge/                 Python package (uv), entry point `forge`
                        StudioSlots (same dir/semantics as scripts/studio-slot.sh), Broker (all-or-nothing leases on
                        pools, stale-lease reclaim), JobQueue (priority, deps/after, claim with leases, crash recovery)
   gaps.py              trace-driven gap finder: collect_evidence -> gap_message -> gap_finder (Mubit) -> parse_gaps;
-                       find_gaps / correct_gaps / latest / render; genre CHECKLISTS (tycoon, generic)
+                       find_gaps / correct_gaps / latest / render; genre CHECKLISTS (tycoon, obby, generic); the static
+                       scan skips kit modules (it looks for the game using them)
   prompts/gap_finder.md  Mubit task: everything recorded about a game -> ranked gaps {title, kind, impact,
                        confidence, evidence[refs], job{kind fix|feature|visual, request, path?}}
   orchestrator.py      `forge orchestrate`: Orchestrator(settings, slug, Options, *, llm, runner, broker, queue,
@@ -256,6 +285,7 @@ Roles: `designer`, `coder`, `fixer`, `critic`, `reflector`, `player`, `judge`, `
 `triage`, `investigator`, `patcher`, `planner`, `reproducer`, `director`, `fun_critic`, `gap_finder`
 (ranked gaps, forge/gaps.py), `code_judge` (ranked code improvements vs the reference game, forge/compare.py),
 `anomaly_detector` (forge/autopilot.py registers it, like swarm.py its roles).
+(ranked gaps, forge/gaps.py), `level_designer` (obby zones as data, forge/levels.py).
 
 Build with the quality brain (default; `forge new --no-director` or `FORGE_DIRECTOR=0` skips the director,
 `FORGE_FUN_CRITIC=0` skips the fun critic; tests default both off in the root conftest.py):
@@ -528,6 +558,7 @@ def reflect(settings, slug, *, label="", since=None, llm=None, log=print) -> rec
     # llm (--llm): the findings in the user message of the `reflector` (fixed prompt, session reflect-<slug>-<n>),
     #   which rewrites runs/lessons.md; rec["llm"] = {ok, lessons_updated, request_id}
 def reflect_all(settings) -> (summary, markdown)   # per game numbers + weaknesses across games, from the records
+forge levels <slug> [--zones a-b] [--stages-per-zone N] [--total-zones N]  # obby stages as data (level_designer)
 ```
 
 ### Orchestrator (forge/orchestrator.py, forge/broker.py, forge/gaps.py)

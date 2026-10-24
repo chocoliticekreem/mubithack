@@ -348,10 +348,10 @@ class Run:
 
     @property
     def base_files(self) -> set[str]:
-        """Files Forge's fixer must not touch: the runtime, plus every human file of a seeded game
-        (spec["base_files"], written by `forge seed`)."""
+        """Files Forge's fixer must not touch: the runtime, every human file of a seeded game
+        (spec["base_files"], written by `forge seed`), kit modules and level data (director.protected_paths)."""
         seeded = {p for p in (self.spec.get("base_files") or []) if isinstance(p, str)}
-        return set(RUNTIME_FILES) | seeded
+        return set(RUNTIME_FILES) | seeded | director.protected_paths(self.spec, self.game_dir)
 
     # ---------------------------------------------------------- LLM calls
     async def call(self, role: str, label: str, fn: Callable, *args, **kwargs) -> Any:
@@ -1025,7 +1025,7 @@ async def run_game(slug: str, iterations: int = 3, use_studio: bool = True, *,
     run.ui.header(f"forge run  {slug}")
     if not store.game_dir.exists():
         copy_base_game(settings, store.game_dir)
-    if not (store.game_dir / director.GAME_ASSETS).exists():
+    if any(m.get("prebuilt") and not (store.game_dir / m["path"]).exists() for m in run.spec.get("modules", [])):
         director.install_kit(run.spec, store.game_dir)
     missing = [m for m in run.spec.get("modules", []) if not run.read(m["path"])]
     if missing:
