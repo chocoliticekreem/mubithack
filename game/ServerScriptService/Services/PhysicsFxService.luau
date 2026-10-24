@@ -803,6 +803,11 @@ local function onLand(player: Player, rawSpeed: any)
 	if Ragdoll.isRagdolled(char) then
 		return
 	end
+	-- admin trolls (TrollService :fling / :explode / :rocket / :slap) promise a soft landing
+	local safe = player:GetAttribute("SafeLandingUntil")
+	if type(safe) == "number" and workspace:GetServerTimeNow() < safe then
+		return
+	end
 	-- fall damage (a lethal drop downs you via SquadService's DownAtHealth, never kills outright)
 	speed = math.min(speed, 400)
 	if speed >= Cfg.FallDamageSpeed and player:GetAttribute(Names.Attr.Downed) ~= true then

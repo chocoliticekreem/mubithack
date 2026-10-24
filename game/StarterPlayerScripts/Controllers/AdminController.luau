@@ -351,7 +351,9 @@ renderPlayers = function()
 		local uid = p.UserId
 		UiKit.onTap(row, function()
 			selectedId = if selectedId == uid then nil else uid
-			renderPlayers()
+			-- rebuild after this tap is done: destroying the tapped button mid-event lets the same
+			-- tap fall through to the modal's dim, which closes the console
+			task.delay(0.05, renderPlayers)
 		end)
 		if open then
 			order += 1

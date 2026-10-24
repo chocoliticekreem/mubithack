@@ -69,7 +69,7 @@ return Config.define({
 		FlingSpeed = 110, -- studs/s (Ragdoll clamps to PhysicsConfig.MaxImpulse)
 		FlingLift = 60,
 		RocketSpeed = 85, -- studs/s straight up
-		RocketSeconds = 1.6,
+		RocketSeconds = 2,
 		RocketFallSpeed = 18, -- parachute: studs/s down (under PhysicsConfig.HardLandingSpeed)
 		RocketMaxSeconds = 12, -- the parachute lets go after this no matter what
 		SpinSeconds = 5,

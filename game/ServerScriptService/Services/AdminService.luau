@@ -154,7 +154,7 @@ local function rankOfId(userId: number, player: Player?, withGrant: boolean?): n
 		groupRank = if player then groupRanks[player] else nil,
 		groupRanks = Cfg.GroupRanks,
 		isStudio = IS_STUDIO,
-		studioOwner = Cfg.StudioOwner,
+		studioOwner = Cfg.StudioOwner and player ~= nil, -- the Studio override is the person at the keyboard only
 		grantedRank = if withGrant ~= false and g then g.rank else nil,
 		override = if type(override) == "number" then override else nil,
 	})

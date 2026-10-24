@@ -92,7 +92,13 @@ local function pop(kind: string, pos: Vector3, word: string)
 	end
 end
 
+-- PhysicsFxService skips fall damage / broken legs / hard-landing ragdolls until then: trolls never hurt
+local function safeLanding(p: Player, seconds: number)
+	p:SetAttribute("SafeLandingUntil", workspace:GetServerTimeNow() + seconds)
+end
+
 local function impulse(p: Player, v: Vector3, by: Player?, ragdollSeconds: number?)
+	safeLanding(p, 8)
 	local Fx = services.PhysicsFxService
 	local ok = false
 	if Fx and type(Fx.Impulse) == "function" then
@@ -252,6 +258,7 @@ K.rocket = function(p, _by)
 		made = {}
 	end
 	track(p, "rocket", cleanup, T.RocketMaxSeconds)
+	safeLanding(p, T.RocketSeconds + T.RocketMaxSeconds + 3)
 	local att = attach(root, "TrollRocket")
 	table.insert(made, att)
 	local a0 = attach(root, "TrollTrail0", Vector3.new(-0.6, -1, 0))
@@ -541,10 +548,23 @@ K.noodle = function(p, _by)
 		return false, "no character"
 	end
 	revert(p, "noodle")
-	local motors: { Motor6D } = {}
+	local motors: { any } = {}
 	local made: { Instance } = {}
 	for _, d in c:GetDescendants() do
-		if d:IsA("Motor6D") and ARM_JOINTS[d.Name] and d.Enabled and d.Part0 and d.Part1 then
+		-- newer avatars join limbs with AnimationConstraints (attachments already in place)
+		if d:IsA("AnimationConstraint") and ARM_JOINTS[d.Name] and d.Enabled and d.Attachment0 and d.Attachment1 then
+			local s = Instance.new("BallSocketConstraint")
+			s.Name = "NoodleSocket"
+			s.Attachment0 = d.Attachment0
+			s.Attachment1 = d.Attachment1
+			s.LimitsEnabled = true
+			s.UpperAngle = 120
+			s.Restitution = 0.6
+			s.Parent = d.Parent
+			table.insert(made, s)
+			table.insert(motors, d)
+			d.Enabled = false
+		elseif d:IsA("Motor6D") and ARM_JOINTS[d.Name] and d.Enabled and d.Part0 and d.Part1 then
 			local a0 = Instance.new("Attachment")
 			a0.Name = "NoodleA0"
 			a0.CFrame = d.C0
@@ -714,7 +734,8 @@ K.jail = function(p, _by)
 	local base = CFrame.new(g) * CFrame.Angles(0, select(2, root.CFrame:ToOrientation()), 0)
 	local cage = Instance.new("Model")
 	cage.Name = `Jail_{p.UserId}`
-	local W, H = 7, 8
+	local k = math.clamp(c:GetScale(), 0.5, 3) -- a :giant gets a giant cage
+	local W, H = 7 * k, 8 * k
 	local steel = Color3.fromHex("#4A4650")
 	part("Floor", Vector3.new(W + 1, 0.6, W + 1), base * CFrame.new(0, 0.3, 0), steel, cage).Material = Enum.Material.DiamondPlate
 	local roof = part("Roof", Vector3.new(W + 1, 0.6, W + 1), base * CFrame.new(0, H + 0.6, 0), steel, cage)
@@ -722,7 +743,7 @@ K.jail = function(p, _by)
 	for side = 0, 3 do
 		local rot = base * CFrame.Angles(0, side * math.pi / 2, 0)
 		for i = -3, 3 do
-			local bar = part("Bar", Vector3.new(0.35, H, 0.35), rot * CFrame.new(i * 1.1, H / 2 + 0.6, W / 2), Color3.fromHex("#2B2522"), cage)
+			local bar = part("Bar", Vector3.new(0.35 * k, H, 0.35 * k), rot * CFrame.new(i * 1.1 * k, H / 2 + 0.6, W / 2), Color3.fromHex("#2B2522"), cage)
 			bar.Material = Enum.Material.Metal
 		end
 		local wall = part("Wall", Vector3.new(W + 1, H, 0.4), rot * CFrame.new(0, H / 2 + 0.6, W / 2), steel, cage)
@@ -742,7 +763,7 @@ K.jail = function(p, _by)
 	sl.TextColor3 = Color3.fromHex("#2B2522")
 	sl.Text = "JAIL"
 	sl.Parent = sg
-	cage:SetAttribute("Center", base * CFrame.new(0, 3.6, 0))
+	cage:SetAttribute("Center", base * CFrame.new(0, 0.6 + 3 * k, 0))
 	cage.Parent = trollFolder()
 	p:SetAttribute(A.Jailed, true)
 	placeInCage(p, cage)
