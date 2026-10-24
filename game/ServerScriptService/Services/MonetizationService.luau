@@ -21,6 +21,8 @@
 --
 -- Remotes: Monetization/Buy (C->S: kind "pass" | "donate", key: string | robux: number; 1/s burst 3)
 --          Monetization/Open (S->C owner: section "donate" | nil) -- the board prompt opens the store
+-- Fanfare: a pass bought, a :giftpass gift or a donation calls FanfareService:Celebrate (nil-guarded): the
+--   server-wide banner + confetti + gold glow + "what you got" card (FanfareController).
 -- Public API: :GiftPass(player, key, byUserId) / :RevokePass(player, key) -> (ok, message),
 --   :ResetDonorBoard() -> (ok, message), :Owns(player, key) -> boolean
 -- Writes: Player attrs Pass_<Key>, PassGifted_<Key>, RobuxDonated; Model "DonationBoard" in the Station location
@@ -29,7 +31,7 @@
 -- Counters: monetization_prompts, monetization_passes_bought, monetization_donations,
 --           monetization_robux_donated, monetization_receipt_retries
 -- Test hooks (DevHook only): _fakeReceipt(player, robux, purchaseId?) -> "Granted:applied" etc.,
---   _owns(player) -> "UnlimitedFoam=true,...", _dropReal(player) (forget real ownership), _board() -> top donor rows as text, _selftest()
+--   _fakePassBought(player, key) (the purchase path + fanfare), _owns(player) -> "UnlimitedFoam=true,...", _dropReal(player) (forget real ownership), _board() -> top donor rows as text, _selftest()
 
 local DataStoreService = game:GetService("DataStoreService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -184,6 +186,16 @@ local function prettyName(key: string): string
 	return key
 end
 
+-- The big server-wide moment (FanfareService); false when it isn't running (callers fall back to a toast).
+local function fanfare(info: { [string]: any }): boolean
+	local F = services.FanfareService
+	if not F or type(F.Celebrate) ~= "function" then
+		return false
+	end
+	local ok, res = pcall(F.Celebrate, F, info)
+	return ok and res == true
+end
+
 local function onPassPurchaseFinished(player: Player, passId: number, purchased: boolean)
 	local key = Rules.passKey(Cfg.GamePasses, passId)
 	if not key or not purchased or not owned[player] then
@@ -192,7 +204,9 @@ local function onPassPurchaseFinished(player: Player, passId: number, purchased:
 	owned[player][key] = true
 	Telemetry.count("monetization_passes_bought")
 	applyAttrs(player)
-	Net.notify(player, `{prettyName(key)} unlocked! Thank you!`, "good")
+	if not fanfare({ kind = "pass", receiver = player, pass = key }) then
+		Net.notify(player, `{prettyName(key)} unlocked! Thank you!`, "good")
+	end
 end
 
 ------------------------------------------------------------------------------------ purchases
@@ -609,6 +623,7 @@ local function processReceipt(receipt: any, products: any): Enum.ProductPurchase
 		names[player.UserId] = player.DisplayName
 		writeDonor(player.UserId, total)
 		celebrate(player, player.DisplayName, robux)
+		fanfare({ kind = "donate", receiver = player, robux = robux })
 		task.spawn(refreshBoard)
 	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
@@ -766,8 +781,12 @@ function MonetizationService:GiftPass(player: Player, key: string, byUserId: num
 	gifted[player][key] = true
 	applyAttrs(player)
 	Telemetry.count("monetization_passes_gifted")
-	Net.notify(player, `You were gifted {prettyName(key)}!`, "good")
-	Popup.show(player, "GIFT!", "good", player)
+	local giver = if byUserId then Players:GetPlayerByUserId(byUserId) else nil
+	local shown = fanfare({ kind = "gift", receiver = player, giver = giver, giverName = if giver then nil else "Station 67", pass = key })
+	if not shown then
+		Net.notify(player, `You were gifted {prettyName(key)}!`, "good")
+		Popup.show(player, "GIFT!", "good", player)
+	end
 	local real = if ownsReal(player, key) then " (they also own the real pass)" else ""
 	return true, `gifted {key} to {player.Name}{real}`
 end
@@ -844,6 +863,12 @@ function MonetizationService:_fakeReceipt(player: Player, robux: number, purchas
 	}
 	local res = processReceipt(receipt, products)
 	return `{res.Name}:donated={donatedOf(player)}`
+end
+
+-- Studio test: the real "pass bought" path (PromptGamePassPurchaseFinished with purchased = true).
+function MonetizationService:_fakePassBought(player: Player, key: string): string
+	onPassPurchaseFinished(player, Rules.passId(Cfg.GamePasses, key), true)
+	return self:_owns(player)
 end
 
 function MonetizationService:_owns(player: Player): string

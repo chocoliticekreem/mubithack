@@ -30,6 +30,7 @@ return Config.define({
 			key = "UnlimitedFoam",
 			name = "UNLIMITED FOAM",
 			blurb = "Your extinguishers never run dry. Foam forever!",
+			perk = "Unlimited Foam: your extinguisher never runs out!", -- the gift fanfare tells the receiver this
 			price = 149,
 			icon = "∞",
 			color = Color3.fromHex("#4FB3D9"),
@@ -38,6 +39,7 @@ return Config.define({
 			key = "PremiumPass",
 			name = "PREMIUM PASS",
 			blurb = "Unlock the premium battle pass track: gold helmets, titles, XP boosts.",
+			perk = "the Premium Pass: the gold battle pass track with gold helmets, titles and XP boosts!",
 			price = 299,
 			icon = "★",
 			color = Color3.fromHex("#FFC531"),
