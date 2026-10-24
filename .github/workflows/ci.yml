@@ -26,3 +26,5 @@ jobs:
           for spec in studio-plugin/tests/*.spec.luau; do luau "$spec"; done
       - name: Tests
         run: .venv/bin/python -m pytest -q
+      - name: Bench (cheap mode, FakeLLM, no Studio)
+        run: .venv/bin/forge bench --fake -n 2 --label ci

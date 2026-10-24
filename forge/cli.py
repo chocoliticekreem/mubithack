@@ -616,6 +616,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("play-list", help="list past playtest runs")
     from forge.assets import add_cli_parser as _add_assets_parser
     _add_assets_parser(sub)
+    from forge.bench import add_cli_parser as _add_bench_parser
+    _add_bench_parser(sub)
     _add_test_parsers(sub)
     sub.add_parser("mcp", help="run the mubit-tester MCP server over stdio (for Claude Code)")
 
@@ -727,7 +729,8 @@ def main(argv: list[str] | None = None) -> int:
     with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(line_buffering=True)
     args = build_parser().parse_args(argv)
-    handler = {"doctor": cmd_doctor, "new": cmd_new, "run": cmd_run,
+    from forge.bench import cmd_bench
+    handler = {"doctor": cmd_doctor, "bench": cmd_bench, "new": cmd_new, "run": cmd_run,
                "correct": cmd_correct, "status": cmd_status, "watch": cmd_watch, "sync": cmd_sync,
                "place": cmd_place, "seed": cmd_seed, "promote": cmd_promote,
                "improve": cmd_improve, "scores": cmd_scores, "done": cmd_done, "checks": cmd_checks, "ledger": cmd_ledger, "server": cmd_server, "fix": cmd_fix, "promote-game": cmd_promote_game, "polish": cmd_polish, "feature": cmd_feature, "archive": cmd_archive, "dashboard": cmd_dashboard, "versions": cmd_versions,
