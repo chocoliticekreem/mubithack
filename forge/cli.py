@@ -635,6 +635,14 @@ def cmd_checks(args) -> int:
     return 0
 
 
+def cmd_levels(args) -> int:
+    from forge.levels import parse_zones, render_summary, run_levels
+    res = run_levels(load_settings(), args.slug, zones=parse_zones(args.zones) if args.zones else None,
+                     stages_per_zone=args.stages_per_zone, total_zones=args.total_zones)
+    print(render_summary(res))
+    return 0 if res["ok"] else 1
+
+
 def cmd_scores(args) -> int:
     from forge.improve import ImproveStore
     rows = ImproveStore(load_settings(), args.slug).scores()
@@ -1071,6 +1079,13 @@ def build_parser() -> argparse.ArgumentParser:
     ck.add_argument("--headless-first", action="store_true",
                     help="with --run: run checks headless first (checks.triage); only the rest go to Studio")
 
+    lv = sub.add_parser("levels", help="obby level designer (Mubit): stages as data, zone by zone, every jump validated")
+    lv.add_argument("slug")
+    lv.add_argument("--zones", help="zones to design, e.g. 1-10 or 3 (default: every planned zone); valid ones are skipped")
+    lv.add_argument("--stages-per-zone", type=int, default=None, help="stages per zone (default 20, or the game's)")
+    lv.add_argument("--total-zones", type=int, default=None,
+                    help="zones the whole course will have, for the difficulty curve (default: the end of --zones)")
+
     pg_ = sub.add_parser("plugin", help="ForgeBridge Studio plugin: install, serve the bridge, status, events, bench")
     pg_.add_argument("action", choices=["install", "build", "serve", "status", "events", "load", "bench"])
     pg_.add_argument("--port", type=int, default=None, help="bridge port (default 34880 / FORGE_BRIDGE_PORT)")
@@ -1158,7 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,
                "orchestrate": cmd_orchestrate, "autopilot": cmd_autopilot, "gaps": cmd_gaps, "queue": cmd_queue,
-               "plugin": cmd_plugin}[args.cmd]
+               "plugin": cmd_plugin, "levels": cmd_levels}[args.cmd]
     try:
         return handler(args) or 0
     except KeyboardInterrupt:

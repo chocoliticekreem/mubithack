@@ -252,7 +252,12 @@ def _deps_block(deps: dict[str, str], budget: int) -> str:
 def code_module(
     llm: LLM, spec: dict, module: dict, deps: dict[str, str], lessons: str, *, session_id: str
 ) -> str:
+    from forge.director import kit_api_block, kit_paths
+
     path = module.get("path", "")
+    kit = kit_api_block(spec)
+    if kit:  # a kit module's API is listed in full below; its 1000-line source would only crowd the deps
+        deps = {p: s for p, s in deps.items() if p not in kit_paths()}
     head = (
         "## Game spec\n"
         f"{_compact_spec(spec)}\n\n"
@@ -261,6 +266,7 @@ def code_module(
         f"purpose: {module.get('purpose', '')}\n"
         f"depends: {', '.join(module.get('depends') or []) or '(none)'}\n\n"
         f"{_deps_block(deps, 10_000)}\n"
+        f"{kit + chr(10) if kit else ''}"
         f"{_lessons_block(lessons, 5000)}\n"
     )
     tail = f"Write the complete file {path} in one ```luau block."

@@ -1,20 +1,100 @@
-[
-  {"name": "MusicPlayer",
+{
+ "about": "Prebuilt kit modules (forge/director.py). Each entry: name (file <name>.luau in this folder), path_in_game, genres (genre ids from forge/gaps.py detect_genre, or \"*\" for every game), keywords (words or phrases in the idea/spec that also pick it), describe (one line for the designer), api (lines for the coder's user message). A module's genres also pick its checks: forge/genre_checks/<genre>/*.luau. Add a module by adding its file and one entry; no code changes.",
+ "modules": [
+  {
+   "name": "ObbyKit",
+   "path_in_game": "ReplicatedStorage/Kit/ObbyKit.luau",
+   "genres": [
+    "obby"
+   ],
+   "keywords": [
+    "obby",
+    "obbies",
+    "obstacle course",
+    "parkour"
+   ],
+   "describe": "server-authoritative obby engine: checkpoints with a saved Stage leaderstat and respawn there, kill parts, falls back to the checkpoint, 10 obstacle kinds on one Heartbeat loop, and LevelBuilder that builds every stage from ReplicatedStorage/Levels level data (written by `forge levels`) with live reachability checks",
+   "api": [
+    "local ObbyKit = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"ObbyKit\"))",
+    "ObbyKit.start(opts?) -> {stages, built, errors}: call ONCE from one server Script, early. It builds every level module in ReplicatedStorage/Levels (ZoneNN.luau, written by `forge levels`: never write or edit them) end to end from the START pad at opts.origin (CFrame of its top center, default CFrame.new(0, 60, 0); the course runs along its LookVector), and runs: leaderstats Stage (+ Coins when the course has coins), saving (DataStore live, memory in Studio), respawn on the player's checkpoint, kill parts, falls teleport back to the checkpoint, every obstacle. opts: origin, respawnTime (1.5), allowSkip (false), dataStore, coinRespawn (20).",
+    "ObbyKit.onStage(function(player, stage) end) and ObbyKit.onFinish(function(player) end): hooks for toasts, rewards, badges, finish celebration.",
+    "ObbyKit.getStage(player), ObbyKit.setStage(player, n) (skip stage, rebirth to 0), ObbyKit.respawn(player), ObbyKit.stageCount(), ObbyKit.checkpoint(n) -> Part (0 = start pad), ObbyKit.zoneOf(stage) -> zone, zoneName.",
+    "Extra obstacles anywhere: ObbyKit.Obstacles.<kind>(parent, cframe, params) -> Model, kind platform|moving|spinner|turntable|disappearing|jumppad|trampoline|conveyor|pendulum|lava|checkpoint, cframe = the piece's top center. Tag any part \"KillPart\" (CollectionService) to make it kill.",
+    "Client/HUD reads, no remotes needed: player.leaderstats.Stage (and Coins), player attributes Stage, Zone, ZoneName, SavedStage, Finished; workspace.Obby attribute Stages = total stages. Course tags: Checkpoint (attr Stage), ObbyStart, ObbyStage (Model per stage, attrs Stage, Zone, ZoneName), KillPart, Obstacle (attr Kind), Coin, JumpPad, Trampoline, Conveyor.",
+    "Built in: juice through GameAssets (Win + burst on checkpoint, Boom on finish, Hurt on kill, Whoosh on jump pads, Coin), ForgeTelemetry counters checkpoint_reached, player_died, player_fell, coin_collected, jump_pad_used, trampoline_bounce, obby_finished, stages_built.",
+    "Never write your own checkpoints, kill bricks, respawn, Stage leaderstat, moving platforms or stage building: the kit owns them. The game's own modules add the lobby around the start pad, the HUD (stage X / total, zone name, progress bar), music per zone (player attribute Zone), shop, cosmetics, skip stage and finish rewards."
+   ]
+  },
+  {
+   "name": "MusicPlayer",
    "path_in_game": "ReplicatedStorage/Kit/MusicPlayer.luau",
-   "genres": ["obby", "tycoon", "simulator"],
-   "keywords": ["music", "soundtrack", "song", "background", "zone", "zones", "area", "areas", "world", "worlds", "lobby", "haunted", "carnival", "amusement", "park", "pirate", "coaster", "mute"],
+   "genres": [],
+   "keywords": [
+    "music",
+    "soundtrack",
+    "song",
+    "songs",
+    "background music",
+    "mute",
+    "radio",
+    "playlist"
+   ],
    "describe": "Client: looping background music per area with crossfades and a mute button; 16 Studio-verified Roblox-licensed tracks in 8 moods.",
-   "api": "local MusicPlayer = require(game.ReplicatedStorage.Kit.MusicPlayer) -- LocalScript only. MusicPlayer.start({areas = {[areaName] = mood or track name}, attribute = \"Area\", default = \"lobby\", volume = 0.35, fade = 1.5, muteButton = true}) plays the area in the LocalPlayer attribute `attribute` (the server sets player:SetAttribute(\"Area\", name)) and crossfades when it changes; MusicPlayer.setArea(name); MusicPlayer.play(moodOrTrack) e.g. \"victory\" at the finish; setMuted(bool), toggleMute(), isMuted(); current() -> {area, track, muted}. Moods: carnival, pop, lobby, spooky, pirate, intense, victory, water. Area names with words like haunted, coaster, flume, carousel, pirate pick a mood without config. Music plays from SoundService.ForgeMusic; LocalPlayer attributes MusicTrack, MusicArea, MusicMuted (set MusicMuted to mute from your own UI)."},
-  {"name": "Cosmetics",
+   "api": [
+    "local MusicPlayer = require(game.ReplicatedStorage.Kit.MusicPlayer) -- LocalScript only. MusicPlayer.start({areas = {[areaName] = mood or track name}, attribute = \"Area\", default = \"lobby\", volume = 0.35, fade = 1.5, muteButton = true}) plays the area in the LocalPlayer attribute `attribute` (the server sets player:SetAttribute(\"Area\", name)) and crossfades when it changes; MusicPlayer.setArea(name); MusicPlayer.play(moodOrTrack) e.g. \"victory\" at the finish; setMuted(bool), toggleMute(), isMuted(); current() -> {area, track, muted}. Moods: carnival, pop, lobby, spooky, pirate, intense, victory, water. Area names with words like haunted, coaster, flume, carousel, pirate pick a mood without config. Music plays from SoundService.ForgeMusic; LocalPlayer attributes MusicTrack, MusicArea, MusicMuted (set MusicMuted to mute from your own UI)."
+   ]
+  },
+  {
+   "name": "Cosmetics",
    "path_in_game": "ReplicatedStorage/Kit/Cosmetics.luau",
-   "genres": ["obby", "tycoon", "simulator"],
-   "keywords": ["costume", "costumes", "cosmetic", "cosmetics", "hat", "hats", "cape", "capes", "trail", "trails", "outfit", "wardrobe", "skin", "skins", "dress", "changing", "accessory", "avatar"],
+   "genres": [],
+   "keywords": [
+    "costume",
+    "costumes",
+    "cosmetic",
+    "cosmetics",
+    "hat",
+    "hats",
+    "cape",
+    "capes",
+    "outfit",
+    "outfits",
+    "wardrobe",
+    "skins",
+    "changing room",
+    "dress up",
+    "accessories"
+   ],
    "describe": "Server: costumes built from parts (hats, capes, trails, body colours), buy/equip/unequip checked on the server, owned + equipped saved, optional changing room of mannequin stands.",
-   "api": "local Cosmetics = require(game.ReplicatedStorage.Kit.Cosmetics) -- server Script. Cosmetics.start({currency = \"Coins\" (leaderstat or player attribute), costumes = {ids, panel order; default all}, prices = {[id] = n} (0 = free), rewards = {ids not for sale}, autoEquip = \"MouseEars\", store = \"ForgeCosmetics\", balance = fn(player) -> number and spend = fn(player, n) -> bool for your own economy}); Cosmetics.buildChangingRoom({cframe = CFrame.lookAt(roomPos, spawnPos), ids, title}) -> Model: mannequin stands with \"Try on\" prompts (tag CostumeStand, attributes Costume, Price, Slot); Cosmetics.buy(player, id) / equip(player, id) -> (ok, err); unequip(player, idOrSlot); grant(player, id) for rewards; owns(player, id); equipped(player) -> {slot = id}; wear(model, id) dresses any rig. Ids: head MouseEars BalloonHat PartyCone ClownWig TopHat Crown AstronautHelmet; back HeroCape StarCape RainbowCape ChampionCape; trail RainbowTrail FireTrail StarTrail; body GoldBody BubblegumBody IceBody. Player attributes CostumeHead, CostumeBack, CostumeTrail, CostumeBody, CostumesOwned; worn parts are welded in character.Costume_<slot> (tag Costume); counters costume_buy, costume_equip. Pair with CosmeticsClient."},
-  {"name": "CosmeticsClient",
+   "api": [
+    "local Cosmetics = require(game.ReplicatedStorage.Kit.Cosmetics) -- server Script. Cosmetics.start({currency = \"Coins\" (leaderstat or player attribute), costumes = {ids, panel order; default all}, prices = {[id] = n} (0 = free), rewards = {ids not for sale}, autoEquip = \"MouseEars\", store = \"ForgeCosmetics\", balance = fn(player) -> number and spend = fn(player, n) -> bool for your own economy}); Cosmetics.buildChangingRoom({cframe = CFrame.lookAt(roomPos, spawnPos), ids, title}) -> Model: mannequin stands with \"Try on\" prompts (tag CostumeStand, attributes Costume, Price, Slot); Cosmetics.buy(player, id) / equip(player, id) -> (ok, err); unequip(player, idOrSlot); grant(player, id) for rewards; owns(player, id); equipped(player) -> {slot = id}; wear(model, id) dresses any rig. Ids: head MouseEars BalloonHat PartyCone ClownWig TopHat Crown AstronautHelmet; back HeroCape StarCape RainbowCape ChampionCape; trail RainbowTrail FireTrail StarTrail; body GoldBody BubblegumBody IceBody. Player attributes CostumeHead, CostumeBack, CostumeTrail, CostumeBody, CostumesOwned; worn parts are welded in character.Costume_<slot> (tag Costume); counters costume_buy, costume_equip. Pair with CosmeticsClient."
+   ]
+  },
+  {
+   "name": "CosmeticsClient",
    "path_in_game": "ReplicatedStorage/Kit/CosmeticsClient.luau",
-   "genres": ["obby", "tycoon", "simulator"],
-   "keywords": ["costume", "costumes", "cosmetic", "cosmetics", "hat", "hats", "cape", "capes", "trail", "trails", "outfit", "wardrobe", "skin", "skins", "dress", "changing", "accessory", "avatar"],
+   "genres": [],
+   "keywords": [
+    "costume",
+    "costumes",
+    "cosmetic",
+    "cosmetics",
+    "hat",
+    "hats",
+    "cape",
+    "capes",
+    "outfit",
+    "outfits",
+    "wardrobe",
+    "skins",
+    "changing room",
+    "dress up",
+    "accessories"
+   ],
    "describe": "Client: the styled costume panel and HUD button for Cosmetics; opens from changing-room prompts.",
-   "api": "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."}
-]
+   "api": [
+    "local CosmeticsClient = require(game.ReplicatedStorage.Kit.CosmeticsClient) -- LocalScript. CosmeticsClient.start({button = true, title = \"COSTUMES\"}) builds the costume panel (PlayerGui.Cosmetics: cards with BUY / WEAR / TAKE OFF) and a HUD button; it opens itself when a changing-room prompt fires. open(id?), close(), toggle(), isOpen(); request(\"buy\" | \"equip\" | \"unequip\", id) -> {ok, err, state}; state() -> {currency, balance, owned, equipped, costumes}. Needs Cosmetics.start() on the server."
+   ]
+  }
+ ]
+}

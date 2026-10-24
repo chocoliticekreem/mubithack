@@ -76,6 +76,35 @@ CHECKLISTS: dict[str, list[dict]] = {
         {"id": "performance", "label": "performance (caps on spawned parts, cleanup, no per-frame waste)",
          "signals": [[r"Debris|:Destroy\(\)", r"MAX_|[Cc]ap\b|#.*>="]]},
     ],
+    # Obby games get ObbyKit (forge/kit/modules), which the scan skips: these look for the game USING it, the
+    # level data `forge levels` writes (ReplicatedStorage/Levels), and the game's own lobby/HUD/extras.
+    "obby": [
+        {"id": "course_built", "label": "the course is built from level data (ObbyKit.start + ReplicatedStorage/Levels zones)",
+         "signals": [[r"ObbyKit\.start\("], [r"stages\s*=\s*\{", r'kind\s*=\s*"checkpoint"']]},
+        {"id": "stage_count", "label": "every planned stage exists (zones of ~20 stages, the full count the spec promises)",
+         "signals": [[r"stages\s*=\s*\{", r"stage\s*=\s*\d"]]},
+        {"id": "mechanic_variety", "label": "a new mechanic every few stages (moving, disappearing, jump pads, conveyors, "
+                                            "spinners, turntables, pendulums, trampolines)",
+         "signals": [[r'kind\s*=\s*"(moving|disappearing|jumppad|conveyor|spinner|turntable|pendulum|trampoline)"']]},
+        {"id": "checkpoints_saving", "label": "checkpoints save the stage and respawn there (ObbyKit, or the game's own)",
+         "signals": [[r"ObbyKit\.start\("], [r"[Cc]heckpoint", r"DataStoreService|GetDataStore"]]},
+        {"id": "lobby", "label": "a lobby around the start pad (spawn, signs, leaderboard of top stages)",
+         "signals": [[r"[Ll]obby|ObbyKit\.checkpoint\(\s*0"]]},
+        {"id": "stage_hud", "label": "HUD: stage X / total, zone name, progress bar",
+         "signals": [[r"ScreenGui|Theme\.screen", r"Stage"]]},
+        {"id": "finish_celebration", "label": "finish celebration (confetti, sound, title or badge, finish time)",
+         "signals": [[r"onFinish|[Ff]inish"]]},
+        {"id": "music_per_zone", "label": "music per zone (switches with the player's Zone)",
+         "signals": [[r"Zone", r"[Mm]usic|SoundId|GameAssets\.music"]]},
+        {"id": "skip_or_rebirth", "label": "skip stage / rebirth (optional, often a Robux product)",
+         "signals": [[r"[Ss]kip|[Rr]ebirth|setStage"]]},
+        {"id": "cosmetics", "label": "cosmetics (trails, auras, speed or gravity coils)",
+         "signals": [[r"Trail|[Cc]osmetic|[Aa]ura|[Cc]oil"]]},
+        {"id": "juice_sound", "label": "juice: sounds (checkpoint ding, finish, music)",
+         "signals": [[r"Instance\.new\(\s*\"Sound\"|SoundId|GameAssets\.play"]]},
+        {"id": "no_grey_art", "label": "no grey placeholder art (themed lobby and decor)",
+         "signals": [[r"Enum\.Material\.", r"Color3\.fromRGB|BrickColor|palette"]]},
+    ],
     "generic": [
         {"id": "core_loop", "label": "a clear core loop that happens within 30 seconds", "signals": [[r"ForgeTelemetry"]]},
         {"id": "tutorial", "label": "first 60 seconds: the player knows what to do",
@@ -93,11 +122,17 @@ CHECKLISTS: dict[str, list[dict]] = {
 }
 
 
+_OBBY = re.compile(r"\bobby\b|\bobbies\b|obstacle course|\bparkour\b|\bcheckpoints?\b[^.]*\bstages?\b"
+                   r"|\bstages?\b[^.]*\bcheckpoints?\b")
+
+
 def detect_genre(spec: dict, goal: str = "") -> str:
     text = " ".join(str(spec.get(k) or "") for k in ("title", "pitch", "core_loop")) + " " + goal
     low = text.lower()
     if "tycoon" in low or ("dropper" in low and "conveyor" in low):
         return "tycoon"
+    if _OBBY.search(low):
+        return "obby"
     return "generic"
 
 
@@ -129,11 +164,15 @@ def _clip(text: Any, n: int = 240) -> str:
 
 
 def game_sources(game_dir: Path) -> dict[str, str]:
-    """Game .luau files (relative path -> text), without Forge's runtime/test harness files."""
+    """Game .luau files (relative path -> text), without Forge's runtime/test harness files and prebuilt kit
+    modules (they say nothing about what this game does with them)."""
+    from forge.director import kit_paths
+
+    kits = kit_paths()
     out = {}
     for p in sorted(game_dir.rglob("*.luau")):
         rel = p.relative_to(game_dir).as_posix()
-        if rel.startswith("tools/") or any(p.name.startswith(r) for r in RUNTIME_FILES):
+        if rel.startswith("tools/") or rel in kits or any(p.name.startswith(r) for r in RUNTIME_FILES):
             continue
         try:
             out[rel] = p.read_text(encoding="utf-8", errors="replace")

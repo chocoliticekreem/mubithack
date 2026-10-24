@@ -26,7 +26,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 PROMPT_DIRS = (PROMPTS_DIR, Path(__file__).resolve().parent.parent / "mubit-tester" / "prompts")
 ROLES = ("designer", "coder", "fixer", "critic", "reflector", "player", "judge",
          "auditor", "verifier", "triage", "investigator", "patcher", "planner", "scenarist",
-         "check_reviewer", "reproducer", "director", "fun_critic", "gap_finder", "code_judge")
+         "check_reviewer", "reproducer", "director", "fun_critic", "gap_finder", "code_judge", "level_designer")
 
 MAX_TRIES = 3  # total attempts for retryable gateway errors (503 / 529 overloaded / connection)
 RATE_LIMIT_TRIES = 6  # 429s get more attempts: with --jobs 8 a burst can trip the gateway's rate limit
