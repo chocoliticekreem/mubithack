@@ -673,6 +673,52 @@ def cmd_orchestrate(args) -> int:
     return 0 if a["target_met"] else 1
 
 
+def cmd_autopilot(args) -> int:
+    """`forge autopilot`: idea -> ready game, one self-driving loop (forge/autopilot.py)."""
+    from forge import autopilot as apm
+    s = load_settings()
+    if args.correct:
+        item, note = args.correct
+        slug = args.target or apm.find_run_with(s, item)
+        if not slug:
+            print(f"error: no autopilot run has a decision {item!r} (pass the slug first)", file=sys.stderr)
+            return 1
+        rec = apm.correct(s, slug, item, note, goal=args.goal)
+        print(f"correction on {slug}/{rec['id']} -> Mubit task {rec.get('role')} (request {rec.get('request_id')}); "
+              f"{rec['id']} will not be proposed again")
+        return 0
+    if args.advise:
+        root = Path(args.root) if args.root else s.base_game_dir
+        rep = apm.advise(s, root, name=args.name, goal=args.goal, extra_dirs=[Path(p) for p in args.evidence])
+        print((Path(rep["out_dir"]) / "report.md").read_text(encoding="utf-8"))
+        print(f"report: {rep['out_dir']}/report.md")
+        return 0
+    if not args.target:
+        print("error: give an idea (new game) or a slug, or --advise --root DIR", file=sys.stderr)
+        return 2
+    if args.status:
+        st = apm._read(s.runs_dir / args.target / "autopilot" / "status.json", {}) or {}
+        print(json.dumps({k: st.get(k) for k in ("state", "round", "phase", "budget", "stop_reason", "current")},
+                         indent=1))
+        print(apm.render_rounds(st.get("rounds") or []))
+        return 0
+    _sigterm_as_interrupt()
+    studios = [x.strip() for x in (args.studio or os.environ.get("FORGE_STUDIO") or "").split(",") if x.strip()]
+    use_studio = not args.no_studio and bool(studios)
+    if not args.no_studio and not studios:
+        print("no --studio place given (and FORGE_STUDIO unset): measuring headless only (--no-studio)")
+    opts = apm.AutoOptions(goal=args.goal, studios=studios, use_studio=use_studio, max_calls=args.max_calls,
+                           minutes=args.minutes, rounds=args.rounds, per_round=args.per_round, min_rank=args.min_rank,
+                           target=args.target_score, workers=args.workers, qa_steps=args.qa_steps,
+                           swarm_players=args.swarm_players, swarm_minutes=args.swarm_minutes,
+                           critic=not args.no_critic, make_iterations=args.make_iterations, polish=args.polish)
+    res = apm.Autopilot(s, args.target, opts).run()
+    print(f"\n{res['slug']}: {res['stop_reason']}  ({res['budget']['calls_used']} Mubit calls, "
+          f"{res['budget']['minutes_used']} min)")
+    print(apm.render_rounds(res["rounds"] or []))
+    return 0
+
+
 def cmd_gaps(args) -> int:
     from forge import gaps
     from forge.llm import make_llm
@@ -1056,6 +1102,32 @@ def build_parser() -> argparse.ArgumentParser:
     oc.add_argument("--no-checks", action="store_true", help="skip the executable-checks job each round")
     oc.add_argument("--no-fix-cycle", action="store_true", help="skip the AI-tester fix cycle each round")
 
+    au = sub.add_parser("autopilot", help="self-driving loop: idea -> forge new -> observe (logs, probes, testers) -> "
+                                          "Mubit anomaly detector + gap finder -> jobs -> verify/rollback -> learn")
+    au.add_argument("target", nargs="?", help="an idea (builds a new game) or an existing slug")
+    au.add_argument("--goal", default="", help="what 'good' means (goes to the detector and gap finder)")
+    au.add_argument("--studio", help="place window(s) for Studio work, comma separated (default FORGE_STUDIO)")
+    au.add_argument("--no-studio", action="store_true", help="headless measurements only")
+    au.add_argument("--max-calls", type=int, default=250, help="Mubit call budget (all roles, all sessions)")
+    au.add_argument("--minutes", type=float, default=120, help="wall-clock budget (all sessions)")
+    au.add_argument("--rounds", type=int, default=4, help="observe -> act -> verify rounds this session")
+    au.add_argument("--per-round", type=int, default=3, help="jobs picked per round")
+    au.add_argument("--min-rank", type=float, default=2.0, help="skip candidates scored below this")
+    au.add_argument("--target", dest="target_score", type=float, default=8.0, help="critic and fun score to reach")
+    au.add_argument("--workers", type=int, default=3)
+    au.add_argument("--qa-steps", type=int, default=4, help="steps of the focused QA run per measurement (0: off)")
+    au.add_argument("--swarm-players", type=int, default=2, help="testers in the short swarm (0: off)")
+    au.add_argument("--swarm-minutes", type=float, default=1.0)
+    au.add_argument("--no-critic", action="store_true", help="no critic / fun critic in measurements")
+    au.add_argument("--make-iterations", type=int, default=0, help="forge new iterations when building from an idea")
+    au.add_argument("--polish", type=int, default=0, help="forge feature --polish N for feature/visual jobs")
+    au.add_argument("--status", action="store_true", help="print the run's state and round table")
+    au.add_argument("--correct", nargs=2, metavar=("ID", "NOTE"), help="correct one decision (Mubit correction)")
+    au.add_argument("--advise", action="store_true", help="read-only report on a human-built game (no edits)")
+    au.add_argument("--root", help="--advise: the game folder (default game/)")
+    au.add_argument("--name", help="--advise: the game's record name (default from forge/seeds)")
+    au.add_argument("--evidence", action="append", default=[], help="--advise: extra record folders to read")
+
     gp = sub.add_parser("gaps", help="trace-driven gap list (Mubit gap_finder): what is missing or broken, ranked")
     gp.add_argument("slug")
     gp.add_argument("--find", action="store_true", help="run the gap finder now (one Mubit call)")
@@ -1085,7 +1157,7 @@ def main(argv: list[str] | None = None) -> int:
                "rollback": cmd_rollback, "report": cmd_report,
                "reports": cmd_reports, "play": cmd_play, "qa": cmd_qa, "play-correct": cmd_play_correct,
                "play-list": cmd_play_list, "assets": cmd_assets, "test": cmd_test, "mcp": cmd_mcp,
-               "orchestrate": cmd_orchestrate, "gaps": cmd_gaps, "queue": cmd_queue,
+               "orchestrate": cmd_orchestrate, "autopilot": cmd_autopilot, "gaps": cmd_gaps, "queue": cmd_queue,
                "plugin": cmd_plugin}[args.cmd]
     try:
         return handler(args) or 0

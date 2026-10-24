@@ -341,6 +341,12 @@
   .bar { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; min-width: 100px; border: 2px solid var(--ink); }
   .bar > i { display: block; height: 100%; background: var(--orange); } .bar.done > i { background: var(--green); }
   .nerd a { color: var(--purple); }
+  .aprow { border: 2.5px solid var(--line); border-radius: 14px; padding: 8px 10px; margin: 8px 0; }
+  .aprow.kept { border-color: var(--green); } .aprow.rolled_back { border-color: var(--red); }
+  .aprow .hd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-weight: 900; }
+  .aprow .dec { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 6px; font-size: 12.5px; padding: 2px 0; }
+  .aprow .dec .r { color: var(--muted); grid-column: 2 / -1; font-size: 11.5px; }
+  .aprow .ev { font-size: 11.5px; color: var(--muted); }
   .empty { padding: 18px; border: 3px dashed var(--line); border-radius: 16px; font-weight: 800; color: var(--muted); text-align: center; }
   .credits { margin-top: 26px; color: #cfc6f5; font-size: 12px; font-weight: 700; text-align: center; }
 
@@ -735,7 +741,46 @@ function renderSpeed(g) {
     <div class="small muted" style="margin-top:10px">${sp.calls} Mubit calls · median ${ms(sp.p50_ms) || "–"} · p90 ${ms(sp.p90_ms) || "–"}${g.team.has_timings ? "" : " · from calls.jsonl"}</div>`;
 }
 
+function renderAutopilot(g) {
+  const A = g.autopilot;
+  if (!A) return `<div class="empty">No autopilot run on this game. Start one with <code>forge autopilot ${esc(g.slug)}</code>.</div>`;
+  const b = A.budget || {};
+  const tiles = `<div class="tiles">
+    <div class="tile ${A.state === "running" ? "hot" : ""}"><div class="k">Rounds</div><div class="v">${A.rounds.length}<small> ${esc(A.state || "")}${A.phase && A.state === "running" ? ` · ${esc(A.phase)}` : ""}</small></div></div>
+    <div class="tile"><div class="k">Anomalies found</div><div class="v">${A.anomalies}</div></div>
+    <div class="tile"><div class="k">Kept / rolled back</div><div class="v"><span class="ok">${A.kept}</span><small> / </small><span class="bad">${A.rolled_back}</span></div></div>
+    <div class="tile"><div class="k">Budget</div><div class="v">${b.calls_used ?? 0}<small> / ${b.max_calls ?? "∞"} calls · ${b.minutes_used ?? 0} min</small></div></div>
+  </div>`;
+  const tr = A.trend || [];
+  const W = 520, H = 120, pl = 26, pr = 60, pt = 8, pb = 20;
+  const xs = i => pl + (tr.length <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (tr.length - 1));
+  const ys = v => pt + (10 - v) * (H - pt - pb) / 10;
+  const line = (key, color, name) => {
+    const pts = tr.map((v, i) => v[key] != null ? [xs(i), ys(v[key]), v] : null).filter(Boolean);
+    if (!pts.length) return "";
+    const last = pts[pts.length - 1];
+    return `<path d="${pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("")}" fill="none" stroke="${color}" stroke-width="2"/>
+      ${pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="${p[2].kept === false ? "var(--red)" : color}" stroke="var(--panel)" stroke-width="2"><title>round ${p[2].round} ${p[2].tag}: ${name} ${p[2][key]}${p[2].kept === false ? " (rolled back)" : ""}</title></circle>`).join("")}
+      <text class="lbl" x="${last[0] + 8}" y="${last[1] + 4}">${name} ${last[2][key]}</text>`;
+  };
+  const chart = tr.length ? `<div class="key"><span><i style="background:${C_CRITIC}"></i>critic</span><span><i style="background:${C_FUN}"></i>fun</span><span><i style="background:var(--red)"></i>rolled back</span><span>per measurement, out of 10</span></div>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="critic and fun score per autopilot measurement">${[0, 5, 10].map(v => `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${pl - 6}" y="${ys(v) + 4}" text-anchor="end">${v}</text>`).join("")}${line("critic", C_CRITIC, "critic")}${line("fun", C_FUN, "fun")}</svg>` : "";
+  const rows = A.rounds.slice().reverse().map(r => {
+    const ev = Object.entries(r.evidence || {}).map(([k, n]) => `${esc(k)} ${n}`).join(" · ");
+    const sb = (r.scores || {}).before || {}, sa = (r.scores || {}).after || {};
+    const sc = sa.critic != null || sb.critic != null ? `critic ${sb.critic ?? "–"} → ${sa.critic ?? "–"}` : "";
+    const decs = (r.decisions || []).map(d => `<div class="dec"><span>${d.picked ? "▶" : "·"}</span><span><b>${esc(d.title)}</b> <span class="muted">${esc(d.kind)} · ${d.score ?? ""}</span></span><span>${d.outcome ? pill(d.outcome.replace("_", " ")) : ""}</span><span class="r">${esc(d.reason || "")}</span></div>`).join("");
+    const an = (r.anomalies || []).map(a => `<div class="small">${pill(a.severity || "medium")} ${esc(a.title)} <span class="muted">${esc((a.evidence || []).slice(0, 3).join(", "))}</span></div>`).join("");
+    return `<div class="aprow ${esc(r.verdict || "")}"><div class="hd"><span class="chip">round ${r.round}</span>${pill((r.verdict || "").replace("_", " "))}${r.version ? `<code>${esc(r.version)}</code>` : ""}<span class="small muted">${r.anomalies_n} anomalies · ${r.gaps} gaps · ${r.evidence_items ?? 0} evidence items · pre-filter ${r.prefilter ?? 0}${sc ? ` · ${esc(sc)}` : ""}</span></div>
+      <div class="ev">${ev}</div>
+      <div class="small" style="margin:4px 0"><b>What improved:</b> ${esc(r.what_improved || "–")}<br><b>Why:</b> ${esc(r.why || "–")}</div>
+      ${an}${decs}</div>`;
+  }).join("");
+  return `${tiles}${chart}${A.stop_reason ? `<div class="small muted">Stopped: ${esc(A.stop_reason)}</div>` : ""}${rows || `<div class="empty small">Round 1 is measuring the baseline…</div>`}`;
+}
+
 const TEAM_SKELETON = `<div class="card mc"><div class="sec-head"><h2>Mission control</h2><span class="sub" id="mcSub"></span></div><div id="tLanes"></div></div>
+  <div class="card" id="tAutoCard"><div class="sec-head"><h2>Autopilot</h2><span class="sub">evidence → anomalies → decisions → kept or rolled back</span></div><div id="tAuto"></div></div>
   <div class="grid2b"><div class="card"><div class="sec-head"><h2>What the testers see</h2><span class="sub">tap a screenshot to enlarge</span></div><div id="tFeed"></div></div>
     <div class="card"><div class="sec-head"><h2>Mubit learning</h2></div><div id="tLedger"></div></div></div>
   <div class="grid2b"><div class="card"><div class="sec-head"><h2>Version timeline</h2><span class="sub">is every version better?</span></div><div id="tTimeline"></div></div>
@@ -743,7 +788,9 @@ const TEAM_SKELETON = `<div class="card mc"><div class="sec-head"><h2>Mission co
 
 function renderTeamInto(g) {
   if (!g.team) { put("team", ""); return; }
-  if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub"]) delete last[k]; put("team", TEAM_SKELETON); }
+  if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub", "tAuto"]) delete last[k]; put("team", TEAM_SKELETON); }
+  $("tAutoCard").style.display = g.autopilot ? "" : "none";
+  put("tAuto", renderAutopilot(g));
   put("mcSub", `Every Forge agent and tester, side by side${g.live ? " · live" : ""}`);
   put("tLanes", renderLanes(g));
   for (const k of Object.keys(SHOTS)) delete SHOTS[k];
