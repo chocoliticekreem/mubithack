@@ -2,7 +2,7 @@
 -- StoreController [owner: Monetization]. The Robux store: a lobby-only "[B] STORE" chip on the left edge
 -- (under the battle pass's PASS button, clear of the level panel, objective, minimap, hotbar and HELP)
 -- that opens a sticker-style panel listing MonetizationConfig.Passes (icon, name, blurb, "R$ 149",
--- BUY / OWNED / COMING SOON) and a donate row (R$ 10 / 50 / 100 / 500).
+-- BUY / OWNED / GIFTED / COMING SOON) and a donate row (R$ 10 / 50 / 100 / 500).
 -- Prices come from MarketplaceService:GetProductInfo (config price until it answers). Ownership is the
 -- server's Player attr Pass_<Key>. Purchases go through Monetization/Buy (the server validates and
 -- prompts). The Donation Board's prompt fires Monetization/Open ("donate") to open it here.
@@ -51,6 +51,11 @@ local function paintCard(c: Card)
 		b.Text = "COMING SOON"
 		b.BackgroundColor3 = GREY
 		b.TextSize = 20
+		b.AutoButtonColor = false
+	elseif player:GetAttribute(Cfg.Attr.GiftedPrefix .. c.key) == true then
+		b.Text = "GIFTED"
+		b.BackgroundColor3 = Palette.UiWater
+		b.TextSize = 26
 		b.AutoButtonColor = false
 	elseif player:GetAttribute(Cfg.Attr.PassPrefix .. c.key) == true then
 		b.Text = "OWNED"
@@ -205,6 +210,9 @@ local function buildCard(parent: Instance, def: any, index: number, count: numbe
 		if player:GetAttribute(Cfg.Attr.PassPrefix .. def.key) == true then
 			UiKit.punch(card, 0.08)
 		end
+	end)
+	player:GetAttributeChangedSignal(Cfg.Attr.GiftedPrefix .. def.key):Connect(function()
+		paintCard(c)
 	end)
 	return c
 end
