@@ -47,6 +47,7 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 local VERSION = "2"
 local MAX_EVENTS = 500
@@ -1603,6 +1604,22 @@ local function checkpoints(): ({ [number]: BasePart }, number)
 	return out, n
 end
 
+-- Stage 0 is the course start, which is often not a checkpoint: ObbyKit tags its start pad ObbyStart, other
+-- obbies start on a SpawnLocation. teleport_stage / obby_try take it, so a run can begin where a new player does.
+local function startPart(): BasePart?
+	for _, inst in CollectionService:GetTagged("ObbyStart") do
+		local part = if inst:IsDescendantOf(workspace) then checkpointPart(inst) else nil
+		if part then
+			return part
+		end
+	end
+	return workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+end
+
+local function stagePart(cps: { [number]: BasePart }, stage: number): BasePart?
+	return cps[stage] or (if stage == 0 then startPart() else nil)
+end
+
 local function stageOf(p: any): number?
 	local v = tonumber(p:GetAttribute("Stage"))
 	if v then
@@ -2074,6 +2091,12 @@ local function buildBotModel(name: string, color: Color3): Model
 		hum.DisplayName = name
 		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
 		hum.NameDisplayDistance = 150
+		-- jump and run like this game's players (an obby sets its own jump height on StarterPlayer), so a bot's
+		-- obby_try says what a player can reach
+		hum.UseJumpPower = StarterPlayer.CharacterUseJumpPower
+		hum.JumpPower = StarterPlayer.CharacterJumpPower
+		hum.JumpHeight = StarterPlayer.CharacterJumpHeight
+		hum.WalkSpeed = StarterPlayer.CharacterWalkSpeed
 	end
 	m:SetAttribute("ForgeBot", name)
 	return m
@@ -2743,7 +2766,7 @@ local function teleportStage(args)
 		error("stage required (a checkpoint's Stage number)", 0)
 	end
 	local cps, count = checkpoints()
-	local part = cps[stage]
+	local part = stagePart(cps, stage)
 	if not part then
 		local have = {}
 		for n in cps do
@@ -2850,15 +2873,20 @@ local function obbyRun(p: any, toStage: number, fromPart: BasePart, toPart: Base
 			jumps += 1
 		end
 	end
+	-- a solid hazard (a lava strip) is floor to pathfinding and to a raycast, but a player jumps it
+	local function solidFloor(hit: RaycastResult?): boolean
+		return hit ~= nil and not CollectionService:HasTag(hit.Instance, OBBY_HAZARD)
+	end
 	local result: string? = nil
 	local via = "path"
-	-- the route: PathfindingService waypoints (AgentCanJump), else straight at the goal
+	-- the route: PathfindingService waypoints (AgentCanJump) minus the ones on a hazard, else straight at the goal
 	local targets: { { pos: Vector3, jump: boolean } } = {}
 	local path = PathfindingService:CreatePath({ AgentRadius = 1.5, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 3 })
 	local okPath = pcall(path.ComputeAsync, path, root.Position, goal)
 	if okPath and path.Status == Enum.PathStatus.Success then
 		for i, wp in path:GetWaypoints() do
-			if i > 1 then
+			local under = workspace:Raycast(wp.Position + Vector3.new(0, 2, 0), Vector3.new(0, -6, 0), params)
+			if i > 1 and (under == nil or solidFloor(under)) then
 				table.insert(targets, { pos = wp.Position, jump = wp.Action == Enum.PathWaypointAction.Jump })
 			end
 		end
@@ -2883,8 +2911,8 @@ local function obbyRun(p: any, toStage: number, fromPart: BasePart, toPart: Base
 			if jumpAt and os.clock() - jumpAt < 0.6 then
 				jump()
 				jumpAt = nil
-			elseif dir.Magnitude > 0.5 and not workspace:Raycast(root.Position + dir.Unit * 1.5, Vector3.new(0, -6, 0), params) then
-				jump() -- the platform ends just ahead: jump the gap
+			elseif dir.Magnitude > 0.5 and not solidFloor(workspace:Raycast(root.Position + dir.Unit * 1.5, Vector3.new(0, -6, 0), params)) then
+				jump() -- the platform ends just ahead (or a hazard is the floor there): jump it
 			elseif tgt.pos.Y > root.Position.Y - 1 and dir.Magnitude < 6 then
 				jump() -- a step up (the root rides ~3 studs above the floor)
 			end
@@ -2943,7 +2971,8 @@ local function obbyTry(args)
 		error("from_stage required (the player has no Stage yet)", 0)
 	end
 	local to = tonumber(args.to_stage) or nextStage(cps, from)
-	if cps[from] and not (to and cps[to]) then
+	local fromPart = stagePart(cps, from)
+	if fromPart and not (to and cps[to]) then
 		error(string.format("no checkpoint after stage %s", tostring(from)), 0)
 	end
 	local attempts = math.clamp(math.floor(tonumber(args.attempts) or 1), 1, OBBY_ATTEMPTS)
@@ -2956,7 +2985,7 @@ local function obbyTry(args)
 		local res
 		for _ = 1, 2 do -- the game can kill or move the body right after the teleport: once more
 			teleportStage({ userId = p, stage = from }) -- errors with the stage listing when from_stage is unknown
-			res = obbyRun(p, to :: number, cps[from], cps[to :: number], per)
+			res = obbyRun(p, to :: number, fromPart :: BasePart, cps[to :: number], per)
 			if res.result ~= "not_started" then
 				break
 			end

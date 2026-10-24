@@ -18,7 +18,7 @@ idea ──designer──▶ spec.json ──coder (per module)──▶ game/*.
                                           ▼
               sync into Studio (execute_luau runs game/tools/pull.luau)
                                           ▼
-       playtest: start_stop_play → wait → ForgeProbe report + console + screenshot → stop
+       playtest: start_stop_play → wait → smoke play → ForgeProbe report + console + screenshot → stop
                                           ▼
                    critic ──▶ {score, issues[]} ──fixer (per issue)──▶ files
                                           ▼
@@ -167,6 +167,13 @@ forge/                 Python package (uv), entry point `forge`
                        census, visual, session_id) -> {score = mean(fun, juice, clarity, visuals), scores, summary,
                        first_60_seconds, missing_juice, issues, census, checks} (Mubit task `fun_critic`),
                        FunStore -> runs/<slug>/fun/<n>.json + latest.json, pending_fun_anomalies() for run_cycle(fix=True)
+  smoke.py             smoke play in the scoring playtest (no LLM): smoke_play(studio, spec, game_dir, *, budget_s=45)
+                       -> {steps[{what, ok, detail, secs, skipped?}], obby{samples[{from, to, by, result, where, zone?}],
+                       reached, total, zones_sampled, zones_reached} | None, counters_delta, secs, error?}; never raises.
+                       Steps (ForgeTest harness only): players -> ui (ai.ui_pass, real clicks; skipped when they can't
+                       land) -> pickups (walk to Coin-tagged parts) -> obby (player 0 -> 1 from spawn + one bot per
+                       sample_stages() stage, one `multi`) + kill part, or the nearest prompt/touchable; format_smoke()
+                       = the critic's "## Smoke play" section, headline() = one line (fun critic, terminal)
   lessons_library/*.md curated genre lessons (fun, tycoon, obby, simulator): director + designer + coder user messages,
                        and seeded once at the top of runs/<slug>/improve/playbook.md (ImproveStore.seed_playbook)
   bench.py             `forge bench`: fixed 5-idea suite (tycoon, obby, minigame, simulator, defence) built with
@@ -723,6 +730,11 @@ Playtest wait (loop.wait_for_game(studio, wait) -> {mode ready|fallback|fixed, s
 `studio.wait_ready()` returns once the server booted, then the game is watched FORGE_OBSERVE_SECONDS (4 s) so
 the core loop bumps its counters. An explicit FORGE_PLAY_SECONDS keeps the old fixed sleep; if wait_ready can't
 tell, the rest of the wait is slept out. Games with `playtest.start_round` keep the fixed round wait.
+Smoke play (`Run.smoke` -> forge/smoke.py): right after the game is ready (after the wait, or right after the round
+start, where it counts toward the round wait) and before probe_report, a scripted no-LLM player plays the game for
+up to FORGE_SMOKE_SECONDS (45 s; 0 = off, the test default in conftest.py), so the report's counters show the played
+core loop and report["smoke"] says what was played (rec step `smoke`). The critic's user message gets a "## Smoke
+play" section (roles._smoke_block; `smoke` is left out of the report JSON), the fun critic's evidence a headline.
 
 Speed (`--jobs N`, default 8 = FORGE_JOBS; also on `feature`, `improve`, `fix`; `--no-cache` = FORGE_NO_CACHE=1):
 `Run(settings, store, llm, ui, *, jobs=None, command="run")` runs every LLM call on a bounded thread pool

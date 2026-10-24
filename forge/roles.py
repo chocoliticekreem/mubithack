@@ -12,6 +12,7 @@ import re
 
 from forge import ui_kit
 from forge.llm import LLM, LLMError
+from forge.smoke import format_smoke
 
 MAX_USER_CHARS = 24_000
 # Luau and JSON run ~2 chars per token (measured on real Mubit calls), so 24k chars is ~12k tokens.
@@ -338,6 +339,7 @@ def patch_file(
 
 def _compact_report(report: dict, limit: int = 5000) -> str:
     r = dict(report or {})
+    r.pop("smoke", None)  # the critic gets it as its own section (_smoke_block)
     errs = r.get("errors") or []
     if isinstance(errs, list) and len(errs) > 12:
         r["errors"] = errs[:12] + [{"message": f"...{len(errs) - 12} more errors omitted"}]
@@ -385,6 +387,12 @@ def _normalize_critique(c: dict, known_paths: set[str]) -> dict:
     }
 
 
+def _smoke_block(report: dict) -> str:
+    """'## Smoke play': what the scripted player did before the report was read (forge/smoke.py), if it ran."""
+    text = format_smoke((report or {}).get("smoke"))
+    return f"## Smoke play\n{text}\n\n" if text else ""
+
+
 def critique(
     llm: LLM, spec: dict, report: dict, console: str, files: dict[str, str], *, session_id: str
 ) -> dict:
@@ -393,6 +401,7 @@ def critique(
         f"{_compact_spec(spec, 3000)}\n\n"
         "## ForgeProbe report\n"
         f"{_compact_report(report)}\n\n"
+        f"{_smoke_block(report)}"
         "## Console output (most recent last)\n"
         f"```\n{_clip_block(_truncate((console or '').strip() or '(empty)', 3500, keep='tail', label='console'))}\n```\n\n"
         f"{_files_block(files, 10_500)}\n"

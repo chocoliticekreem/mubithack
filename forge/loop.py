@@ -657,12 +657,16 @@ class Run:
                     ok2, val2, _ = await step("start_round", studio.execute_luau(build_call_luau("round", args), "Server"))
                     self.ui.line("studio", "start round", ok2, self.ui.dim(str(val2)[:60]))
                     wait = max(0.0, wait - START_ROUND_DELAY)
-                    await asyncio.sleep(wait)  # the round is already running: just let it play
+                    t_smoke = time.monotonic()
+                    smoke = await self.smoke(studio, rec)
+                    # the round is already running: let it play out the wait (smoke play counts toward it)
+                    await asyncio.sleep(max(0.0, wait - (time.monotonic() - t_smoke)))
                 else:
                     waited = await wait_for_game(studio, wait)
                     rec["steps"].append({"step": "wait", "ok": waited["mode"] != "fallback", **waited})
                     self.ui.line("studio", f"game ready ({waited['mode']})", waited["mode"] != "fallback",
                                  f"{waited['secs']:4.1f}s")
+                    smoke = await self.smoke(studio, rec)
                 ok, val, _ = await step("probe_report", studio.probe_report())
                 if ok and isinstance(val, dict) and val.get("error") and "uptime" not in val:
                     report = val
@@ -677,6 +681,8 @@ class Run:
                     if counters:
                         detail += "  " + self.ui.dim(json.dumps(counters)[:40])
                     self.ui.line("probe", "ForgeProbe report", errs == 0, detail)
+                if smoke is not None:
+                    report["smoke"] = smoke
                 ok, val, _ = await step("console", studio.console())
                 if ok:
                     console = str(val or "")
@@ -693,6 +699,23 @@ class Run:
                 if ok:
                     self.ui.line("studio", "stop playtest", True)
         return report, console
+
+    async def smoke(self, studio: Any, rec: dict) -> dict | None:
+        """Scripted no-LLM play before the report is read (forge/smoke.py), so the critic scores a played game.
+        None when FORGE_SMOKE_SECONDS=0."""
+        from forge import smoke
+
+        budget = smoke.smoke_seconds()
+        if budget <= 0:
+            return None
+        res = await smoke.smoke_play(studio, self.spec, self.game_dir, budget_s=budget)
+        rec["steps"].append({"step": "smoke", "ok": not res.get("error"), "secs": res.get("secs"),
+                             **({"error": res["error"]} if res.get("error") else {})})
+        for s in res.get("steps") or []:
+            self.ui.line("smoke", s["what"], None if s.get("skipped") else s["ok"], self.ui.dim(s["detail"][:80]))
+        label, _, rest = smoke.headline(res).partition(": ")
+        self.ui.line("smoke", label, not res.get("error"), self.ui.dim(rest[:90]))
+        return res
 
     # ---------------------------------------------------------- one iteration
     async def iteration(self, n: int, studio: Any | None) -> tuple[dict, bool]:
