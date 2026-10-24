@@ -8,18 +8,20 @@
 -- No-op by default: in a place not baked into PLACES it returns at once (no HTTP, nothing touched).
 -- In a listed place it only binds (creates UI, connects signals, accepts commands) when the bridge
 -- is running, the token below matches, and the bridge lists this place too. Built by
--- `forge plugin install --place NAME`, which bakes in the URL, token and places; the Mubit key is
--- never in this file.
+-- `forge plugin install --place NAME`, which bakes in the URL, token and places and embeds the pure
+-- studio-plugin/Activity.luau module as `Activity`; the Mubit key is never in this file.
 local URL = "__FORGE_BRIDGE_URL__"
 local TOKEN = "__FORGE_BRIDGE_TOKEN__"
 local PLACES = "__FORGE_BRIDGE_PLACES__" -- comma list of place keys (name, lower case, no .rbxlx)
 local PROTOCOL = 1
 local POLL_WAIT = 15
+local ACTIVITY_EVERY = 4 -- seconds between Runs panel refreshes while the widget is open
 local MAX_OUTBOX = 1000
 local TAG = "[ForgeBridge]"
 
 local Http = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
 
 local dm = if RunService:IsEdit() then "Edit" elseif RunService:IsServer() then "Server" else "Client"
 local session = Http:GenerateGUID(false)
@@ -331,6 +333,19 @@ local function buildUi()
 		labels[f] = k
 		values[f] = v
 	end
+	local runsTitle = label("Runs", 15, true)
+	order += 1
+	local runsBox = Instance.new("Frame")
+	runsBox.BackgroundTransparency = 1
+	runsBox.Size = UDim2.new(1, -4, 0, 0)
+	runsBox.AutomaticSize = Enum.AutomaticSize.Y
+	runsBox.LayoutOrder = order
+	runsBox.Parent = root
+	local runsList = Instance.new("UIListLayout")
+	runsList.Padding = UDim.new(0, 2)
+	runsList.SortOrder = Enum.SortOrder.LayoutOrder
+	runsList.Parent = runsBox
+	local feed = nil
 	local foot = label("", 12)
 	local note = nil
 
@@ -359,6 +374,7 @@ local function buildUi()
 		end
 		for _, k in labels do k.TextColor3 = color("DimmedText") end
 		title.TextColor3 = color("BrightText")
+		runsTitle.TextColor3 = color("BrightText")
 		foot.TextColor3 = color("DimmedText")
 		fix.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
 		fix.TextColor3 = Color3.new(1, 1, 1)
@@ -386,6 +402,62 @@ local function buildUi()
 			if stats.lastMs then string.format("  ·  last command %.1f ms in Studio", stats.lastMs) else "")
 	end
 
+	-- one line per action, rebuilt from the bridge's /activity feed; a click prints the details
+	local function renderActivity()
+		for _, c in runsBox:GetChildren() do
+			if not c:IsA("UIListLayout") then c:Destroy() end
+		end
+		for i, row in Activity.rows(feed) do
+			local rgb = Activity.color(row.status)
+			local font = if row.kind == "run" then Enum.Font.SourceSansBold else Enum.Font.SourceSans
+			local size = if row.kind == "run" then 15 else 14
+			local item = Instance.new(if row.kind == "event" then "TextButton" else "Frame")
+			item.BackgroundTransparency = 1
+			item.BorderSizePixel = 0
+			item.Size = UDim2.new(1, 0, 0, if row.kind == "run" then 22 else 18)
+			item.LayoutOrder = i
+			if item:IsA("TextButton") then
+				item.Text = ""
+				item.AutoButtonColor = false
+				item.Activated:Connect(function()
+					print(TAG .. " " .. Activity.detail(row.run, row.event))
+				end)
+			end
+			-- the age/status column is sized to its own text first, so only the action text can truncate
+			local asideW = if row.aside then
+				math.ceil(TextService:GetTextSize(row.aside, size, font, Vector2.new(1000, 100)).X) else 0
+			local text = Instance.new("TextLabel")
+			text.BackgroundTransparency = 1
+			text.Size = UDim2.new(1, -(asideW + (if asideW > 0 then 6 else 0)), 1, 0)
+			text.TextXAlignment = Enum.TextXAlignment.Left
+			text.TextTruncate = Enum.TextTruncate.AtEnd
+			text.Font = font
+			text.TextSize = size
+			text.Text = row.text
+			text.TextColor3 = if rgb then Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+				elseif row.kind == "event" then color("MainText") else color("DimmedText")
+			text.Parent = item
+			if row.aside then
+				local aside = Instance.new("TextLabel")
+				aside.BackgroundTransparency = 1
+				aside.AnchorPoint = Vector2.new(1, 0)
+				aside.Position = UDim2.new(1, 0, 0, 0)
+				aside.Size = UDim2.new(0, asideW, 1, 0)
+				aside.TextXAlignment = Enum.TextXAlignment.Right
+				aside.Font = font
+				aside.TextSize = size
+				aside.Text = row.aside
+				aside.TextColor3 = if row.kind == "run" then text.TextColor3 else color("DimmedText")
+				aside.Parent = item
+			end
+			item.Parent = runsBox
+		end
+	end
+	local function setActivity(f)
+		feed = f
+		renderActivity()
+	end
+
 	local function askFix()
 		local sel = selectedScript()
 		if not sel then
@@ -409,13 +481,15 @@ local function buildUi()
 	end
 	table.insert(connections, fix.Activated:Connect(askFix))
 	table.insert(connections, tests.Activated:Connect(runTests))
-	table.insert(connections, settings().Studio.ThemeChanged:Connect(function() paint(); refresh() end))
+	table.insert(connections, settings().Studio.ThemeChanged:Connect(function() paint(); refresh(); renderActivity() end))
 	pcall(function()
 		table.insert(connections, game:GetService("Selection").SelectionChanged:Connect(function() note = nil; refresh() end))
 	end)
 	paint()
 	refresh()
+	renderActivity()
 	return { widget = widget, refresh = refresh, setNote = function(t) note = t; refresh() end,
+		setActivity = setActivity,
 		press = { fix = askFix, tests = runTests } }
 end
 
@@ -573,6 +647,15 @@ local function bind()
 	if ui then
 		task.spawn(function()
 			while alive do task.wait(1); ui.refresh() end
+		end)
+		task.spawn(function()
+			while alive do
+				if ui.widget.Enabled then
+					local r = if online then request("GET", "/activity?runs=3&events=5") else nil
+					if alive then ui.setActivity(r) end
+				end
+				task.wait(ACTIVITY_EVERY)
+			end
 		end)
 	end
 	print(TAG .. " connected to Forge (" .. dm .. ")")

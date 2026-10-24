@@ -66,6 +66,8 @@ def _calls(path: Path) -> list[dict]:
 def _alive(pid: int) -> bool:
     import os
 
+    if pid <= 0:  # os.kill(0, 0) signals our own process group and always succeeds
+        return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -846,6 +848,163 @@ def team_view(settings: Settings, slug: str, game: dict, now: float | None = Non
     return {"lanes": lanes, "testers": testers, "critic_shots": iteration_shots(store.dir, slug),
             "timeline": timeline_view(store.dir, store.game_dir, game["missions"], state.get("iterations", [])),
             "speed": speed_view(calls, timings, lanes), "has_timings": (store.dir / "timings.json").exists()}
+
+
+# ---------------------------------------------------------------- activity feed (ForgeBridge "Runs" panel)
+
+ACTIVE_FOR = 300  # seconds: a run whose files moved this recently counts as running
+_FEED_FILES = ("calls.jsonl", "timings.json", "state.json", "levels/log.jsonl", "autopilot/status.json",
+               "improve/calls.jsonl")
+
+
+def _event(ts: float | None, role: str, text: str, status: str, detail: str = "",
+           request_id: str | None = None) -> dict:
+    return {"ts": ts, "role": role, "text": _clip(text, 120), "status": status, "detail": detail,
+            "request_id": request_id}
+
+
+def _call_text(role: str, label: str) -> str:
+    if role == "coder" and label.endswith((".luau", ".lua")):
+        return f"coder wrote {label}"
+    return f"{role}: {label}" if label else role
+
+
+def _timing_events(t: dict) -> list[dict]:
+    out = []
+    for c in t["calls"]:
+        role, label = str(c.get("role") or "agent"), str(c.get("label") or c.get("step") or "")
+        end = _epoch(c.get("end"))
+        status = "running" if end is None else ("ok" if c.get("ok") else "fail")
+        lat = _num(c.get("latency_ms"))
+        detail = "\n".join(x for x in (
+            f"{role} · {label}", f"took {lat / 1000:.1f}s" if lat else "",
+            f"{c['n_calls']} Mubit calls" if (c.get("n_calls") or 0) > 1 else "",
+            f"error: {c['error']}" if c.get("error") else "",
+            f"request {c['request_id']}" if c.get("request_id") else "") if x)
+        out.append(_event(end or _epoch(c.get("start")), role, _call_text(role, label), status, detail,
+                          c.get("request_id")))
+    return out
+
+
+def _call_events(run_dir: Path, calls: list[dict], after: float, n: int) -> list[dict]:
+    """Mubit calls logged after `after` (a run without timings.json, or an improve pass after it)."""
+    dirs = [run_dir / "traces", run_dir / "improve" / "traces"]
+    out = []
+    for c in calls:
+        ts = _epoch(c.get("ts"))
+        if ts is None or ts <= after or not c.get("role"):
+            continue
+        out.append((ts, c))
+    out = sorted(out, key=lambda x: x[0])[-n:]
+    events = []
+    for ts, c in out:
+        role = str(c["role"])
+        tr = _trace_for(dirs, c.get("request_id"))
+        traced = step_of(tr.get("user"))
+        step = traced or ROLE_STEP.get(role, "")
+        lat = _num(c.get("latency_ms"))
+        thought = thought_of(tr.get("reply"))
+        detail = "\n".join(x for x in (f"{role} · {step}", f"took {lat / 1000:.1f}s" if lat else "",
+                                       f"thought: {thought}" if thought else "",
+                                       f"error: {c['error']}" if c.get("error") else "",
+                                       f"request {c['request_id']}" if c.get("request_id") else "") if x)
+        if role == "coder" and traced.startswith("writing "):
+            text = "coder wrote " + traced[len("writing "):]
+        else:
+            text = f"{role}: {step}" if step else role
+        events.append(_event(ts, role, text, "fail" if c.get("error") else "ok", detail, c.get("request_id")))
+    return events
+
+
+def _level_events(path: Path) -> list[dict]:
+    out = []
+    for row in _calls(path):
+        tries = [a for a in row.get("attempts") or [] if isinstance(a, dict)]
+        errs = int((tries[-1] if tries else {}).get("errors") or 0)
+        first = (tries[-1] if tries else {}).get("first_errors") or []
+        text = f"level_designer zone {row.get('zone')}: {errs} errors" + (f" after {len(tries)} tries"
+                                                                       if len(tries) > 1 else "")
+        detail = "\n".join([f"zone {row.get('zone')} ({row.get('theme_id') or '?'}), stages {row.get('first')}"
+                            f"+{row.get('count')}", *[str(e)[:200] for e in first[:5]]])
+        out.append(_event(_epoch(row.get("ts")), "level_designer", text, "fail" if errs else "ok", detail,
+                          (tries[-1] if tries else {}).get("request_id")))
+    return out
+
+
+def _iteration_events(state: dict) -> list[dict]:
+    out = []
+    for it in state.get("iterations") or []:
+        errs = it.get("errors") or []
+        kind = "playtest" if it.get("studio") is not False else "check"
+        score = f", score {it['score']}" if it.get("score") is not None else ""
+        detail = "\n".join([_clip(it.get("summary") or "", 400),
+                            *[_clip(e.get("message") if isinstance(e, dict) else e, 200) for e in errs[:5]]])
+        out.append(_event(_epoch(it.get("ended")), "critic", f"{kind} round {it.get('n')}: {len(errs)} errors{score}",
+                          "fail" if errs else "ok", detail))
+    return out
+
+
+def _autopilot_events(run_dir: Path) -> list[dict]:
+    st = _read_json(run_dir / "autopilot" / "status.json", None)
+    if not isinstance(st, dict):
+        return []
+    out = []
+    for r in st.get("rounds") or []:
+        verdict = str(r.get("verdict") or "?")
+        counts = f" (kept {r.get('kept', 0)}, rolled back {r.get('rolled_back', 0)})" \
+            if r.get("kept") or r.get("rolled_back") else ""
+        detail = "\n".join(x for x in (f"version {r.get('version')}" if r.get("version") else "",
+                                       _clip(r.get("what_improved") or "", 300), _clip(r.get("why") or "", 400)) if x)
+        out.append(_event(_epoch(r.get("ts")), "autopilot", f"autopilot round {r.get('round')}: {verdict}{counts}",
+                          {"kept": "ok", "rolled_back": "fail"}.get(verdict, "info"), detail))
+    return out
+
+
+def run_activity(settings: Settings, slug: str, now: float, n: int = 6, jobs: list[dict] | None = None) -> dict:
+    """One run's newest `n` actions as one-line events, newest first. `jobs` is running(settings)."""
+    store = RunStore(settings, slug)
+    events = _timing_events(read_timings(store.dir / "timings.json"))
+    after = max((e["ts"] for e in events if e["ts"] is not None and e["status"] != "running"), default=0.0)
+    calls = _calls(store.calls_log) + _calls(store.dir / "improve" / "calls.jsonl")
+    events += _call_events(store.dir, calls, after, n)
+    events += _level_events(store.dir / "levels" / "log.jsonl")
+    events += _iteration_events(_read_json(store.state_path, {}) or {})
+    events += _autopilot_events(store.dir)
+    events = sorted((e for e in events if e["ts"] is not None), key=lambda e: -e["ts"])[:n]
+    for e in events:
+        e["age_s"] = max(0, int(now - e["ts"]))
+    spec = _read_json(store.spec_path, {}) or {}
+    ap = _read_json(store.dir / "autopilot" / "status.json", {}) or {}
+    updated = _feed_mtime(store.dir)
+    # a live job/log building this slug is the truth; status files say "running" after a crash too,
+    # so without one only fresh files or a live autopilot pid count
+    jobs = running(settings, now) if jobs is None else jobs
+    running_ = live_for(settings, slug, jobs) is not None or now - updated < ACTIVE_FOR or (
+        ap.get("state") == "running" and int(ap.get("pid") or 0) > 0 and _alive(int(ap["pid"])))
+    if not running_:
+        for e in events:
+            if e["status"] == "running":
+                e["status"] = "stopped"
+    return {"slug": slug, "title": spec.get("title") or slug, "status": "running" if running_ else "idle",
+            "updated": updated, "age_s": max(0, int(now - updated)), "events": events}
+
+
+def _feed_mtime(run_dir: Path) -> float:
+    best = 0.0
+    for name in _FEED_FILES:
+        try:
+            best = max(best, (run_dir / name).stat().st_mtime)
+        except OSError:
+            continue
+    return best
+
+
+def activity_view(settings: Settings, runs: int = 3, events: int = 6, now: float | None = None) -> dict:
+    """The newest `runs` Forge runs (by when their files last moved) with their latest actions."""
+    now = now or time.time()
+    slugs = sorted(RunStore.list_games(settings), key=lambda s: -_feed_mtime(settings.runs_dir / s))
+    jobs = running(settings, now)
+    return {"now": now, "runs": [run_activity(settings, s, now, events, jobs) for s in slugs[:max(0, runs)]]}
 
 
 def collect(settings: Settings | None = None) -> dict:

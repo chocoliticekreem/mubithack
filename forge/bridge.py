@@ -8,6 +8,9 @@ ForgeBridge.plugin.luau) long-polls. It gives Forge two things StudioMCP can't:
 * fast command execution: `POST /run` queues a command and the waiting long-poll picks it up at
   once, so there is no MCP process / JSON-RPC round trip per command.
 
+It also serves `GET /activity`: the dock widget's "Runs" panel, the newest Forge runs and their
+latest actions, built by forge/dashboard.py activity_view from what runs/<slug>/ already holds.
+
 Safety: every request needs the bridge token (header X-Forge-Token). The token is baked into the
 plugin file by `forge plugin install`, and the plugin only *binds* (creates UI, streams events, runs
 commands) when the server says its place is on the allow list (`forge plugin serve --place NAME`).
@@ -85,8 +88,10 @@ class Bridge:
 
     def __init__(self, token: str, places: list[str] | tuple[str, ...] = (),
                  clock: Callable[[], float] = time.monotonic, poll_wait: float = POLL_WAIT,
-                 session_ttl: float = SESSION_TTL) -> None:
+                 session_ttl: float = SESSION_TTL,
+                 activity: Callable[[int, int], dict] | None = None) -> None:
         self.token = token
+        self.activity = activity  # (runs, events) -> the Runs panel feed; set by serve_forever
         self.places = {place_key(p) for p in places if p}
         self.clock = clock
         self.poll_wait = poll_wait
@@ -406,6 +411,11 @@ def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
                     types = [t for t in q.get("types", "").split(",") if t]
                     return self._send(200, bridge.get_events(int(q.get("since", 0)), types or None,
                                                              int(q.get("limit", 200)), float(q.get("wait", 0))))
+                if p == "/activity" and method == "GET":
+                    if bridge.activity is None:
+                        raise BridgeError("this bridge has no activity feed (start it with forge plugin serve)")
+                    return self._send(200, bridge.activity(max(0, min(int(q.get("runs", 3)), 10)),
+                                                           max(1, min(int(q.get("events", 5)), 20))))
                 if p == "/run" and method == "POST":
                     res = bridge.run(str(body.get("op", "run")), body.get("args") or {},
                                      str(body.get("dm", "Edit")), float(body.get("timeout") or DEFAULT_RUN_TIMEOUT))
@@ -512,6 +522,9 @@ class BridgeClient:
         if types:
             q += "&types=" + ",".join(types)
         return self._call("GET", q, timeout=wait + 5)
+
+    def activity(self, runs: int = 3, events: int = 5) -> dict:
+        return self._call("GET", f"/activity?runs={int(runs)}&events={int(events)}")
 
     def run(self, op: str, args: dict | None = None, dm: str = "Edit",
             timeout: float = DEFAULT_RUN_TIMEOUT) -> dict:
@@ -754,7 +767,8 @@ def plugin_dir(repo_root: Path) -> Path:
 
 def build_plugin(repo_root: Path, token: str, port: int = DEFAULT_PORT,
                  places: list[str] | tuple[str, ...] = ()) -> str:
-    """The single-file plugin source (Lua) with the bridge URL, token and place allow list baked in.
+    """The single-file plugin source (Lua) with the bridge URL, token and place allow list baked in,
+    and the pure studio-plugin/Activity.luau module embedded after the `--!nocheck` line.
     The plugin makes no request at all in a place that isn't on `places`."""
     keys = sorted({place_key(p) for p in places if p})
     if not keys:
@@ -763,6 +777,9 @@ def build_plugin(repo_root: Path, token: str, port: int = DEFAULT_PORT,
     for marker in ("__FORGE_BRIDGE_URL__", "__FORGE_BRIDGE_TOKEN__", "__FORGE_BRIDGE_PLACES__"):
         if marker not in src:
             raise BridgeError(f"plugin source is missing {marker}")
+    head, _, body = src.partition("\n")
+    activity = (plugin_dir(repo_root) / "Activity.luau").read_text()
+    src = head + "\nlocal Activity = (function()\n" + activity + "\nend)()\n" + body
     return (src.replace("__FORGE_BRIDGE_URL__", f"http://127.0.0.1:{int(port)}")
             .replace("__FORGE_BRIDGE_TOKEN__", token)
             .replace("__FORGE_BRIDGE_PLACES__", ",".join(keys)))
@@ -789,11 +806,21 @@ def install_plugin(repo_root: Path, places: list[str], plugins_dir: Path | None 
     return out
 
 
+def activity_source(repo_root: Path) -> Callable[[int, int], dict]:
+    """The Runs panel feed for this checkout's runs/ (forge/dashboard.py activity_view)."""
+    import dataclasses
+
+    from forge import dashboard
+    from forge.config import load_settings
+    settings = dataclasses.replace(load_settings(), repo_root=Path(repo_root), runs_dir=Path(repo_root) / "runs")
+    return lambda runs, events: dashboard.activity_view(settings, runs, events)
+
+
 def serve_forever(repo_root: Path, places: list[str], port: int = DEFAULT_PORT,
                   scenario: str = "smoke") -> None:
     token = load_token(store_dir(repo_root))
     assert token
-    bridge = Bridge(token, places)
+    bridge = Bridge(token, places, activity=activity_source(repo_root))
     Actions(bridge, repo_root, scenario)
     server = make_server(bridge, port)
     (store_dir(repo_root) / "bridge.pid").write_text(str(os.getpid()))
