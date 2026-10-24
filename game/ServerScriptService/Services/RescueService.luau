@@ -777,8 +777,8 @@ local function spawnOne(kind: string, feet: CFrame, pose: string, scope: string)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "Carry"
 	prompt.ActionText = "Pick up"
-	prompt.ObjectText = if kind == "Panda" then "Panda (needs 2!)" else kind
-	prompt.HoldDuration = if kind == "Panda" then RescueConfig.CarryHold * 2 else RescueConfig.CarryHold
+	prompt.ObjectText = kind
+	prompt.HoldDuration = RescueConfig.CarryHold
 	prompt.MaxActivationDistance = if kind == "Panda" then RescueConfig.PromptDistance + 3 else RescueConfig.PromptDistance
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = root

@@ -102,7 +102,7 @@ return {
 			steps = {
 				"hose",
 				"spray",
-				{ use = "carry", sub = "Neighbours, a cat, a dog... E to pick up. The panda needs TWO of you." },
+				{ use = "carry", sub = "Neighbours, a cat, a dog, even a panda... E to pick up." },
 				"deliver",
 			},
 		},
@@ -247,18 +247,18 @@ return {
 			},
 		},
 		panda_zoo = {
-			tip = "The panda is a two-person lift: both press E on it, then waddle to the truck.",
+			tip = "Pick up the panda (it's heavy!) and waddle it to the truck.",
 			steps = {
 				{
 					id = "panda",
-					head = "THE PANDA NEEDS TWO",
-					sub = "Both of you press E on the panda. Solo? Save the keepers and look sad.",
+					head = "GRAB THE PANDA",
+					sub = "Press E on the panda to pick it up. It's heavy!",
 					target = { kind = "rescue", rescueKind = "Panda" },
-					done = { kind = "pair", rescueKind = "Panda" },
+					done = { kind = "carrying", rescueKind = "Panda" },
 					optional = true,
 					maxSeconds = 45,
 				},
-				{ use = "deliver", head = "WADDLE IT TO THE TRUCK", sub = "Heavy panda, slow feet. Walk it into the drop zone together." },
+				{ use = "deliver", head = "WADDLE IT TO THE TRUCK", sub = "Heavy panda, slow feet. Walk it over to the truck." },
 				{ use = "carry", id = "keepers", head = "GRAB THE KEEPERS", sub = "Two zookeepers who refused to leave. E to pick up." },
 				"deliver",
 				"hose",
