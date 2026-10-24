@@ -3,7 +3,8 @@
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
 return Config.define({
-	Seed = 6767,
+	Seed = 6767, -- Edit previews + the Station; live servers roll their own (MapService:GetSeed)
+	RandomSeed = true, -- false: every server uses Seed (Workspace attr MapSeed still pins one)
 	SlotSize = 400, -- studs; each location gets its own SlotSize x SlotSize square
 	SlotsPerRow = 4,
 	-- v1.5 parallel missions: each squad's mission is built as its own instance in a free slot.

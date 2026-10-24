@@ -33,9 +33,13 @@
 --   (CityConfig.ReplacedLocations: Town, Farm, Forest...) are NOT built on their own slots; they are
 --   built inside the city, and GetLocation(<id>) returns that district Model. Other builders (except
 --   City / Station) keep their slot shifted by CityConfig.LegacyOffset, clear of the city.
+-- Map variety (Lib/Map/City/MapVariant): MapService:GetSeed(): number, MapService:GetVariant() ->
+--   { seed, season, sky, weather }. Workspace attrs MapSeed / MapSeason / MapSky / MapWeather (set any
+--   of them before Play to pin it; MapConfig.RandomSeed = false pins MapConfig.Seed).
 -- Test hooks (DevHook only): _selftest()
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -76,6 +80,87 @@ local siteRuns: { [string]: Model } = {} -- runId -> bound site Model
 -- in place on bind: swapping a 2,400-part district (destroy + clone + parent) re-replicates every part to
 -- every client, which was the multi-second hitch on the first Farm/Town mission.
 local usedSites: { [Model]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+-- Per-server map seed (Lib/Map/City/MapVariant): Workspace attr MapSeed if set before Play (reproduce
+-- a server), else a fresh roll on a live server; Edit-mode previews keep MapConfig.Seed. The Station
+-- (lobby, pads) always uses MapConfig.Seed so the hub never shifts.
+local sessionSeed: number? = nil
+local variant: any = nil
+
+local function mapVariant(): any?
+	local lib = ServerScriptService:FindFirstChild("Lib")
+	local mod = lib and lib:FindFirstChild("Map") and lib.Map:FindFirstChild("City") and lib.Map.City:FindFirstChild("MapVariant")
+	if not mod then
+		return nil
+	end
+	local ok, m = pcall(require, mod)
+	return if ok then m else nil
+end
+
+function MapService:GetSeed(): number
+	if sessionSeed then
+		return sessionSeed
+	end
+	local pinned = workspace:GetAttribute("MapSeed")
+	local seed: number
+	if type(pinned) == "number" and pinned >= 1 then
+		seed = math.floor(pinned)
+	elseif RunService:IsRunning() and MapConfig.RandomSeed ~= false then
+		seed = Random.new():NextInteger(1, 999999)
+	else
+		seed = MapConfig.Seed
+	end
+	sessionSeed = seed
+	-- Edit previews never write the attrs: saved into the place they would pin every later server
+	local live = RunService:IsRunning()
+	if live then
+		workspace:SetAttribute("MapSeed", seed)
+	end
+	local MV = mapVariant()
+	if MV then
+		local function attr(n: string): any
+			local v = workspace:GetAttribute(n)
+			return if type(v) == "string" and v ~= "" then v else nil
+		end
+		variant = MV.pick(seed, { season = attr("MapSeason"), sky = attr("MapSky"), weather = attr("MapWeather") })
+		if live then
+			workspace:SetAttribute("MapSeason", variant.season)
+			workspace:SetAttribute("MapSky", variant.sky)
+			workspace:SetAttribute("MapWeather", variant.weather)
+		end
+	end
+	return seed
+end
+
+-- { seed, season, sky, weather } (MapVariant.pick) for this server
+function MapService:GetVariant(): any
+	MapService:GetSeed()
+	return variant
+end
+
+local function seedFor(id: string): number
+	return if id == "Station" then MapConfig.Seed else MapService:GetSeed()
+end
+
+local function dressSeason(model: Instance)
+	local MV = mapVariant()
+	local v = MapService:GetVariant()
+	if MV and v and v.season ~= "Summer" then
+		local t0 = os.clock()
+		local ok, n = pcall(MV.apply, model, v.season, function()
+			if RunService:IsRunning() then
+				task.wait() -- ~32k parts in the city: never trip the script timeout on a busy server
+			end
+		end)
+		local ms = math.floor((os.clock() - t0) * 1000)
+		pcall(function()
+			require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count("map_season_ms", ms)
+		end)
+		if not ok then
+			warn(`[MapService] season dressing failed: {n}`)
+		end
+	end
+end
 
 local function hash(s: string): number
 	local h = 0
@@ -150,7 +235,7 @@ function MapService:BuildLocation(id: string): Model?
 	local model = Instance.new("Model")
 	model.Name = id
 	model:SetAttribute(Names.Attr.LocationId, id)
-	local rng = Random.new(MapConfig.Seed + hash(id))
+	local rng = Random.new(seedFor(id) + hash(id))
 	local origin = MapConfig.SlotOrigin(b.Slot or 0)
 	local city = cityConfig()
 	if city and id ~= "City" and id ~= "Station" then
@@ -160,6 +245,7 @@ function MapService:BuildLocation(id: string): Model?
 	if not ok then
 		warn(`[MapService] {id}.Build failed: {err}`)
 	end
+	dressSeason(model)
 	model.Parent = mapFolder() -- parent once, after building (fast)
 	locations[id] = model
 	if id == "City" then
@@ -284,11 +370,12 @@ function MapService:BuildInstance(locationId: string, instanceId: string): Model
 	model.Name = instanceId
 	model:SetAttribute(Names.Attr.InstanceId, instanceId)
 	model:SetAttribute(Names.Attr.LocationId, locationId)
-	local rng = Random.new(MapConfig.Seed + hash(locationId))
+	local rng = Random.new(seedFor(locationId) + hash(locationId))
 	local ok, err = pcall(b.Build, model, MapService:InstanceOrigin(slot - MapConfig.InstanceFirstSlot), rng)
 	if not ok then
 		warn(`[MapService] {locationId}.Build (instance {instanceId}) failed: {err}`)
 	end
+	dressSeason(model)
 	model.Parent = instancesFolder()
 	instances[instanceId] = model
 	count("map_instances_built")
@@ -451,7 +538,8 @@ function MapService:Start()
 	pcall(function()
 		require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count("map_build_ms", ms)
 	end)
-	print(`[MapService] built {#mapFolder():GetChildren()} locations in {ms} ms`)
+	local v = MapService:GetVariant() or {}
+	print(`[MapService] built {#mapFolder():GetChildren()} locations in {ms} ms (seed {MapService:GetSeed()}, {v.season} / {v.sky} / {v.weather})`)
 	-- Snapshot every incident site in the background while it is still as built, one site per frame,
 	-- so the first mission at a big district doesn't pay for the clone + settle pass.
 	task.spawn(function()
