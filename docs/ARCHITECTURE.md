@@ -65,7 +65,10 @@ forge/                 Python package (uv), entry point `forge`
                        verify, plant/clear, score; runs/<slug>/improve/{<n>.json,scores.json,playbook.md}
                        run_cycle(..., fix=True) runs fix_code(): fixer, compile, resync, replay,
                        verifier, then keep or roll back; base_files only get improve/patches/
-  dashboard.py         `forge dashboard`: read-only live view of runs/ (collect() -> /api/state + dashboard.html)
+  dashboard.py         `forge dashboard`: live view of runs/ (collect() -> GET /api/state + dashboard.html);
+                       per game: live (role at work), goal, missions (one per version, what_improved()),
+                       features. POST /api/rollback {slug, version} -> rollback(): GameVersions.restore,
+                       127.0.0.1 only, 409 while a run is building that game
   feature.py           add_feature(settings, slug, request, *, llm, iterations, use_studio, polish) -> result:
                        planner plan -> coder (new modules) -> patcher/fixer (hook edits, destructive guard) ->
                        compile -> version -> iterate -> polish_feature (round_starting AI testers, auditor vs

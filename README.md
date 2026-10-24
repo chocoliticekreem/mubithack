@@ -135,14 +135,22 @@ touched). In a mission playtest it ran **8 flare-ups with 0 server errors**, and
 ## Watching the runs
 
 `forge dashboard --open` (tool: `dashboard`) serves a live page at http://127.0.0.1:8765. It
-refreshes every 3 seconds and only reads `runs/`. It shows:
-- **Running:** background jobs and `runs/*.log` with live log tails, plus AI playtests in progress
-  (each tester's actions, and the bugs the judge found).
-- **Mubit tasks:** calls per role against the 25 examples a task needs to train, with the latest
-  request ids and a link to the console.
-- **Games:** each game's critic-score trend, iterations (rollbacks highlighted), saved versions,
-  fix cycles (anomalies, every fix attempt with the verifier's verdict and evidence, kept or rolled
-  back) and tester reports.
+refreshes every 3 seconds and reads `runs/`. Pick a game at the top. It shows:
+- **The team:** one builder per Mubit role (Planner, Designer, Coder, Tester, Critic, Inspector,
+  Investigator, Bug Fixer, Patcher, Checker, Coach). While a run is building the game, the role in
+  its latest log line hammers away, with what it is doing in plain words.
+- **Chest + pop-up:** every new version is a finished mission. A chest drops, opens, and says what
+  improved ("Fixed cube drop rate", "Added game passes"), worded from the version message, kept
+  fixes and the critic's issues (no LLM call). "Replay the build" plays the whole story.
+- **Goal track:** critic score toward 10/10 and rounds done toward the run's target.
+- **Final report:** when nothing is building the game, "Your game is ready" with what changed.
+- **Treasure map:** one chest per version. Tap one for its message, changed files and kept fixes,
+  and "Go back to vN". A rollback runs `forge rollback --no-sync` (saved as a new version, nothing
+  is lost); it only works from 127.0.0.1 and not while a run is building that game. `forge watch`
+  syncs the restored files into Studio.
+- **Nerd view:** everything the old page had. Running jobs and logs with tails, AI playtests,
+  Mubit calls per role against the 25 a task needs to train, iterations, fix cycles with every
+  verdict, versions, features and tester reports.
 
 `--host 0.0.0.0` shares it on your network, for example on a teammate's screen or a projector.
 

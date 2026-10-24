@@ -3,150 +3,625 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forge runs</title>
+<title>Forge Workshop</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1db;
-    --accent: #c2410c; --ok: #15803d; --bad: #b91c1c; --warn: #a16207; --info: #1d4ed8;
-    --code: #f1efe9;
+    --sky: #3b2a8f; --sky2: #5a3fd1; --panel: #ffffff; --panel2: #f3efff; --ink: #1a1033; --muted: #6a6190;
+    --yellow: #ffd23f; --orange: #ff8a1f; --green: #2fd17a; --pink: #ff4fa3; --cyan: #29c7f2; --red: #ff4d5e;
+    --purple: #8b5cf6; --grey: #b7b1cc; --gold: #ffcc33; --line: #e2dcf5; --code: #f4f1fb;
+    --shadow: 0 5px 0 var(--ink);
+    --head: "Lilita One", "Baloo 2", cursive; --body: "Nunito", "Trebuchet MS", sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9b9a94; --line: #2f2e2b;
-      --accent: #fb923c; --ok: #4ade80; --bad: #f87171; --warn: #facc15; --info: #93c5fd; --code: #262522; }
+    :root:not([data-theme="light"]) { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
+      --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
   }
+  :root[data-theme="dark"] { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
+    --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  header { display: flex; align-items: baseline; gap: 12px; padding: 18px 24px 8px; }
-  header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-  header .sub { color: var(--muted); }
-  main { padding: 8px 24px 40px; display: grid; gap: 22px; max-width: 1280px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
-  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .grow { flex: 1; min-width: 0; }
-  .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; min-height: 100vh; color: var(--text, var(--ink)); font: 600 15px/1.45 var(--body);
+    background: radial-gradient(1200px 600px at 20% -10%, var(--sky2), transparent 60%),
+                radial-gradient(900px 500px at 110% 10%, #c2368a55, transparent 60%), var(--sky); }
+  button { font: inherit; cursor: pointer; }
+  h1, h2, h3, .head { font-family: var(--head); font-weight: 400; letter-spacing: .01em; margin: 0; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 18px 24px 48px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; color: #fff; margin-bottom: 16px; }
+  .logo { font: 40px/1 var(--head); color: var(--yellow); text-shadow: 0 4px 0 var(--ink), 0 0 24px #ffd23f55;
+    -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+  .tag { color: #e6defe; font-weight: 800; flex: 1; min-width: 200px; }
+  .btn { border: 3px solid var(--ink); border-radius: 14px; padding: 8px 14px; font-weight: 900;
+    background: var(--yellow); color: var(--ink); box-shadow: 0 4px 0 var(--ink); transition: transform .08s; }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+  .btn.ghost { background: #fff; } .btn.green { background: var(--green); } .btn.red { background: var(--red); color: #fff; }
+  .btn.small { padding: 5px 10px; font-size: 13px; border-radius: 11px; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  select.pick { appearance: none; border: 3px solid var(--ink); border-radius: 14px; padding: 9px 38px 9px 14px;
+    font: 900 15px var(--body); background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='10'%3E%3Cpath d='M1 1l6 7 6-7' fill='none' stroke='%231a1033' stroke-width='3'/%3E%3C/svg%3E") no-repeat right 12px center;
+    color: var(--ink); box-shadow: 0 4px 0 var(--ink); max-width: 100%; }
+  .card { background: var(--panel); color: var(--text, var(--ink)); border: 3px solid var(--ink); border-radius: 22px;
+    box-shadow: var(--shadow); padding: 18px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  .title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .game-title { font-size: 30px; line-height: 1.05; }
+  .pitch { color: var(--muted); font-weight: 700; margin: 4px 0 0; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 2.5px solid var(--ink); border-radius: 99px;
+    padding: 2px 10px; font: 900 12px var(--body); text-transform: uppercase; letter-spacing: .04em; background: var(--panel2); color: var(--ink); }
+  .chip.live { background: var(--green); } .chip.done { background: var(--yellow); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink); }
+  .chip.live .dot { animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
   .muted { color: var(--muted); }
-  .small { font-size: 12px; }
-  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
-  .s-running, .s-active { color: var(--info); }
-  .s-finished, .s-kept, .s-fixed { color: var(--ok); }
-  .s-failed, .s-rolled_back, .s-compile_failed, .s-not_fixed, .s-regression, .s-high { color: var(--bad); }
-  .s-idle, .s-stopped, .s-cancelled, .s-inconclusive, .s-low { color: var(--muted); }
-  .s-suggested, .s-medium, .s-no_file { color: var(--warn); }
-  pre { background: var(--code); border-radius: 8px; padding: 8px 10px; margin: 8px 0 0; max-height: 220px;
-    overflow: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
-  details > summary { cursor: pointer; list-style: none; }
-  details > summary::-webkit-details-marker { display: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; font-size: 12px; }
-  .bar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; min-width: 120px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); }
-  .bar.done > i { background: var(--ok); }
-  .sec { margin-top: 12px; }
-  .sec h3 { font-size: 12px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
-  .item { padding: 6px 0; border-bottom: 1px dashed var(--line); }
-  .item:last-child { border-bottom: 0; }
-  .rollback td { color: var(--warn); }
-  .empty { color: var(--muted); padding: 12px; border: 1px dashed var(--line); border-radius: 10px; }
-  a { color: var(--accent); }
-  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .stat { display: flex; flex-direction: column; }
-  .stat b { font-size: 18px; }
-  @media (max-width: 640px) { header, main { padding-left: 16px; padding-right: 16px; } .grid { grid-template-columns: 1fr; } }
+  .small { font-size: 13px; }
+
+  /* ---------- workshop stage */
+  .stage { position: relative; margin-top: 14px; border: 3px solid var(--ink); border-radius: 18px; overflow: hidden;
+    background: linear-gradient(#8fe3ff, #c9f2ff 62%, #7ccf5a 62%, #5bb043); padding: 16px 12px 10px; min-height: 250px; }
+  .stage .sun { position: absolute; right: 22px; top: 14px; width: 46px; height: 46px; border-radius: 50%; background: var(--yellow);
+    border: 3px solid var(--ink); box-shadow: 0 0 0 8px #ffd23f44; }
+  .stage .cloud { position: absolute; top: 24px; width: 70px; height: 22px; background: #fff; border-radius: 20px; opacity: .9;
+    animation: drift 30s linear infinite; }
+  .stage .cloud::after { content: ""; position: absolute; left: 14px; top: -12px; width: 34px; height: 28px; background: #fff; border-radius: 50%; }
+  @keyframes drift { from { transform: translateX(-120px); } to { transform: translateX(1300px); } }
+  .mission-head { position: relative; padding-right: 64px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; z-index: 1; }
+  .mission-head .head { font-size: 22px; color: var(--ink); text-shadow: 0 2px 0 #fff; }
+  .bubble { position: relative; z-index: 1; display: block; width: fit-content; min-width: 0; margin: 10px 0 6px; background: #fff; color: var(--ink);
+    border: 3px solid var(--ink); border-radius: 16px; padding: 7px 14px; font-weight: 900; max-width: 100%; }
+  .bubble small { display: block; font-weight: 700; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .team { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 4px 2px; margin-top: 4px; }
+  .bot { text-align: center; position: relative; }
+  .bot svg { width: 64px; height: 76px; display: block; margin: 0 auto; transform-origin: 50% 100%; }
+  .bot .name { display: inline-block; font: 900 11px var(--body); background: #ffffffd9; color: var(--ink);
+    border: 2px solid var(--ink); border-radius: 8px; padding: 0 5px; white-space: nowrap; }
+  .bot .mb { display: block; font: 800 10px var(--body); color: #1a1033b0; margin-top: 1px; }
+  .bot.idle svg { animation: bob 2.6s ease-in-out infinite; opacity: .78; filter: saturate(.75); }
+  .bot.active svg { animation: hop .5s ease-in-out infinite; filter: drop-shadow(0 0 10px #fff) ; opacity: 1; }
+  .bot.active .name { background: var(--yellow); }
+  .bot.active .arm { animation: hammer .5s ease-in-out infinite; transform-origin: 44px 46px; }
+  .bot .spark { position: absolute; left: 50%; top: 44px; width: 6px; height: 6px; border-radius: 50%; background: var(--yellow);
+    border: 1.5px solid var(--ink); opacity: 0; }
+  .bot.active .spark { animation: spark .5s ease-out infinite; }
+  .bot.active .spark.s2 { animation-delay: .25s; left: 62%; }
+  @keyframes bob { 50% { transform: translateY(-4px); } }
+  @keyframes hop { 0%,100% { transform: translateY(0) scale(1.12); } 50% { transform: translateY(-6px) scale(1.12); } }
+  @keyframes hammer { 0%,100% { transform: rotate(-55deg); } 45% { transform: rotate(25deg); } }
+  @keyframes spark { 0% { opacity: 0; transform: translate(14px, 6px) scale(.4); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(30px, -18px) scale(1); } }
+  .stage.resting .bot svg { animation: bob 3.5s ease-in-out infinite; opacity: .95; filter: none; }
+
+  /* ---------- final report */
+  .report { margin-top: 14px; border: 3px solid var(--ink); border-radius: 18px; padding: 16px 18px; position: relative; overflow: hidden;
+    background: linear-gradient(135deg, #fff6c9, #ffe27a); color: var(--ink); }
+  .report .head { font-size: 30px; }
+  .report ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .report li { display: flex; gap: 8px; align-items: center; font-weight: 800; }
+  .report li::before { content: ""; flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--ink);
+    background: var(--green) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='10'%3E%3Cpath d='M1 5l3 3 7-7' fill='none' stroke='%231a1033' stroke-width='2.5'/%3E%3C/svg%3E") no-repeat center; }
+  .report .trophy { position: absolute; right: 12px; top: 10px; width: 92px; height: 92px; animation: bob 3s ease-in-out infinite; }
+  .report .stats { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-right: 96px; }
+
+  /* ---------- goal track */
+  .goal h3 { font-size: 20px; margin-bottom: 10px; }
+  .meter-label { display: flex; justify-content: space-between; align-items: baseline; font-weight: 900; margin: 14px 0 6px; }
+  .meter-label .big { font: 34px/1 var(--head); }
+  .score { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; position: relative; }
+  .score i { height: 26px; border: 2.5px solid var(--ink); border-radius: 7px; background: var(--panel2); }
+  .score i.on { background: linear-gradient(var(--yellow), var(--orange)); }
+  .score i.on.hi { background: linear-gradient(#7af0a9, var(--green)); }
+  .score i.best { box-shadow: inset 0 0 0 3px #fff; }
+  .rounds { display: flex; align-items: center; gap: 0; margin-top: 4px; flex-wrap: wrap; row-gap: 8px; }
+  .rounds .node { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center;
+    font: 900 14px var(--body); background: var(--panel2); color: var(--ink); flex: none; }
+  .rounds .node.done { background: var(--green); }
+  .rounds .node.now { background: var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
+  .rounds .seg { height: 6px; flex: 1; min-width: 10px; max-width: 46px; background: var(--ink); opacity: .25; }
+  .rounds .seg.done { opacity: 1; background: var(--green); outline: 2px solid var(--ink); }
+  @keyframes pulse { 50% { transform: scale(1.15); } }
+  .flag { width: 30px; height: 34px; flex: none; margin-left: 6px; }
+  .why { margin-top: 14px; padding: 10px 12px; border-radius: 14px; background: var(--panel2); font-weight: 700; font-size: 13px; color: var(--muted); }
+  .why b { color: var(--text, var(--ink)); }
+
+  /* ---------- treasure map */
+  .map-card { margin-top: 18px; }
+  .map-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 10px; }
+  .map-head h2 { font-size: 24px; }
+  .map { display: flex; flex-wrap: wrap; gap: 10px 4px; align-items: flex-end; padding: 12px 6px 6px; border-radius: 16px;
+    background: #fff4d6; border: 3px dashed #c9a85a; }
+  .slot { background: none; border: 0; padding: 4px 2px; text-align: center; color: var(--ink); border-radius: 12px; position: relative;
+    transition: transform .15s; width: 76px; }
+  .slot:hover, .slot:focus-visible { transform: translateY(-4px) rotate(-3deg); outline: none; }
+  .slot:focus-visible { box-shadow: 0 0 0 3px var(--cyan); }
+  .slot svg { width: 58px; height: 52px; display: block; margin: 0 auto; }
+  .slot.save { width: 42px; } .slot.save svg { width: 30px; height: 28px; }
+  .slot .v { display: inline-block; font: 900 12px var(--body); background: #fff; border: 2px solid var(--ink); border-radius: 8px; padding: 0 5px; }
+  .slot .t { display: block; font: 800 11px/1.15 var(--body); margin-top: 2px; color: #4b3f74; overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .slot.save .t { display: none; }
+  .slot.now::before { content: "NOW"; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); font: 900 10px var(--body);
+    background: var(--pink); color: #fff; border: 2px solid var(--ink); border-radius: 6px; padding: 0 4px; }
+  .slot.sel { background: #ffffffaa; box-shadow: 0 0 0 3px var(--ink); }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 800; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--ink); display: inline-block; }
+
+  /* ---------- modal: snapshot detail */
+  .scrim { position: fixed; inset: 0; background: #0b062099; display: none; align-items: center; justify-content: center; padding: 16px; z-index: 20; }
+  .scrim.open { display: flex; }
+  .sheet { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; animation: pop .35s cubic-bezier(.34,1.56,.64,1); }
+  .sheet .top { display: flex; gap: 14px; align-items: center; }
+  .sheet .top svg { width: 86px; height: 78px; flex: none; }
+  .sheet h3 { font-size: 26px; line-height: 1.1; }
+  .facts { display: grid; gap: 8px; margin: 14px 0; }
+  .fact { background: var(--panel2); border-radius: 12px; padding: 8px 12px; font-weight: 800; overflow-wrap: anywhere; min-width: 0; }
+  .sheet { overflow-x: hidden; }
+  .fact .lbl { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .fact code, .nerd code, .nerd pre { font: 12px/1.4 ui-monospace, Menlo, monospace; }
+  .files { margin: 6px 0 0; padding-left: 18px; font-weight: 600; font-size: 12px; word-break: break-all; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .confirm { margin-top: 12px; padding: 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff1f3; color: var(--ink); }
+  .confirm p { margin: 0 0 10px; font-weight: 800; }
+  .x { margin-left: auto; align-self: flex-start; background: var(--panel2); border: 2.5px solid var(--ink); border-radius: 10px;
+    width: 34px; height: 34px; font: 900 16px var(--body); color: var(--ink); flex: none; }
+  @keyframes pop { from { transform: scale(.7); opacity: 0; } }
+
+  /* ---------- chest launch + toast */
+  .launch { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; flex-direction: column;
+    background: radial-gradient(circle at 50% 42%, #5a3fd1ee, #0b0620f2 58%); cursor: pointer; padding: 16px;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+  .launch.open { display: flex; }
+  .launch .rays { position: absolute; width: 560px; height: 560px; top: 50%; left: 50%; margin: -330px 0 0 -280px; opacity: 0;
+    background: repeating-conic-gradient(#ffe68a88 0 10deg, transparent 10deg 24deg); border-radius: 50%;
+    -webkit-mask: radial-gradient(circle, #000 20%, transparent 68%); mask: radial-gradient(circle, #000 20%, transparent 68%); }
+  .launch .big { width: 190px; height: 170px; position: relative; }
+  .launch.go .big { animation: drop .7s cubic-bezier(.34,1.56,.64,1) both, shake .45s .75s ease-in-out 2; }
+  .launch.go .big .lid { animation: lidopen .5s 1.7s cubic-bezier(.34,1.56,.64,1) both; transform-origin: 32px 26px; transform-box: view-box; }
+  .launch .inside { opacity: 0; } .launch.go .inside { animation: fadein .1s 1.75s both; }
+  .launch.go .big .glow { animation: glow .6s 1.75s ease-out both; }
+  .launch.go .rays { animation: rays 6s 1.7s linear infinite, fadein .3s 1.7s both; }
+  .launch .coin { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--gold); border: 2.5px solid var(--ink); top: 44%; left: 50%; opacity: 0; }
+  .launch.go .coin { animation: coin 1.1s 1.8s ease-out both; }
+  .toast { margin-top: 18px; width: min(460px, 100%); text-align: center; background: #fff; color: var(--ink); border: 4px solid var(--ink); border-radius: 22px;
+    box-shadow: 0 7px 0 var(--ink); padding: 14px 18px; opacity: 0; transform: translateY(40px) scale(.8); position: relative; }
+  .launch.go .toast { animation: toast .5s 2.0s cubic-bezier(.34,1.56,.64,1) both; }
+  .toast .kicker { font: 900 12px var(--body); letter-spacing: .14em; color: var(--pink); }
+  .toast .what { font: 30px/1.1 var(--head); margin: 4px 0; }
+  .toast .sub { color: var(--muted); font-weight: 800; font-size: 13px; }
+  .launch.out { animation: fadeout .4s both; }
+  @keyframes drop { from { transform: translateY(-110vh) rotate(-12deg); } to { transform: none; } }
+  @keyframes shake { 25% { transform: rotate(-7deg); } 75% { transform: rotate(7deg); } }
+  @keyframes lidopen { to { transform: translate(0, -13px) rotate(-10deg); } }
+  @keyframes glow { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes rays { to { transform: rotate(360deg); } }
+  @keyframes fadein { to { opacity: 1; } }
+  @keyframes fadeout { to { opacity: 0; } }
+  @keyframes toast { to { opacity: 1; transform: none; } }
+  @keyframes coin { 0% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(540deg); } }
+
+  .note { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff;
+    border-radius: 14px; padding: 10px 16px; font-weight: 800; display: none; max-width: calc(100% - 32px); }
+  .note.show { display: block; animation: pop .3s cubic-bezier(.34,1.56,.64,1); }
+
+  /* ---------- nerd view (the old dashboard, kept) */
+  .nerd { display: none; margin-top: 22px; }
+  body.nerdy .nerd { display: grid; gap: 18px; }
+  .nerd h2 { color: #fff; font-size: 22px; margin-bottom: 8px; }
+  .nerd .card { box-shadow: 0 4px 0 var(--ink); font-weight: 600; }
+  .ngrid { display: grid; gap: 12px; align-items: start; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .nerd .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .nerd .grow { flex: 1; min-width: 0; } .nerd .ttl { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 11px; font-weight: 900; padding: 1px 8px; border-radius: 99px; border: 2px solid currentColor; white-space: nowrap; }
+  .s-running, .s-active { color: #1d4ed8; } .s-finished, .s-kept, .s-fixed { color: #15803d; }
+  .s-failed, .s-rolled_back, .s-compile_failed, .s-not_fixed, .s-regression, .s-high { color: #b91c1c; }
+  .s-idle, .s-stopped, .s-cancelled, .s-inconclusive, .s-low { color: var(--muted); } .s-suggested, .s-medium, .s-no_file { color: #a16207; }
+  .nerd pre { background: var(--code); border-radius: 10px; padding: 8px 10px; margin: 8px 0 0; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  .nerd table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .nerd th, .nerd td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .nerd .item { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .nerd .sec { margin-top: 12px; } .nerd .sec h3 { font: 900 13px var(--body); color: var(--muted); margin-bottom: 4px; }
+  .nerd details > summary { cursor: pointer; color: var(--purple); font-weight: 900; }
+  .bar { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; min-width: 100px; border: 2px solid var(--ink); }
+  .bar > i { display: block; height: 100%; background: var(--orange); } .bar.done > i { background: var(--green); }
+  .nerd a { color: var(--purple); }
+  .empty { padding: 18px; border: 3px dashed var(--line); border-radius: 16px; font-weight: 800; color: var(--muted); text-align: center; }
+  .credits { margin-top: 26px; color: #cfc6f5; font-size: 12px; font-weight: 700; text-align: center; }
+
+  @media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 560px) {
+    .wrap { padding: 12px 16px 40px; } .logo { font-size: 32px; } .game-title { font-size: 24px; }
+    .card { padding: 14px; border-radius: 18px; } .team { grid-template-columns: repeat(4, 1fr); }
+    .bot svg { width: 54px; height: 64px; } .stage .sun { width: 34px; height: 34px; right: 12px; top: 12px; } .slot { width: 66px; } .slot svg { width: 50px; height: 45px; }
+    .report .trophy { width: 64px; height: 64px; } .report .head { font-size: 24px; } .report .stats { padding-right: 60px; }
+    .ngrid { grid-template-columns: 1fr; } .launch .big { width: 150px; height: 134px; } .toast .what { font-size: 24px; }
+    .launch .rays { width: 380px; height: 380px; margin: -230px 0 0 -190px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition: none !important; }
+    .launch.go .big .lid { transform: translate(0, -13px) rotate(-10deg); }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Forge runs</h1>
-  <span class="sub" id="updated">loading…</span>
-</header>
-<main>
-  <section><h2>Running</h2><div id="running" class="grid"></div></section>
-  <section><h2>Mubit tasks</h2><div id="mubit"></div></section>
-  <section><h2>Games</h2><div id="games" class="grid"></div></section>
-</main>
+<div class="wrap">
+  <header>
+    <div class="logo">FORGE</div>
+    <div class="tag">The AI team builds your Roblox game, plays it, fixes it, and gets smarter every round.</div>
+    <select class="pick" id="pick" aria-label="Pick a game"></select>
+    <button class="btn ghost small" id="nerdBtn" aria-pressed="false">Nerd view</button>
+  </header>
+
+  <div id="main"><div class="card empty">Loading the workshop…</div></div>
+
+  <section class="nerd" id="nerd">
+    <div><h2>Running</h2><div id="running" class="ngrid"></div></div>
+    <div><h2>Mubit tasks</h2><div id="mubit"></div></div>
+    <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
+  </section>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Lilita One and Nunito (Google Fonts, OFL).</div>
+</div>
+
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
+<div class="launch" id="launch" aria-live="polite">
+  <div class="rays"></div>
+  <div class="big" id="bigChest"></div>
+  <div class="toast"><div class="kicker">MISSION COMPLETE</div><div class="what" id="toastWhat"></div><div class="sub" id="toastSub"></div></div>
+</div>
+<div class="note" id="note" role="status"></div>
+
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const pill = s => `<span class="pill s-${esc(String(s).split(" ")[0])}">${esc(s)}</span>`;
-const ago = t => { const d = Math.max(0, Date.now()/1000 - t); return d < 60 ? `${d|0}s ago` : d < 3600 ? `${(d/60)|0}m ago` : `${(d/3600)|0}h ago`; };
-const open = new Set();
-document.addEventListener("toggle", e => { const id = e.target.dataset?.key; if (id) e.target.open ? open.add(id) : open.delete(id); }, true);
-const det = (key, summary, body) => `<details data-key="${esc(key)}" ${open.has(key) ? "open" : ""}><summary>${summary}</summary>${body}</details>`;
+const $ = id => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const ago = t => { const d = Math.max(0, Date.now()/1000 - t); return d < 60 ? `${d|0}s ago` : d < 3600 ? `${(d/60)|0}m ago` : d < 86400 ? `${(d/3600)|0}h ago` : `${(d/86400)|0}d ago`; };
+const when = iso => { const t = Date.parse(iso); return isNaN(t) ? "" : ago(t / 1000); };
 
-function spark(scores) {
-  const pts = scores.filter(s => s != null);
-  if (pts.length < 1) return "";
-  const w = 120, h = 28, n = Math.max(pts.length - 1, 1);
-  const xy = pts.map((s, i) => `${(i / n * (w - 4) + 2).toFixed(1)},${(h - 2 - s / 10 * (h - 4)).toFixed(1)}`);
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="critic scores"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${xy.join(" ")}"/>${xy.map(p => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="2" fill="currentColor"/>`).join("")}</svg>`;
+// The Forge team. Each one is a Mubit task (role); `roles` lists which call roles count toward its badge.
+const TEAM = [
+  {key: "planner", name: "Planner", doing: "Planning the new feature", hat: "#8b5cf6", body: "#c4b5fd", tool: "clip", roles: ["planner"]},
+  {key: "designer", name: "Designer", doing: "Dreaming up the game", hat: "#ff4fa3", body: "#ffb3d6", tool: "pencil", roles: ["designer"]},
+  {key: "coder", name: "Coder", doing: "Writing the game code", hat: "#ff8a1f", body: "#ffd0a3", tool: "hammer", roles: ["coder"]},
+  {key: "tester", name: "Tester", doing: "Playing the game in Roblox", hat: "#29c7f2", body: "#b3ecff", tool: "pad", roles: ["tester", "playtester", "judge"]},
+  {key: "critic", name: "Critic", doing: "Scoring the game out of 10", hat: "#ffd23f", body: "#fff0a8", tool: "star", roles: ["critic"]},
+  {key: "auditor", name: "Inspector", doing: "Hunting for bugs", hat: "#ef4444", body: "#fecaca", tool: "glass", roles: ["auditor", "triage"]},
+  {key: "investigator", name: "Investigator", doing: "Finding where the bug hides", hat: "#0ea5e9", body: "#bae6fd", tool: "glass", roles: ["investigator"]},
+  {key: "fixer", name: "Bug Fixer", doing: "Fixing the bugs", hat: "#2fd17a", body: "#b8f5d3", tool: "wrench", roles: ["fixer"]},
+  {key: "patcher", name: "Patcher", doing: "Patching a big file", hat: "#14b8a6", body: "#a7f3e8", tool: "wrench", roles: ["patcher"]},
+  {key: "verifier", name: "Checker", doing: "Checking the fix really worked", hat: "#84cc16", body: "#d9f99d", tool: "check", roles: ["verifier"]},
+  {key: "coach", name: "Coach", doing: "Writing lessons for next time", hat: "#f97316", body: "#fed7aa", tool: "book", roles: ["reflector"]},
+];
+const KEEPER = "Saving a snapshot in a chest";
+
+const TOOLS = {
+  hammer: `<rect x="48" y="22" width="5" height="26" rx="2" fill="#8a5a2b" stroke="#1a1033" stroke-width="2"/><rect x="41" y="16" width="19" height="10" rx="3" fill="#9aa3b5" stroke="#1a1033" stroke-width="2.5"/>`,
+  wrench: `<rect x="48" y="24" width="5" height="24" rx="2" fill="#9aa3b5" stroke="#1a1033" stroke-width="2"/><path d="M44 16a7 7 0 1 0 13 0l-3 4h-7z" fill="#9aa3b5" stroke="#1a1033" stroke-width="2.5"/>`,
+  glass: `<rect x="48" y="30" width="5" height="18" rx="2" fill="#8a5a2b" stroke="#1a1033" stroke-width="2"/><circle cx="50.5" cy="22" r="9" fill="#c9f2ff" stroke="#1a1033" stroke-width="3"/>`,
+  pencil: `<path d="M47 48l3-30 5 0 3 30z" transform="rotate(10 52 33)" fill="#ffd23f" stroke="#1a1033" stroke-width="2.5"/><path d="M50 18l2.5-6 2.5 6z" transform="rotate(10 52 33)" fill="#1a1033"/>`,
+  pad: `<rect x="40" y="20" width="22" height="14" rx="6" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/><circle cx="46" cy="27" r="2" fill="#2fd17a"/><circle cx="56" cy="27" r="2" fill="#ff4fa3"/>`,
+  star: `<path d="M51 13l3.5 7 7.5 1-5.5 5 1.5 7.5-7-3.8-7 3.8 1.5-7.5-5.5-5 7.5-1z" fill="#ffd23f" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/>`,
+  clip: `<rect x="41" y="16" width="20" height="26" rx="3" fill="#fff" stroke="#1a1033" stroke-width="2.5"/><path d="M45 25h12M45 30h12M45 35h8" stroke="#1a1033" stroke-width="2"/>`,
+  check: `<circle cx="51" cy="24" r="10" fill="#2fd17a" stroke="#1a1033" stroke-width="2.5"/><path d="M46 24l4 4 7-7" fill="none" stroke="#1a1033" stroke-width="3"/>`,
+  book: `<path d="M40 18h10l1 2 1-2h10v20H52l-1 2-1-2H40z" fill="#fff" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/><path d="M51 20v18" stroke="#1a1033" stroke-width="2"/>`,
+};
+
+function botSvg(m) {
+  return `<svg viewBox="0 0 70 84" aria-hidden="true">
+    <ellipse cx="32" cy="80" rx="20" ry="3.5" fill="#1a103333"/>
+    <rect x="20" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
+    <rect x="35" y="64" width="9" height="14" rx="3" fill="#3b2a8f" stroke="#1a1033" stroke-width="2.5"/>
+    <rect x="15" y="40" width="34" height="28" rx="11" fill="${m.body}" stroke="#1a1033" stroke-width="3"/>
+    <rect x="25" y="46" width="14" height="9" rx="3" fill="#fff" stroke="#1a1033" stroke-width="2"/>
+    <rect x="8" y="44" width="9" height="17" rx="4.5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/>
+    <circle cx="32" cy="26" r="16" fill="#ffd9b8" stroke="#1a1033" stroke-width="3"/>
+    <circle cx="26" cy="27" r="2.8" fill="#1a1033"/><circle cx="38" cy="27" r="2.8" fill="#1a1033"/>
+    <circle cx="27" cy="26" r="1" fill="#fff"/><circle cx="39" cy="26" r="1" fill="#fff"/>
+    <path d="M27 34q5 4 10 0" fill="none" stroke="#1a1033" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M14 22a18 16 0 0 1 36 0z" fill="${m.hat}" stroke="#1a1033" stroke-width="3"/>
+    <rect x="10" y="20" width="44" height="6" rx="3" fill="${m.hat}" stroke="#1a1033" stroke-width="2.5"/>
+    <rect x="29" y="8" width="6" height="8" rx="2" fill="#fff" opacity=".7"/>
+    <g class="arm">${TOOLS[m.tool]}<rect x="41" y="42" width="10" height="16" rx="5" fill="${m.body}" stroke="#1a1033" stroke-width="2.5"/></g>
+  </svg>`;
 }
 
+const KIND = {
+  build: {c: "#ff8a1f", t: "#ffd23f", label: "Build"},
+  round: {c: "#2fd17a", t: "#ffd23f", label: "Playtest round"},
+  fix: {c: "#29c7f2", t: "#ffd23f", label: "Bug fix"},
+  feature: {c: "#8b5cf6", t: "#ffcc33", label: "New feature"},
+  rollback: {c: "#94a3b8", t: "#e2e8f0", label: "Went back"},
+  save: {c: "#c9c2dd", t: "#efeaf9", label: "Save point"},
+  other: {c: "#ff4fa3", t: "#ffd23f", label: "Snapshot"},
+};
+
+function chestSvg(kind, opts = {}) {
+  const k = KIND[kind] || KIND.other;
+  return `<svg viewBox="${opts.open ? "0 -14 64 72" : "0 0 64 58"}" aria-hidden="true" overflow="visible">
+    <ellipse cx="32" cy="54" rx="26" ry="3.5" fill="#1a103326"/>
+    <g class="glow" style="opacity:${opts.glow ? 1 : 0}"><circle cx="32" cy="22" r="20" fill="#fff6b0" opacity=".8"/></g>
+    <rect x="6" y="26" width="52" height="26" rx="5" fill="${k.c}" stroke="#1a1033" stroke-width="3"/>
+    <rect x="6" y="34" width="52" height="5" fill="${k.t}" stroke="#1a1033" stroke-width="2"/>
+    <rect x="12" y="26" width="5" height="26" fill="${k.t}" stroke="#1a1033" stroke-width="2"/>
+    <rect x="47" y="26" width="5" height="26" fill="${k.t}" stroke="#1a1033" stroke-width="2"/>
+    ${opts.open || opts.inside ? `<g class="inside"><path d="M9 27h46l-3 6H12z" fill="#1a1033"/><path d="M14 27h36l-2 4H16z" fill="#ffe680"/></g>` : ""}
+    <g class="lid" ${opts.open ? 'transform="translate(0 -13) rotate(-10 32 26)"' : ""}>
+      <path d="M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z" fill="${k.c}" stroke="#1a1033" stroke-width="3"/>
+      <path d="M12 26V10M47 26V10" stroke="${k.t}" stroke-width="5"/>
+      <path d="M6 26h52" stroke="#1a1033" stroke-width="3"/>
+      <path d="M14 13h8" stroke="#fff" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
+    </g>
+    <rect x="27" y="23" width="10" height="13" rx="3" fill="${k.t}" stroke="#1a1033" stroke-width="2.5"/>
+    <circle cx="32" cy="29" r="1.8" fill="#1a1033"/>
+  </svg>`;
+}
+
+const TROPHY = `<svg viewBox="0 0 90 90" class="trophy" aria-hidden="true">
+  <path d="M24 14h42v18a21 21 0 0 1-42 0z" fill="#ffcc33" stroke="#1a1033" stroke-width="3.5"/>
+  <path d="M24 20h-10a10 12 0 0 0 12 16M66 20h10a10 12 0 0 1-12 16" fill="none" stroke="#1a1033" stroke-width="3.5"/>
+  <rect x="40" y="52" width="10" height="14" fill="#ffcc33" stroke="#1a1033" stroke-width="3"/>
+  <rect x="28" y="66" width="34" height="11" rx="3" fill="#8b5cf6" stroke="#1a1033" stroke-width="3"/>
+  <path d="M45 22l3 6 6.5.8-4.8 4.4 1.3 6.5L45 36.5l-6 3.2 1.3-6.5-4.8-4.4 6.5-.8z" fill="#fff" stroke="#1a1033" stroke-width="2"/>
+  <path d="M31 19v12" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>`;
+const FLAG = `<svg viewBox="0 0 30 34" class="flag" aria-hidden="true"><rect x="3" y="2" width="3.5" height="30" rx="1.5" fill="#1a1033"/>
+  <path d="M6.5 3h20l-5 6 5 6h-20z" fill="#ff4fa3" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+
+// ------------------------------------------------------------------ state
+let DATA = null, SEL = store.get("forge.sel"), DETAIL = null, CONFIRM = null, BUSY = false;
+const seen = {};            // slug -> versions already shown (so only NEW missions launch a chest)
+const queue = [];           // missions waiting for their chest animation
+let playing = false;
+const last = {};            // element id -> last html, so polling doesn't restart animations
+
+function put(id, html) { if (last[id] !== html) { last[id] = html; $(id).innerHTML = html; } }
+const game = () => DATA?.games.find(g => g.slug === SEL) || DATA?.games[0];
+const isMission = m => m.kind !== "save";
+
+function callsFor(member) {
+  const by = Object.fromEntries((DATA?.mubit.roles || []).map(r => [r.role, r.calls]));
+  return member.roles.reduce((a, r) => a + (by[r] || 0), 0);
+}
+
+function renderStage(g) {
+  const live = g.live;
+  const missions = g.missions.filter(isMission);
+  const active = live ? TEAM.find(t => t.key === live.role) : null;
+  const doing = live ? (active ? active.doing : live.role === "keeper" ? KEEPER : "Getting ready") : "";
+  const team = TEAM.map(t => {
+    const n = callsFor(t);
+    return `<div class="bot ${active && active.key === t.key ? "active" : "idle"}">${botSvg(t)}<i class="spark"></i><i class="spark s2"></i>
+      <span class="name">${esc(t.name)}</span><span class="mb" title="Mubit calls: each one is a lesson this role can learn from">${n ? `${n} lessons` : ""}</span></div>`;
+  }).join("");
+  if (!live) {
+    return `<div class="stage resting"><div class="sun"></div><div class="cloud" style="left:10%"></div><div class="cloud" style="left:55%;animation-delay:-12s"></div>
+      <div class="mission-head"><span class="head">The team is resting</span><span class="chip">${missions.length} missions done</span></div>
+      <div class="bubble">Nobody is building this game right now.<small>Start one with: forge run ${esc(g.slug)} -n 3</small></div>
+      <div class="team">${team}</div></div>`;
+  }
+  return `<div class="stage"><div class="sun"></div><div class="cloud" style="left:10%"></div><div class="cloud" style="left:55%;animation-delay:-12s"></div>
+    <div class="mission-head"><span class="head">Mission ${g.versions.length + 1}</span><span class="chip live"><i class="dot"></i>building now</span></div>
+    <div class="bubble">${active ? `<b>${esc(active.name)}:</b> ` : ""}${esc(doing)}…<small>${esc(live.line || live.name)}</small></div>
+    <div class="team">${team}</div></div>`;
+}
+
+function storyBullets(g) {
+  const out = [];
+  for (const m of g.missions) {
+    if (!isMission(m) || /^Playtest round/.test(m.title)) continue;
+    const t = m.kind === "rollback" ? `Undid a bad change (${m.title.toLowerCase()})` : m.title;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out.slice(-8);
+}
+
+function renderReport(g) {
+  const bullets = storyBullets(g);
+  const fixes = g.missions.reduce((a, m) => a + m.fixes.length, 0) + g.iterations.reduce((a, i) => a + (i.fixes || 0), 0);
+  const score = g.goal.score;
+  const head = !g.missions.length ? "Nothing built yet" : score >= 10 ? "10/10! Your game is ready" : "Your game is ready";
+  return `<div class="report">${TROPHY}
+    <div class="head">${esc(head)}</div>
+    <div class="stats"><span class="chip done">score ${score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
+      <span class="chip">${fixes} fixes</span><span class="chip">${g.versions.length} snapshots</span></div>
+    ${bullets.length ? `<ul>${bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul>` : `<p class="muted">No missions finished yet.</p>`}
+  </div>`;
+}
+
+function renderGoal(g) {
+  const gl = g.goal, target = Math.max(gl.target || 0, gl.rounds, 1);
+  const nodes = [];
+  for (let i = 1; i <= target; i++) {
+    const cls = i <= gl.rounds ? "done" : (g.live && i === gl.rounds + 1 ? "now" : "");
+    if (i > 1) nodes.push(`<span class="seg ${i <= gl.rounds ? "done" : ""}"></span>`);
+    nodes.push(`<span class="node ${cls}">${i}</span>`);
+  }
+  const s = gl.score ?? 0, best = gl.best ?? 0;
+  const segs = Array.from({length: 10}, (_, i) => `<i class="${i < s ? "on" : ""} ${s >= 8 ? "hi" : ""} ${i === Math.round(best) - 1 && best > s ? "best" : ""}"></i>`).join("");
+  return `<div class="card goal"><h3>Goal: a 10/10 game</h3>
+    <div class="meter-label"><span>Critic score</span><span class="big">${gl.score ?? "–"}<span class="small muted">/10</span></span></div>
+    <div class="score" role="img" aria-label="score ${s} out of 10">${segs}</div>
+    <div class="small muted" style="margin-top:4px">${gl.best != null && gl.best > s ? `best so far ${gl.best}` : gl.score == null ? "no score yet" : s >= 10 ? "perfect!" : `${10 - s} to go`}</div>
+    <div class="meter-label"><span>Rounds</span><span class="small">${gl.rounds} of ${target}</span></div>
+    <div class="rounds">${nodes.join("")}${FLAG}</div>
+    <div class="why"><b>How it gets better:</b> build → play it → score it → fix what broke → save a chest. Every step is a Mubit lesson, so the team gets smarter each round.</div>
+  </div>`;
+}
+
+function renderMap(g) {
+  if (!g.missions.length) return `<div class="card map-card"><div class="map-head"><h2>Treasure map</h2></div><div class="empty">No snapshots yet. Each finished mission saves one here.</div></div>`;
+  const slots = g.missions.map(m => `<button class="slot ${m.kind === "save" ? "save" : ""} ${m.current ? "now" : ""} ${DETAIL === m.version ? "sel" : ""}"
+      data-v="${esc(m.version)}" title="${esc(m.version)}: ${esc(m.title)}" aria-label="${esc(m.version)}: ${esc(m.title)}">
+      ${chestSvg(m.kind)}<span class="v">${esc(m.version)}</span><span class="t">${esc(m.title)}</span></button>`).join("");
+  const legend = ["build", "round", "fix", "feature", "rollback", "save"].map(k => `<span><i style="background:${KIND[k].c}"></i>${KIND[k].label}</span>`).join("");
+  return `<div class="card map-card"><div class="map-head"><h2>Treasure map</h2>
+      <div class="actions"><span class="small muted">Tap a chest to see what it added</span><button class="btn small" id="replay">▶ Replay the build</button></div></div>
+    <div class="map">${slots}</div><div class="legend" style="margin-top:8px">${legend}</div></div>`;
+}
+
+function renderMain() {
+  const g = game();
+  if (!g) { put("main", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); return; }
+  const status = g.live ? `<span class="chip live"><i class="dot"></i>live</span>` : g.missions.length ? `<span class="chip done">ready</span>` : "";
+  put("main", `<div class="grid2">
+    <div class="card"><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
+      <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
+      ${renderStage(g)}${g.live ? "" : renderReport(g)}</div>
+    ${renderGoal(g)}</div>${renderMap(g)}`);
+}
+
+function renderPicker() {
+  const html = DATA.games.map(g => `<option value="${esc(g.slug)}" ${g.slug === game()?.slug ? "selected" : ""}>${g.live ? "● " : ""}${esc(g.title)} · ${esc(g.slug.slice(0, 28))}</option>`).join("");
+  put("pick", html);
+}
+
+// ------------------------------------------------------------------ snapshot detail + rollback
+function renderDetail() {
+  const g = game(), m = g?.missions.find(x => x.version === DETAIL);
+  if (!m) { $("scrim").classList.remove("open"); return; }
+  const prev = g.missions[m.n - 2];
+  const next = g.versions.length + 1;
+  const busy = !!g.live;
+  const confirm = CONFIRM ? `<div class="confirm"><p>Go back to ${esc(CONFIRM)}? It is saved as a <u>new</u> version (v${next}). Nothing is lost: v1 to ${esc(g.versions[g.versions.length - 1]?.version)} all stay, so you can come back any time.</p>
+      <div class="actions"><button class="btn red" id="doRollback" ${BUSY ? "disabled" : ""}>${BUSY ? "Going back…" : `Yes, go back to ${esc(CONFIRM)}`}</button><button class="btn ghost" id="noRollback">Cancel</button></div></div>` : "";
+  $("sheet").innerHTML = `<div class="top">${chestSvg(m.kind, {open: true, glow: m.kind !== "save"})}
+      <div><span class="chip">${esc(m.version)} · ${esc(KIND[m.kind]?.label || "Snapshot")}</span><h3 style="margin-top:6px">${esc(m.title)}</h3></div>
+      <button class="x" id="closeSheet" aria-label="Close">✕</button></div>
+    <div class="facts">
+      <div class="fact"><span class="lbl">What happened</span>${esc(m.message.split("\n")[0])}</div>
+      <div class="fact"><span class="lbl">Files changed</span>${m.files ? `${m.files} file${m.files === 1 ? "" : "s"}` : "none (same files as before)"}
+        ${m.file_list.length ? `<details><summary class="small">show files</summary><ul class="files">${m.file_list.map(f => `<li>${esc(f)}</li>`).join("")}${m.files > m.file_list.length ? `<li>…and ${m.files - m.file_list.length} more</li>` : ""}</ul></details>` : ""}</div>
+      ${m.fixes.length ? `<div class="fact"><span class="lbl">Fixes kept (the Checker confirmed them)</span>${m.fixes.map(esc).join("<br>")}</div>` : ""}
+      ${m.score != null ? `<div class="fact"><span class="lbl">Critic score for this version</span>${m.score}/10</div>` : ""}
+      <div class="fact"><span class="lbl">Saved</span>${esc(when(m.date))}</div>
+    </div>
+    <div class="actions">
+      ${prev ? `<button class="btn" data-goto="${esc(prev.version)}" ${busy ? "disabled" : ""}>↩ Go back to ${esc(prev.version)}</button>` : ""}
+      ${!m.current ? `<button class="btn ghost" data-goto="${esc(m.version)}" ${busy ? "disabled" : ""}>Restore ${esc(m.version)}</button>` : ""}
+      ${busy ? `<span class="small muted">Wait for the team to finish this mission first.</span>` : `<span class="small muted">Going back saves a new version. Nothing is lost.</span>`}
+    </div>${confirm}`;
+  $("scrim").classList.add("open");
+}
+
+function openDetail(v) { DETAIL = v; CONFIRM = null; renderDetail(); last.main = null; renderMain(); }
+function closeDetail() { DETAIL = null; CONFIRM = null; $("scrim").classList.remove("open"); last.main = null; renderMain(); }
+
+function note(text) { const n = $("note"); n.textContent = text; n.classList.remove("show"); void n.offsetWidth; n.classList.add("show"); clearTimeout(note.t); note.t = setTimeout(() => n.classList.remove("show"), 4200); }
+
+async function doRollback() {
+  const g = game(); BUSY = true; renderDetail();
+  try {
+    const r = await fetch("/api/rollback", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({slug: g.slug, version: CONFIRM})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    seen[g.slug] = (seen[g.slug] || 0) + 1;  // our own rollback: no chest launch for it
+    note(`Back to ${d.restored}, saved as ${d.as}. Nothing lost.`);
+    BUSY = false; closeDetail(); await refresh();
+  } catch (e) { BUSY = false; CONFIRM = null; renderDetail(); note(`Couldn't go back: ${e.message}`); }
+}
+
+// ------------------------------------------------------------------ chest launch
+function launch(m) {
+  return new Promise(resolve => {
+    const L = $("launch");
+    $("bigChest").innerHTML = chestSvg(m.kind, {inside: true}) + Array.from({length: 8}, (_, i) => {
+      const a = i / 8 * Math.PI * 2; return `<i class="coin" style="--dx:${Math.cos(a) * 140 - 9}px;--dy:${Math.sin(a) * 110 - 60}px"></i>`; }).join("");
+    $("toastWhat").textContent = m.title;
+    $("toastSub").textContent = `${m.version} saved${m.files ? ` · ${m.files} file${m.files === 1 ? "" : "s"} changed` : ""}${m.score != null ? ` · score ${m.score}/10` : ""}`;
+    L.classList.remove("go", "out"); void L.offsetWidth; L.classList.add("open", "go");
+    let done = false;
+    const finish = () => { if (done) return; done = true; L.classList.add("out"); setTimeout(() => { L.classList.remove("open", "go", "out"); resolve(); }, 380); };
+    L.onclick = finish;
+    setTimeout(finish, matchMedia("(prefers-reduced-motion: reduce)").matches ? 2600 : 4400);
+  });
+}
+
+async function play() {
+  if (playing) return; playing = true;
+  while (queue.length) await launch(queue.shift());
+  playing = false;
+}
+
+function noticeNew() {
+  for (const g of DATA.games) {
+    const n = g.versions.length;
+    if (seen[g.slug] == null) { seen[g.slug] = n; continue; }
+    if (n > seen[g.slug] && g.slug === game()?.slug) queue.push(...g.missions.slice(seen[g.slug]).filter(isMission));
+    seen[g.slug] = n;
+  }
+  play();
+}
+
+// ------------------------------------------------------------------ nerd view (the old dashboard)
+const pill = s => `<span class="pill s-${esc(String(s).split(" ")[0])}">${esc(s)}</span>`;
+const nopen = new Set();
+document.addEventListener("toggle", e => { const id = e.target.dataset?.key; if (id) e.target.open ? nopen.add(id) : nopen.delete(id); }, true);
+const det = (key, summary, body) => `<details data-key="${esc(key)}" ${nopen.has(key) ? "open" : ""}><summary>${summary}</summary>${body}</details>`;
 function renderRunning(list) {
   if (!list.length) return `<div class="empty">Nothing running. Start one with forge fix, forge new or the forge MCP tools.</div>`;
-  return list.map(r => `<div class="card">
-    <div class="row"><div class="grow title">${esc(r.name)}</div>${pill(r.status)}</div>
+  return list.map(r => `<div class="card"><div class="row"><div class="grow ttl">${esc(r.name)}</div>${pill(r.status)}</div>
     <div class="muted small">${esc(r.command)} · ${ago(r.updated)}</div>
-    ${det("run:" + r.name, `<span class="small muted">log (${r.tail.length} lines)</span>`, `<pre>${esc(r.tail.join("\n"))}</pre>`)}
-  </div>`).join("");
+    ${det("run:" + r.name, `<span class="small">log (${r.tail.length} lines)</span>`, `<pre>${esc(r.tail.join("\n"))}</pre>`)}</div>`).join("");
 }
-
 function renderMubit(m) {
   if (!m.roles.length) return `<div class="empty">No Mubit calls recorded yet.</div>`;
-  return `<div class="card"><div class="row small muted" style="margin-bottom:6px">${m.total} calls · a task trains at ${m.train_at} kept examples · <a href="${esc(m.console)}" target="_blank" rel="noopener">open the Mubit console</a></div>
+  return `<div class="card"><div class="small muted" style="margin-bottom:6px">${m.total} calls · a task trains at ${m.train_at} kept examples · <a href="${esc(m.console)}" target="_blank" rel="noopener">open the Mubit console</a></div>
   <table><thead><tr><th>role (task)</th><th>calls</th><th>toward training</th><th>latest request</th></tr></thead><tbody>
   ${m.roles.map(r => { const pct = Math.min(100, r.calls / m.train_at * 100);
     return `<tr><td>${esc(r.role)}</td><td>${r.calls}</td><td><div class="bar ${pct >= 100 ? "done" : ""}"><i style="width:${pct}%"></i></div></td><td><code>${esc(r.latest.request_id || "")}</code></td></tr>`; }).join("")}
   </tbody></table></div>`;
 }
-
-function anomaly(a) {
-  return `<div class="item">${pill(a.severity)} <b>${esc(a.title)}</b> <span class="muted small">${esc(a.system)} · ${esc(a.kind)}</span><div class="small">${esc(a.observed)}</div></div>`;
-}
-
+const anomaly = a => `<div class="item">${pill(a.severity)} <b>${esc(a.title)}</b> <span class="muted small">${esc(a.system)} · ${esc(a.kind)}</span><div class="small">${esc(a.observed)}</div></div>`;
 function fixItem(f) {
   const tries = (f.attempts || []).map((t, i) => `<div class="small">try ${i + 1}: ${pill(t.status)} ${esc(t.verdict?.evidence || t.error || "")}</div>`).join("");
   return `<div class="item">${pill(f.status)} <b>${esc(f.anomaly)}</b> <code>${esc(f.path || "")}</code> ${f.version ? `<span class="muted small">→ ${esc(f.version)}</span>` : ""}${tries}${f.patch ? `<div class="small muted">patch: ${esc(f.patch)}</div>` : ""}</div>`;
 }
-
-function renderGame(g) {
-  const scores = g.iterations.map(i => i.score);
-  const last = g.cycles[g.cycles.length - 1];
-  const v = g.versions[g.versions.length - 1];
-  const head = `<div class="row"><div class="grow"><div class="title">${esc(g.title)}</div><div class="muted small">${esc(g.slug)} · ${ago(g.updated)}</div></div>${g.seeded ? '<span class="pill s-idle">seeded</span>' : ""}<span style="color:var(--accent)">${spark(scores)}</span></div>
-    <div class="row small" style="gap:16px;margin-top:6px">
-      <div class="stat"><b>${scores.length ? scores[scores.length - 1] ?? "–" : "–"}</b><span class="muted">last score</span></div>
-      <div class="stat"><b>${g.iterations.length}</b><span class="muted">iterations</span></div>
-      <div class="stat"><b>${esc(v?.version || "–")}</b><span class="muted">version</span></div>
-      <div class="stat"><b>${last ? last.open ?? "–" : "–"}</b><span class="muted">open anomalies</span></div>
-      <div class="stat"><b>${last ? `${last.code_kept ?? 0}/${last.code_tried ?? 0}` : "–"}</b><span class="muted">fixes kept</span></div>
-    </div>`;
+function renderNerdGame(g) {
   const iters = g.iterations.length ? `<div class="sec"><h3>Iterations</h3><table><thead><tr><th>#</th><th>score</th><th>version</th><th>summary</th></tr></thead><tbody>${
-    g.iterations.map(i => `<tr${i.rolled_back_to ? ' class="rollback"' : ""}><td>${i.n}</td><td>${i.score ?? "–"}</td><td>${esc(i.version || "")}${i.rolled_back_to ? ` ↩ ${esc(i.rolled_back_to)}` : ""}</td><td class="small">${esc((i.summary || "").slice(0, 220))}</td></tr>`).join("")}</tbody></table></div>` : "";
+    g.iterations.map(i => `<tr><td>${i.n}</td><td>${i.score ?? "–"}</td><td>${esc(i.version || "")}${i.rolled_back_to ? ` ↩ ${esc(i.rolled_back_to)}` : ""}</td><td class="small">${esc((i.summary || "").slice(0, 220))}</td></tr>`).join("")}</tbody></table></div>` : "";
   const cycles = g.cycles.slice().reverse().map(c => `<div class="sec"><h3>Cycle ${c.cycle} · ${esc((c.ts || "").slice(0, 19))} · open ${c.open ?? "–"} · planted ${c.planted}, detected ${c.detected}</h3>
-    ${(c.anomalies || []).map(anomaly).join("") || '<div class="small muted">no anomalies</div>'}
-    ${(c.code_fixes || []).length ? `<div style="margin-top:6px">${c.code_fixes.map(fixItem).join("")}</div>` : ""}
+    ${(c.anomalies || []).map(anomaly).join("") || '<div class="small muted">no anomalies</div>'}${(c.code_fixes || []).map(fixItem).join("")}
     ${(c.verdicts || []).map(vd => `<div class="item small">fault ${esc(vd.fault)}: ${pill(vd.verdict)} ${esc(vd.evidence)}</div>`).join("")}</div>`).join("");
   const versions = g.versions.length ? `<div class="sec"><h3>Versions</h3><table><tbody>${g.versions.slice().reverse().map(x =>
-    `<tr${x.message.startsWith("rollback") ? ' class="rollback"' : ""}><td><code>${esc(x.version)}</code></td><td class="small muted">${esc(x.date.slice(0, 19))}</td><td class="small">${esc(x.message.split("\n")[0])}</td></tr>`).join("")}</tbody></table></div>` : "";
+    `<tr><td><code>${esc(x.version)}</code></td><td class="small muted">${esc(x.date.slice(0, 19))}</td><td class="small">${esc(x.message.split("\n")[0])}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const feats = g.features.length ? `<div class="sec"><h3>Features</h3>${g.features.map(f => `<div class="item small">${esc(f.request)} → ${esc(f.version || "")} ${f.verified == null ? "" : pill(f.verified ? "fixed" : "not_fixed")}</div>`).join("")}</div>` : "";
   const reports = g.reports.length ? `<div class="sec"><h3>Tester reports</h3>${g.reports.slice().reverse().map(r =>
     `<div class="item"><div class="small muted">${esc(r.ts)} ${esc(r.reporter || "")}</div><div>“${esc(r.text)}”</div>${r.anomalies.map(anomaly).join("")}</div>`).join("")}</div>` : "";
   const calls = Object.keys(g.calls).length ? `<div class="sec"><h3>Mubit calls</h3><div class="small">${Object.entries(g.calls).map(([k, n]) => `${esc(k)} ${n}`).join(" · ")}</div></div>` : "";
-  return `<div class="card">${head}${det("game:" + g.slug, `<div class="small" style="margin-top:8px;color:var(--accent)">details</div>`, iters + cycles + versions + reports + calls)}</div>`;
+  return `<div class="card"><div class="row"><div class="grow"><div class="ttl">${esc(g.title)}</div><div class="muted small">${esc(g.slug)} · ${ago(g.updated)}</div></div>${g.live ? pill("running") : ""}</div>
+    ${det("game:" + g.slug, `<span class="small">details</span>`, iters + cycles + versions + feats + reports + calls)}</div>`;
 }
+function renderNerd() {
+  if (!document.body.classList.contains("nerdy")) return;
+  put("running", renderRunning(DATA.running));
+  put("mubit", renderMubit(DATA.mubit));
+  put("games", DATA.games.length ? DATA.games.map(renderNerdGame).join("") : '<div class="empty">No games yet.</div>');
+}
+
+// ------------------------------------------------------------------ wiring
+$("pick").addEventListener("change", e => { if (!e.target.value) return; SEL = e.target.value; store.set("forge.sel", SEL); queue.length = 0; renderMain(); });
+$("nerdBtn").addEventListener("click", e => { const on = document.body.classList.toggle("nerdy"); e.target.setAttribute("aria-pressed", on); e.target.textContent = on ? "Simple view" : "Nerd view"; store.set("forge.nerd", on ? "1" : ""); if (DATA) renderNerd(); });
+if (store.get("forge.nerd")) $("nerdBtn").click();
+$("main").addEventListener("click", e => {
+  const slot = e.target.closest(".slot"); if (slot) return openDetail(slot.dataset.v);
+  if (e.target.closest("#replay")) { queue.length = 0; queue.push(...game().missions.filter(m => isMission(m) && !/^Playtest round/.test(m.title))); play(); }
+});
+$("scrim").addEventListener("click", e => {
+  if (e.target === $("scrim") || e.target.closest("#closeSheet")) return closeDetail();
+  const go = e.target.closest("[data-goto]"); if (go) { CONFIRM = go.dataset.goto; return renderDetail(); }
+  if (e.target.closest("#noRollback")) { CONFIRM = null; return renderDetail(); }
+  if (e.target.closest("#doRollback")) return doRollback();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && DETAIL) closeDetail(); });
 
 async function refresh() {
   try {
     const r = await fetch("/api/state", {cache: "no-store"});
-    const d = await r.json();
-    document.getElementById("running").innerHTML = renderRunning(d.running);
-    document.getElementById("mubit").innerHTML = renderMubit(d.mubit);
-    document.getElementById("games").innerHTML = d.games.length ? d.games.map(renderGame).join("") : '<div class="empty">No games yet.</div>';
-    document.getElementById("updated").textContent = `updated ${new Date().toLocaleTimeString()} · refreshes every 3s`;
+    DATA = await r.json();
+    if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
+    renderPicker(); renderMain(); renderNerd(); noticeNew();
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
   } catch (e) {
-    document.getElementById("updated").textContent = "can't reach forge dashboard: is it still running?";
+    $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
 refresh();
