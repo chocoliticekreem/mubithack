@@ -7,22 +7,19 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Recursive:slnt,wght,CASL,MONO@-15..0,400..900,0..1,0..1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* Two-ink risograph: black + one blue on newsprint. Green and red only ever mean ✓ and ✗; yellow only
-       means "working now". A print look has no dark version: the page stays on paper in dark mode too. */
+    /* Cozy village: warm cream, leaf, sky, peach, butter, rose; soft brown ink. Green and red mean ✓ and ✗. */
     color-scheme: light;
-    --paper: #ece6d6; --paper2: #e3dbc6; --sky: var(--paper); --sky2: var(--paper2);
-    --panel: #f7f3e8; --panel2: #ebe4d2; --ink: #1d1a16; --muted: #6b6354; --line: #d3c9b2; --code: #ebe4d2;
-    --blue: #2a4f9e; --yellow: #ffd23a; --green: #138a4b; --red: #d43a2f;
-    --teal: var(--blue); --cyan: var(--blue); --pink: var(--blue); --purple: var(--blue); --orange: var(--ink);
-    --gold: var(--yellow); --grey: #a99f8b;
-    --sticker: #fffdf7; --sticker-edge: #cfc5ae;
-    --shadow: 0 0 0 5px var(--sticker), 0 0 0 6.5px var(--sticker-edge), 3px 6px 0 6px #1d1a161f;
-    --head: "Bagel Fat One", "Arial Rounded MT Bold", sans-serif;
-    --body: "Recursive", ui-rounded, "Trebuchet MS", sans-serif;
-    --mono: "Recursive", ui-monospace, Menlo, monospace;
+    --paper: #fbf4e4; --sky: var(--paper); --sky2: var(--paper);
+    --panel: #fffdf8; --panel2: #f7efdd; --ink: #4b3b2f; --muted: #8a7766; --line: #ecdfc6; --code: #f7efdd;
+    --leaf: #7fb069; --skyc: #84c5e3; --peach: #f4a685; --butter: #f9d56e; --rose: #e87d8a;
+    --green: #5f9e4a; --red: #d9534f; --yellow: var(--butter); --blue: #4f9cc2; --orange: var(--peach);
+    --teal: var(--blue); --cyan: var(--skyc); --pink: var(--rose); --purple: #a58bc9; --gold: var(--butter); --grey: #c9bba3;
+    --shadow: 0 2px 0 #eadcc0, 0 14px 30px -18px #4b3b2f55;
+    --head: "Fredoka", "Nunito", sans-serif; --body: "Nunito", "Trebuchet MS", sans-serif;
+    --mono: ui-monospace, Menlo, monospace;
   }
   }
   :root[data-theme="dark"] { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
@@ -421,67 +418,69 @@
     .launch.go .big .lid { transform: translate(0, -13px) rotate(-10deg); }
   }
 
-  /* ================================================================ riso sticker book
-     Everything above keeps its layout; this layer gives it the look: newsprint with grain, cards as
-     die-cut stickers, two-ink misregistered headings, halftone fills and rubber stamps. */
-  body { font-variation-settings: "CASL" 1; font-weight: 600; background: var(--paper); }
-  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60; opacity: .5; mix-blend-mode: multiply;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .15 0 0 0 0 .13 0 0 0 0 .1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+
+  /* ================================================================ cozy village
+     Soft cards on cream, no hard outlines; the agents are Bottts robots (Pablo Stanley, free for commercial
+     use) tinted with the palette. */
+  body { background: var(--paper); font-weight: 700; }
   header { color: var(--ink); }
-  .logo { color: var(--ink); -webkit-text-stroke: 0; text-shadow: 3px 2px 0 color-mix(in srgb, var(--blue) 80%, transparent); letter-spacing: .02em; font-size: 44px; }
+  h1, h2, h3, .head { font-weight: 700; color: var(--ink); }
+  .logo { font: 700 38px/1 var(--head); color: var(--ink); -webkit-text-stroke: 0; text-shadow: none; letter-spacing: -.01em; }
+  .logo::first-letter { color: var(--peach); }
   .tag { color: var(--muted); font-weight: 700; }
-  h1, h2, h3, .head { color: var(--text, var(--ink)); }
-  .sec-head h2, .map-head h2, .goal h3, .game-title { text-shadow: 2px 1.5px 0 color-mix(in srgb, var(--blue) 45%, transparent); }
-  .card { border: 0; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
-  .card:nth-of-type(odd) { transform: rotate(-.35deg); } .card:nth-of-type(even) { transform: rotate(.3deg); }
-  .btn, select.pick { border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--teal); background: var(--yellow); }
-  .btn.ghost, select.pick { background-color: var(--panel); }
-  .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--teal); }
-  .chip { border-width: 2px; border-radius: 6px; background: var(--panel2); letter-spacing: .08em; }
-  .chip.live { background: var(--green); color: #fff; border-color: var(--green); } .chip.done { background: var(--yellow); }
-  .tile { border: 2px dashed var(--line); box-shadow: none; background: var(--panel2); border-radius: 12px; }
-  .tile .v { font-family: var(--head); color: var(--blue); }
-  .tile.hot, .report, .moment { background: var(--yellow) radial-gradient(#1d1a1624 22%, transparent 24%) 0 0 / 7px 7px; }
-  .tile.hot .k { color: var(--ink); }
-  /* workshop stage: flat two-ink sky and a halftone sun */
-  .stage { border: 0; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--ink);
-    background: linear-gradient(color-mix(in srgb, var(--blue) 22%, var(--paper)) 0 62%, color-mix(in srgb, var(--blue) 45%, var(--paper)) 62%); }
-  .stage .sun { border: 0; box-shadow: none; background: radial-gradient(#1d1a1630 34%, transparent 36%) 0 0 / 7px 7px, var(--yellow); }
-  .stage .cloud, .stage .cloud::after { background: var(--panel); }
-  .bubble, .bot .name, .slot .v { border-width: 2px; border-radius: 6px; }
-  .bot.active .name { background: var(--yellow); }
-  .map { background: var(--panel2); border: 2px dashed var(--line); }
-  /* mission control lanes: halftone bars, red cross-hatch for failed calls */
-  .lane { background: transparent; border: 0; border-bottom: 1.5px dashed var(--line); border-radius: 0; }
-  .lane.running { background: color-mix(in srgb, var(--yellow) 28%, transparent); border-radius: 8px; }
+  .card { border: 0; border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); }
+  .btn, select.pick { border: 0; border-radius: 999px; box-shadow: 0 2px 0 #e4d4b4; background: var(--butter); color: var(--ink); font-weight: 800; }
+  select.pick { background-color: var(--panel); border-radius: 14px; }
+  .btn.ghost { background: var(--panel); }
+  .btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #e4d4b4; }
+  .chip { border: 0; border-radius: 999px; background: var(--panel2); color: var(--ink); letter-spacing: .04em; padding: 3px 10px; }
+  .chip.live { background: var(--leaf); color: #fff; } .chip.done { background: var(--butter); }
+  .tile { border: 0; box-shadow: none; background: var(--panel2); border-radius: 16px; }
+  .tile .v { color: var(--ink); }
+  .tile.hot, .report, .moment { background: #fdf0c4; }
+  .empty { border-color: var(--line) !important; color: var(--muted); }
+  .nowrow, .agent { border: 0; border-radius: 18px; background: var(--panel2); box-shadow: none; }
+  .agent { grid-template-columns: 48px minmax(0, 1fr); align-items: center; transition: transform .12s, background .12s; }
+  .agent:hover, .agent:focus-visible { transform: translateY(-2px); background: #f2e6cc; box-shadow: none; outline: none; }
+  .agent.sel { background: #f2e6cc; box-shadow: inset 0 0 0 2px var(--peach); }
+  .agent.running { background: #fdf0c4; color: var(--ink); }
+  .agent .st { color: var(--muted); }
+  .agent svg { width: 48px; height: 48px; margin: 0; }
+  .crew image { image-rendering: auto; }
+  .agent.running svg, .lane.running .who svg { animation: bob 1.4s ease-in-out infinite; transform-origin: 50% 100%; }
+  .result .pic, .lb .pic { border: 0; border-radius: 16px; background: #3a2f27; color: #f7efdd; }
+  .shot { border: 0; border-radius: 12px; background: #3a2f27; } .shot .badge { border: 0; }
+  .drawer { border-left: 0; box-shadow: -10px 0 40px -10px #4b3b2f55; }
+  .lane { background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .lane.running { background: #fdf0c4; border-radius: 12px; }
   .lane.running .st { color: var(--green); } .lane.failed .st { color: var(--red); }
-  .track { background: var(--panel2); border: 1.5px solid var(--ink); border-radius: 4px; overflow: visible; }
-  .track i { border: 0; border-radius: 2px; top: 2px; bottom: 2px; cursor: help;
-    background: radial-gradient(#0000003d 30%, transparent 33%) 0 0 / 4px 4px, var(--blue); }
-  .track i.seg-bad { z-index: 1; background: repeating-linear-gradient(-45deg, var(--red) 0 3px, transparent 3px 6px), var(--panel); box-shadow: inset 0 0 0 1.5px var(--red); }
-  .track i.seg-bad::after { content: "✗"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font: 900 12px/1 var(--body); color: var(--red); }
-  .track i.seg-pend { opacity: .55; }
+  .track { background: var(--panel2); border: 0; border-radius: 999px; overflow: visible; }
+  .track i { border: 0; border-radius: 999px; top: 4px; bottom: 4px; background: var(--skyc); cursor: help; }
+  .track i.seg-bad { z-index: 1; background: var(--red); }
+  .track i.seg-bad::after { content: "✗"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font: 900 11px/1 var(--body); color: var(--red); }
+  .track i.seg-pend { background: var(--grey); }
+  .track i.open { background: var(--butter); }
   .track i:hover { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
-  .track i.open { background-color: var(--yellow); }
-  .lane .lat { border-width: 1.5px; border-radius: 4px; font-family: var(--mono); font-variation-settings: "MONO" 1; }
-  .ok, .up, .brow .bl .xf { color: var(--green); } .bad, .down { color: var(--red); }
-  .badge.pass, .asserts .badge.pass { background: var(--green); color: #fff; } .badge.fail { background: var(--red); }
-  .meter { border-width: 1.5px; border-radius: 3px; }
-  .meter i { background: radial-gradient(#0000002e 30%, transparent 33%) 0 0 / 4px 4px, var(--yellow); }
-  .meter i.full { background: radial-gradient(#0000002e 30%, transparent 33%) 0 0 / 4px 4px, var(--green); }
-  .shot, .lb .pic { border-width: 2px; border-radius: 6px; box-shadow: 0 0 0 4px var(--sticker); }
-  .shot:nth-child(odd) { transform: rotate(-.8deg); } .shot:nth-child(even) { transform: rotate(.7deg); }
-  .fact code, .nerd code, .nerd pre, .moment code, .vrow .diff { font-family: var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; }
+  .ok, .up { color: var(--green); } .bad, .down { color: var(--red); }
+  .meter { border: 0; border-radius: 999px; background: var(--panel2); }
+  .meter i { background: var(--butter); } .meter i.full { background: var(--leaf); }
+  .stage { border: 0; border-radius: 18px; background: linear-gradient(#cfe8f3 0 62%, #b7d99c 62%); }
+  .stage .sun { border: 0; box-shadow: 0 0 0 8px #f9d56e55; }
+  .bubble, .bot .name, .slot .v { border: 0; border-radius: 10px; }
+  .map { background: var(--panel2); border: 0; }
+  .credits { color: var(--muted); }
+  .scrim, .lightbox { background: #4b3b2fb3; }
   /* hover card: a printed ticket with a rubber stamp */
   .tip { background: var(--panel); color: var(--text, var(--ink)); border-radius: 4px; padding: 10px 12px 9px; max-width: 320px;
-    font: 600 12px/1.4 var(--body); font-variation-settings: "CASL" 1;
+    font: 600 12px/1.4 var(--body); 
     box-shadow: 0 0 0 4px var(--sticker), 0 0 0 5.5px var(--sticker-edge), 4px 7px 0 4px #26221d33; }
   .tip.call { min-width: 220px; }
   .tip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
   .tip-who { font: 15px/1 var(--head); text-transform: capitalize; }
   .tip-title { font-weight: 800; margin-bottom: 4px; }
   .tip-line { color: var(--muted); overflow-wrap: anywhere; }
-  .tip-line.rid { font: 10.5px/1.4 var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; opacity: .8; }
+  .tip-line.rid { font: 10.5px/1.4 var(--mono);  opacity: .8; }
   .tip-line.err { color: var(--red); font-weight: 700; }
   .stamp { flex: none; font: 900 11px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; padding: 4px 6px 3px;
     border: 2.5px solid currentColor; border-radius: 4px; transform: rotate(-6deg);
@@ -493,19 +492,10 @@
   .tip-checks li b { font-weight: 900; } .tip-checks li.ok b { color: var(--green); } .tip-checks li.bad b { color: var(--red); } .tip-checks li.pend b { color: var(--muted); }
   @media (prefers-reduced-motion: reduce) { .card, .shot { transform: none !important; } }
 
-  /* riso: the condensed view (running now, result, agent stickers, drawer) */
-  .nowrow, .agent { border: 2px solid var(--ink); border-radius: 8px; background: var(--panel); box-shadow: 3px 3px 0 var(--teal); }
-  .agent:nth-child(3n+1) { transform: rotate(-.5deg); } .agent:nth-child(3n+2) { transform: rotate(.4deg); }
-  .agent:hover, .agent:focus-visible { transform: translate(-1px, -2px) rotate(0); box-shadow: 4px 5px 0 var(--ink); }
-  .agent.sel { box-shadow: 3px 3px 0 var(--ink), 0 0 0 2px var(--ink); }
-  .agent.running { background: var(--yellow) radial-gradient(#1d1a1624 22%, transparent 24%) 0 0 / 7px 7px; color: #26221d; }
-  .agent.running .st, .agent.running .thought { color: #4a4235; }
-  .result .pic, .lb .pic { background: var(--ink); color: var(--paper); border-width: 2px; border-radius: 6px; }
-  .shot { background: #26221d; } .shot .n { background: #26221dcc; } .shot .cap { background: linear-gradient(transparent, #26221dee); }
-  .drawer { border-left: 2px solid var(--ink); box-shadow: -6px 0 0 var(--teal); }
-  .crow code, .orow code { font-family: var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; }
-  .scrim, .lightbox { background: #26221dcc; }
-  .tip-calls li span small { display: block; color: var(--muted); font-weight: 600; font-size: 11px; }
+  .tip { border-radius: 16px; box-shadow: 0 16px 40px -14px #4b3b2f88, 0 0 0 1px var(--line); }
+  .stamp { -webkit-mask: none; mask: none; border: 0; border-radius: 999px; transform: none; color: #fff; padding: 4px 9px; letter-spacing: .04em; }
+  .stamp.ok { background: var(--green); color: #fff; } .stamp.bad { background: var(--red); color: #fff; transform: none; } .stamp.pend { background: var(--blue); color: #fff; }
+  .tip-calls li span small { display: block; color: var(--muted); font-weight: 700; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -531,7 +521,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Bagel Fat One and Recursive (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -581,33 +571,17 @@ const TOOLS = {
   book: `<path d="M40 18h10l1 2 1-2h10v20H52l-1 2-1-2H40z" fill="#fff" stroke="#1a1033" stroke-width="2.5" stroke-linejoin="round"/><path d="M51 20v18" stroke="#1a1033" stroke-width="2"/>`,
 };
 
-// Each worker is a rubber crew stamp: a two-letter code in a double ring, inked black or blue, pressed at
-// a slight angle. Code, ink and angle come from the name, so a role always gets the same stamp.
-const STAMP_CODE = {fixer: "FX", "bug fixer": "FX", auditor: "AU", inspector: "AU", investigator: "IV", verifier: "VF",
-  checker: "VF", reflector: "RF", coach: "RF", planner: "PL", designer: "DE", coder: "CO", tester: "QA", player: "QA",
-  critic: "CR", patcher: "PA", reproducer: "RP", triage: "TR", director: "DR", architect: "AR", judge: "JU"};
-function stampCode(name) {
-  const key = String(name).replace(/[_-]+/g, " ").trim().toLowerCase();
-  if (STAMP_CODE[key]) return STAMP_CODE[key];
-  const w = key.split(/\s+/);
-  return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase();
-}
+// Each agent is a Bottts robot (Pablo Stanley, bottts.com, free for personal and commercial use) served by
+// DiceBear. The role picks the robot and its palette colour, so a role always looks the same.
+const ROBOT_TINT = ["7fb069", "84c5e3", "f4a685", "f9d56e", "e87d8a", "a58bc9"];
+const ROBOT_ALIAS = {"bug fixer": "fixer", inspector: "auditor", checker: "verifier", coach: "reflector", player: "tester", playtester: "tester"};
 function hashOf(t) { let h = 7; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
 function botSvg(m, role) {
-  const name = role || m.name || "", h = hashOf(stampCode(name)), code = stampCode(name);
-  const ink = h % 3 === 0 ? "var(--ink)" : "var(--blue)", tilt = (h % 15) - 7;
-  return `<svg class="crew" viewBox="0 0 70 84" aria-hidden="true"><g transform="rotate(${tilt} 35 44)" filter="url(#inked)">
-    <circle cx="35" cy="44" r="29" fill="none" stroke="${ink}" stroke-width="4.5"/>
-    <circle cx="35" cy="44" r="22.5" fill="none" stroke="${ink}" stroke-width="1.6" stroke-dasharray="3 2.4"/>
-    <text x="35" y="52.5" text-anchor="middle" font-family="Bagel Fat One, sans-serif" font-size="22" fill="${ink}">${esc(code)}</text>
-  </g></svg>`;
+  let key = String(role || m.name || "agent").replace(/[_-]+/g, " ").trim().toLowerCase();
+  key = ROBOT_ALIAS[key] || key;
+  const url = `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(key)}&baseColor=${ROBOT_TINT[hashOf(key) % ROBOT_TINT.length]}`;
+  return `<svg class="crew" viewBox="0 0 70 70" aria-hidden="true"><image href="${url}" x="0" y="0" width="70" height="70"/></svg>`;
 }
-document.body.insertAdjacentHTML("beforeend", `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="inked">
-  <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4" result="n"/>
-  <feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" result="d"/>
-  <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="1" seed="9" result="g"/>
-  <feColorMatrix in="g" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.3 1.75" result="mask"/>
-  <feComposite in="d" in2="mask" operator="in"/></filter></svg>`);
 
 const KIND = {
   build: {c: "#ff8a1f", t: "#ffd23f", label: "Build"},
@@ -912,7 +886,7 @@ function shotTile(t, s) {
 function renderFeed(g) {
   const T = g.team.testers, crit = g.team.critic_shots;
   if (!T.length && !crit.length) return `<div class="empty">No tester screenshots yet. Testers save one per step to runs/${esc(g.slug)}/tests/&lt;run&gt;/step-NN.png.</div>`;
-  const rows = T.slice().reverse().map(t => `<div class="tester"><div class="row">${botSvg(member("tester")).replace("<svg", '<svg style="width:26px;height:30px"')}
+  const rows = T.slice().reverse().map(t => `<div class="tester"><div class="row">${botSvg(member("tester"), "tester").replace("<svg", '<svg style="width:28px;height:28px"')}
       <span class="nm">${esc(t.label)}</span>${pill(t.status === "done" ? "finished" : t.status)}
       <span class="small muted">${t.n_steps} steps · <span class="ok">✓ ${t.passed}</span> · <span class="bad">✗ ${t.failed}</span>${t.goal ? ` · goal: ${esc(t.goal)}` : ""}</span></div>
     <div class="strip">${t.steps.slice().reverse().map(s => shotTile(t, s)).join("")}</div></div>`).join("");
@@ -1301,7 +1275,7 @@ async function refresh() {
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Bagel Fat One and Recursive (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
