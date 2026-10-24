@@ -17,8 +17,19 @@ and run AI playtesters whose LLM calls go through Mubit. Tools are `mcp__plugin_
 - Use a **local** place. A Studio name containing `placeId` is a shared Team Create place, which
   you only read or playtest. Never sync a branch into a shared place.
 
-## Test a change (the loop)
-1. `sync`, so your files are in Studio.
+## Workflow skills
+- **testing-roblox-features**: prove a change works (`test_feature`, verdict first).
+- **triaging-tester-reports**: a loose bug report becomes reproduced, verified fixes.
+- **training-mubit-from-corrections**: a wrong AI call becomes a Mubit training example.
+- **swarm-testing**: many testers at once.
+
+## One call: `test_feature(description, game?)`
+It syncs, plays, plans (smoke + matching scenarios + the game's checks + an AI playtest), runs,
+reads errors, screenshots and stops. The verdict comes first. Then `diff_since_last_run` after a
+fix, and `bisect_versions(game, check)` to find the version that broke something.
+
+## Test a change by hand (the loop)
+1. `sync`, so your files are in Studio (`sync(game=<slug>)` for a Forge game).
 2. `scenario_run smoke`. Every player spawns and moves, with no errors.
 3. Write or run a focused scenario: `act` a player, then `wait_until` or `assert` on `observe`,
    `query`, `counters` or `events`.
@@ -91,4 +102,5 @@ in the making. Every report lists its Mubit request ids.
 | Start a fire | `ignite near="1"` (or `near=[x,y,z]`) |
 | Tune live | `config module="FireConfig" key="SpreadHeatPerSecond" value=25` |
 | What happened? | `events since=<t>`, `counters`, `errors` |
-| Picture | `screenshot camera=[...] look_at=[...]` |
+| Picture | `screenshot focus="2"` (a player or instance path), or `camera=[...] look_at=[...]` |
+| New errors while poking | `watch_errors seconds=60` |

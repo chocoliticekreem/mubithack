@@ -119,8 +119,10 @@ def plan(description: str, scenarios: list[dict], checks: list[Any], *, playtest
             why["smoke"] = "always: every player spawns and moves, no errors"
         scored = sorted(((relevance(description, s["name"].replace("_", " "), s.get("description", "")), s["name"])
                          for s in scenarios if s["name"] in names and s["name"] != "smoke"), reverse=True)
+        # one shared word ("hose") is noise for a long description; ask for two then
+        need = 2 if len(_words(description)) >= 4 else 1
         for score, name in scored[:max_scenarios]:
-            if score > 0:
+            if score >= need:
                 chosen.append(name)
                 why[name] = f"matches {score} word(s) of the description"
     return {"scenarios": chosen,
@@ -269,7 +271,7 @@ def previous_record(records: list[dict], rec: dict) -> dict | None:
 
 def diff(old: dict, new: dict) -> dict:
     a, b = _status_map(old), _status_map(new)
-    flips = [(k, a.get(k, "-"), b.get(k, "-")) for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)]
+    flips = [(k, a.get(k, "not run"), b.get(k, "not run")) for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)]
     ea, eb = _err_set(old), _err_set(new)
     ba, bb = _bug_set(old), _bug_set(new)
     ma, mb = old.get("manifest") or {}, new.get("manifest") or {}
@@ -382,6 +384,11 @@ async def run_feature_test(*, settings: Any, description: str, studio: Any, harn
                                          "steps": [{"n": 0, "ok": False, "detail": f"{type(e).__name__}: {e}"}]})
         if checks:
             rec["checks"] = await _stage(rec, "checks", progress, fchecks.run_checks, studio, checks)
+            # every saved check ran: this is the game's latest check run (forge done reads it)
+            res_path = fchecks.checks_dir(Path(settings.runs_dir) / game) / "results.json"
+            with contextlib.suppress(OSError):
+                res_path.write_text(json.dumps({"results": rec["checks"], "at": rec["started"],
+                                                "by": f"test_feature {rec['id']}"}, indent=1), encoding="utf-8")
 
         if p.get("playtest"):
             try:

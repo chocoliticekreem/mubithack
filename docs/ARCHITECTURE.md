@@ -504,14 +504,19 @@ def complete_json_images(llm, role, user, images, *, session_id, required, max_t
 # forge/mcp_server.py  (MCPServer "forge", stdio, `forge server`; shipped as the forge plugin: forge-plugin/)
 setup(mubit_api_key=None, install_luau=False, open_place=False) -> str   # guided first run
 doctor() -> str
-new_game(idea, iterations=3, use_studio=True, studio=None) -> str       # starts job "new-..."
+async build_game(idea, iterations=2, use_studio=True, studio=None, wait_seconds=240) -> str
+    # starts job "new-..." and follows it for wait_seconds, streaming progress; summary first
 iterate(slug, iterations=1, use_studio=True, studio=None) -> str        # forge run
 correct(slug, path, note, use_studio=True, studio=None) -> str          # forge correct
-improve(slug, cycles=1, rounds=3, steps=15, only=None, studio=None) -> str
+fault_drill(slug, cycles=1, rounds=3, steps=15, only=None, studio=None) -> str   # forge improve (was improve)
 tester_report(slug, text, run_ids=None, reporter=None) -> str           # forge report (job)
 tester_reports(slug) -> str
-fix(slug, cycles=3, rounds=2, steps=15, max_fixes=3, reports=True, studio=None) -> str   # forge fix (job)
-job(job_id, tail=60) / jobs() / cancel_job(job_id)                      # runs/jobs/<id>.{json,log}
+async improve_game(slug, cycles=3, rounds=2, steps=15, max_fixes=3, reports=True, studio=None,
+                   edit_human_files=False, start_round=False, wait_seconds=240) -> str
+    # forge fix (was fix); followed like build_game, ends with the done(slug) readiness bar
+done(slug) -> str                                                       # forge.done readiness
+async job(job_id, wait_seconds=0, tail=25) / jobs() / cancel_job(job_id)   # runs/jobs/<id>.{json,log}
+summarize_log(lines) -> {phase, ok, failed, score, fails}               # from forge's UI log lines
 games() / game(slug) / read_file(slug, path) / scores(slug) / playbook(slug) / lessons() / calls(slug)
 seed(slug) / promote(slug, path) / sync(slug=None, studio=None)
 # The playtester tools (playtest, playtest_correct, ...) are the mubit-tester server's now.

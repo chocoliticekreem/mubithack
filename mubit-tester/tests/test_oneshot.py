@@ -162,6 +162,9 @@ async def test_test_feature_end_to_end(env, monkeypatch):
     assert rec["verdict"][0] == "PASS" and rec["manifest"] == {"Shop.server.luau": rec["manifest"]["Shop.server.luau"]}
     assert Path(rec["dir"], "report.md").exists() and Path(rec["screenshot"]).exists()
     assert [s["stage"] for s in rec["stages"]][:2] == ["sync", "play"]
+    # the check run is the game's latest one: forge done's checks part reads it
+    from forge.done import _checks
+    assert _checks(env.runs_dir / "tycoon") == {"part": "checks", "ok": True, "detail": "1/1 pass"}
 
 
 async def test_test_feature_fail_has_next_step_and_no_llm_when_asked(env, monkeypatch):

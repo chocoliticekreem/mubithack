@@ -146,13 +146,41 @@ step_judge,visual_judge}.md` (fixed; everything per call is in the user message)
 
 ## MCP tools (`mubit-tester`)
 
-Session: `status`, `studios`, `play_start`, `play_stop`, `multiplayer_start(players)` (best effort
-via StudioTestService, otherwise instructions), `sync`, `preview`.
-World: `players`, `observe(player)`, `query`, `inspect`, `counters`, `events(since)`, `errors`
-(ForgeProbe), `console`, `screenshot(camera?, look_at?)`.
+One shot (`mubit_tester/testrun.py`, `mubit_tester/bisect.py`):
+- `test_feature(description, game?, scenarios?, checks=True, playtest=True, players?, steps=12,
+  sync=True, screenshot=True)`: sync -> play -> plan (smoke + scenarios matching the description +
+  the game's executable checks + an AI playtest) -> run -> ForgeProbe errors -> screenshot -> stop.
+  Verdict first (`PASS` / `FAIL` / `ERRORS` / `INCONCLUSIVE`, why, next step), then a table. Saved as
+  `runs/tests/<id>/{record.json, report.md, shot.png}`; the record holds a sha1 manifest of the game.
+  With `game=<slug>` every saved check runs and the results go to `runs/<slug>/checks/results.json`
+  (the checks part of `forge done`).
+- `test_runs(limit)`, `diff_since_last_run(test_id?, against?)`: verdict trend, flipped results,
+  new/vanished errors and bugs, files changed between the two runs.
+- `watch_errors(seconds, poll)`: new ForgeProbe errors while you poke the game (streams progress).
+- `bisect_versions(game, check, good?, bad?)`: binary search over a Forge game's `GameVersions`
+  tags; each version is exported to a scratch folder, synced (prune), played and `check` run
+  (saved check id, scenario name or inline Luau); the current version is re-synced afterwards.
+- `swarm(goal, testers=10, minutes=5)`: thin wrapper over `mubit_tester.swarm.run_swarm(settings,
+  goal, testers, minutes, progress, ...)` (only the keyword args its signature takes are passed;
+  `format_swarm(result)` formats it when present).
+
+Session: `status` (verdict + next step first), `studios` (`*` = window in use), `play_start(timeout)`,
+`play_stop`, `multiplayer_start(players)` (best effort via StudioTestService, otherwise
+instructions), `sync(game?, prune)` (refuses shared places; moves to a free port when another sync
+server holds the default), `preview`.
+World: `players`, `observe(player)`, `query` (table), `inspect`, `counters`, `events(since)`,
+`errors` (ForgeProbe), `console`, `screenshot(focus?, camera?, look_at?)` (image + saved path).
 Control: `act(player, action, args)`, `act_all(action, args)`, `teleport`, `ignite`, `extinguish`,
 `set_attr`, `config`, `reset`, `round`.
 Testing: `scenario_run(json | name)`, `scenario_list`.
 AI (Mubit): `playtest(goal, players?, steps?, roles?)`, `explore(minutes)`, `playtest_correct(run_id,
 step, note, player?)`, `suggest_fix(run_id, bug)`, `report(run_id)`, `reports()`.
-Players are addressed by name, UserId or helmet number (`"1"`..`"4"`).
+Players are addressed by name, UserId or helmet number (`"1"`..`"8"`).
+
+Long tools take an MCP `Context` and send `notifications/progress` when the client gave a progress
+token (`progress_reporter(ctx)`); every message also goes to stderr.
+
+Extensions: `load_extensions()` imports each module in `EXTENSIONS` (`mubit_tester.studio_bridge`)
+plus `$MUBIT_TESTER_EXTENSIONS` and calls its `register(mcp)`; a missing module is skipped and a
+broken one only logs to stderr. Helpers for extension tools: `open_studio`, `harness_for(studio)`,
+`progress_reporter(ctx)`, `tool_errors()`, `sync_into(studio, root)`, `game_root(game)`.
