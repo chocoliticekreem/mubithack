@@ -15,6 +15,7 @@ local RunService = game:GetService("RunService")
 
 local IS_SERVER = RunService:IsServer()
 local WAIT_SECONDS = 15
+local MAX_WAIT_SECONDS = 600 -- 10 min: only a server that never declares the remote errors
 
 local Net = {}
 
@@ -24,11 +25,21 @@ local function child(parent: Instance, name: string, className: string): Instanc
 		return found
 	end
 	if not IS_SERVER then
-		local waited = parent:WaitForChild(name, WAIT_SECONDS)
+		-- keep waiting while the server boots: a live server building the map can take far longer than
+		-- WAIT_SECONDS, and giving up killed whole controllers for the session (ToolController -> no spray)
+		local waited: Instance? = nil
+		local total = 0
+		while not waited and total < MAX_WAIT_SECONDS do
+			waited = parent:WaitForChild(name, WAIT_SECONDS)
+			total += WAIT_SECONDS
+			if not waited then
+				warn(`[Net] still waiting for {parent:GetFullName()}.{name} ({total}s)`)
+			end
+		end
 		if not waited then
 			error(`[Net] {parent:GetFullName()}.{name} never appeared (server didn't declare it?)`)
 		end
-		return waited
+		return waited :: Instance
 	end
 	local inst = Instance.new(className)
 	inst.Name = name

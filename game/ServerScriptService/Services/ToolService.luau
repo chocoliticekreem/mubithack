@@ -486,7 +486,7 @@ local function equipped(player: Player): string?
 	return nil
 end
 
-local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vector3)
+local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vector3, origin: Vector3?)
 	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
 	local litres = math.min(water, ToolConfig.LitresPerSpray)
 	if litres <= 0 then
@@ -497,7 +497,7 @@ local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vecto
 	Telemetry.count("water_used", litres)
 	ToolService.WaterUsed:Fire(player, litres)
 	markSpraying(player)
-	call("FireService", "ApplyWater", player, head.Position, aim, litres * math.max(pressure, 0.3))
+	call("FireService", "ApplyWater", player, origin or head.Position, aim, litres * math.max(pressure, 0.3))
 	ToolService.HoseRecoil:Fire(player, -aim * ToolConfig.HoseRecoil * pressure)
 	soak(player, head.Position, aim, "hose", pressure)
 	-- hose rocket gag: aim straight down long enough and the client lifts off; count it once
@@ -523,7 +523,7 @@ local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vecto
 	end
 end
 
-local function sprayFoam(player: Player, head: BasePart, aim: Vector3)
+local function sprayFoam(player: Player, head: BasePart, aim: Vector3, origin: Vector3?)
 	-- one can at a time and at most SprayHz puffs a second: swapping between two extinguishers (or
 	-- two clients' worth of input) can't stack sprays
 	local now = os.clock()
@@ -541,8 +541,40 @@ local function sprayFoam(player: Player, head: BasePart, aim: Vector3)
 	player:SetAttribute(ATTR_FOAM, if unlimited then size else foam - charges)
 	Telemetry.count("foam_used", charges)
 	markSpraying(player)
-	call("FireService", "ApplyWater", player, head.Position, aim, charges * ToolConfig.FoamEfficiency)
+	call("FireService", "ApplyWater", player, origin or head.Position, aim, charges * ToolConfig.FoamEfficiency)
 	soak(player, head.Position, aim, "foam", 1)
+end
+
+-- Tutorial: while a new player's training fire is burning (FirstFireService sets Player attr
+-- FirstFire = "burning"), ANY spray within TUTORIAL_RANGE counts, wherever they aim: the stream is
+-- steered at the nearest burning training part. Kids who look at it and press SPRAY must pass.
+local TUTORIAL_RANGE = 60
+local function tutorialAim(player: Player, head: BasePart, aim: Vector3): (Vector3, Vector3?)
+	if player:GetAttribute("FirstFire") ~= "burning" then
+		return aim, nil
+	end
+	local root = workspace:FindFirstChild("TrainingFires")
+	if not root then
+		return aim, nil
+	end
+	local best: BasePart? = nil
+	local bestD = TUTORIAL_RANGE
+	for _, p in CollectionService:GetTagged(Names.Tag.Burning) do
+		if p:IsA("BasePart") and p:IsDescendantOf(root) then
+			local d = (p.Position - head.Position).Magnitude
+			if d < bestD then
+				best, bestD = p, d
+			end
+		end
+	end
+	if not best or bestD < 0.5 then
+		return aim, nil
+	end
+	local target = (best :: BasePart).Position
+	local dir = (target - head.Position).Unit
+	-- out of hose range: the water "lands" from a point just short of the fire, so distance never fails it
+	local origin = if bestD > 12 then target - dir * 8 else nil
+	return dir, origin
 end
 
 local function sprayOnce(player: Player, aim: Vector3)
@@ -555,10 +587,12 @@ local function sprayOnce(player: Player, aim: Vector3)
 	if not head then
 		return
 	end
+	local origin: Vector3?
+	aim, origin = tutorialAim(player, head, aim)
 	if kind == "hose" then
-		sprayHose(player, char, head, aim)
+		sprayHose(player, char, head, aim, origin)
 	else
-		sprayFoam(player, head, aim)
+		sprayFoam(player, head, aim, origin)
 	end
 end
 
