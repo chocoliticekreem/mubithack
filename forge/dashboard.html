@@ -7,21 +7,28 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Recursive:slnt,wght,CASL,MONO@-15..0,400..900,0..1,0..1&display=swap" rel="stylesheet">
 <style>
   :root {
-    --sky: #3b2a8f; --sky2: #5a3fd1; --panel: #ffffff; --panel2: #f3efff; --ink: #1a1033; --muted: #6a6190;
-    --yellow: #ffd23f; --orange: #ff8a1f; --green: #2fd17a; --pink: #ff4fa3; --cyan: #29c7f2; --red: #ff4d5e;
-    --purple: #8b5cf6; --grey: #b7b1cc; --gold: #ffcc33; --line: #e2dcf5; --code: #f4f1fb;
-    --shadow: 0 5px 0 var(--ink);
-    --head: "Lilita One", "Baloo 2", cursive; --body: "Nunito", "Trebuchet MS", sans-serif;
+    /* Risograph inks (named after real Riso drum colours) on newsprint. */
+    --paper: #efe8d8; --paper2: #e6ddc8; --sky: var(--paper); --sky2: var(--paper2);
+    --panel: #fbf8f1; --panel2: #f1ead9; --ink: #26221d; --muted: #6f6656; --line: #d9cfba; --code: #f1ead9;
+    --yellow: #ffd400; --orange: #ff6c2f; --green: #00a95c; --pink: #ff48b0; --cyan: #3d9dd6; --red: #f15060;
+    --teal: #00838a; --blue: #0078bf; --purple: #765ba7; --grey: #b9ae97; --gold: #ffb511;
+    --sticker: #ffffff; --sticker-edge: #d6ccb6;
+    --shadow: 0 0 0 5px var(--sticker), 0 0 0 6.5px var(--sticker-edge), 3px 6px 0 6px #26221d22;
+    --head: "Bagel Fat One", "Arial Rounded MT Bold", sans-serif;
+    --body: "Recursive", ui-rounded, "Trebuchet MS", sans-serif;
+    --mono: "Recursive", ui-monospace, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
-      --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
+    :root:not([data-theme="light"]) { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
+      --ink: #f0e9da; --muted: #b5aa95; --line: #4a443b; --code: #34302a; --text: #f0e9da;
+      --sticker: #3d3832; --sticker-edge: #141210; --red: #ff6b78; --teal: #29b3b9; --green: #2bcf7f; }
   }
-  :root[data-theme="dark"] { --sky: #170f3d; --sky2: #2b1b73; --panel: #231a4a; --panel2: #2d2360;
-    --ink: #0b0620; --muted: #b3a9dc; --line: #3a2f70; --code: #1a1338; --text: #f5f2ff; }
+  :root[data-theme="dark"] { --paper: #1f1c18; --paper2: #2a2621; --panel: #2b2722; --panel2: #34302a;
+    --ink: #f0e9da; --muted: #b5aa95; --line: #4a443b; --code: #34302a; --text: #f0e9da;
+    --sticker: #3d3832; --sticker-edge: #141210; --red: #ff6b78; --teal: #29b3b9; --green: #2bcf7f; }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; min-height: 100vh; color: var(--text, var(--ink)); font: 600 15px/1.45 var(--body);
@@ -414,6 +421,81 @@
     *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition: none !important; }
     .launch.go .big .lid { transform: translate(0, -13px) rotate(-10deg); }
   }
+
+  /* ================================================================ riso sticker book
+     Everything above keeps its layout; this layer gives it the look: newsprint with grain, cards as
+     die-cut stickers, two-ink misregistered headings, halftone fills and rubber stamps. */
+  body { font-variation-settings: "CASL" 1; font-weight: 600; background: var(--paper); }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60; opacity: .5; mix-blend-mode: multiply;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .15 0 0 0 0 .13 0 0 0 0 .1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  :root[data-theme="dark"] body::before { mix-blend-mode: screen; opacity: .18; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body::before { mix-blend-mode: screen; opacity: .18; } }
+  header { color: var(--ink); }
+  .logo { color: var(--red); -webkit-text-stroke: 0; text-shadow: 3px 2px 0 var(--teal); letter-spacing: .02em; font-size: 44px; }
+  .tag { color: var(--muted); font-weight: 700; }
+  h1, h2, h3, .head { color: var(--text, var(--ink)); }
+  .sec-head h2, .map-head h2, .goal h3, .game-title { text-shadow: 2px 1.5px 0 color-mix(in srgb, var(--red) 55%, transparent); }
+  .card { border: 0; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); }
+  .card:nth-of-type(odd) { transform: rotate(-.35deg); } .card:nth-of-type(even) { transform: rotate(.3deg); }
+  .btn, select.pick { border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 3px 3px 0 var(--teal); background: var(--yellow); }
+  .btn.ghost, select.pick { background-color: var(--panel); }
+  .btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--teal); }
+  .chip { border-width: 2px; border-radius: 6px; background: var(--panel2); letter-spacing: .08em; }
+  .chip.live { background: var(--green); color: #fff; border-color: var(--green); } .chip.done { background: var(--yellow); }
+  .tile { border: 2px dashed var(--line); box-shadow: none; background: var(--panel2); border-radius: 12px; }
+  .tile .v { font-family: var(--head); color: var(--blue); }
+  .tile.hot, .report, .moment { background: var(--yellow) radial-gradient(color-mix(in srgb, var(--orange) 45%, transparent) 22%, transparent 24%) 0 0 / 7px 7px; }
+  .tile.hot .k { color: var(--ink); }
+  /* workshop stage: flat two-ink sky and a halftone sun */
+  .stage { border: 0; border-radius: 12px; box-shadow: inset 0 0 0 2px var(--ink);
+    background: linear-gradient(color-mix(in srgb, var(--cyan) 55%, var(--paper)) 0 62%, color-mix(in srgb, var(--green) 70%, var(--paper)) 62%); }
+  .stage .sun { border: 0; box-shadow: none; background: radial-gradient(var(--orange) 34%, transparent 36%) 0 0 / 7px 7px, var(--yellow); }
+  .stage .cloud, .stage .cloud::after { background: var(--panel); }
+  .bubble, .bot .name, .slot .v { border-width: 2px; border-radius: 6px; }
+  .bot.active .name { background: var(--yellow); }
+  .map { background: var(--panel2); border: 2px dashed var(--line); }
+  /* mission control lanes: halftone bars, red cross-hatch for failed calls */
+  .lane { background: transparent; border: 0; border-bottom: 1.5px dashed var(--line); border-radius: 0; }
+  .lane.running { background: color-mix(in srgb, var(--yellow) 28%, transparent); border-radius: 8px; }
+  :root[data-theme="dark"] .lane.running { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
+  .lane.running .st { color: var(--green); } .lane.failed .st { color: var(--red); }
+  .track { background: var(--panel2); border: 1.5px solid var(--ink); border-radius: 4px; overflow: visible; }
+  .track i { border: 0; border-radius: 2px; top: 2px; bottom: 2px; cursor: help;
+    background: radial-gradient(#0000003d 30%, transparent 33%) 0 0 / 4px 4px, var(--seg, var(--grey)); }
+  .track i.seg-bad { z-index: 1; background: repeating-linear-gradient(-45deg, var(--red) 0 3px, transparent 3px 6px), var(--panel); box-shadow: inset 0 0 0 1.5px var(--red); }
+  .track i.seg-bad::after { content: "✗"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font: 900 12px/1 var(--body); color: var(--red); }
+  .track i.seg-pend { opacity: .55; }
+  .track i:hover { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 2; }
+  .track i.open { background-color: var(--seg, var(--grey)); }
+  .lane .lat { border-width: 1.5px; border-radius: 4px; font-family: var(--mono); font-variation-settings: "MONO" 1; }
+  .ok, .up, .brow .bl .xf { color: var(--green); } .bad, .down { color: var(--red); }
+  .badge.pass, .asserts .badge.pass { background: var(--green); color: #fff; } .badge.fail { background: var(--red); }
+  .meter { border-width: 1.5px; border-radius: 3px; }
+  .meter i { background: radial-gradient(#0000002e 30%, transparent 33%) 0 0 / 4px 4px, var(--yellow); }
+  .meter i.full { background: radial-gradient(#0000002e 30%, transparent 33%) 0 0 / 4px 4px, var(--green); }
+  .shot, .lb .pic { border-width: 2px; border-radius: 6px; box-shadow: 0 0 0 4px var(--sticker); }
+  .shot:nth-child(odd) { transform: rotate(-.8deg); } .shot:nth-child(even) { transform: rotate(.7deg); }
+  .fact code, .nerd code, .nerd pre, .moment code, .vrow .diff { font-family: var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; }
+  /* hover card: a printed ticket with a rubber stamp */
+  .tip { background: var(--panel); color: var(--text, var(--ink)); border-radius: 4px; padding: 10px 12px 9px; max-width: 320px;
+    font: 600 12px/1.4 var(--body); font-variation-settings: "CASL" 1;
+    box-shadow: 0 0 0 4px var(--sticker), 0 0 0 5.5px var(--sticker-edge), 4px 7px 0 4px #26221d33; }
+  .tip.call { min-width: 220px; }
+  .tip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .tip-who { font: 15px/1 var(--head); text-transform: capitalize; }
+  .tip-title { font-weight: 800; margin-bottom: 4px; }
+  .tip-line { color: var(--muted); overflow-wrap: anywhere; }
+  .tip-line.rid { font: 10.5px/1.4 var(--mono); font-variation-settings: "MONO" 1, "CASL" 0; opacity: .8; }
+  .tip-line.err { color: var(--red); font-weight: 700; }
+  .stamp { flex: none; font: 900 11px/1 var(--body); text-transform: uppercase; letter-spacing: .08em; padding: 4px 6px 3px;
+    border: 2.5px solid currentColor; border-radius: 4px; transform: rotate(-6deg);
+    -webkit-mask: radial-gradient(circle at 30% 40%, #000 60%, #000b 75%, #0006 100%) 0 0 / 7px 5px;
+    mask: radial-gradient(circle at 30% 40%, #000 60%, #000b 75%, #0006 100%) 0 0 / 7px 5px; }
+  .stamp.ok { color: var(--green); } .stamp.bad { color: var(--red); transform: rotate(5deg); } .stamp.pend { color: var(--blue); }
+  .tip-checks { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1.5px dashed var(--line); display: grid; gap: 3px; }
+  .tip-checks li { display: grid; grid-template-columns: 16px 1fr; gap: 4px; }
+  .tip-checks li b { font-weight: 900; } .tip-checks li.ok b { color: var(--green); } .tip-checks li.bad b { color: var(--red); } .tip-checks li.pend b { color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .card, .shot { transform: none !important; } }
 </style>
 </head>
 <body>
@@ -439,7 +521,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Lilita One and Nunito (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for Forge. Fonts: Bagel Fat One and Recursive (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -463,17 +545,17 @@ const when = iso => { const t = Date.parse(iso); return isNaN(t) ? "" : ago(t / 
 
 // The Forge team. Each one is a Mubit task (role); `roles` lists which call roles count toward its badge.
 const TEAM = [
-  {key: "planner", name: "Planner", doing: "Planning the new feature", hat: "#8b5cf6", body: "#c4b5fd", tool: "clip", roles: ["planner"]},
-  {key: "designer", name: "Designer", doing: "Dreaming up the game", hat: "#ff4fa3", body: "#ffb3d6", tool: "pencil", roles: ["designer"]},
-  {key: "coder", name: "Coder", doing: "Writing the game code", hat: "#ff8a1f", body: "#ffd0a3", tool: "hammer", roles: ["coder"]},
-  {key: "tester", name: "Tester", doing: "Playing the game in Roblox", hat: "#29c7f2", body: "#b3ecff", tool: "pad", roles: ["tester", "playtester", "judge"]},
-  {key: "critic", name: "Critic", doing: "Scoring the game out of 10", hat: "#ffd23f", body: "#fff0a8", tool: "star", roles: ["critic"]},
-  {key: "auditor", name: "Inspector", doing: "Hunting for bugs", hat: "#ef4444", body: "#fecaca", tool: "glass", roles: ["auditor", "triage"]},
-  {key: "investigator", name: "Investigator", doing: "Finding where the bug hides", hat: "#0ea5e9", body: "#bae6fd", tool: "glass", roles: ["investigator"]},
-  {key: "fixer", name: "Bug Fixer", doing: "Fixing the bugs", hat: "#2fd17a", body: "#b8f5d3", tool: "wrench", roles: ["fixer"]},
-  {key: "patcher", name: "Patcher", doing: "Patching a big file", hat: "#14b8a6", body: "#a7f3e8", tool: "wrench", roles: ["patcher"]},
-  {key: "verifier", name: "Checker", doing: "Checking the fix really worked", hat: "#84cc16", body: "#d9f99d", tool: "check", roles: ["verifier"]},
-  {key: "coach", name: "Coach", doing: "Writing lessons for next time", hat: "#f97316", body: "#fed7aa", tool: "book", roles: ["reflector"]},
+  {key: "planner", name: "Planner", doing: "Planning the new feature", hat: "#765ba7", body: "#cdbfe3", tool: "clip", roles: ["planner"]},
+  {key: "designer", name: "Designer", doing: "Dreaming up the game", hat: "#ff48b0", body: "#ffc2e3", tool: "pencil", roles: ["designer"]},
+  {key: "coder", name: "Coder", doing: "Writing the game code", hat: "#ff6c2f", body: "#ffc8ad", tool: "hammer", roles: ["coder"]},
+  {key: "tester", name: "Tester", doing: "Playing the game in Roblox", hat: "#3d9dd6", body: "#bfe0f3", tool: "pad", roles: ["tester", "playtester", "judge"]},
+  {key: "critic", name: "Critic", doing: "Scoring the game out of 10", hat: "#ffd400", body: "#fff0a0", tool: "star", roles: ["critic"]},
+  {key: "auditor", name: "Inspector", doing: "Hunting for bugs", hat: "#f15060", body: "#fbc3c9", tool: "glass", roles: ["auditor", "triage"]},
+  {key: "investigator", name: "Investigator", doing: "Finding where the bug hides", hat: "#0078bf", body: "#b3d6ec", tool: "glass", roles: ["investigator"]},
+  {key: "fixer", name: "Bug Fixer", doing: "Fixing the bugs", hat: "#00a95c", body: "#a9e5c8", tool: "wrench", roles: ["fixer"]},
+  {key: "patcher", name: "Patcher", doing: "Patching a big file", hat: "#00838a", body: "#a6d6d8", tool: "wrench", roles: ["patcher"]},
+  {key: "verifier", name: "Checker", doing: "Checking the fix really worked", hat: "#82d8d5", body: "#d6f3f1", tool: "check", roles: ["verifier"]},
+  {key: "coach", name: "Coach", doing: "Writing lessons for next time", hat: "#ffb511", body: "#ffe3a3", tool: "book", roles: ["reflector"]},
 ];
 const KEEPER = "Saving a snapshot in a chest";
 
@@ -759,12 +841,15 @@ const SHOTS = {};           // shot key -> step, for the lightbox
 let LB = null;              // {key, list}
 const seenMoments = new Set(JSON.parse(store.get("forge.moments") || "[]"));
 
-function laneRow(ln, span, liveSpan) {
+const tipState = t => t?.ok === true ? "ok" : t?.ok === false ? "bad" : "pend";
+
+function laneRow(ln, li, span, liveSpan) {
   const m = member(ln.role);
-  const segs = ln.spans.map(([s, e]) => {
+  const segs = ln.spans.map(([s, e], si) => {
     const end = e == null ? liveSpan : e;
     const left = Math.max(0, s / span * 100), w = Math.max(0.6, (end - s) / span * 100);
-    return `<i class="${e == null ? "open" : ""}" style="left:${left.toFixed(2)}%;width:${Math.min(w, 100 - left).toFixed(2)}%;background-color:${m.hat}"></i>`;
+    const st = e == null ? "open" : tipState((ln.tips || [])[si]);
+    return `<i class="seg-${st}${e == null ? " open" : ""}" data-tipl="${li}:${si}" style="left:${left.toFixed(2)}%;width:${Math.min(w, 100 - left).toFixed(2)}%;--seg:${m.hat}"></i>`;
   }).join("");
   const pf = ln.kind === "tester" && (ln.passed || ln.failed) ? `<span class="pf"><span class="ok">✓${ln.passed}</span> <span class="bad">✗${ln.failed}</span></span>` : "";
   return `<div class="lane ${esc(ln.status)}">
@@ -792,7 +877,7 @@ function renderLanes(g) {
   </div>`;
   if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as Forge makes its first Mubit call.</div>`;
   const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
-  return `${tiles}<div class="lanes">${L.lanes.map(ln => laneRow(ln, span, liveSpan)).join("")}</div>
+  return `${tiles}<div class="lanes">${L.lanes.map((ln, li) => laneRow(ln, li, span, liveSpan)).join("")}</div>
     <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
 }
 
@@ -969,10 +1054,36 @@ function renderLightbox() {
   $("lightbox").classList.add("open");
 }
 
+const STAMP = {ok: "✓ answered", bad: "✗ failed", pend: "… pending"};
+
+function callTipHtml(ln, t) {
+  const st = tipState(t);
+  const checks = (t.checks || []).map(c => `<li class="${c.ok === true ? "ok" : c.ok === false ? "bad" : "pend"}"><b>${c.ok === true ? "✓" : c.ok === false ? "✗" : "·"}</b>${esc(c.text)}</li>`).join("");
+  return `<div class="tip-head"><span class="tip-who">${esc(ln.label)}</span><span class="stamp ${st}">${STAMP[st]}</span></div>
+    ${t.head && t.head.toLowerCase() !== String(ln.label).toLowerCase() ? `<div class="tip-title">${esc(t.head)}</div>` : ""}
+    ${(t.lines || []).map((x, i) => `<div class="tip-line${/^mreq_/.test(x) ? " rid" : ""}${i === 0 && st === "bad" && /Error|error|failed/.test(x) ? " err" : ""}">${esc(x)}</div>`).join("")}
+    ${checks ? `<ul class="tip-checks">${checks}</ul>` : ""}`;
+}
+
+function placeTip(e, tip) {
+  tip.style.display = "block";
+  const x = Math.min(e.clientX + 16, innerWidth - tip.offsetWidth - 10);
+  const y = e.clientY + 18 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 12 : e.clientY + 18;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+
 function showTip(e) {
-  const r = e.target.closest("[data-tipv]"), tip = $("tip");
+  const tip = $("tip"), l = e.target.closest("[data-tipl]");
+  if (l) {
+    const [li, si] = l.dataset.tipl.split(":").map(Number);
+    const ln = game()?.team?.lanes?.lanes?.[li], t = ln?.tips?.[si];
+    if (!t) { tip.style.display = "none"; return; }
+    tip.className = "tip call"; tip.innerHTML = callTipHtml(ln, t); placeTip(e, tip); return;
+  }
+  const r = e.target.closest("[data-tipv]");
   if (!r) { tip.style.display = "none"; return; }
   const v = game()?.team?.timeline[+r.dataset.tipv]; if (!v) return;
+  tip.className = "tip";
   tip.innerHTML = `<b>${esc(v.version)}</b> · ${esc(v.title)}<br>critic ${v.score ?? "–"}${v.fun != null ? ` · fun ${v.fun}` : ""}${v.delta ? ` · ${v.delta > 0 ? "+" : ""}${v.delta}` : ""}<br>+${v.added} −${v.removed} lines in ${v.files} files${v.summary ? `<br><span style="opacity:.8">${esc(v.summary)}</span>` : ""}`;
   tip.style.display = "block";
   tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
@@ -1151,19 +1262,20 @@ document.addEventListener("keydown", e => {
 
 async function refresh() {
   try {
-    const r = await fetch("/api/state", {cache: "no-store"});
+    const r = await fetch("/api/state", {cache: "no-store", signal: AbortSignal.timeout(20000)});
     DATA = await r.json();
     if (!DATA.games.some(g => g.slug === SEL)) SEL = DATA.games[0]?.slug;
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Lilita One and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every 3s · characters, chests and trophy are hand-drawn SVG for Forge · fonts Bagel Fat One and Recursive (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
-refresh();
-setInterval(refresh, 3000);
+// The next poll starts only after this one has finished: overlapping polls used to stack up while a slow
+// state build ran, and every one of them rebuilt the whole state.
+(async function poll() { await refresh(); setTimeout(poll, 3000); })();
 </script>
 </body>
 </html>
