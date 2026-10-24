@@ -70,11 +70,11 @@ return Config.define({
 	GreaseFlareCooldown = 2.5, -- s between grease fireballs (water on grease)
 	GreaseFlareRadius = 12, -- explosion radius of a grease flare
 	GreaseLidHold = 1.5, -- s to hold E on the fryer to slam the lid on
-	LeakSeconds = 110, -- gas_leak: countdown from arrival until the tanker blows
-	ValveHoldSeconds = 4.5, -- hold E on a pump valve wheel to shut it
-	LeakFirstPumps = 4, -- pumps leaking on arrival (the rest rupture at LeakSecondAt)
-	LeakSecondAt = 40, -- s after arrival: the second leak (the remaining pumps rupture)
-	LeakSecondPumps = 2, -- how many more pumps rupture (extra ones are added if the site has too few)
+	LeakSeconds = 150, -- gas_leak: countdown from arrival until the tanker blows
+	ValveHoldSeconds = 1.5, -- hold E on a pump valve wheel to shut it
+	LeakFirstPumps = 2, -- pumps leaking on arrival (the rest rupture at LeakSecondAt)
+	LeakSecondAt = 60, -- s after arrival: the second leak (the remaining pumps rupture)
+	LeakSecondPumps = 1, -- how many more pumps rupture (extra ones are added if the site has too few)
 	GasCloudMax = 46, -- studs: the gas cloud over the pumps grows to this diameter by the countdown's end
 	GasCloudHeat = 2, -- heat per second inside the cloud's core in its last 30 s (coughing)
 	TankerBlastRadius = 60, -- the tanker: huge blast (knockback reaches 1.4x this)
