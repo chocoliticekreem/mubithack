@@ -339,6 +339,15 @@ local function updateBeacon(pos: Vector3, label: string, distance: number, t: nu
 	b.core.Transparency = 1 - (1 - 0.35) * fade - 0.08 * math.sin(t * 3) * fade
 	b.glow.Transparency = 1 - (1 - 0.85) * fade
 	b.ring.Transparency = 0.3 + 0.7 * k
+	-- once you're there it's just clutter: hide the beam, ring and label
+	local hideNear = tonumber(NavigationConfig.HideNear) or 70
+	if distance < hideNear then
+		b.core.Transparency = 1
+		b.glow.Transparency = 1
+		b.ring.Transparency = 1
+		b.gui.Enabled = false
+		return
+	end
 	b.gui.Enabled = true
 	b.label.Text = string.upper(label)
 	b.dist.Text = unit(distance)
@@ -515,7 +524,7 @@ local function updateEdge(pos: Vector3?, distance: number)
 	end
 	local e = edge :: Edge
 	local cam = workspace.CurrentCamera
-	if not pos or not cam or (mm and mm:isBigOpen()) then
+	if not pos or not cam or (mm and mm:isBigOpen()) or distance < (tonumber(NavigationConfig.HideNear) or 70) then
 		e.root.Visible = false
 		return
 	end

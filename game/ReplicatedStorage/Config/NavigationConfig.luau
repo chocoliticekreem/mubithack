@@ -37,8 +37,9 @@ return Config.define({
 	ArrowFlowSpeed = 3.5, -- arrows/s the bright pulse runs along the route
 	TurnAngle = 35, -- degrees: sharper corners than this get a turn hint
 	TurnHintRange = 220, -- studs: farther than this the hint says "Follow the road ..."
-	UnitName = "studs", -- distances read in studs everywhere (HUD markers too)
-	StudsPerUnit = 1,
+	UnitName = "m", -- distances read in metres everywhere (HudController uses the same 3.5 studs/m)
+	StudsPerUnit = 3.5,
+	HideNear = 70, -- studs: closer than this the beacon, its label and the edge arrow hide (you're there)
 
 	-- 3D beacon
 	BeaconHeight = 260,
