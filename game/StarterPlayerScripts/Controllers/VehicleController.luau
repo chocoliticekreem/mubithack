@@ -5,7 +5,7 @@
 --     VehicleConfig numbers): jelly raycast suspension, body roll, wheelies on launch and bumps,
 --     handbrake drift, cartoon squash + "BOING!" on hard landings, self-righting.
 --   * Camera while driving: chase cam (spring follow, right-drag to look around, FOV by speed) or the
---     cab view through the windshield (V toggles; for the local viewer only, the cab/door mesh skins,
+--     cab view through the windshield (V toggles; you start in it if you sat down in first person; for the local viewer only, the cab/door mesh skins,
 --     roof, visors, pillars and your own body go see-through - shotgun passengers in first person get
 --     the same). FirstPersonController
 --     is paused and comes back on exit.
@@ -77,6 +77,7 @@ local hintLabel: TextLabel? = nil
 local camMode = "chase" -- "chase" | "cab"
 local riding: Model? = nil -- truck the local player sits in as a passenger
 local hiddenParts: { [BasePart]: boolean } = {}
+local onFootFirstPerson = false -- last on-foot frame was first person (zoomed all the way in)
 
 local function key(name: string, fallback: Enum.KeyCode): Enum.KeyCode
 	local ok, k = pcall(function()
@@ -447,6 +448,13 @@ local function cabSeeStep()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local seat = hum and hum.SeatPart
+	if not seat then
+		-- on foot, after the camera ran: zoomed all the way in? (enterDrive picks the cab view then)
+		local cam = workspace.CurrentCamera
+		local head = char and char:FindFirstChild("Head") :: BasePart?
+		onFootFirstPerson = cam ~= nil and head ~= nil and cam.CameraType ~= Enum.CameraType.Scriptable
+			and (cam.CFrame.Position - head.Position).Magnitude < 1.6
+	end
 	local truck = seat and seat.Parent
 	local want: Model? = nil
 	if char and seat and truck and truck:IsA("Model") and truck:HasTag(Names.Tag.Truck) then
@@ -567,7 +575,8 @@ local function enterDrive(truck: Model)
 	ContextActionService:SetTitle("TruckHorn", "HONK")
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
-	camMode = if VehicleConfig.DefaultCam == "cab" then "cab" else "chase"
+	-- first-person players (zoomed all the way in) start in the cab view, everyone else in the chase cam
+	camMode = if VehicleConfig.DefaultCam == "cab" or onFootFirstPerson then "cab" else "chase"
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
 	local chassis = truck.PrimaryPart
 	if chassis and VehicleConfig.EngineSoundId ~= "" then
@@ -593,6 +602,12 @@ end
 local function exitDrive()
 	driving = nil
 	handbrake = false
+	-- a right-drag look in progress (or the mission ending mid-drag) must not leave the mouse held
+	if looking then
+		looking = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	end
+	UserInputService.MouseIconEnabled = true
 	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
 		ContextActionService:UnbindAction(a)
 	end
@@ -621,6 +636,10 @@ end
 
 local function onLookInput(input: InputObject, processed: boolean)
 	if not driving then
+		if looking and input.UserInputType == Enum.UserInputType.MouseButton2 and input.UserInputState == Enum.UserInputState.End then
+			looking = false
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		end
 		return
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then

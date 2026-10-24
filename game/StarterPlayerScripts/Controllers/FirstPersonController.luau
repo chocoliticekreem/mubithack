@@ -1,5 +1,7 @@
 --!strict
 -- FirstPersonController [owner: G1]. The trailer's camera (docs/game/02-art-feel-ui.md §7):
+--   * Mission over (results / back to the station): steps out of first person once so the mouse is
+--     free and the cursor shows; the zoom stays free (scroll back in any time).
 --   * LockFirstPerson while the player is in a mission (Player attr InstanceId ~= "" and its
 --     Workspace.Runs.<id> RoundState is Alarm/Dispatched/Active, or no run folder yet); free third
 --     person in the lobby / station (InstanceId == "") and on the results screen. V flips it (first
@@ -13,6 +15,7 @@
 --     camera-attached Viewmodel (ClientLib/Viewmodel): olive/yellow gloves + turnout sleeves with
 --     reflective bands; poses empty / hose / axe / carry / item from the equipped Tool and the
 --     Carrying attr; axe swing on Tool.Activated, hose jitter while Spraying.
+--   * The rescue you carry fades (local only) while you look through it in first person.
 --   * Soot on the gloves after time near fire. Other players' arms follow their replicated hands
 --     (PhysicsHands.startRemote, always on).
 --   * Head bob, tool sway (camera-rotation spring), landing dip, sprint FOV.
@@ -238,6 +241,7 @@ local state = {
 	scanAt = 0,
 	mission = false,
 	viewFlip = false, -- V pressed: the other view until the mission state changes
+	stepOutPending = false, -- mission just ended: step out of first person once (free mouse)
 	hiddenTool = nil :: Tool?,
 	toolConn = nil :: RBXScriptConnection?,
 	toolFor = nil :: Tool?,
@@ -299,6 +303,30 @@ local function seated(char: Model?): boolean
 	return hum ~= nil and hum.SeatPart ~= nil
 end
 
+-- Step the camera out of the head once (lobby / results), so the mouse is free and the cursor shows.
+-- Zoom stays free: CameraMinZoomDistance goes back to 0.5 right after, so scrolling in works again.
+local function stepOut()
+	player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, CAM.LobbyZoom)
+	local cam = workspace.CurrentCamera
+	local char = player.Character
+	local head = char and char:FindFirstChild("Head") :: BasePart?
+	if cam and head and (cam.CFrame.Position - head.Position).Magnitude < 2 then
+		-- don't shove the camera through a wall behind you (station spawn pads sit ~8 studs from
+		-- the west wall; a forced 10-stud zoom left the camera stuck inside it until you moved)
+		local back = -cam.CFrame.LookVector * 10
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char :: Model }
+		local hit = workspace:Raycast(head.Position, back, params)
+		player.CameraMinZoomDistance = if hit then math.clamp(hit.Distance - 1, 2, 10) else 10
+		task.delay(0.1, function()
+			player.CameraMinZoomDistance = 0.5
+		end)
+	end
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
+end
+
 -- Only touches the camera properties when the wanted mode changes, so other scripts (cinematics)
 -- can still take over between transitions.
 local function applyCameraMode(lock: boolean)
@@ -317,24 +345,7 @@ local function applyCameraMode(lock: boolean)
 	else
 		player.CameraMode = Enum.CameraMode.Classic
 		player.CameraMinZoomDistance = 0.5
-		player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, CAM.LobbyZoom)
-		-- step out of the head so the lobby starts in third person
-		local cam = workspace.CurrentCamera
-		local char = player.Character
-		local head = char and char:FindFirstChild("Head") :: BasePart?
-		if cam and head and (cam.CFrame.Position - head.Position).Magnitude < 2 then
-			-- don't shove the camera through a wall behind you (station spawn pads sit ~8 studs from
-			-- the west wall; a forced 10-stud zoom left the camera stuck inside it until you moved)
-			local back = -cam.CFrame.LookVector * 10
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Exclude
-			params.FilterDescendantsInstances = { char :: Model }
-			local hit = workspace:Raycast(head.Position, back, params)
-			player.CameraMinZoomDistance = if hit then math.clamp(hit.Distance - 1, 2, 10) else 10
-			task.delay(0.1, function()
-				player.CameraMinZoomDistance = 0.5
-			end)
-		end
+		stepOut()
 	end
 end
 
@@ -398,6 +409,42 @@ local function hideToolLocally(tool: Tool?)
 		end
 		state.hiddenTool = tool
 	end
+end
+
+-- In first person the rescue you carry hangs right in front of the camera and filled most of the
+-- screen (a dog's face, edge to edge). Fade it locally while you look out through it; others see it
+-- as normal.
+local CARRY_FADE = 0.75
+local fadedCarry: Model? = nil
+local function fadeCarried(model: Model?)
+	if fadedCarry == model then
+		return
+	end
+	if fadedCarry then
+		for _, d in fadedCarry:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = 0
+			end
+		end
+	end
+	fadedCarry = model
+	if model then
+		for _, d in model:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = CARRY_FADE
+			end
+		end
+	end
+end
+
+local function carriedModel(): Model?
+	local id = attr(Names.Attr.Carrying)
+	if type(id) ~= "string" or id == "" then
+		return nil
+	end
+	local folder = workspace:FindFirstChild("Rescuables")
+	local m = folder and folder:FindFirstChild(id)
+	return if m and m:IsA("Model") then m else nil
 end
 
 local function bindSwing(tool: Tool?, pose: string)
@@ -519,6 +566,18 @@ local function step(dt: number)
 		state.viewFlip = false
 		if not mission then
 			state.nearFireSeconds = 0 -- soot washes off back at the station
+			-- mission over (results / back to the station): hand the mouse back. First person keeps
+			-- the cursor locked to the centre, so step out of the head once; the zoom stays free.
+			state.stepOutPending = true
+		end
+	end
+	if state.stepOutPending then
+		if state.mission then
+			state.stepOutPending = false
+		elseif not seated(char) and cam.CameraType ~= Enum.CameraType.Scriptable then
+			-- (still in the truck: this waits until you hop out)
+			state.stepOutPending = false
+			stepOut()
 		end
 	end
 	if seated(char) then
@@ -538,6 +597,7 @@ local function step(dt: number)
 
 	local fp = state.enabled and not scripted and isFirstPerson(cam, char) and hum ~= nil and hum.Health > 0
 	setBodyShadows(char, fp)
+	fadeCarried(if fp then carriedModel() else nil)
 	local downed = attr(Names.Attr.Downed) == true
 
 	-- head bob and landing dip (camera)
@@ -760,6 +820,7 @@ function FirstPersonController:SetEnabled(on: boolean)
 			hands:SetActive(false)
 		end
 		hideToolLocally(nil)
+		fadeCarried(nil)
 	end
 end
 

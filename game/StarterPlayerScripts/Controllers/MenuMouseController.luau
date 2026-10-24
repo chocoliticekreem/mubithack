@@ -4,11 +4,16 @@
 -- mouse while any visible GuiButton has Modal = true, so this keeps one invisible modal button and
 -- shows it whenever a menu is open:
 --   * any GuiObject with attribute Menu = true that is visible on screen, or
+--   * any HudLayout.modal panel that is open,
 --   * any big visible panel (>= 25% of the screen each way, mostly opaque) that holds a button.
+--     (A full-screen backdrop beside its buttons, like the results screen's, needs Menu = true.)
+-- Outside menus it also un-sticks a mouse left in LockCurrentPosition (no right button held) and keeps
+-- the cursor icon on.
 -- Big HUD overlays (vignettes, heat haze) have no buttons, so they never count.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 
 local MenuMouseController = {}
 MenuMouseController.Priority = 100
@@ -121,6 +126,9 @@ local function inScreenGui(d: Instance): boolean
 end
 
 local function menuOpen(_pg: PlayerGui): boolean
+	if HudLayout.modalOpen() then
+		return true
+	end
 	for d in menus do
 		if d.Visible and shown(d) and inScreenGui(d) then
 			return true
@@ -148,6 +156,21 @@ function MenuMouseController:Start()
 	RunService:BindToRenderStep("MenuMouseFree", Enum.RenderPriority.Camera.Value + 1, function()
 		if open then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			UserInputService.MouseIconEnabled = true
+			return
+		end
+		-- never leave the mouse held: a right-drag look that ended outside its controller (truck exit,
+		-- mission end, respawn mid-drag) left LockCurrentPosition behind with the cursor hidden
+		local cam = workspace.CurrentCamera
+		if
+			UserInputService.MouseBehavior == Enum.MouseBehavior.LockCurrentPosition
+			and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+			and cam ~= nil
+			and cam.CameraType ~= Enum.CameraType.Scriptable
+		then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		end
+		if not UserInputService.MouseIconEnabled then
 			UserInputService.MouseIconEnabled = true
 		end
 	end)
