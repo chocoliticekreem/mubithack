@@ -16,7 +16,8 @@
 --       { season?, sky?, weather? } (Workspace attrs MapSeason / MapSky / MapWeather when set)
 --   MapVariant.role(name, material, sx, sy, sz, r, g, b): "foliage" | "evergreen" | "ground" | nil
 --   MapVariant.recolour(season, role, r, g, b, h): (r, g, b, snow: boolean)   -- 0..1 channels
---   MapVariant.apply(root, season): number        -- recolours root's parts; returns parts changed
+--   MapVariant.apply(root, season, breathe?): number  -- recolours root's parts; returns parts changed;
+--       breathe() is called every 2000 descendants (MapService yields there on a live server)
 local MapVariant = {}
 
 export type Variant = { seed: number, season: string, sky: string, weather: string }
@@ -186,12 +187,15 @@ function MapVariant.recolour(season: string, role: string, r: number, g: number,
 end
 
 -- Roblox side (server): recolour every plant / lawn part under root for the season. Summer = no-op.
-function MapVariant.apply(root: Instance, season: string): number
+function MapVariant.apply(root: Instance, season: string, breathe: (() -> ())?): number
 	if season == "Summer" or season == "" then
 		return 0
 	end
 	local changed = 0
-	for _, d in root:GetDescendants() do
+	for i, d in root:GetDescendants() do
+		if breathe and i % 2000 == 0 then
+			breathe()
+		end
 		if d:IsA("BasePart") and d.Transparency < 0.95 then
 			local c = d.Color
 			local s = d.Size

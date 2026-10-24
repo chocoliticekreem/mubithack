@@ -146,7 +146,16 @@ local function dressSeason(model: Instance)
 	local MV = mapVariant()
 	local v = MapService:GetVariant()
 	if MV and v and v.season ~= "Summer" then
-		local ok, n = pcall(MV.apply, model, v.season)
+		local t0 = os.clock()
+		local ok, n = pcall(MV.apply, model, v.season, function()
+			if RunService:IsRunning() then
+				task.wait() -- ~32k parts in the city: never trip the script timeout on a busy server
+			end
+		end)
+		local ms = math.floor((os.clock() - t0) * 1000)
+		pcall(function()
+			require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count("map_season_ms", ms)
+		end)
 		if not ok then
 			warn(`[MapService] season dressing failed: {n}`)
 		end
