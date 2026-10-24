@@ -21,6 +21,8 @@
 --   ProfileSchema.unlockGear(p, ids): { string }            -- newly unlocked gear ids (v3)
 --   ProfileSchema.setLoadout(p, ids): boolean               -- locker picks (GearService validates ids)
 --   ProfileSchema.setSetting(p, key, value): boolean
+--   ProfileSchema.guideSeen(p, missionId): boolean          -- v4: first-time mission guide done
+--   ProfileSchema.markGuideSeen(p, missionId): boolean      -- true = newly marked
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
 --   ProfileSchema.ownsLock(envelope, jobId, now): boolean
@@ -44,6 +46,7 @@ export type Profile = {
 	},
 	settings: { [string]: any },
 	gear: { unlocked: { [string]: boolean }, loadout: { string } }, -- v3: locker (Lib/Items/Progression)
+	guides: { seen: { [string]: boolean } }, -- v4: MissionCatalog ids whose first-time guide ran (MissionGuideService)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -62,7 +65,7 @@ export type MissionSummary = {
 
 local ProfileSchema = {}
 
-ProfileSchema.Version = 3
+ProfileSchema.Version = 4
 ProfileSchema.MaxLoadout = 6 -- stored picks cap (Progression.LoadoutSize uses fewer)
 
 -- Level curve: reaching level L+1 from L costs Base + Step * (L - 1) XP. Level 1 -> 2 = 100 XP.
@@ -131,6 +134,7 @@ function ProfileSchema.default(now: number): Profile
 		},
 		settings = settings,
 		gear = { unlocked = {}, loadout = {} },
+		guides = { seen = {} },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -209,6 +213,20 @@ local MIGRATIONS: { [number]: (any, number) -> () } = {
 	[2] = function(t: any, _now: number)
 		t.gear = { unlocked = {}, loadout = {} }
 		t.version = 3
+	end,
+	-- v3 -> v4: first-time mission guides. A mission you've already played counts as seen, so
+	-- veterans only get the one-line tip (MissionGuideService).
+	[3] = function(t: any, _now: number)
+		local seen: { [string]: boolean } = {}
+		if type(t.missions) == "table" then
+			for id, m in t.missions do
+				if type(id) == "string" and type(m) == "table" and (tonumber(m.played) or 0) > 0 then
+					seen[id] = true
+				end
+			end
+		end
+		t.guides = { seen = seen }
+		t.version = 4
 	end,
 }
 
@@ -294,6 +312,14 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		end
 	end
 	p.gear.loadout = loadout
+
+	fillMap(p, "guides")
+	fillMap(p.guides, "seen")
+	for id, v in p.guides.seen do
+		if type(id) ~= "string" or v ~= true then
+			p.guides.seen[id] = nil
+		end
+	end
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -518,6 +544,29 @@ function ProfileSchema.setLoadout(p: Profile, ids: any): boolean
 		end
 	end
 	p.gear.loadout = out
+	return true
+end
+
+------------------------------------------------------------------------------------------ guides
+
+function ProfileSchema.guideSeen(p: Profile, missionId: string): boolean
+	return type(p.guides) == "table" and type(p.guides.seen) == "table" and p.guides.seen[missionId] == true
+end
+
+function ProfileSchema.markGuideSeen(p: Profile, missionId: string): boolean
+	if type(missionId) ~= "string" or missionId == "" then
+		return false
+	end
+	if type(p.guides) ~= "table" then
+		p.guides = { seen = {} }
+	end
+	if type(p.guides.seen) ~= "table" then
+		p.guides.seen = {}
+	end
+	if p.guides.seen[missionId] == true then
+		return false
+	end
+	p.guides.seen[missionId] = true
 	return true
 end
 
