@@ -71,8 +71,9 @@ def test_evidence_and_checklist(tmp_path):
 
 
 def test_parse_ranks_filters_and_validates():
-    refs = {"critic:2", "genre:saving", "test:r1"}
+    refs = {"critic:2", "genre:saving", "test:r1", "done:checks"}
     obj = {"summary": "thin", "score": 4, "gaps": [
+        {"title": "Run the checks", "impact": 6, "evidence": ["done:checks"], "job": {"kind": "feature", "request": "run"}},
         {"title": "No saving", "kind": "missing", "impact": 9, "confidence": 1, "evidence": ["genre:saving"],
          "job": {"kind": "feature", "request": "Add DataStore saving"}},
         {"title": "Belt sticks", "kind": "bug", "impact": 8, "confidence": 0.9, "evidence": ["[critic:2]", "made:up"],

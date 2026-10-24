@@ -445,6 +445,8 @@ def parse_gaps(obj: dict, refs: dict[str, str] | set[str], *, rejected_titles: l
         seen.add(gid)
         cited = [str(r).strip().strip("[]") for r in raw.get("evidence") or [] if str(r).strip()]
         good = [r for r in cited if r in known]
+        if good and all(r.startswith("done:") for r in good):
+            continue  # "run the checks / critic" is the orchestrator's own verify step, not a game change
         impact = _num(raw.get("impact"), 1, 10, 5)
         conf = _num(raw.get("confidence"), 0, 1, 0.7)
         jkind = _norm_kind(job.get("kind"), JOB_KINDS, "feature")
