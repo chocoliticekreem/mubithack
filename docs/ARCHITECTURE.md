@@ -456,6 +456,27 @@ user message lists (tests/test_kit_modules.py).
   DataStore or in memory (unpublished Studio place); `buildChangingRoom({cframe, ids})` puts mannequin
   stands with "Try on" prompts (tag `CostumeStand`, attributes `Costume`/`Price`/`Slot`).
 - `CosmeticsClient` (client): the house-style costume panel + HUD button; opens from the stand prompts.
+- `ObbyThemes` (server, genre obby; needs ObbyKit v2's `opts.themes`): `dress(kind, model, params, theme, rng) -> Model
+  "Dressing"` dresses one `ObbyKit.Obstacles.<kind>` piece (v2 platform shapes `cylinder` and `wedge-ramp` included, by
+  their `Shape` attribute) as part of a ride; `stageDecor(stageModel, theme, rng, stage) -> Model "StageDecor"` adds
+  lamps on brackets, string lights, balloons and a sign with the stage's name (<= `MAX_STAGE_PARTS` 60). Themes
+  (`THEMES`): entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale; `resolve(text)`
+  maps free text to one (nil or blank -> nil: `dress` and `stageDecor` then add nothing). Rules: decoration parts are
+  CanCollide/CanTouch/CanQuery false and Massless; `Dressing.Rides` (attribute `Host` = Mover, Turntable, Bar or Ball)
+  holds the parts welded to the moving part (carousel horses bob on a Weld in the host's frame), everything else is
+  anchored. The body space over every walkable top (footprint + 0.5, 0.12 to 7 studs up, over a mover's whole path)
+  stays empty: props stand on brackets past the margin and are built as groups that are dropped whole when they would
+  reach in; `stageDecor` sweeps this stage's decorations and those of stages already built around it (found by a
+  spatial query) out of every body space. Nothing that reads as floor sits within 0.7 under a top and reaches more than
+  0.5 past its edge. Legs are sized by a raycast down (MAX_LEG 90 studs; none across the course: a bracket instead).
+  The theme owns walkable tops (Color, Material; vanishing tiles re-coloured on every solid, the kit's warning flash
+  kept), kill parts (Neon, `KILL` red-orange per theme), the checkpoint Flag (Transparency 1, a pennant instead), Hub,
+  turntable Stripes, conveyor Chevrons and the pendulum Posts/Beam/Rod; each changed property is saved as
+  `ThemeOrig_<property>` and restored, and its `ThemeFx` emitters removed, before the next dress. Collision parts are
+  never moved or resized, so `LevelBuilder.audit` is unchanged. tests/test_obby_themes.py checks all of it with its own
+  geometry, on every theme x kind, turned stages, the Funfair Frenzy levels (tests/fixtures/funfair_levels.json) built
+  in v2's order, v2 shapes and ground for legs. Live proof: `scripts/obby_themes_demo.py --studio <id> [--gallery]
+  [--play]` (play mode: drift of riding decorations, horse bob, tile fading -> `play-proof.json`).
 
 Spec (designer output):
 ```json

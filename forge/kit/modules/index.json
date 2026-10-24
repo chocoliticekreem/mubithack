@@ -27,6 +27,23 @@
    ]
   },
   {
+   "name": "ObbyThemes",
+   "path_in_game": "ReplicatedStorage/Kit/ObbyThemes.luau",
+   "genres": [
+    "obby"
+   ],
+   "keywords": [],
+   "describe": "Server: dresses every ObbyKit piece as part of an amusement-park ride (10 themes: entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale): themed walkable tops, glowing kill parts with hazard bands, rides under and beside each piece, legs down to the ground, and lamps, string lights and a stage-name sign along every stage. Decorations never collide and keep clear of the space players stand and jump in, so the validated course is unchanged. Needs ObbyKit v2 (opts.themes).",
+   "api": [
+    "local ObbyThemes = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"Kit\"):WaitForChild(\"ObbyThemes\")) -- server only. Hand it to ObbyKit v2: ObbyKit.start({anchors = park.anchors, themes = ObbyThemes}); the kit dresses every piece and stage itself with its zone's park theme (theme_id in the level data). A zone with no park theme stays plain. Call it yourself only for pieces you build with ObbyKit.Obstacles.",
+    "ObbyThemes.dress(kind, model, params, theme, rng) -> Model \"Dressing\" under the piece (Fixed: anchored parts; Rides: parts welded to the part that moves, attribute Host = Mover, Turntable, Bar or Ball): kind = the ObbyKit kind (platform incl. v2 shapes cylinder and wedge-ramp, checkpoint, moving, spinner, turntable, disappearing, jumppad, trampoline, conveyor, pendulum, lava), model = what ObbyKit.Obstacles.<kind> returned, params = its level data (or nil), theme = entrance | carousel | bumper | teacups | ferris | flume | haunted | pirate | coaster | finale (free text is resolved), rng = a Random or a seed. A nil or blank theme only undoes an earlier dress and returns nil. Never throws.",
+    "The theme owns the look of walkable tops (colour, material; a vanishing tile still flashes the kit's warning), kill parts (Neon, in a red-orange no walkable, jump pad or trampoline uses), the kit's checkpoint flag (a pennant), turntable stripes, conveyor chevrons and the pendulum frame. Each property it changes is saved in a ThemeOrig_<property> attribute and put back, with its ThemeFx emitters removed, before the next dress.",
+    "ObbyThemes.stageDecor(stageModel, theme, rng, stage) -> Model \"StageDecor\": lamps on brackets beside the still pieces, string lights between them, balloons and a sign with the stage's name at its start (at most ObbyThemes.MAX_STAGE_PARTS = 60 parts). It first sweeps the decorations of this stage and of the stages built around it out of every walkable's body space.",
+    "Rules every decoration keeps: CanCollide/CanTouch/CanQuery false and Massless; the body space over each walkable top (its footprint plus 0.5 studs, from 0.12 to 7 studs up, over a mover's whole path) stays empty; nothing that reads as floor sits within 0.7 studs under a top and reaches more than 0.5 past its edge; legs reach the ground below (a raycast and Terrain's voxels; none over 90 studs or across the course: a short bracket instead). Never tag, move or collide with them.",
+    "ObbyThemes.THEMES lists the theme ids; ObbyThemes.resolve(text) -> id maps free text (\"Ghost Train Gulch\" -> haunted, \"Midway Arcade Mile\" -> bumper, unknown words -> entrance, nil or blank -> nil)."
+   ]
+  },
+  {
    "name": "MusicPlayer",
    "path_in_game": "ReplicatedStorage/Kit/MusicPlayer.luau",
    "genres": [],
