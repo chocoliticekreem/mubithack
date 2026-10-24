@@ -548,3 +548,131 @@ def test_cli_parses_autopilot():
     assert a.advise and a.root == "game"
     a = build_parser().parse_args(["autopilot", "g", "--correct", "an-x", "wrong"])
     assert a.correct == ["an-x", "wrong"]
+    a = build_parser().parse_args(["autopilot", "--advise", "--fresh", "--studio", "Forge-agents-35"])
+    assert a.fresh and a.studio == "Forge-agents-35"
+
+
+# ---------------------------------------------------------------- freshness + tooling (advise)
+
+
+def _git(cwd, *args, when=None):
+    import os
+    import subprocess
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+    if when:
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = f"@{int(when)} +0000"
+    subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=cwd, env=env, check=True, capture_output=True)
+
+
+def test_tooling_is_classified_and_grouped(tmp_path):
+    assert evm.is_tooling("Hop on seat prompt held, not triggered")
+    assert evm.is_tooling("Pathfinding returns NoPath to the board")
+    assert not evm.is_tooling("Hose does not put the fire out")
+    run = tmp_path / "g"
+    (run / "tests" / "r1").mkdir(parents=True)
+    (run / "tests" / "r1" / "report.json").write_text(json.dumps({"started": "2026-10-24T05:00:00Z", "bugs": [
+        {"title": "Gear rack prompt never triggers", "evidence": "interact returned 'held, not triggered'",
+         "severity": "high"},
+        {"title": "Hose does nothing", "evidence": "fires_extinguished stays 0", "severity": "high"}]}))
+    st = evm.EvidenceStore()
+    evm.add_tests(st, run)
+    assert st.items["test:r1#bug1"].kind == "tooling" and st.items["test:r1#bug2"].kind == "bug"
+    assert st.items["test:r1#bug2"].data["ts"] == evm.parse_ts("2026-10-24T05:00:00Z")
+    h = apm.harness_list(st)
+    assert h[0]["title"].startswith("ProximityPrompt") and h[0]["ids"] == ["test:r1#bug1"]
+
+
+def test_game_versions_tag_old_items(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "game").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    (repo / "game" / "a.luau").write_text("-- 1")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "v1", when=1000)
+    (repo / "game" / "a.luau").write_text("-- 2")
+    _git(repo, "commit", "-qam", "v2", when=2000)
+    gv = evm.GameVersions(repo / "game")
+    assert gv.at(1500)[1] == 1 and gv.at(2500) == (gv.current, 0) and gv.at(None) == (gv.current, 0)
+    st = evm.EvidenceStore()
+    st.add("err:a", "error", "x", "boom", ts=1500)
+    st.add("err:b", "error", "x", "bam", ts=1500)
+    st.add("err:b", "error", "fresh", "bam", ts=None)  # seen again now: current
+    st.add("code:a", "code", "scan", "1 line")
+    assert evm.tag_versions(st, gv) == {"current": gv.current, "items": 3, "stale": 1}
+    assert st.items["err:a"].data["stale"] and not st.items["err:b"].data["stale"]
+    assert st.render().count("(old: game") == 1
+
+
+def test_classify_never_verifies_on_absence_alone():
+    st = evm.EvidenceStore()
+    st.add("report:r#9", "report", "x", "battle pass spams prompts", stale=True)
+    st.add("untouched:claims", "untouched", "telemetry", "claims stayed 0")
+    st.add("err:1", "error", "fresh session", "boom")
+    st.add("tool:1", "tooling", "x", "held, not triggered")
+    c = {"title": "t", "score": 4.0, "evidence": ["report:r#9", "untouched:claims"]}
+    live = {"untouched:claims", "err:1"}
+    assert apm.classify(c, st, live)["status"] == "unverified (old)"
+    assert apm.classify({**c, "evidence": ["untouched:claims"]}, st, live)["status"] == "static"
+    st.add("stat:untouched:claims", "stat", "prefilter", "claims declared but 0")
+    assert apm.classify({**c, "evidence": ["stat:untouched:claims"]}, st, live | {"stat:untouched:claims"})["status"] == "static"
+    assert apm.classify({**c, "evidence": ["report:r#9", "err:1"]}, st, live)["status"] == "verified now"
+    assert apm.classify({**c, "evidence": ["tool:1"]}, st, live)["status"] == "tooling"
+    st.add("stat:regression:fires", "stat", "prefilter", "fires 9 -> 1")
+    weak_only = {**c, "evidence": ["report:r#9", "stat:regression:fires"]}
+    lv = live | {"stat:regression:fires"}
+    assert apm.classify(weak_only, st, lv)["status"] == "verified now"
+    assert apm.classify(weak_only, st, lv, {"stat:regression:fires"})["status"] == "unverified (old)"
+
+
+def test_advise_compares_a_fresh_probe_only_like_for_like(tmp_path):
+    s = _settings(tmp_path)
+    root = tmp_path / "game"
+    (root / "ServerScriptService").mkdir(parents=True)
+    (root / "ServerScriptService" / "M.server.luau").write_text("return 1\n")
+    imp = tmp_path / "evidence" / "fab" / "improve"
+    imp.mkdir(parents=True)
+    (imp / "1.json").write_text(json.dumps({"ts": "2026-10-23T21:00:00Z", "before": [
+        {"round": 1, "counters": {"missions_started": 1}, "errors": {"count": 0, "first": []}}]}))
+    llm = FakeLLM({}, default=lambda role, user: _anoms() if role == "anomaly_detector" else _gaps())
+    probe = {"label": "now", "studio": True, "counters": {}, "errors": [], "warnings": [], "physics": {"flagged": []}}
+    lobby = apm.advise(s, root, llm=llm, name="fab", fresh={"t0": 0, "probe": {**probe, "comparable": False}})
+    assert not any(c["id"].startswith("stat:regression") for c in lobby["prefilter"])
+    live = apm.advise(s, root, llm=llm, name="fab", fresh={"t0": 0, "probe": {**probe, "comparable": True}})
+    assert any(c["id"] == "stat:regression:missions_started" for c in live["prefilter"])
+
+
+def test_advise_weights_old_claims_down_and_reproduces_with_a_fresh_session(tmp_path):
+    s = _settings(tmp_path)
+    _git(tmp_path, "init", "-q")
+    root = tmp_path / "game"
+    (root / "ServerScriptService").mkdir(parents=True)
+    (root / "ServerScriptService" / "Fire.server.luau").write_text('Telemetry.count("fires_extinguished", 1)\n')
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "game", when=evm.parse_ts("2026-10-24T05:00:00Z"))  # after the old playtest
+    pt = tmp_path / "evidence" / "fab" / "playtests" / "old1"
+    pt.mkdir(parents=True)
+    (pt / "report.json").write_text(json.dumps({"kind": "multi_playtest", "started": "2026-10-23T21:00:00Z", "bugs": [
+        {"title": "Hose does nothing", "evidence": "spray, fires stay", "severity": "high"},
+        {"title": "HUD fire count wrong", "evidence": "says 120", "severity": "high"},
+        {"title": "Seat prompt", "evidence": "held, not triggered", "severity": "high"}]}))
+    fresh_run = s.runs_dir / "advise-fab" / "tests" / "now1"
+    fresh_run.mkdir(parents=True)
+    (fresh_run / "report.json").write_text(json.dumps({"kind": "protocol", "started": "2026-10-24T09:00:00Z", "bugs": [
+        {"title": "Hose does nothing on fires", "evidence": "spray for 20s, fires stay", "severity": "high"}]}))
+    fresh = {"t0": 0, "runs": ["now1"], "probe": {"label": "now", "studio": True, "counters": {}, "errors": [],
+                                                   "warnings": [], "physics": {"flagged": []}}}
+    llm = FakeLLM({"anomaly_detector": [_anoms(("Hose does nothing", 8, "fix", ["test:old1#bug1"]),
+                                                ("HUD fire count wrong", 9, "fix", ["test:old1#bug2"]))],
+                   "gap_finder": [_gaps()]})
+    rep = apm.advise(s, root, llm=llm, name="fab", fresh=fresh)
+    det_user = llm.calls[0].user
+    assert "held, not triggered" not in det_user and "(old: game" in det_user
+    by = {c["title"]: c for c in rep["ranked"]}
+    assert by["Hose does nothing"]["status"] == "verified now"  # the fresh session reproduced the old claim
+    hud = by["HUD fire count wrong"]
+    assert hud["status"] == "unverified (old)" and hud["score"] == round(hud["score_raw"] * apm.OLD_WEIGHT, 2)
+    assert rep["ranked"][0]["title"] == "Hose does nothing"  # verified beats a higher-impact old claim
+    assert rep["harness"][0]["ids"] == ["test:old1#bug3"]
+    md = (Path(rep["out_dir"]) / "report.md").read_text()
+    assert "Tester-harness fix list" in md and "Unverified (old)" in md and "Verified on the current build (1)" in md

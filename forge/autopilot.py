@@ -36,6 +36,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -1190,7 +1191,8 @@ def _brief(m: dict | None) -> dict | None:
             "errors": len(m.get("errors") or []), "boot_errors": m.get("boot_errors"),
             "checks": {k: (m.get("checks") or {}).get(k) for k in ("pass", "fail")},
             "physics": len((m.get("physics") or {}).get("flagged") or []), "swarm_high": m.get("swarm_high"),
-            "ttfr_s": m.get("ttfr_s"), "screenshot": m.get("screenshot"), "studio": m.get("studio")}
+            "ttfr_s": m.get("ttfr_s"), "screenshot": m.get("screenshot"), "studio": m.get("studio"),
+            **{k: m[k] for k in ("round_started", "observed_s") if k in m}}
 
 
 def score_trend(run_dir: Path) -> list[dict]:
@@ -1452,13 +1454,180 @@ def evidence_dirs(settings: Settings, name: str, extra: list[Path] | None = None
     return out + [Path(p) for p in extra or [] if Path(p).is_dir()]
 
 
+STATIC_KINDS = ("code", "genre")             # code-scan facts: current by construction, never "broken" proof
+ABSENCE_KINDS = ("untouched",)              # "never moved": absence, not proof that something is broken
+LIVE_SOURCE = "fresh session"
+OLD_WEIGHT = 0.3                            # an unreproduced claim from an older build
+STATIC_WEIGHT = 0.8                         # a missing-feature claim backed only by the code scan
+FRESHNESS_NOTE = ("Evidence marked (old: game <version>, N commits ago) was recorded on an older build of the game. "
+                  "Many of those problems may be fixed. Weigh old evidence low unless the fresh session or a "
+                  "current probe shows the same thing. Tester-harness limits (prompts the harness could not press, "
+                  "pathfinding NoPath) are not in the evidence: they are not game bugs.")
+
+
+def _git_ts(path: Path) -> float | None:
+    """Commit time of the last commit touching `path` (None outside git)."""
+    try:
+        out = subprocess.run(["git", "log", "-1", "--format=%ct", "--", path.name], cwd=path.parent,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        return float(out) if out else None
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return None
+
+
+def harness_list(st: evm.EvidenceStore) -> list[dict]:
+    """Tooling items grouped by what the tester harness could not do (goes to the harness fix list)."""
+    groups: dict[str, list[evm.Item]] = {}
+    for it in st.of_kind("tooling"):
+        low = it.text.lower()
+        key = ("ProximityPrompt hold/press never triggers from the harness" if "trigger" in low else
+               "Pathfinding / navmesh: the harness can't path (NoPath)" if ("path" in low or "navmesh" in low) else
+               "other harness limit")
+        groups.setdefault(key, []).append(it)
+    return [{"title": k, "count": len(v), "ids": [i.id for i in v][:8], "example": v[0].text,
+             "stale": sum(1 for i in v if i.data.get("stale"))} for k, v in sorted(groups.items(), key=lambda kv: -len(kv[1]))]
+
+
+SHORT_PROBE_S = 60  # a live probe shorter than this can't prove a counter regression vs full-round history
+
+
+def classify(c: dict, st: evm.EvidenceStore, live: set[str], weak: set[str] | None = None) -> dict:
+    """A ranked candidate's freshness: verified now (a live re-check, or evidence recorded on the current
+    build), static
+    (code scan only: a missing part, not a broken one), unverified (old), or tooling (harness limits only)."""
+    refs = [r for r in c.get("evidence") or [] if r in st.items]
+    kinds = {r: "untouched" if r.startswith("stat:untouched") or r in (weak or set()) else st.items[r].kind
+             for r in refs}  # absence and weak leads never verify a claim on their own
+    if refs and all(k == "tooling" for k in kinds.values()):
+        status, w = "tooling", 0.0
+    elif any((r in live or not st.items[r].data.get("stale")) and kinds[r] not in STATIC_KINDS + ABSENCE_KINDS
+             for r in refs):
+        status, w = "verified now", 1.0  # a live re-check, or a record made on the current build
+    elif refs and all(k in STATIC_KINDS + ABSENCE_KINDS for k in kinds.values()):
+        status, w = "static", STATIC_WEIGHT  # missing in code, or never exercised: nothing broken to reproduce
+    else:
+        status, w = "unverified (old)", OLD_WEIGHT
+    old = sorted({st.items[r].data.get("version") for r in refs if st.items[r].data.get("stale")} - {None})
+    return {**c, "status": status, "score_raw": c["score"], "score": round(c["score"] * w, 2), "old_versions": old}
+
+
+async def fresh_session(settings: Settings, root: Path, place: str, *, slug: str, focus: str, llm: Any,
+                        out_dir: Path, qa_steps: int = 4, swarm_players: int = 2, swarm_minutes: float = 1.0,
+                        log: Callable[[str], None] = print) -> dict:
+    """A short live session on the CURRENT build of `root` in our own Studio window: a probe playtest
+    (errors, counters, census, screenshot), a focused QA run and a short swarm. Opens the place built from
+    `root` (never syncs into a shared place) and closes it at the end. Nothing is written under `root`."""
+    from forge import fun
+    from forge.broker import StudioSlots
+    from forge.orchestrator import StudioKeeper
+    from forge.studio import Studio
+
+    slots = StudioSlots()
+
+    def opener(p: str) -> None:
+        out = settings.repo_root / "place" / f"{p}.rbxlx"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([sys.executable, str(settings.base_game_dir / "tools" / "make_place.py"), "--root", str(root),
+                        "--out", str(out)], check=True, capture_output=True)
+        subprocess.run(["open", "-a", "/Applications/RobloxStudio.app", str(out)], check=False)
+
+    keeper = StudioKeeper(settings, slug, slots, log, opener=opener)
+    # testers read the game's spec from <game_dir>/../spec.json: give them runs/<slug>/{spec.json, game -> root}
+    # (a symlink: nothing is copied or written into root)
+    run_dir = settings.runs_dir / slug
+    run_dir.mkdir(parents=True, exist_ok=True)
+    spec = _read(Path(__file__).parent / "seeds" / f"{slug.removeprefix('advise-')}.json", {}) or {}
+    if spec:
+        _write(run_dir / "spec.json", spec)
+    link = run_dir / "game"
+    if not link.exists():
+        link.symlink_to(Path(root).resolve(), target_is_directory=True)
+    deadline = time.monotonic() + 1800
+    while not (slots.held_by(place) or slots.try_acquire(place)):
+        if time.monotonic() > deadline:
+            raise RuntimeError("no free Studio slot in 30 min")
+        await asyncio.sleep(10)
+    out: dict = {"t0": time.time(), "runs": []}
+    try:
+        sid = await asyncio.to_thread(keeper.prepare, place)
+        if not sid:
+            raise RuntimeError(f"Studio {place} did not connect")
+        gsettings = dataclasses.replace(settings, base_game_dir=link)
+        async with Studio(settings, studio_id=sid) as st:
+            await st.select(sid)
+            try:
+                await st.play()
+                round_started = False
+                pt = spec.get("playtest") or {}
+                if pt.get("start_round"):  # measure a live round like the build loop does, not the lobby
+                    from forge.loop import START_ROUND_DELAY
+                    from mubit_tester.harness import build_call_luau
+                    await asyncio.sleep(START_ROUND_DELAY)
+                    args = {"state": "Active", **({"seconds": int(pt["round_seconds"])} if pt.get("round_seconds") else {})}
+                    res = await st.execute_luau(build_call_luau("round", args), "Server")
+                    round_started = "error" not in str(res).lower()
+                    log(f"fresh probe: start round -> {_clip(res, 120)}")
+                observed = 25 if round_started else 8
+                await asyncio.sleep(observed)
+                probe = await st.probe_report()
+                try:
+                    probe["census"] = await fun.census(st)
+                except Exception:  # noqa: BLE001
+                    pass
+                shot = await st.screenshot(out_dir / "fresh-screenshot.png")
+                out["probe"] = evm.measurement_from_probe(probe, label="now", studio=True,
+                                                          screenshot=str(shot) if shot else None,
+                                                          round_started=round_started, observed_s=observed,
+                                                          comparable=round_started or not pt.get("start_round"))
+            finally:
+                await _safe_stop(st)
+            if qa_steps:
+                try:
+                    from mubit_tester.protocol import qa_test
+                    qa = await qa_test(gsettings, focus, game_dir=link, slug=slug, max_steps=qa_steps, llm=llm,
+                                       studio=st, max_investigations=1, key_images=2)
+                    out["qa"] = {k: qa.get(k) for k in ("run_id", "goal_met", "test_dir", "summary")}
+                    out["qa"]["bugs"] = [b.get("title") for b in qa.get("bugs") or []]
+                    out["runs"].append(qa.get("run_id"))
+                except Exception as e:  # noqa: BLE001
+                    log(f"fresh QA failed: {type(e).__name__}: {_clip(e, 160)}")
+                await _safe_stop(st)
+            if swarm_players:
+                try:
+                    from mubit_tester.swarm import run_swarm
+                    sw = await run_swarm(gsettings, players=swarm_players, minutes=swarm_minutes, llm=llm, studio=st,
+                                         slug=slug, goal=focus, max_steps=10)
+                    out["swarm"] = {"run_id": sw.get("run_id"), "summary": sw.get("summary"),
+                                    "bugs": [b.get("title") for b in sw.get("bugs") or []]}
+                    out["runs"].append(sw.get("run_id"))
+                except Exception as e:  # noqa: BLE001
+                    log(f"fresh swarm failed: {type(e).__name__}: {_clip(e, 160)}")
+                await _safe_stop(st)
+    finally:
+        keeper.opened.add(place)
+        keeper.release(place)  # closes our window, frees the slot
+    return out
+
+
 def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None = None, goal: str = "",
-           extra_dirs: list[Path] | None = None, out_dir: Path | None = None) -> dict:
-    """Read-only advisory pass on a human-built game: its logs, telemetry and playtest records -> ranked
-    improvements + anomalies (one anomaly_detector call, one gap_finder call). Never writes under `root`."""
+           extra_dirs: list[Path] | None = None, out_dir: Path | None = None, fresh: dict | None = None,
+           fresh_place: str | None = None, qa_steps: int = 4, swarm_players: int = 2,
+           swarm_minutes: float = 1.0) -> dict:
+    """Read-only advisory pass on a human-built game -> ranked improvements + anomalies (one anomaly_detector
+    call, one gap_finder call), never writing under `root`.
+
+    Version-aware: every item carries the game version (git commit touching `root`) it was recorded on;
+    older items are marked old and weighted down. `fresh_place` runs a short live session (probe, focused QA
+    on the old claims, short swarm) on the current build first; old claims it reproduces count as current.
+    Harness failures (prompts the tester couldn't press, NoPath) are `tooling`: kept out of the LLM evidence
+    and listed as a tester-harness fix list. A ranked claim is "verified now" only with live evidence."""
     root = Path(root)
     name = name or default_name(settings, root)
+    out_dir = out_dir or settings.runs_dir / "autopilot-advise" / name / time.strftime("%Y%m%d-%H%M%S")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    llm = llm or llm_mod.make_llm(settings, log_path=out_dir / "calls.jsonl")
     dirs = evidence_dirs(settings, name, extra_dirs)
+    gv = evm.GameVersions(root)
     st = evm.EvidenceStore()
     hist: list[dict] = []
     stuck: list[dict] = []
@@ -1474,72 +1643,129 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
             for p in sorted((d / "playtests").glob("*/report.json"), key=lambda p: p.parent.name, reverse=True)[:10]:
                 rep = _read(p, {}) or {}
                 rid = p.parent.name
+                ts = evm.parse_ts(rep.get("started"))
                 st.add(f"test:{rid}", "test", d.name, f"{rep.get('kind')} \"{_clip(rep.get('goal'), 90)}\": "
                        f"goal_met={rep.get('goal_met')}, {len(rep.get('steps') or [])} steps. "
-                       f"{_clip(rep.get('summary'), 200)}")
+                       f"{_clip(rep.get('summary'), 200)}", ts=ts)
                 for i, b in enumerate((rep.get("bugs") or rep.get("bug_hints") or [])[:4], 1):
                     if isinstance(b, dict):
-                        st.add(f"test:{rid}#bug{i}", "bug", d.name, f"[{b.get('severity', '?')}] "
-                               f"{_clip(b.get('title'), 120)}: {_clip(b.get('evidence'), 160)}")
+                        text = f"[{b.get('severity', '?')}] {_clip(b.get('title'), 120)}: {_clip(b.get('evidence'), 160)}"
+                        st.add(f"test:{rid}#bug{i}", "tooling" if evm.is_tooling(text) else "bug", d.name, text, ts=ts)
                 for sp in evm.stuck_spans(rep.get("steps") or []):
-                    stuck.append({**sp, "run": rid})
-                    st.add(f"stuck:{rid}@{sp['from']}", "stuck", d.name, f"{sp['tester']} stuck {sp['steps']} steps "
-                           f"doing {sp['action']} near {sp['pos']}: {sp['result']}")
+                    tool = evm.is_tooling(sp["result"])
+                    if not tool:
+                        stuck.append({**sp, "run": rid})
+                    st.add(f"stuck:{rid}@{sp['from']}", "tooling" if tool else "stuck", d.name,
+                           f"{sp['tester']} stuck {sp['steps']} steps doing {sp['action']} near {sp['pos']}: "
+                           f"{sp['result']}", ts=ts)
         for p in sorted((d / "improve").glob("[0-9]*.json"), key=lambda p: int(p.stem))[-3:] if (d / "improve").is_dir() else []:
             cyc = _read(p, {}) or {}
+            ts = evm.parse_ts(cyc.get("ts"))
             for i, a in enumerate(((cyc.get("audit") or {}).get("anomalies") or [])[:6], 1):
                 if isinstance(a, dict):
-                    st.add(f"cycle:{d.name}:{p.stem}#a{i}", "audit", d.name, f"[{a.get('severity')}] {a.get('system')}: "
-                           f"{_clip(a.get('title'), 110)}: {_clip(a.get('observed'), 160)}")
+                    text = f"[{a.get('severity')}] {a.get('system')}: {_clip(a.get('title'), 110)}: {_clip(a.get('observed'), 160)}"
+                    st.add(f"cycle:{d.name}:{p.stem}#a{i}", "tooling" if evm.is_tooling(text) else "audit", d.name,
+                           text, ts=ts)
             for i, fx in enumerate((cyc.get("code_fixes") or [])[:4], 1):
                 st.add(f"cycle:{d.name}:{p.stem}#f{i}", "fix", d.name, f"fix {fx.get('status')} {fx.get('path')}: "
-                       f"{_clip(fx.get('anomaly'), 140)}")
+                       f"{_clip(fx.get('anomaly'), 140)}", ts=ts)
         for i, rp in enumerate(_lines(d / "improve" / "reports.jsonl")[-4:], 1):
-            st.add(f"report:{d.name}#{i}", "report", d.name, f"{rp.get('reporter') or 'tester'}: {_clip(rp.get('text'), 260)}")
+            st.add(f"report:{d.name}#{i}", "report", d.name, f"{rp.get('reporter') or 'tester'}: {_clip(rp.get('text'), 260)}",
+                   ts=evm.parse_ts(rp.get("ts")))
         evm.add_calls(st, d)
     for p in sorted((settings.repo_root / "games" / name / "reports").glob("*.md")):
+        if "autopilot" in p.name:  # our own earlier advice is not evidence
+            continue
+        ts = _git_ts(p)  # a run report describes the build it was written about
         for i, ln in enumerate(ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()):
             if re.match(r"^(-|\d+\.|\|)", ln) and len(ln) > 12 and not set(ln) <= set("|-: "):
-                st.add(f"report:{p.stem}#{i}", "report", "games/reports", _clip(ln.lstrip("-|0123456789. "), 260))
+                text = _clip(ln.lstrip("-|0123456789. "), 260)
+                st.add(f"report:{p.stem}#{i}", "tooling" if evm.is_tooling(text) else "report", "games/reports", text,
+                       ts=ts)
     for m in hist:
         evm.add_measurement(st, m, source="history")
-    sources = gapmod.game_sources(root)
-    declared = evm.declared_counters(sources, spec)
+
+    # the live re-check on the current build
+    old_claims = [it for it in st.of_kind("bug", "audit", "report") if it.data.get("ts") is not None]
+    focus = "Re-check on the current build whether these older reports still happen: " + "; ".join(
+        dict.fromkeys(_clip(re.sub(r"^\[[^\]]*\]\s*", "", it.text).split(":")[0], 70) for it in old_claims[:12])) \
+        if old_claims else (goal or "the core loop and the first 5 minutes")
+    if fresh is None and fresh_place:
+        fresh = asyncio.run(fresh_session(settings, root, fresh_place, slug=f"advise-{name}", focus=focus[:900],
+                                          llm=llm, out_dir=out_dir, qa_steps=qa_steps, swarm_players=swarm_players,
+                                          swarm_minutes=swarm_minutes))
+    live: set[str] = set()
     current = hist[-1] if hist else {"label": "source", "counters": {}, "errors": []}
     previous = hist[-2] if len(hist) > 1 else None
-    seen_any = {k for m in hist for k, v in (m.get("counters") or {}).items() if float(v or 0) > 0}
+    if fresh:
+        before = set(st.items)
+        if fresh.get("probe"):
+            evm.add_measurement(st, fresh["probe"], source=LIVE_SOURCE)
+            # compare with history only like for like (a lobby probe vs playtests that ran a round says nothing)
+            current = fresh["probe"]
+            previous = (hist[-1] if hist else None) if fresh["probe"].get("comparable", True) else None
+        t0 = float(fresh.get("t0") or 0) - 5
+        evm.add_tests(st, settings.runs_dir / f"advise-{name}", since=t0, limit=8)
+        evm.add_swarm(st, settings.runs_dir / "playtests", f"advise-{name}", since=t0)
+        live = {i.id for i in st.items.values() if i.id not in before or LIVE_SOURCE in (i.data.get("also") or [])
+                or i.source == LIVE_SOURCE}
+        fresh_texts = [st.items[i].text for i in live if st.items[i].kind in ("bug", "error", "stuck", "qa", "test")]
+        for it in old_claims:  # an older claim the fresh session saw again is current
+            if it.id not in live and any(similar(it.text, t) >= 0.35 for t in fresh_texts):
+                it.data["reproduced"] = True
+                live.add(it.id)
+    sources = gapmod.game_sources(root)
+    declared = evm.declared_counters(sources, spec)
+    seen_any = {k for m in hist + ([current] if fresh else []) for k, v in (m.get("counters") or {}).items()
+                if float(v or 0) > 0}
+    hist_ts = max((float(m.get("ts") or 0) for m in hist), default=None)
     for k in declared:
-        if k not in seen_any and hist:
-            st.add(f"untouched:{k}", "untouched", "telemetry", f"counter {k} is bumped in code but never moved in "
-                   f"{len(hist)} recorded playtests")
+        if k not in seen_any and (hist or fresh):
+            ref = st.add(f"untouched:{k}", "untouched", "telemetry", f"counter {k} is bumped in code but never moved in "
+                         f"{len(hist)} recorded playtests" + (" or the fresh session" if fresh else ""),
+                         ts=None if fresh else hist_ts)
+            if fresh:
+                live.add(ref)
     cands = evm.prefilter(current, previous, st, declared=[k for k in declared if k not in seen_any], stuck=stuck)
     evm.metric_items(st, list(dict.fromkeys(["errors"] + [e[len("metric:"):] for c in cands for e in c["evidence"]
                                                           if e.startswith("metric:")])))
-    for c in cands:
-        st.add(c["id"], "stat", "prefilter", c["text"])
+    for c in cands:  # with a fresh session the pre-filter compares the current build: its findings are live
+        ref = st.add(c["id"], "stat", "prefilter", c["text"], ts=None if fresh else hist_ts)
+        if fresh:
+            live.add(ref)
     genre = gapmod.detect_genre(spec, goal)
     for item in gapmod.scan_checklist(genre, sources):
         st.add(f"genre:{item['id']}", "genre", "code scan", f"{item['label']}: " + (
             f"mentioned in {', '.join(item['files'])}" if item["present"] else "not found in code"))
     for path, text in list(sources.items())[:60]:
         st.add(f"code:{path}", "code", "source", f"{text.count(chr(10)) + 1} lines")
-    llm = llm or llm_mod.make_llm(settings, log_path=settings.runs_dir / "autopilot-advise" / name / "calls.jsonl")
+    for i in live:
+        if i in st.items:
+            st.items[i].data["live"] = True
+    versions = evm.tag_versions(st, gv)
+
+    # the LLMs see game evidence only (no harness limits), old items marked
+    seen = evm.EvidenceStore()
+    seen.items = {k: v for k, v in st.items.items() if v.kind != "tooling"}
+    seen.series = st.series
+    note_goal = (goal or "Make this game genuinely good for real players.") + "\n\n" + FRESHNESS_NOTE
     files = list(sources)
     sid = f"advise-{name}"
     try:
-        obj, res = llm.complete_json(ROLE, detector_message(goal, spec, current, cands, st, declared=declared),
+        obj, res = llm.complete_json(ROLE, detector_message(note_goal, spec, current, cands, seen, declared=declared),
                                      session_id=sid, required=["anomalies"], max_tokens=5000)
-        det = parse_anomalies(obj, st.refs(), files=files)
+        det = parse_anomalies(obj, seen.refs(), files=files)
         det["request_id"] = res.request_id
     except Exception as e:  # noqa: BLE001
         det = {"summary": f"detector failed: {e}", "anomalies": from_prefilter(cands), "noise": [], "request_id": None}
     ev = gapmod.Evidence()
-    for kind in ("stat", "error", "audit", "bug", "stuck", "untouched", "report", "fix", "test", "metric", "physics",
-                 "calls", "genre", "code"):
+    for kind in ("stat", "error", "bug", "stuck", "qa", "test", "swarm", "audit", "untouched", "report", "fix", "metric",
+                 "physics", "census", "calls", "genre", "code"):
         rows = ev.section(kind)
-        for it in st.of_kind(kind):
-            ev.add(rows, it.id, it.text)
-    gmsg = gapmod.gap_message({"spec": spec, "evidence": ev}, goal or "Make this game genuinely good for real players.")
+        for it in seen.of_kind(kind):
+            old = f"(old: game {it.data.get('version')}, {it.data.get('behind')} commits ago) " if it.data.get("stale") else ""
+            ev.add(rows, it.id, old + it.text)
+    gmsg = gapmod.gap_message({"spec": spec, "evidence": ev}, note_goal)
     try:
         gobj, gres = llm.complete_json(gapmod.ROLE, gmsg, session_id=sid, required=["gaps"], max_tokens=6000)
         gp = gapmod.parse_gaps(gobj, ev.refs, files=files)
@@ -1550,12 +1776,23 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
         a["request_id"] = det.get("request_id")
     for g in gp["gaps"]:
         g["request_id"] = gp.get("request_id")
-    ranked = candidates(det["anomalies"], gp["gaps"])
-    out_dir = out_dir or settings.runs_dir / "autopilot-advise" / name / time.strftime("%Y%m%d-%H%M%S")
+    weak = set()
+    if fresh and float((fresh.get("probe") or {}).get("observed_s") or SHORT_PROBE_S) < SHORT_PROBE_S:
+        weak = {c["id"] for c in cands if c["kind"] in ("regression", "drop")}
+    ranked = [classify(c, st, live, weak) for c in candidates(det["anomalies"], gp["gaps"])]
+    order = {"verified now": 0, "static": 1, "unverified (old)": 2, "tooling": 3}
+    ranked.sort(key=lambda c: (order[c["status"]], -c["score"]))
+    harness = harness_list(st)
+    for c in [c for c in ranked if c["status"] == "tooling"]:
+        harness.append({"title": c["title"], "count": len(c["evidence"]), "ids": c["evidence"][:8],
+                        "example": _clip(c["job"]["request"], 200), "stale": None})
+    calls = sum(1 for _ in (out_dir / "calls.jsonl").open()) if (out_dir / "calls.jsonl").exists() else None
     rep = {"name": name, "root": str(root), "ts": now_iso(), "mode": "advise (read-only)", "sources": [str(d) for d in dirs],
-           "evidence": st.counts(), "evidence_items": len(st.items), "history_points": len(hist),
-           "prefilter": cands, "anomalies": det, "gaps": gp, "ranked": ranked, "out_dir": str(out_dir)}
-    out_dir.mkdir(parents=True, exist_ok=True)
+           "evidence": st.counts(), "evidence_items": len(st.items), "history_points": len(hist), "versions": versions,
+           "live_items": len(live & set(st.items)), "fresh": {k: v for k, v in (fresh or {}).items() if k != "probe"},
+           "fresh_probe": _brief(fresh.get("probe")) if fresh and fresh.get("probe") else None, "focus": focus,
+           "prefilter": cands, "anomalies": det, "gaps": gp, "ranked": [c for c in ranked if c["status"] != "tooling"],
+           "harness": harness, "mubit_calls": calls, "out_dir": str(out_dir)}
     st.save(out_dir / "evidence.json")
     _write(out_dir / "report.json", rep)
     (out_dir / "report.md").write_text(render_advice(rep), encoding="utf-8")
@@ -1564,30 +1801,52 @@ def advise(settings: Settings, root: Path, *, llm: Any = None, name: str | None 
 
 def render_advice(rep: dict) -> str:
     det, gp = rep["anomalies"], rep["gaps"]
+    v = rep.get("versions") or {}
+    fr = rep.get("fresh") or {}
     L = [f"# Autopilot advice: {rep['name']} (read-only)", "",
-         f"{rep['ts']} · root `{rep['root']}` · {rep['evidence_items']} evidence items from {len(rep['sources'])} "
-         f"record folders + the human run reports + the source · {rep['history_points']} recorded playtests in the "
-         "metric history. No game file was changed.", "",
-         "Evidence: " + ", ".join(f"{k} {v}" for k, v in rep["evidence"].items()), "",
-         "## Ranked improvements (anomaly detector + gap finder, impact x confidence)", "",
-         "| # | score | from | kind | improvement | evidence |", "|---|---|---|---|---|---|"]
-    for i, c in enumerate(rep["ranked"][:14], 1):
-        L.append(f"| {i} | {c['score']:g} | {' + '.join(s.replace('_', ' ') for s in c['sources'])} | {c['kind']} | "
-                 f"**{c['title']}**: {_clip(c['job']['request'], 260)} | {', '.join(c['evidence'][:4])} |")
-    L += ["", "## Anomalies (Mubit task anomaly_detector)", "", det.get("summary") or "", ""]
-    for a in det["anomalies"]:
-        L.append(f"- **[{a['severity']}] {a['title']}** ({a['kind']}, rank {a['rank']:g}): {a['why']} "
-                 f"Evidence: {', '.join(a['evidence'][:5])}. Job: {a['job']['kind']}"
-                 + (f" `{a['job']['path']}`" if a['job'].get('path') else "") + f": {_clip(a['job']['request'], 300)}")
-    if det.get("noise"):
-        L.append(f"- Judged noise: {', '.join(det['noise'][:12])}")
-    L += ["", "## Gaps (Mubit task gap_finder)", "", gp.get("summary") or "", ""]
-    for g in gp["gaps"]:
-        L.append(f"- **{g['title']}** ({g['kind']}, impact {g['impact']:g}, rank {g['rank']:g}): {g['why']} "
-                 f"Evidence: {', '.join(g['evidence'][:5])}")
-    L += ["", "## Statistical pre-filter (no LLM)", ""]
+         f"{rep['ts']} · root `{rep['root']}` at game version `{v.get('current')}` · {rep['evidence_items']} evidence "
+         f"items ({v.get('stale', 0)} from older builds, {rep.get('live_items', 0)} live on this build) from "
+         f"{len(rep['sources'])} record folders + the human run reports + the source"
+         + (f" + a fresh session (QA `{(fr.get('qa') or {}).get('run_id')}`, swarm `{(fr.get('swarm') or {}).get('run_id')}`)"
+            if fr else " (no fresh session: every runtime claim is unverified)")
+         + f" · {rep.get('mubit_calls')} Mubit calls. No game file was changed.", "",
+         "Evidence: " + ", ".join(f"{k} {n}" for k, n in rep["evidence"].items()), ""]
+    if rep.get("fresh_probe"):
+        fp = rep["fresh_probe"]
+        L += [f"Fresh probe on `{v.get('current')}`"
+              + (" (a round started through the test harness)" if fp.get("round_started") else " (lobby)")
+              + (f", watched {fp['observed_s']} s: older playtests ran longer, so rate counters (fires, spreads, "
+                 "flare-ups) read low; treat their regressions as leads to confirm" if fp.get("observed_s") else "")
+              + f": {fp.get('errors')} runtime errors, {fp.get('physics')} physics flags. "
+              f"Screenshot: `{fp.get('screenshot')}`.", ""]
+    for status, head in (("verified now", "Verified on the current build"),
+                         ("static", "Missing or never exercised (code scan / counters that never moved)"),
+                         ("unverified (old)", "Unverified (old): from older builds, not reproduced by the fresh session")):
+        rows = [c for c in rep["ranked"] if c["status"] == status]
+        L += [f"## {head} ({len(rows)})", ""]
+        if not rows:
+            L += ["None.", ""]
+            continue
+        L += ["| # | score | from | kind | improvement | evidence |", "|---|---|---|---|---|---|"]
+        for i, c in enumerate(rows[:12], 1):
+            old = f" (old builds: {', '.join(c['old_versions'][:3])})" if c.get("old_versions") else ""
+            L.append(f"| {i} | {c['score']:g} (raw {c['score_raw']:g}) | {' + '.join(s.replace('_', ' ') for s in c['sources'])} "
+                     f"| {c['kind']} | **{c['title']}**: {_clip(c['job']['request'], 240)} | "
+                     f"{', '.join(c['evidence'][:4])}{old} |")
+        L.append("")
+    L += ["## Tester-harness fix list (tooling, not game bugs)", ""]
+    for h in rep.get("harness") or []:
+        L.append(f"- **{h['title']}**: {h['count']} sightings"
+                 + (f" ({h['stale']} on older builds)" if h.get("stale") else "")
+                 + f", e.g. {_clip(h['example'], 180)} ({', '.join(h['ids'][:4])})")
+    if not rep.get("harness"):
+        L.append("None.")
+    L += ["", "## Anomaly detector summary", "", det.get("summary") or "", "",
+          "## Gap finder summary", "", gp.get("summary") or "", "", "## Statistical pre-filter (no LLM)", ""]
     for c in rep["prefilter"]:
         L.append(f"- `{c['id']}` {c['severity']}: {c['text']}")
+    if rep.get("focus"):
+        L += ["", f"Fresh QA focus: {_clip(rep['focus'], 600)}"]
     L += ["", f"Mubit request ids: anomaly_detector `{det.get('request_id')}`, gap_finder `{gp.get('request_id')}`"]
     return "\n".join(L) + "\n"
 

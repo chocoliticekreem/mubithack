@@ -527,7 +527,7 @@ def orchestrate(slug: str, goal: str = "", max_calls: int = 300, minutes: float 
 def autopilot(target: str | None = None, advise: bool = False, root: str | None = None, goal: str = "",
               max_calls: int = 250, minutes: float = 120, rounds: int = 4, per_round: int = 3,
               studio: str | None = None, use_studio: bool = True, swarm_players: int = 2, qa_steps: int = 4,
-              correct_id: str | None = None, note: str | None = None) -> str:
+              correct_id: str | None = None, note: str | None = None, fresh: bool = False) -> str:
     """Self-driving Forge (background job): `target` is an idea (a new game is built with forge new) or a
     slug. Each round it measures the version (Studio playtest probe, checks headless first, a focused QA
     run, a short swarm, ForgeBridge events, critic + fun), puts every signal in one evidence store, runs a
@@ -536,7 +536,8 @@ def autopilot(target: str | None = None, advise: bool = False, root: str | None 
     evidence ids), ranks the candidates, runs the top ones as orchestrator jobs, re-measures and keeps the
     version or rolls it back. Stops when `done` is green and the scores reach the target, or the budget
     runs out; resumable. `advise=True` (+ `root`, default game/) is a read-only report on a human-built
-    game. `correct_id` + `note` corrects one decision (a Mubit correction in the task that made it)."""
+    game; evidence from older builds is weighted down and `fresh=True` (+ `studio`) re-checks it live
+    first. `correct_id` + `note` corrects one decision (a Mubit correction in the task that made it)."""
     if correct_id:
         if not note:
             raise ToolError("note: say what is wrong with that decision")
@@ -544,6 +545,11 @@ def autopilot(target: str | None = None, advise: bool = False, root: str | None 
         return _job_reply(start_job("autopilot", args), f"a correction of autopilot decision {correct_id}")
     if advise:
         args = ["autopilot", "--advise", "--goal", goal] + (["--root", root] if root else [])
+        if fresh:  # a short live session on the current build first (needs your own place)
+            if not studio:
+                raise ToolError("fresh=True needs studio='Forge-agents-<N>' (your own place)")
+            args += ["--fresh", "--studio", studio, "--qa-steps", str(max(0, qa_steps)),
+                     "--swarm-players", str(max(0, swarm_players))]
         return _job_reply(start_job("autopilot", args), f"an advisory autopilot pass on {root or 'game/'}")
     if not target:
         raise ToolError("target: an idea for a new game or an existing slug (or advise=True)")

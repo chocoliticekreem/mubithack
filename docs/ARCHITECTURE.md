@@ -661,10 +661,22 @@ rounds/<r>/{observe,detect,decide,act,verify,learn}.json + evidence.json + prefi
 request_id: forge ledger counts them), rejected.json, queue.json, calls.jsonl; runs/autopilot-<slug>.log.
 `correct(settings, slug, id, note)`: anomaly -> anomaly_detector call with the previous list + CORRECTION_MARK;
 gap -> gaps.correct_gaps(reject=[gap]); the id -> rejected.json. `advise(settings, root, *, llm, name, goal,
-extra_dirs)`: read-only over evidence/<name>*, runs/<name>*, games/<name>/reports/*.md and the source ->
-runs/autopilot-advise/<name>/<stamp>/{report.md, report.json, evidence.json}. MCP: `autopilot(target, advise,
-root, goal, max_calls, minutes, rounds, per_round, studio, use_studio, swarm_players, qa_steps, correct_id,
-note)` (job). Skill: `.claude/skills/forge-autopilot/SKILL.md`.
+extra_dirs, fresh=None, fresh_place=None, qa_steps, swarm_players, swarm_minutes)`: read-only over evidence/<name>*,
+runs/<name>*, games/<name>/reports/*.md (not its own autopilot reports) and the source ->
+runs/autopilot-advise/<name>/<stamp>/{report.md, report.json, evidence.json, calls.jsonl}.
+Freshness: every item carries data.ts; evidence.GameVersions(root) (git commits touching root) + tag_versions() give
+data.version / behind / stale; old items are marked "(old: game <v>, N commits ago)" in the LLM messages.
+`fresh_place` (CLI `--fresh --studio P`) runs fresh_session() first in our own place: a probe on the current build
+(a round started through ForgeTest when spec.playtest.start_round; observed_s recorded; compared with history only
+when comparable), a focused QA on the old claims and a short swarm, with runs/advise-<name>/{spec.json, game ->
+root symlink}. An old claim a fresh observation repeats is `reproduced` (live). Harness failures (evidence.TOOLING_RX:
+"held, not triggered", NoPath, navmesh, "no instance at path") are kind `tooling`: kept out of the LLM evidence and
+listed in the report's tester-harness fix list (harness_list). classify(candidate, st, live, weak) -> status
+verified now (live or current-build evidence; x1) | static (code scan / never-moved counters only; x0.8) |
+unverified (old) (x0.3) | tooling (harness list); counter regressions from a probe shorter than SHORT_PROBE_S (60 s)
+are weak leads that never verify alone. MCP: `autopilot(target, advise, root, goal, max_calls, minutes, rounds,
+per_round, studio, use_studio, swarm_players, qa_steps, correct_id, note, fresh)` (job).
+Skill: `.claude/skills/forge-autopilot/SKILL.md`.
 
 ### checks.py + scenarios.py (executable checks and the scenario designer)
 A check is `runs/<slug>/checks/<id>.luau`: header `-- check: <title>` / `-- covers: <acceptance item
