@@ -388,3 +388,50 @@ workspace:WaitForChild("NeverThere", 8)
     res = checks.run_check_offline(root, _check('return { ok = workspace:GetAttribute("Got") == 7, detail = tostring(workspace:GetAttribute("Got")) }'))
     assert res["ok"], res
     assert not any("NeverThere" in w for w in rep["warnings"]), rep["warnings"]
+
+
+def test_press_fires_a_shown_button_on_its_client_and_reports_the_effect(tmp_path):
+    from mubit_tester.harness import Harness
+
+    root = _game(tmp_path)
+    _write(root, "StarterPlayerScripts/Shop.client.luau", r"""
+local lp = game.Players.LocalPlayer
+local gui = Instance.new("ScreenGui")
+gui.Name = "ShopGui"
+local open = Instance.new("TextButton")
+open.Name = "Open"
+open.Text = "SHOP"
+open.Parent = gui
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.Visible = false
+panel.Parent = gui
+local title = Instance.new("TextLabel")
+title.Text = "Buy a dropper"
+title.Parent = panel
+local hidden = Instance.new("TextButton")
+hidden.Text = "SECRET"
+hidden.Parent = panel
+open.Activated:Connect(function() panel.Visible = true end)
+gui.Parent = lp:WaitForChild("PlayerGui")
+""")
+    _write(root, "ServerScriptService/ForgeTest.server.luau",
+           (REPO / "mubit-tester/roblox/ForgeTest.server.luau").read_text())
+
+    async def go():
+        hs = hl.HeadlessStudio(root, players=2, idle=0.0)
+        await hs.play()
+        try:
+            h = Harness(hs)
+            windows = await h.ui_windows()
+            hidden = await h.press("1", text="SECRET")
+            shop = await h.press("2", text="shop")
+            return windows, hidden, shop
+        finally:
+            await hs.stop()
+
+    windows, hidden, shop = _run(go())
+    assert len(windows) == 2  # every simulated client can press
+    assert hidden["done"] is False and "no visible button" in hidden["detail"]
+    assert shop["done"] is True and shop["changed"] is True
+    assert "Buy a dropper" in shop["effect"]["appeared"]

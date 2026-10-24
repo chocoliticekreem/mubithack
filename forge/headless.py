@@ -54,6 +54,87 @@ class NeedsStudio(StudioError):
     """The headless engine cannot answer this (a screenshot, real input, a renderer): run it in Studio."""
 
 
+# HeadlessStudio.press, run on the player's client: find a shown button, fire its events, diff the screen
+PRESS_LUAU = r"""
+local HttpService = game:GetService("HttpService")
+local lp = game:GetService("Players").LocalPlayer
+local pg = lp:FindFirstChildOfClass("PlayerGui")
+local wantPath, wantText = __PATH__, string.lower(__TEXT__)
+local function shown(g)
+	local cur = g
+	while cur and cur ~= pg do
+		if cur:IsA("GuiObject") and not cur.Visible then return false end
+		if cur:IsA("LayerCollector") and not cur.Enabled then return false end
+		cur = cur.Parent
+	end
+	return cur == pg
+end
+local function rel(g)
+	local parts, cur = {}, g
+	while cur and cur ~= pg do table.insert(parts, 1, cur.Name) cur = cur.Parent end
+	return table.concat(parts, ".")
+end
+local function label(b)
+	local t = (b:IsA("TextButton") and b.Text) or ""
+	if t == "" then
+		for _, d in b:GetDescendants() do
+			if d:IsA("TextLabel") and d.Text ~= "" then t = d.Text break end
+		end
+	end
+	return t
+end
+local function snapshot()
+	local texts, n = {}, 0
+	if pg then
+		for _, d in pg:GetDescendants() do
+			if d:IsA("GuiObject") and shown(d) then
+				n += 1
+				if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Text ~= "" then texts[d.Text] = true end
+			end
+		end
+	end
+	local stats = {}
+	local ls = lp:FindFirstChild("leaderstats")
+	if ls then for _, v in ls:GetChildren() do stats[v.Name] = v.Value end end
+	return { texts = texts, n = n, stats = stats }
+end
+if not pg then return HttpService:JSONEncode({ done = false, detail = "no PlayerGui" }) end
+local found, names = nil, {}
+for _, b in pg:GetDescendants() do
+	if b:IsA("GuiButton") and shown(b) then
+		local t = label(b)
+		table.insert(names, t ~= "" and t or rel(b))
+		if (wantPath ~= "" and (rel(b) == wantPath or string.sub(rel(b), -#wantPath) == wantPath))
+			or (wantText ~= "" and string.find(string.lower(t), wantText, 1, true)) then
+			found = b
+			break
+		end
+	end
+end
+if not found then
+	return HttpService:JSONEncode({ done = false, pressable = false,
+		detail = "no visible button matches " .. (wantPath ~= "" and wantPath or wantText) .. "; visible: [" .. table.concat(names, ", ") .. "]" })
+end
+local before = snapshot()
+for _, ev in { "MouseButton1Down", "MouseButton1Up", "MouseButton1Click", "Activated" } do
+	found[ev]:Fire()
+end
+task.wait(__WAIT__)
+local after = snapshot()
+local appeared, gone, stats = {}, {}, {}
+for t in after.texts do if not before.texts[t] then table.insert(appeared, t) end end
+for t in before.texts do if not after.texts[t] then table.insert(gone, t) end end
+for k, v in after.stats do if before.stats[k] ~= v then stats[k] = { before.stats[k], v } end end
+local changed = #appeared > 0 or #gone > 0 or next(stats) ~= nil or after.n ~= before.n
+local effect = { appeared = appeared, gone = gone, stats = stats, gui_objects = { before.n, after.n } }
+return HttpService:JSONEncode({
+	done = true, fired = true, changed = changed, path = rel(found), text = label(found), effect = effect, headless = true,
+	detail = "pressed '" .. label(found) .. "' (" .. rel(found) .. ") headless: its events fired (no layout check)"
+		.. "; changed: " .. (changed and HttpService:JSONEncode(effect) or "nothing on screen"),
+})
+"""
+
+
 # ---------------------------------------------------------------- policy
 
 
@@ -378,6 +459,26 @@ class HeadlessStudio:
         lines = [f"[warn] {w}" for w in rep.get("warnings") or []]
         lines += [f"[error] {e.get('script', '')}: {e.get('message', '')}" for e in rep.get("errors") or []]
         return "\n".join(lines)
+
+    async def press(self, user_id: Any, *, path: str | None = None, text: str | None = None,
+                    wait: float = 0.8) -> dict:
+        """A UI press without a renderer: on that player's client, find the visible GuiButton by path (below
+        PlayerGui) or text and fire its MouseButton1Down/Up/Click and Activated, then report what changed.
+        No layout engine: a button covered by another frame or off screen still "fires" here (approx), so
+        whether a real click would reach it is Studio's call."""
+        name = await self.execute_luau(
+            "local w = " + luau_string(str(user_id)) + "\n"
+            "for i, p in game:GetService('Players'):GetPlayers() do\n"
+            "  if tostring(p.UserId) == w or p.Name == w or tostring(i) == w then return p.Name end\n"
+            "end\nreturn ''", "Server")
+        if not name:
+            return {"done": False, "detail": f"no player {user_id}"}
+        code = PRESS_LUAU.replace("__PATH__", luau_string(path or "")).replace("__TEXT__", luau_string(text or ""))
+        code = code.replace("__WAIT__", str(float(wait)))
+        from forge.studio import extract_json
+
+        obj = extract_json(await self.execute_luau(code, f"Client:{name}", timeout=30))
+        return obj if isinstance(obj, dict) else {"done": False, "detail": f"unreadable press reply: {obj!r}"[:200]}
 
     async def screenshot(self, out: Path, camera: Any = None, look_at: Any = None) -> Path:
         raise NeedsStudio("needs studio: a screenshot needs a renderer")
