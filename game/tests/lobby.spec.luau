@@ -169,7 +169,7 @@ end)
 Spec.test("board helpers: difficulty, players text, pips", function()
 	Spec.eq(LobbyQueue.difficulty(byId.house_fire), 1, "house_fire easy")
 	Spec.eq(LobbyQueue.difficulty(byId.dam_finale), 5, "dam_finale hardest")
-	Spec.eq(LobbyQueue.playersText(byId.house_fire), "1-4 players", "players text")
+	Spec.eq(LobbyQueue.playersText(byId.house_fire), "1-8 players", "players text")
 	Spec.eq(LobbyQueue.pips(2, 5), "**...", "pips")
 	for _, m in Missions do
 		local d = LobbyQueue.difficulty(m)

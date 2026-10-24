@@ -18,7 +18,7 @@ local Missions = {
 		blurb = "A kitchen fire on a sunset street. Two neighbours, a cat, a dog, and a confused panda.",
 		locationId = "Town",
 		enabled = true,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 180,
 		atmosphere = "DuskSuburb",
 		objectives = {
@@ -47,7 +47,7 @@ local Missions = {
 		blurb = "Three floors of brick and bad wiring. Jumpers at the windows: hold the trampoline together.",
 		locationId = "Apartment",
 		enabled = false,
-		players = { min = 2, max = 4 }, -- the trampoline needs two holders
+		players = { min = 2, max = 8 }, -- the trampoline needs two holders
 		seconds = 240,
 		atmosphere = "NightStreet",
 		objectives = {
@@ -75,7 +75,7 @@ local Missions = {
 		blurb = "A kid pulled the alarm. This time it's real: smoke in the halls and a chem lab ready to pop.",
 		locationId = "School",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 240,
 		atmosphere = "DuskSuburb",
 		objectives = {
@@ -102,7 +102,7 @@ local Missions = {
 		blurb = "The farmer is smoking next to the hay again. Slap the cigarette out before it all goes up.",
 		locationId = "Farm",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 200,
 		atmosphere = "FireGlow",
 		objectives = {
@@ -130,7 +130,7 @@ local Missions = {
 		blurb = "A campfire got away. No minimap out here: the walkie is how you find the campers.",
 		locationId = "Forest",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 240,
 		atmosphere = "FireGlow",
 		objectives = {
@@ -157,7 +157,7 @@ local Missions = {
 		blurb = "Burst pipes, a burning unit, and a fuse box right above the puddle. Cut the power first.",
 		locationId = "Storage",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 180,
 		atmosphere = "NightStreet",
 		objectives = {
@@ -185,7 +185,7 @@ local Missions = {
 		blurb = "The field fire got big enough to spin. Hose it down before it eats the truck.",
 		locationId = "Field",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 180,
 		atmosphere = "FireGlow",
 		objectives = {
@@ -211,7 +211,7 @@ local Missions = {
 		blurb = "The city is too big to put out. Move everyone to high ground, plant the charges, press the button.",
 		locationId = "Dam",
 		enabled = false,
-		players = { min = 1, max = 4 },
+		players = { min = 1, max = 8 },
 		seconds = 300,
 		atmosphere = "FireGlow",
 		objectives = {
@@ -237,7 +237,7 @@ local Missions = {
 		blurb = "The bamboo is burning and the panda will not walk. It takes two to carry a panda.",
 		locationId = "Zoo",
 		enabled = false,
-		players = { min = 2, max = 4 }, -- the panda is a 2-carrier
+		players = { min = 2, max = 8 }, -- the panda is a 2-carrier
 		seconds = 180,
 		atmosphere = "DuskSuburb",
 		objectives = {

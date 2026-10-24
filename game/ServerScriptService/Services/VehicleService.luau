@@ -946,6 +946,13 @@ function spawnFor(player: Player): Truck?
 	if byOwner[player] then
 		return byOwner[player]
 	end
+	local n = 0
+	for _ in byOwner do
+		n += 1
+	end
+	if n >= (VehicleConfig.MaxTrucks or math.huge) then
+		return nil -- the station is full: this one rides along in someone's crew seat
+	end
 	local m = TruckBuilder.Build(folder(), CFrame.new(0, 2000, 0)) -- built out of sight, then placed
 	m.Name = `FireTruck_{player.UserId}`
 	m:SetAttribute("OwnerUserId", player.UserId)
@@ -1259,7 +1266,19 @@ function VehicleService:Start()
 	Net.event("Vehicle", "Honked")
 
 	Players.PlayerRemoving:Connect(function(p: Player)
+		local had = byOwner[p] ~= nil
 		despawnFor(p)
+		if had then
+			-- a bay freed up: the first player without a truck gets one
+			task.defer(function()
+				for _, other in Players:GetPlayers() do
+					if other ~= p and not byOwner[other] then
+						pcall(spawnFor, other)
+						break
+					end
+				end
+			end)
+		end
 		runOverAt[p] = nil
 		bonkAt[p] = nil
 		lastRespawn[p] = nil

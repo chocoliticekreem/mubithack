@@ -50,7 +50,7 @@ Spec.test("every entry has the MissionDef shape", function()
 		Spec.eq(type(m.blurb), "string", `{id}.blurb`)
 		Spec.eq(type(m.locationId), "string", `{id}.locationId`)
 		Spec.truthy(PRESETS[m.atmosphere], `{id}.atmosphere`)
-		Spec.truthy(m.players.min >= 1 and m.players.max <= 4 and m.players.min <= m.players.max, `{id}.players`)
+		Spec.truthy(m.players.min >= 1 and m.players.max <= 8 and m.players.min <= m.players.max, `{id}.players`)
 		Spec.truthy(m.seconds >= 60 and m.seconds <= 600, `{id}.seconds`)
 		Spec.truthy(#m.objectives >= 1, `{id}.objectives`)
 		for _, o in m.objectives do

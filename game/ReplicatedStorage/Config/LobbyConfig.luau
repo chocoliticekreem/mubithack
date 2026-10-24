@@ -7,7 +7,7 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	UseLobby = true, -- true = board + queue pads + instances (the product's entry point); false = v1 auto-round
 	LobbyLocation = "Station", -- players spawn and return here
-	MaxSquadSize = 4,
+	MaxSquadSize = 8, -- 4 trucks; crew 5..8 ride along
 	SquadPads = 3, -- queue pads LobbyService builds on the apron (attr PadId 1..N) when StationBuilder has none
 	CountdownSeconds = 15, -- starts when the first player steps on a pad
 	FullCountdownSeconds = 5, -- when the squad is full

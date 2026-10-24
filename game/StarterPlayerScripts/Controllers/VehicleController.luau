@@ -71,6 +71,7 @@ local savedCamType: Enum.CameraType? = nil
 local savedFov = 70
 
 local respawnButton: TextButton? = nil
+local STATION_RADIUS = 150 -- studs from a TruckBay that count as "at the station"
 local hintLabel: TextLabel? = nil
 local camMode = "chase" -- "chase" | "cab"
 local riding: Model? = nil -- truck the local player sits in as a passenger
@@ -704,9 +705,18 @@ local function respawnLoop()
 		local chassis = truck and truck.PrimaryPart
 		local char = player.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if driving then
-			show = true
-		elseif chassis and root then
+		-- the RESPAWN TRUCK button only lives at the station (near the bays); out in the city R still
+		-- unflips the truck you're driving, without a button in the way
+		local atStation = false
+		if root then
+			for _, bay in CollectionService:GetTagged("TruckBay") do
+				if bay:IsA("BasePart") and (bay.Position - root.Position).Magnitude < STATION_RADIUS then
+					atStation = true
+					break
+				end
+			end
+		end
+		if atStation and chassis and root and not driving then
 			local flipped = chassis.CFrame.UpVector.Y < 0.3
 			local far = (chassis.Position - root.Position).Magnitude > 250
 			show = flipped or far
@@ -714,9 +724,10 @@ local function respawnLoop()
 		if respawnButton then
 			respawnButton.Visible = show
 		end
-		if show ~= respawnBound then
-			respawnBound = show
-			if show then
+		local bind = show or driving
+		if bind ~= respawnBound then
+			respawnBound = bind
+			if bind then
 				ContextActionService:BindAction("TruckRespawn", onAction, false, key("KeyRespawn", Enum.KeyCode.R))
 			else
 				ContextActionService:UnbindAction("TruckRespawn")

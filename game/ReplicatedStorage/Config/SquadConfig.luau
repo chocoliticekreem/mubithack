@@ -4,7 +4,7 @@
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
 return Config.define({
-	MaxHelmet = 4, -- helmet numbers 01..04 per squad
+	MaxHelmet = 8, -- helmet numbers 01..08 (squads of up to 8)
 	-- Downed
 	DownAtHealth = 5, -- Humanoid health at or below this downs the player instead of killing them
 	BleedOutSeconds = 25, -- downed this long with nobody helping -> respawn at the truck (or a station pad)

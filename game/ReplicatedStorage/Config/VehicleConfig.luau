@@ -10,6 +10,7 @@ return Config.define({
 
 	Drivable = true, -- false = static trucks (no seat prompts, stay anchored)
 	PerPlayerTrucks = true, -- v2: FireTruck_<UserId> per player at their TruckBay
+	MaxTrucks = 4, -- one per station bay; everyone else rides along in a crew seat
 	PerMissionTrucks = false, -- v1 fallback: MissionService:ParkAt(instanceId) builds a truck inside the instance
 	OwnerOnlyDrives = true, -- others can still ride the back benches
 

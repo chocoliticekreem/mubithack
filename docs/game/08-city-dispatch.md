@@ -72,7 +72,7 @@ Squads run in parallel at **different sites** in the same city. No map copies ar
 
 ## Vehicles [owner: Vehicle agent]
 - `VehicleService` spawns **one truck per player**:
-  - on join, in bay `Helmet` (1–4), or a reserve spot if busy
+  - on join, in bay `Helmet` (1–4), or a reserve spot if busy; at most `VehicleConfig.MaxTrucks` (4) trucks, so in squads of up to 8 the rest ride in crew seats
   - model `FireTruck_<UserId>`, attribute `OwnerUserId`
   - built by `TruckBuilder`, made drivable (VehicleSeat plus a goofy, bouncy custom suspension)
 - Siren (F), horn (H), lights. Its `TruckRefill` reel prompt is where the hose comes from.
