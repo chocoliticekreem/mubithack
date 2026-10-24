@@ -37,7 +37,6 @@ from __future__ import annotations
 import builtins
 import contextlib
 import importlib
-import inspect as _inspect
 import io
 import json
 import os
@@ -1557,38 +1556,25 @@ async def bisect_versions(game: str, check: str, good: str | None = None, bad: s
 
 
 @mcp.tool()
-async def swarm(goal: str, testers: int = 10, minutes: float = 5, ctx: Context | None = None) -> str:
-    """Swarm test: many AI testers (default 10) play the game in parallel toward `goal`, then one
-    merged report (verdict, deduplicated bugs, per-tester notes). Thin wrapper over
-    `mubit_tester.swarm.run_swarm`; heavy on Studio: run it alone, then `play_stop`."""
+async def swarm(goal: str | None = None, players: int = 10, minutes: float = 3, testers: int | None = None,
+                pool: int = 6, personas: list[str] | None = None, steps: int = 40,
+                ctx: Context | None = None) -> str:
+    """Swarm test: `players` AI testers (default 10) with different personas (speedrunner, griefer,
+    newbie, ui_clicker, economy, physics, coop, accessibility, soak, edge) play the game at once for
+    `minutes`, optionally toward `goal`. Real players (solo Play or multiplayer_start) take the
+    screen personas; the rest are server-driven bot testers. Mubit calls run in parallel (bounded
+    by `pool`); every tester gets its own camera screenshots and a dashboard lane. Returns bugs
+    deduplicated across testers and ranked by severity x frequency. `testers` is an alias of
+    `players`. Heavy on Studio: run it alone."""
     with _tool_errors():
-        try:
-            sw = importlib.import_module("mubit_tester.swarm")
-        except ModuleNotFoundError as e:
-            if e.name != "mubit_tester.swarm":
-                raise
-            raise ToolError("swarm testing isn't in this checkout yet (mubit_tester.swarm). Meanwhile: "
-                            "multiplayer_start(players=N) then playtest(goal, players=N).") from e
-        fn = getattr(sw, "run_swarm", None) or getattr(sw, "swarm", None)
-        if fn is None:
-            raise ToolError("mubit_tester.swarm has no run_swarm()")
-        offer = {"settings": load_settings(), "goal": goal, "testers": max(1, int(testers)),
-                 "minutes": float(minutes), "progress": progress_reporter(ctx), "studio_hint": STATE.get("hint"),
-                 "open_studio": open_studio}
-        params = _inspect.signature(fn).parameters
-        takes_any = any(p.kind is p.VAR_KEYWORD for p in params.values())
-        kw = {k: v for k, v in offer.items() if takes_any or k in params}
-        res = fn(**kw)
-        if _inspect.isawaitable(res):
-            res = await res
-        fmt = getattr(sw, "format_swarm", None) or getattr(sw, "format_report", None)
-        if isinstance(res, str):
-            return res
-        if fmt:
-            return fmt(res)
-        if isinstance(res, dict) and ("bugs" in res or "steps" in res):
-            return format_report(res)
-        return _j(res, "swarm")
+        from mubit_tester.swarm import MuxHarness, format_swarm, run_swarm
+        async with open_studio() as st:
+            h = harness_for(st)
+            mux = MuxHarness(st, relocate=h.relocate, mode=h.mode, client_windows=h.client_windows)
+            rep = await run_swarm(load_settings(), players=testers or players, minutes=minutes, goal=goal,
+                                  personas=personas,
+                                  pool=pool, max_steps=steps, harness=mux, progress=progress_reporter(ctx))
+        return format_swarm(rep)
 
 
 # ================================================================ extensions

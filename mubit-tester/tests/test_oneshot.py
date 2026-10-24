@@ -299,21 +299,21 @@ async def test_bisect_versions_tool(env, monkeypatch):
 # ---------------------------------------------------------------- swarm, screenshot, sync, extensions
 
 async def test_swarm_wrapper(env, monkeypatch):
-    monkeypatch.delitem(sys.modules, "mubit_tester.swarm", raising=False)
-    with pytest.raises(ToolError, match="isn't in this checkout"):
-        await ms.mcp.call_tool("swarm", {"goal": "x"})
-    mod = types.ModuleType("mubit_tester.swarm")
+    from mubit_tester import swarm as sw
+    st = _studio(monkeypatch)
     got = {}
 
-    async def run_swarm(settings, goal, testers=10, progress=None):
-        got.update(goal=goal, testers=testers)
-        await progress("tester 1 done")
+    async def run_swarm(settings, **kw):
+        got.update(kw)
+        await kw["progress"]("tester 1 done")
         return {"verdict": "FAIL", "bugs": 2}
-    mod.run_swarm = run_swarm
-    mod.format_swarm = lambda r: f"## {r['verdict']}: {r['bugs']} bugs"
-    monkeypatch.setitem(sys.modules, "mubit_tester.swarm", mod)
+    monkeypatch.setattr(sw, "run_swarm", run_swarm)
+    monkeypatch.setattr(sw, "format_swarm", lambda r: f"## {r['verdict']}: {r['bugs']} bugs")
     md = _text(await ms.mcp.call_tool("swarm", {"goal": "put out fires", "testers": 3}))
-    assert md == "## FAIL: 2 bugs" and got == {"goal": "put out fires", "testers": 3}
+    assert md == "## FAIL: 2 bugs" and got["goal"] == "put out fires" and got["players"] == 3
+    assert isinstance(got["harness"], sw.MuxHarness) and got["harness"].studio is st
+    await ms.mcp.call_tool("swarm", {"players": 10, "minutes": 2})
+    assert got["players"] == 10 and got["minutes"] == 2 and got["goal"] is None
 
 
 async def test_screenshot_focus_and_query_table(env, monkeypatch):
