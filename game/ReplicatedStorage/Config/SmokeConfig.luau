@@ -63,9 +63,9 @@ return Config.define({
 	SpreadSkipFire = 6, -- the next room already has this many FireLevel points: no seep spread
 	-- players
 	SmokeHurtsAt = 0.2, -- below this smoke fraction it's just atmosphere
-	SmokeHeatPerSecond = 14, -- body heat / s at full smoke (HeatService cools 6 / s on its own)
+	SmokeHeatPerSecond = 8, -- body heat / s at full smoke (HeatService cools 6 / s on its own): ~50 s to drop maskless
 	RoomHeatAt = 30, -- room heat above this warms players too
-	RoomHeatPerSecond = 8, -- body heat / s at room heat 100
+	RoomHeatPerSecond = 5, -- body heat / s at room heat 100
 	MaskFactor = 0.2, -- gas mask (Player attr GasMask): smoke heat x this
 	MaskAirFactor = 0.08, -- gas mask + oxygen air
 	HotDoorAt = 0.5, -- DoorHeat (0..1) above this burns your hand when you grab it
