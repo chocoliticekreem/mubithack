@@ -8,13 +8,15 @@
 -- Footprint (local studs): building X -60..60, Z -40..30, two storeys (24 studs to the roof),
 -- hose-drying tower X 60..72, Z -38..-24 (46 tall). Lot X -84..84, Z -60..68; the street kerb is at
 -- Z = 68 (CityBuilder's avenue runs along it; standalone, this builder draws its own road there).
---   Apparatus floor X -20..60 : 4 bays, roll-up doors 16 W x 16 H facing +Z, bay centres X -10/10/30/50.
+--   Apparatus floor X -20..60 : 4 bays facing +Z, bay centres X -10/10/30/50, ONE open front (X -20..60,
+--       16 tall): no piers, rails, posts or bollards in the bay mouths or on the apron, so a truck pulls out
+--       of any bay at any angle. The roll-up drums + slats hang overhead as decoration only.
 --       TruckBay parts (tag TruckBay, attr Bay 1..4, LocationId "Station"): invisible, CFrame = ground
 --       point under the truck centre (Z = 10), LookVector toward the street (truck nose). Bay 1 also has
 --       a "TruckSpot" (tag TruckSpot) for the v1 VehicleService lobby truck.
 --       Per bay: hanging AlarmLight beacon + AlarmSpeaker (attr Bay = i), "BayIndicator" boxes over the
---       door inside and out (LampRed / LampGreen with a "GO" SurfaceGui, attr Bay), neon "DoorStripe"
---       jamb strips (attr Bay). Painted bay numbers, back-wall "BAY n" plates, tool bench, hose reels,
+--       door inside and out (LampRed / LampGreen with a "GO" SurfaceGui, attr Bay), a neon "DoorStripe"
+--       along the header over each bay (attr Bay). Painted bay numbers, back-wall "BAY n" plates, tool bench, hose reels,
 --       axe rack, O2 tanks, trampoline, door to the hose tower.
 --   West wing X -60..-20, ground floor:
 --       Locker room (Z -40..6): 8 numbered gear racks, 1..4 on the west wall and 5..8 on the free-standing
@@ -28,10 +30,12 @@
 --       interior window over the apparatus floor. The pole runs from the Mat to the upstairs floor
 --       ("Pole", LobbyService slides from its top) and on to the roof ("PoleTop").
 --   Roof: parapet, "67" medallion, rooftop siren horns (AlarmSpeaker, Bay 0), corner beacons.
---   Outside: apron with bay numbers, plaza for the lobby (LobbyProps puts the board + pads there),
---       "STATION 67" facade sign + lawn sign, flagpole, bollards, lamps, trees, bushes, hydrant.
---   Grounds (lot X -164..164, Z -164..68, all real ground): paved plaza with planters + benches,
---       memorial garden west (fountain, bronze statue, flags), parking lot east (stalls, cars), training
+--   Outside: apron with bay numbers, plaza for the lobby (LobbyProps puts the board + pads there; open,
+--       no planters / benches), 8 "OutsideSpawn" points on the plaza (tag OutsideSpawn, attr Slot 1..8:
+--       MapService spawns players here first), "STATION 67" facade sign, flagpole, a kerb lamp, trees,
+--       bushes, hydrant (all west of the plaza or well off the driving area).
+--   Grounds (lot X -164..164, Z -164..68, all real ground): open paved plaza,
+--       memorial garden west (fountain, bronze statue, flags), parking lot east (empty open asphalt: overflow truck parking), training
 --       yard behind (drill tower, burn box), hedges on the property edge, rooftop "STATION 67" sign, and
 --       a skyline backdrop (only when there is no CityConfig; the city provides the real skyline).
 -- Alarm parts (AlarmController drives them, client-side only):
@@ -596,9 +600,9 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 
 	-- South facade (a = x + 60): wing door + windows on two storeys, then the four bay doors.
 	local southHoles = join(stacked(4, 10, 0, 9), stacked(13, 19, 3, 9), stacked(23, 29, 3, 9), stacked(31, 37, 3, 9))
-	for _, c in BAY_X do
-		table.insert(southHoles, { a = c - DOOR_W / 2 + 60, b = c + DOOR_W / 2 + 60, y0 = 0, y1 = DOOR_H })
-	end
+	-- the apparatus front is ONE open mouth (X -20..60, DOOR_H tall): no piers between the bays, so a
+	-- truck can pull out of any bay at any angle. The wall above it spans the whole front as a header.
+	table.insert(southHoles, { a = -20 + 60, b = 60 + 60, y0 = 0, y1 = DOOR_H })
 	wallRun(building, "WallS", V(-60, 0, 29.5), V(60, 0, 29.5), V(0, 0, 1), southHoles, { plinth = true, cornice = true })
 	for _, x in { -44, -34, -26 } do
 		windowFrame(building, x, 6, 29.5, V(0, 0, 1), 6, 6)
@@ -638,11 +642,19 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	-- Corner piers and facade pilasters between the bays.
 	for _, cx in { -60, 60 } do
 		for _, cz in { -40, 30 } do
-			box(building, "Corner", cx, (FLOOR + H + 1.2) / 2, cz, 2.4, FLOOR + H + 1.2, 2.4, C.BrickDark)
+			if cx == 60 and cz == 30 then
+				-- front-east corner: on the open apparatus front, so only above the opening
+				local y0 = FLOOR + DOOR_H
+				box(building, "Corner", cx, (y0 + FLOOR + H + 1.2) / 2, cz, 2.4, FLOOR + H + 1.2 - y0, 2.4, C.BrickDark)
+			else
+				box(building, "Corner", cx, (FLOOR + H + 1.2) / 2, cz, 2.4, FLOOR + H + 1.2, 2.4, C.BrickDark)
+			end
 		end
 	end
+	-- pilasters between the bays: only on the header above the open front (nothing to drive into)
 	for _, px in { -20, 0, 20, 40 } do
-		box(building, "Pilaster", px, (FLOOR + H) / 2, 30.4, 3, FLOOR + H, 0.8, C.BrickTrim, { material = Enum.Material.Brick })
+		local y0 = FLOOR + DOOR_H
+		box(building, "Pilaster", px, (y0 + FLOOR + H) / 2, 30.4, 3, FLOOR + H - y0, 0.8, C.BrickTrim, { material = Enum.Material.Brick })
 	end
 	-- belt course between the storeys on the wing
 	span(building, "BeltCourse", -60, -20, F2 - 0.6, F2 + 0.4, 30, 30.8, C.BrickDark)
@@ -769,21 +781,16 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		wheel.CanCollide = false
 
 		-- roll-up door: drum housing, guide rails, rolled-up curtain edge
+		-- (no guide rails: the open front has nothing standing in the bay mouths)
 		cyl(bay, "DoorDrum", CFrame.new(c, FLOOR + DOOR_H + 1.6, 27.6), "x", DOOR_W + 0.6, 2.8, C.Locker)
-		for _, s in { -1, 1 } do
-			span(bay, "DoorRail", c + s * (DOOR_W / 2) - 0.3, c + s * (DOOR_W / 2) + 0.3, FLOOR, FLOOR + DOOR_H + 1, 28.2, 28.9, C.Steel)
-		end
 		for k = 0, 2 do
 			span(bay, "DoorSlat", c - DOOR_W / 2, c + DOOR_W / 2, FLOOR + DOOR_H - 0.6 * (k + 1), FLOOR + DOOR_H - 0.6 * k - 0.08, 28.9, 29.3, if k == 2 then C.TruckRed else C.Ceiling, { collide = false })
 		end
 
-		-- door jamb stripes (red idle -> green GO)
-		for _, s in { -1, 1 } do
-			local x = c + s * (DOOR_W / 2 + 0.25)
-			local stripe = span(bay, "DoorStripe", x - 0.25, x + 0.25, FLOOR + 0.5, FLOOR + DOOR_H - 0.5, 30.0, 30.4, C.AlarmDark, { neon = true, collide = false })
-			if stripe then
-				stripe:SetAttribute(ATTR_BAY, i)
-			end
+		-- bay stripe (red idle -> green GO): along the header over the bay mouth, not on posts
+		local stripe = span(bay, "DoorStripe", c - DOOR_W / 2 + 0.5, c + DOOR_W / 2 - 0.5, FLOOR + DOOR_H + 0.15, FLOOR + DOOR_H + 0.65, 30.0, 30.4, C.AlarmDark, { neon = true, collide = false })
+		if stripe then
+			stripe:SetAttribute(ATTR_BAY, i)
 		end
 
 		-- bay indicators: outside (facing the street) and inside (facing the cab)
@@ -1113,11 +1120,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 
 	------------------------------------------------------------ outside
-	-- bollards between the bay doors
-	for _, bx in { -20, 0, 20, 40, 60 } do
-		cyl(outside, "Bollard", CFrame.new(bx, APRON_Y + 1.5, 32), "y", 3, 1.2, C.Line)
-		cyl(outside, "BollardBand", CFrame.new(bx, APRON_Y + 2.2, 32), "y", 0.5, 1.26, C.Ink)
-	end
+	-- (no bollards: trucks pull out of the bays at any angle)
 	-- flagpole (west lawn)
 	local flag = folder(outside, "Flagpole")
 	local fx, fz = -74, 56
@@ -1127,17 +1130,14 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	local cloth = box(flag, "Flag", fx + 0.3 + 3.6, LAWN_Y + 30.4, fz, 7.2, 4.4, 0.4, C.TruckRed, { collide = false })
 	label(cloth, Enum.NormalId.Back, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	label(cloth, Enum.NormalId.Front, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
-	-- lawn sign (east of the apron)
-	box(outside, "SignBase", 76, LAWN_Y + 0.8, 54, 22, 1.6, 2.4, C.Brick, { material = Enum.Material.Brick })
-	plate(outside, "LawnSign", 76, LAWN_Y + 4.8, 54, 0, 1, 20, 6.4, C.Cream, "STATION 67", C.TruckRed, Enum.Font.LuckiestGuy)
-	box(outside, "SignCap", 76, LAWN_Y + 8.2, 54, 22, 0.6, 1.4, C.BrickDark)
+	-- (no lawn sign east of the apron: it sat right where trucks cut across to the parking lot)
 	-- bushes along the wing facade, trees around the lot
 	for _, b in { V(-58, 0, 32), V(-47, 0, 32), V(-37, 0, 32), V(-29, 0, 32), V(-63, 0, -30), V(-63, 0, -6), V(-63, 0, 20) } do
 		prop("bush", outside, facing(b.X, LAWN_Y, b.Z, 0, 1), nil, function()
 			ball(outside, "Bush", CFrame.new(b.X, LAWN_Y + 1, b.Z), 3.4, C.Foliage)
 		end)
 	end
-	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(80, 0, -50), V(80, 0, -10), V(80, 0, 20), V(-78, 0, 40) } do
+	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(80, 0, -50), V(80, 0, -10), V(-78, 0, 40) } do
 		local jx = (rng:NextNumber() - 0.5) * 3
 		local jz = (rng:NextNumber() - 0.5) * 3
 		local cf = CFrame.new(t.X + jx, LAWN_Y, t.Z + jz) * CFrame.Angles(0, rng:NextNumber() * math.pi * 2, 0)
@@ -1145,14 +1145,14 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 			fallbackTree(outside, t.X + jx, t.Z + jz, rng)
 		end)
 	end
-	-- street lamps on the sidewalk, clear of the apron
-	for _, x in { -76, -44, 72 } do
+	-- street lamps on the sidewalk, well clear of the apron and the lot drive (trucks swing wide)
+	for _, x in { -76 } do
 		prop("streetLamp", outside, facing(x, WALK_Y, KERB_Z - 2, 0, 1), nil, function()
 			fallbackLamp(outside, x, WALK_Y, KERB_Z - 2, 1)
 		end)
 	end
-	MapKit.hydrant(outside, O * CFrame.new(66, WALK_Y, KERB_Z - 2))
-	prop("mailbox", outside, facing(-64, WALK_Y, KERB_Z - 2.5, 0, 1))
+	MapKit.hydrant(outside, O * CFrame.new(-70, WALK_Y, KERB_Z - 2))
+	prop("mailbox", outside, facing(-80, WALK_Y, KERB_Z - 2.5, 0, 1))
 
 	------------------------------------------------------------ the grounds (a real place, no void)
 	local grounds = folder(model, "Grounds")
@@ -1205,12 +1205,20 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	span(grounds, "BorderW", PX0, PX0 + 1.2, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
 	span(grounds, "BorderE", PX1 - 1.2, PX1, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
 	span(grounds, "BorderS", PX0, PX1, APRON_Y, APRON_Y + 0.06, PZ1 - 1.2, PZ1, BRICK_PAVE, { collide = false })
-	planter(-57, 60, 4, 4, APRON_Y)
-	planter(-25, 60, 4, 4, APRON_Y)
-	planter(-53, 36, 4, 3, APRON_Y)
-	planter(-27, 36, 4, 3, APRON_Y)
-	bench(-57.5, APRON_Y, 46, 1, 0, 6)
-	bench(-24.5, APRON_Y, 44, -1, 0, 6)
+	-- (no planters / benches on the plaza: it's open space where players spawn and trucks swing through)
+	-- Outside spawn points (tag OutsideSpawn, attr Slot 1..8): two rows of four on the plaza, clear of the
+	-- squad pads. MapService:GetSpawnCFrame uses them first, the locker-room pads only when all are blocked.
+	local spawnsOut = folder(grounds, "OutsideSpawns")
+	for k = 1, 8 do
+		local row = (k - 1) // 4
+		local x = -53 + ((k - 1) % 4) * 7
+		local z = if row == 0 then 37 else 63
+		local sp = part(spawnsOut, `OutsideSpawn{k}`, facing(x, APRON_Y + 0.1, z, 1, 0), V(4, 0.2, 4), C.Line, { transparency = 1, collide = false })
+		sp.CanQuery = false
+		sp.CanTouch = false
+		CollectionService:AddTag(sp, "OutsideSpawn")
+		sp:SetAttribute(ATTR_SLOT, k)
+	end
 	-- apron: expansion joints so it reads as poured concrete, not a slab
 	for z = 38, KERB_Z - 2, 8 do
 		span(grounds, "Joint", -22, 62, APRON_Y, APRON_Y + 0.03, z - 0.1, z + 0.1, C.ConcreteDark, { collide = false })
@@ -1295,33 +1303,12 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		planter(p.X, p.Z, 4, 4, LAWN_Y)
 	end
 
-	-- parking lot (east): striped stalls, wheel stops, a few cars, lamps
+	-- parking lot (east): plain open asphalt (no stalls, cars, wheel stops, lamps or signs to snag on);
+	-- the overflow truck parking (VehicleConfig.OverflowSpots) and room to drive around
 	local LX0, LX1, LZ0, LZ1 = 90, 152, -50, 54
 	span(grounds, "ParkingLot", LX0, LX1, APRON_Y - 1, APRON_Y, LZ0, LZ1, C.Asphalt)
 	span(grounds, "ParkingDrive", 102, 116, WALK_Y - 0.95, WALK_Y + 0.05, LZ1, KERB_Z, C.Asphalt)
-	local carColors = { hex("4FB3D9"), hex("E3B23C"), hex("6BCB5A"), hex("C9CCD0"), hex("9A6AC8"), C.TruckRed }
-	for _, r in { { z0 = 30, z1 = 50, face = -1 }, { z0 = -46, z1 = -26, face = 1 } } do
-		for x = LX0 + 4, LX1 - 4, 10 do
-			span(grounds, "StallLine", x - 0.2, x + 0.2, APRON_Y, APRON_Y + 0.04, r.z0, r.z1, C.Trim, { collide = false })
-		end
-		for x = LX0 + 9, LX1 - 9, 10 do
-			local kz = if r.face < 0 then r.z1 - 1.5 else r.z0 + 1.5
-			box(grounds, "WheelStop", x, APRON_Y + 0.3, kz, 5, 0.6, 0.8, C.Line)
-			if rng:NextNumber() < 0.55 then
-				local cz = (r.z0 + r.z1) / 2
-				prop("car", grounds, facing(x, APRON_Y, cz, 0, -r.face), { color = carColors[rng:NextInteger(1, #carColors)], eyes = true })
-			end
-		end
-	end
-	for _, x in { LX0 + 2, LX1 - 2 } do
-		for _, z in { -10, 14 } do
-			lamp(x, APRON_Y, z, 1)
-		end
-	end
-	local lotSign = plate(grounds, "LotSign", 96, LAWN_Y + 3, 58, 0, 1, 8, 2.4, hex("2E5E9A"))
-	label(lotSign, Enum.NormalId.Front, "P - HEROES ONLY", C.Trim, Enum.Font.LuckiestGuy)
-	box(grounds, "LotSignPost", 96, LAWN_Y + 1, 57.6, 0.4, 2, 0.4, C.Steel)
-	for _, p in { V(84, 0, -30), V(84, 0, 0), V(84, 0, 30), V(156, 0, -30), V(156, 0, 20) } do
+	for _, p in { V(84, 0, -30), V(84, 0, 0), V(156, 0, -30), V(156, 0, 20) } do
 		tree(p.X, p.Z)
 	end
 

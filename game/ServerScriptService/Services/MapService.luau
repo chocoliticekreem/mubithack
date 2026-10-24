@@ -6,7 +6,8 @@
 --   MapService:GetLocation(id: string): Model?
 --   MapService:GetLocations(): { [string]: Model }
 --   MapService:RebuildLocation(id: string): Model?       -- round reset; fires LocationBuilt again
---   MapService:GetSpawnCFrame(slot: number): CFrame      -- StationSpawn pad 1..4, 3 studs up
+--   MapService:GetSpawnCFrame(slot: number): CFrame      -- 3 studs up: the plaza's OutsideSpawn <slot> (or
+--                                                         -- any free one), else StationSpawn pad <slot> inside
 --   MapService:RandomFlammable(id: string, rng: Random): BasePart?
 --   MapService:BuildAll(): number                        -- ms taken; also works in Edit (preview)
 -- v1.5 (parallel squads, each mission in its own copy of a location):
@@ -310,8 +311,60 @@ function MapService:RebuildLocation(id: string): Model?
 	return MapService:BuildLocation(id)
 end
 
+-- Outside first: the plaza's OutsideSpawn points (StationBuilder) when nothing stands on them.
+local function spawnClear(p: BasePart): boolean
+	local at = p.Position
+	for _, pl in game:GetService("Players"):GetPlayers() do
+		local r = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+		if r and r:IsA("BasePart") and (Vector3.new(r.Position.X - at.X, 0, r.Position.Z - at.Z)).Magnitude < 2.5 then
+			return false
+		end
+	end
+	local op = OverlapParams.new()
+	op.RespectCanCollide = true
+	for _, hit in workspace:GetPartBoundsInBox(p.CFrame * CFrame.new(0, 3.2, 0), Vector3.new(3, 5, 3), op) do
+		local m = hit:FindFirstAncestorWhichIsA("Model")
+		if not (m and m:FindFirstChildOfClass("Humanoid")) then
+			return false -- a truck, a prop, a wall
+		end
+	end
+	return true
+end
+
+local function outsideSpawn(station: Instance, slot: number): CFrame?
+	local mine: BasePart? = nil
+	local others: { BasePart } = {}
+	for _, d in station:GetDescendants() do
+		if d:IsA("BasePart") and d:HasTag("OutsideSpawn") then
+			if d:GetAttribute(Names.Attr.Slot) == slot then
+				mine = d
+			else
+				table.insert(others, d)
+			end
+		end
+	end
+	table.sort(others, function(a, b)
+		return (tonumber(a:GetAttribute(Names.Attr.Slot)) or 0) < (tonumber(b:GetAttribute(Names.Attr.Slot)) or 0)
+	end)
+	if mine and spawnClear(mine) then
+		return mine.CFrame * CFrame.new(0, 3, 0)
+	end
+	for _, p in others do
+		if spawnClear(p) then
+			return p.CFrame * CFrame.new(0, 3, 0)
+		end
+	end
+	return nil
+end
+
 function MapService:GetSpawnCFrame(slot: number): CFrame
 	local station = locations.Station
+	if station and slot >= 1 then
+		local out = outsideSpawn(station, slot)
+		if out then
+			return out
+		end
+	end
 	if station then
 		for _, d in station:GetDescendants() do
 			-- Slot is the contract; Helmet is what main's StationBuilder sets until G2.2 adds Slot.
