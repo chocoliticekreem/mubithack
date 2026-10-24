@@ -333,6 +333,13 @@ async def test_hot_reload_sends_only_reloadable_modules(tmp_path):
         res = await s.hot_reload(root)
         assert res["restart"] == [] and res["reloaded"] == {"ServerScriptService/Logic.luau": "reloaded 1"}
         assert "return 2" in pulls[-1] and s._session.calls[-1][1]["datamodel_type"] == "Server"
+        # an old ForgeProbe without "hotreload" (or a module that fails to load) means restart
+        logic.write_text("local M = {}\nfunction M.f() return 3 end\nreturn M\n")
+        s._session.replies["execute_luau"] = FakeResult(
+            [TextContent(text='{"ServerScriptService/Logic.luau":"{\\"error\\":\\"unknown command: hotreload\\"}"}')])
+        res = await s.hot_reload(root)
+        assert res["reloaded"] == {} and res["restart"][0][0] == "ServerScriptService/Logic.luau"
+        assert "unknown command" in res["restart"][0][1]
         (root / "ServerScriptService" / "Main.server.luau").write_text("print(1)\n")
         res = await s.hot_reload(root)
         assert res["reloaded"] == {} and res["restart"]

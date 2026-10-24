@@ -39,6 +39,16 @@ ROW_ORDER = [
     "run one logic check",
 ]
 
+READY_POLL_LUAU = """
+local Players = game:GetService("Players")
+local char = false
+for _, p in Players:GetPlayers() do
+	if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then char = true end
+end
+local probe = game:GetService("ServerStorage"):FindFirstChild("ForgeProbe") ~= nil
+return tostring(probe and (workspace:GetAttribute("ServerBooted") == true or char))
+"""
+
 SMOKE_CHECK = """-- check: a player joined and the server is up
 -- covers: bench-io smoke
 local Players = game:GetService("Players")
@@ -118,7 +128,7 @@ async def bench_studio(settings: Settings, root: Path, studio_name: str | None, 
                        repeat: int = 3, play_seconds: float = 3.0) -> None:
     from forge.studio import Studio
 
-    port = settings.sync_port
+    port = 0  # a free port: never collide with another agent's sync server
     # ---- session per call vs one session
     fresh = []
     for _ in range(repeat):
@@ -165,9 +175,18 @@ async def bench_studio(settings: Settings, root: Path, studio_name: str | None, 
         # ---- play / stop
         legacy_play, fast_play, legacy_stop, fast_stop = [], [], [], []
         ready: dict = {}
+
+        async def legacy_play_until_ready() -> None:
+            # the old way: play(), then ask "is the game up?" from Python once a second
+            await studio.play(ready=False)
+            for _ in range(60):
+                if "true" in await studio.execute_luau(READY_POLL_LUAU, "Server"):
+                    return
+                await asyncio.sleep(1.0)
+
         for _ in range(max(1, repeat - 1)):
             studio.poll_interval = 1.0
-            dt, _ = await _time(lambda: studio.play(ready=False))
+            dt, _ = await _time(legacy_play_until_ready)
             legacy_play.append(dt)
             dt, _ = await _time(studio.stop)
             legacy_stop.append(dt)
@@ -178,9 +197,9 @@ async def bench_studio(settings: Settings, root: Path, studio_name: str | None, 
             fast_stop.append(dt)
         rows["play until game ready"] = {
             "before": _median(legacy_play), "after": _median(fast_play),
-            "note": f"before = Server seen at 1 s polls (game not yet booted); after = {ready.get('reason', '?')}"}
+            "note": f"1 s polls vs one in-Studio wait ({ready.get('reason', '?')}); start_stop_play alone ~2 s"}
         rows["stop until back in Edit"] = {"before": _median(legacy_stop), "after": _median(fast_stop),
-                                           "note": "1 s vs 0.1 s state polls"}
+                                           "note": "1 s vs 0.1 s state polls; start_stop_play alone ~1 s"}
 
         # ---- try a code change: stop -> sync -> play vs hot reload
         await studio.sync(root, port, prune=True)
@@ -190,8 +209,11 @@ async def bench_studio(settings: Settings, root: Path, studio_name: str | None, 
         for i in range(repeat):
             _touch(root, target, 100 + i)
             dt, res = await _time(lambda: studio.hot_reload(root))
-            hot.append(dt)
-            hot_note = json.dumps(res.get("reloaded") or res.get("restart"))[:60]
+            if res.get("reloaded") and not res.get("restart"):
+                hot.append(dt)
+                hot_note = f"reloaded {Path(target).name}"
+            else:
+                hot_note = "hot reload FAILED: " + json.dumps(res.get("restart"))[:60]
         await studio.stop()
         for i in range(max(1, repeat - 1)):
             _touch(root, target, 200 + i)
@@ -206,8 +228,8 @@ async def bench_studio(settings: Settings, root: Path, studio_name: str | None, 
             cycle.append(dt)
             studio.poll_interval = None
             await studio.stop()
-        rows["try a server code change"] = {"before": _median(cycle), "after": _median(hot),
-                                            "note": f"stop+sync+play vs hot_reload {hot_note}"}
+        rows["try a server code change"] = {"before": _median(cycle), "after": _median(hot) if hot else None,
+                                            "note": f"stop+sync+play vs hot_reload: {hot_note}"}
 
         # ---- smoke test and one check in Studio (the "before" of the headless rows)
         smoke, check_runs = [], []
@@ -250,6 +272,10 @@ def bench(game_root: Path, studio_name: str | None = None, offline: bool = False
     with tempfile.TemporaryDirectory(prefix="forge-bench-io-") as tmp:
         root = Path(tmp) / "game"
         shutil.copytree(Path(game_root), root, ignore=shutil.ignore_patterns("manifest.json", ".*"))
+        # the current Forge runtime, as copy_base_game gives every generated game (hot reload needs it)
+        probe = settings.base_game_dir / "ServerScriptService" / "ForgeProbe.server.luau"
+        if probe.exists() and (root / "ServerScriptService").is_dir():
+            shutil.copy2(probe, root / "ServerScriptService" / "ForgeProbe.server.luau")
         if not offline:
             asyncio.run(bench_studio(settings, root, studio_name, rows, repeat))
         bench_offline(root, rows, repeat)

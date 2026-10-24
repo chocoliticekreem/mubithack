@@ -295,6 +295,7 @@ local ok, result = pcall(function()
 			if not f then
 				f = Instance.new("Folder")
 				f.Name = d
+				CollectionService:AddTag(f, TAG) -- ours: pruned once it holds no synced script
 				f.Parent = parent
 			end
 			parent = f
@@ -353,6 +354,23 @@ local ok, result = pcall(function()
 					inst:Destroy()
 					break
 				end
+			end
+		end
+		-- folders the sync created that no longer hold any script (a stale "Config" folder would
+		-- shadow a "Config" ModuleScript for WaitForChild); deepest first
+		local folders = {}
+		for _, f in CollectionService:GetTagged(TAG) do
+			if f:IsA("Folder") and f.Parent then
+				table.insert(folders, f)
+			end
+		end
+		table.sort(folders, function(a, b)
+			return #a:GetFullName() > #b:GetFullName()
+		end)
+		for _, f in folders do
+			if f.Parent and not f:FindFirstChildWhichIsA("LuaSourceContainer", true) and #f:GetChildren() == 0 then
+				table.insert(pruned, f:GetFullName())
+				f:Destroy()
 			end
 		end
 	end

@@ -177,6 +177,7 @@ def test_incremental_pull_script_skips_unchanged_files(tmp_path):
     _write(root, "ReplicatedStorage/A.luau", "return 1\n")
     _write(root, "ServerScriptService/Main.server.luau", "print('main')\n")
     _write(root, "ServerScriptService/Lib/B.luau", "return 'b'\n")
+    _write(root, "ReplicatedStorage/Old/Deep/Gone.luau", "return 0\n")
 
     def pull(pushed):
         entries = fsync.manifest_entries(root)
@@ -186,6 +187,7 @@ def test_incremental_pull_script_skips_unchanged_files(tmp_path):
     second = pull(fsync.hashes(fsync.manifest_entries(root)))
     _write(root, "ServerScriptService/Lib/B.luau", "return 'b2'\n")
     (root / "ReplicatedStorage" / "A.luau").unlink()
+    shutil.rmtree(root / "ReplicatedStorage" / "Old")
     third = pull({"ReplicatedStorage/A.luau": "x", **{
         p: h for p, h in fsync.hashes(fsync.manifest_entries(root)).items() if not p.endswith("B.luau")}})
     headless = (REPO / "game/tools/headless.luau").read_text()
@@ -199,9 +201,12 @@ def test_incremental_pull_script_skips_unchanged_files(tmp_path):
     out = subprocess.run(["luau", str(prog_file)], capture_output=True, text=True, timeout=20)
     assert out.returncode == 0, out.stderr
     lines = out.stdout.splitlines()
-    assert lines[0].startswith("OK 3 files, changed: ") and "skipped 0, fetched 0" in lines[0]
-    assert lines[1] == "OK 3 files, changed: none; skipped 3, fetched 0"
-    assert "changed: ServerScriptService/Lib/B.luau" in lines[2] and "pruned: ReplicatedStorage.A" in lines[2]
+    assert lines[0].startswith("OK 4 files, changed: ") and "skipped 0, fetched 0" in lines[0]
+    assert lines[1] == "OK 4 files, changed: none; skipped 4, fetched 0"
+    assert "changed: ServerScriptService/Lib/B.luau" in lines[2] and "ReplicatedStorage.A" in lines[2]
+    assert "ReplicatedStorage.Old.Deep.Gone" in lines[2]
+    # emptied folders the sync made are pruned too (deepest first); Lib still holds B
+    assert "ReplicatedStorage.Old.Deep, ReplicatedStorage.Old;" in lines[2] and ".Lib," not in lines[2]
     assert "skipped 1, fetched 0" in lines[2]
     assert lines[3] == "B=return 'b2'"
     assert lines[4] == "|" + fsync.hashes(fsync.manifest_entries(root))["ServerScriptService/Lib/B.luau"]

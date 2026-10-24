@@ -309,6 +309,7 @@ return HttpService:JSONEncode(out)
 """
 
 HOT_SERVICES = ("ServerScriptService", "ServerStorage")
+_SETS_BOOTED = re.compile(r"SetAttribute\(\s*[^,)]*ServerBooted")
 _STATE_RE = re.compile(r"^local\s+(\w+)\s*(?::[^=]+)?=\s*(\{\s*\}|0|nil|false|true)\s*(--.*)?$", re.MULTILINE)
 _RETURN_RE = re.compile(r"^return\s+(\w+)\s*$", re.MULTILINE)
 
@@ -383,6 +384,8 @@ class Studio:
         # what the Edit datamodel of each studio holds: {(studio_id, root): {path: hash}}
         self._pushed: dict[tuple[str, str], dict[str, str]] = {}
         self._playing: bool | None = None
+        # does the last synced game ever set workspace.ServerBooted? (None: unknown)
+        self._uses_booted: bool | None = None
         self.reconnects = 0
 
     # ---- lifecycle
@@ -585,9 +588,10 @@ class Studio:
         await self._set_play(True)
         if not ready:
             return {}
-        return await self.wait_ready(ready_timeout)
+        # a game that never sets ServerBooted is up once a character spawns: no grace period
+        return await self.wait_ready(ready_timeout, grace=0.0 if self._uses_booted is False else 0.25)
 
-    async def wait_ready(self, timeout: float = 30.0, grace: float = 0.5) -> dict:
+    async def wait_ready(self, timeout: float = 30.0, grace: float = 0.25) -> dict:
         """One Server-datamodel call that returns once ForgeProbe exists and the game booted
         (workspace.ServerBooted, or a spawned character for games that never set it).
         Never raises: {"ready": False, "error": ...} when it can't tell."""
@@ -702,6 +706,8 @@ class Studio:
         out = await self.execute_luau(fsync.pull_luau(port, prune=prune, manifest=entries, inline=inline), "Edit")
         if str(out).startswith("OK"):
             self._pushed[key] = fsync.hashes(entries)
+            self._uses_booted = any(_SETS_BOOTED.search((root / e["path"]).read_text(encoding="utf-8", errors="replace"))
+                                    for e in entries)
         else:
             self._pushed.pop(key, None)
         return out
@@ -710,7 +716,8 @@ class Studio:
         """Push changed server ModuleScripts into the running playtest without stopping it.
 
         Returns {"reloaded": {path: result}, "restart": [(path, why)], "changed": [...]}. When
-        "restart" is non-empty those changes need stop -> sync -> play; nothing was reloaded then.
+        "restart" is non-empty those changes need stop -> sync -> play (either nothing was sent, or
+        ForgeProbe could not swap that module in; its reason is the second item).
         The Edit datamodel is untouched (it is locked during play); the next sync() pushes it.
         """
         root = Path(root).resolve()
@@ -730,7 +737,12 @@ class Studio:
         code = HOT_RELOAD_LUAU.replace("__ITEMS__", fsync.long_string(json.dumps(items)), 1)
         text = await self.execute_luau(code, "Server")
         obj = extract_json(text)
-        return {"reloaded": obj if isinstance(obj, dict) else {"*": text[:300]}, "restart": [], "changed": changed}
+        results = obj if isinstance(obj, dict) else {"*": text[:300]}
+        # anything not swapped in (old ForgeProbe without "hotreload", a module that errors on load,
+        # one that doesn't return a table) still needs stop -> sync -> play
+        failed = [(p, str(r)[:200]) for p, r in results.items() if not str(r).startswith("reloaded")]
+        return {"reloaded": {p: r for p, r in results.items() if str(r).startswith("reloaded")},
+                "restart": failed, "changed": changed}
 
 
 def _shutdown_server(server: Any) -> None:
