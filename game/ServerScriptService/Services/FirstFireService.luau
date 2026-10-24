@@ -426,6 +426,14 @@ local function declineCall(player: Player)
 	if okLeave then
 		count("first_call_declined_left")
 	end
+	-- LobbyService:Leave only steps you a few studs off the pad, and the pad poll puts anyone standing on
+	-- it straight back in the squad: walk them back out to the lawn by the front door instead
+	local def = spotDef(tonumber(player:GetAttribute(Cfg.SpotAttr)) or 1)
+	local char = player.Character
+	if def and char then
+		local stand: Vector3 = def.stand
+		char:PivotTo(CFrame.lookAt(stand, Vector3.new(def.fire.X, stand.Y, def.fire.Z)))
+	end
 end
 
 function FirstFireService:Start()

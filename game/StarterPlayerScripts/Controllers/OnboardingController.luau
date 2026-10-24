@@ -20,6 +20,8 @@
 --     face it once); then a FIRE OUT! +XP card until the auto-queued first call lands.
 --     On the pad for the auto-queued first call: YOUR FIRST CALL card with GO NOW (Lobby/Launch) and
 --     NOT YET (Onboarding/SkipCall: off the pad, the board -> pad tutorial at your own pace).
+--   * After the first call, still out at the scene (dispatch doesn't teleport you home): GREAT JOB card
+--     with BACK TO STATION (Lobby/BackToStation) and an arrow home, for this session's newbies.
 --   * SKIP TUTORIAL under every tutorial card (Onboarding/Skip -> settings.onboarded).
 --   * Handshake: Onboarding/Ready once every controller has started (their OnClientEvent handlers are
 --     connected); the server holds the training fire until then. Onboarding/Seen("firecard") when the
@@ -87,6 +89,8 @@ local state = {
 	callTitle = "", -- Lobby/Countdown title of the pad you're on
 	callEndsAt = 0, -- os.clock() when that countdown hits 0 (0 = no countdown)
 	seenFireCard = false,
+	wasOnCall = false, -- had an InstanceId this session
+	missionEnded = false, -- ...and it's over (InstanceId back to "")
 }
 
 local ui: { [string]: any } = {}
@@ -646,10 +650,16 @@ local function buildHud()
 	ui.go = actionButton("GoNow", FireCfg.CallGo or "GO NOW!", Color3.fromHex("#3B6E4A"), 1, 170, 44)
 	ui.wait = actionButton("NotYet", FireCfg.CallWait or "NOT YET", Palette.UiPanelDark, 2, 150, 44)
 	ui.skip = actionButton("Skip", FireCfg.SkipLabel or "SKIP TUTORIAL", Palette.UiPanelDark, 3, 150, 30)
+	ui.home = actionButton("Home", FireCfg.AwayButton or "BACK TO STATION", RED, 4, 220, 44)
 	ui.skip.BackgroundTransparency = 0.25
 	ui.actions = actions
 	-- top-centre stack (ClientLib/HudLayout): under the mission timer when there is one
-	HudLayout.add("TopCentre", card, 20)
+	-- its height includes the button row hanging under it, so toasts / banners stack below the buttons
+	HudLayout.add("TopCentre", card, 20, function(): number
+		local a = ui.actions
+		local any = a and (ui.go.Visible or ui.skip.Visible or ui.home.Visible)
+		return card.Size.Y.Offset + (if any then 52 else 0)
+	end)
 	HudLayout.reserve(card)
 
 	-- edge arrow (target off screen): its own full-bleed, unscaled gui so positions are viewport pixels.
@@ -866,6 +876,8 @@ local function firstFireGuide(): Guide?
 			model = m,
 			head = FireCfg.FireCard.head,
 			sub = fill(FireCfg.FireCard.sub, { click = click }),
+			subTouch = FireCfg.FireCard.subTouch,
+			subPad = FireCfg.FireCard.subPad,
 			chip = "FIRE!",
 		}
 	elseif card == "call" then
@@ -900,7 +912,7 @@ local function setShoulder(on: boolean)
 	end
 	if on then
 		shoulderOn = true
-		hum.CameraOffset = FireCfg.ShoulderOffset or Vector3.new(2.4, 0.4, 0)
+		hum.CameraOffset = FireCfg.ShoulderOffset or Vector3.new(2, 2.8, 0)
 	elseif shoulderOn then
 		shoulderOn = false
 		hum.CameraOffset = Vector3.zero
@@ -1007,6 +1019,22 @@ local function currentGuide(): Guide?
 			chip = if hint == "drive" then "GO!" else "CALL!",
 		}
 	end
+	-- the first call is over but you're still out at the scene (dispatch calls don't teleport you
+	-- home): say what's next and offer the shortcut, instead of a silent truck in a parking lot
+	if state.missionEnded and player:GetAttribute(FireCfg.PhaseAttr) ~= nil then
+		local b = board()
+		local r = root()
+		if b and r and (b.Position - r.Position).Magnitude > (FireCfg.AwayStuds or 220) then
+			return {
+				kind = "away",
+				part = b,
+				model = nil,
+				head = FireCfg.AwayCard.head,
+				sub = FireCfg.AwayCard.sub,
+				chip = "NEXT",
+			}
+		end
+	end
 	local ff = firstFireGuide()
 	if ff then
 		return ff
@@ -1054,12 +1082,22 @@ local function remote(name: string): RemoteEvent?
 	return if ok then r else nil
 end
 
+local actionsKey = ""
 local function setActions(g: Guide?)
 	local kind = g and g.kind or ""
 	local call = kind == "firstcall"
+	local skip = SKIPPABLE[kind] == true and not inMission()
+	local home = kind == "away"
+	local key = `{call}{skip}{home}`
+	if key == actionsKey then
+		return
+	end
+	actionsKey = key
 	ui.go.Visible = call
 	ui.wait.Visible = call
-	ui.skip.Visible = SKIPPABLE[kind] == true and not inMission()
+	ui.skip.Visible = skip
+	ui.home.Visible = home
+	HudLayout.flush() -- the card's stack height changed (button row on / off)
 end
 
 -- the top-centre card must not run into the left column (mission guide card, 14 + 350 design units)
@@ -1318,6 +1356,12 @@ function OnboardingController:Start()
 		state.callEndsAt = 0
 		state.guideKey = ""
 	end)
+	ui.home.Activated:Connect(function()
+		pcall(function()
+			Net.event("Lobby", "BackToStation"):FireServer()
+		end)
+		UiKit.pop(ui.home, 0.2)
+	end)
 	ui.skip.Activated:Connect(function()
 		local r = remote("Skip")
 		if r then
@@ -1367,6 +1411,11 @@ function OnboardingController:Start()
 		state.driveHintUntil = 0
 		state.guideKey = ""
 		state.missionSince = os.clock()
+		if inMission() then
+			state.wasOnCall = true
+		elseif state.wasOnCall then
+			state.missionEnded = true
+		end
 		if inMission() then
 			finishTutorial()
 			if state.helpOpen then

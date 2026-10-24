@@ -46,5 +46,6 @@ return Config.define({
 	LobbyHiddenGuis = { "GraphicsSettingsUI", "FeedbackSettingsUI" },
 	FadeInSeconds = 0.9,
 	SpawnFaceBays = true, -- spawn pads face the apparatus floor (TruckBay parts) instead of the back wall
+	SkippedText = "Tutorial skipped. Step on a glowing pad to roll out. H = help.", -- toast after SKIP TUTORIAL
 	DoneAttr = "Onboarded", -- Player attr: true = skip the tutorial (DataService settings.onboarded)
 })
