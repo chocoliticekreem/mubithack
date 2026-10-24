@@ -189,3 +189,58 @@ async def test_two_rounds_carry_history_to_critic_and_fixer(settings, monkeypatc
                                     "taught the fixer: Game left zone_cleared at 0 after 1 try, told to try another way")
     reflector_users = [c.user for c in llm.calls if c.role == "reflector"]
     assert "Round outcome: score 5 -> 6" in reflector_users[1]
+    # this build's dead ends: saved for the next build, and in the reflector's summary
+    ends = rounds.read_dead_ends(settings.runs_dir)
+    assert [e["slug"] for e in ends] == [slug]
+    assert any('"zone_cleared"' in line for line in ends[0]["lines"])
+    assert "Dead ends in this build so far" in reflector_users[1]
+
+
+def test_dead_ends_name_what_rounds_could_not_move():
+    its = [{"n": n, "score": 5, "fixed": {"ServerScriptService/Gifts.luau": ["zone_cleared"]},
+            "acceptance": {"met": ["coin_collected"], "missing": ["zone_cleared", "gift_claimed"],
+                           "unemitted": ["zone_cleared"]}} for n in (1, 2, 3)]
+    its[-1]["blocked_issues"] = [{"path": "ReplicatedStorage/Kit/ObbyKit.luau", "problem": "lava"}]
+    lines = rounds.dead_ends(its, {})
+    assert lines[0].startswith('"zone_cleared" was promised in acceptance but nothing ever counted it (3 rounds)')
+    assert lines[1].startswith('"gift_claimed" stayed 0 through 3 rounds')
+    assert "Gifts were rewritten 3 rounds while the score stayed 5-5" in lines[2]
+    assert "1 critic issues were on read-only kit files (ObbyKit)" in lines[3]
+    assert rounds.dead_ends([{"n": 1, "score": 8, "acceptance": {"met": ["a_b"], "missing": []}}], {}) == []
+
+
+def test_dead_ends_carry_to_the_next_build_newest_first(tmp_path):
+    its = [{"n": 1, "score": 5, "acceptance": {"missing": ["zone_cleared"], "unemitted": []}}]
+    rounds.record_dead_ends(tmp_path, "park-a", {"title": "Park A", "genre": "obby"}, its)
+    rounds.record_dead_ends(tmp_path, "park-b", {"title": "Park B"}, its)
+    block = rounds.dead_ends_block(tmp_path)
+    assert block.index("- Park B:") < block.index("- Park A (obby):")
+    assert "Park A" not in rounds.dead_ends_block(tmp_path, exclude="park-a")
+    rounds.record_dead_ends(tmp_path, "park-b", {"title": "Park B"}, [{"n": 2, "score": 8, "acceptance": {}}])
+    assert [e["slug"] for e in rounds.read_dead_ends(tmp_path)] == ["park-a"]  # fixed since: its entry goes
+    (tmp_path / rounds.DEAD_ENDS_FILE).write_text("not json")
+    assert rounds.dead_ends_block(tmp_path) == ""
+
+
+def test_an_obby_critic_gets_the_recipe_and_the_studio_qa_bots(tmp_path):
+    obby = {"genre": "obby", "title": "Carnival Climb"}
+    assert rounds.guide_block({"genre": "tycoon", "title": "Pizza Plant"}, None) == ""
+    assert rounds.guide_block(obby, None).startswith("## What this genre needs first")
+    (tmp_path / rounds.QA_FILE).write_text(json.dumps({"round": 3, "attempts": 2, "bots": [
+        {"zone": "Front Gate Plaza", "stage": 1, "reached": False, "detail": "fell off the course after 2.9s"},
+        {"zone": "Sky Wheel", "stage": 41, "reached": True, "detail": "reached stage 42"}]}))
+    block = rounds.guide_block(obby, rounds.read_qa(tmp_path))
+    assert "## Studio QA bots, last install (real play in Studio, 2 attempt(s) each): 1/2 reached" in block
+    assert "- Front Gate Plaza stage 1: did NOT: fell off the course after 2.9s" in block
+    assert "- Sky Wheel stage 41: reached the next checkpoint" in block
+    (tmp_path / rounds.QA_FILE).write_text("{}")
+    assert rounds.read_qa(tmp_path) is None
+
+
+def test_an_obby_fixes_required_gameplay_before_polish():
+    obby = {"genre": "obby"}
+    issues = ["Confetti burst is too small on zone clear", "Touching lava at stage 8 does not kill the player",
+              "Gift balloon sound is quiet", "Players fall through the checkpoint at stage 31"]
+    ordered = sorted(issues, key=lambda t: not rounds.required_first(obby, t))
+    assert ordered[:2] == [issues[1], issues[3]]
+    assert not rounds.required_first({"genre": "tycoon"}, issues[1])

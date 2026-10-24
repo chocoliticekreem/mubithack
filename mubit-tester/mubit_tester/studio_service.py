@@ -127,7 +127,8 @@ return game:GetService("HttpService"):JSONEncode(out)
 """
 QA_BOTS = 6  # bots that play at once, each from the first stage of a different zone
 QA_FRAMES = 3  # screenshots per bot: two mid-run, one when its run ends
-QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint
+QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint, per attempt
+QA_ATTEMPTS = 2  # one fall can be the bot, not the course (production guide 9.3)
 
 QA_START = r"""
 local FT = game:GetService("ServerStorage"):WaitForChild("ForgeTest")
@@ -144,8 +145,8 @@ box.Parent = game:GetService("ServerStorage")
 for _, q in plan do
     task.spawn(function()
         local ok, r = pcall(function()
-            return FT:Invoke("obby_try", HS:JSONEncode({userId = q.bot, from_stage = q.stage, attempts = 1,
-                timeout = __TIMEOUT__}))
+            return FT:Invoke("obby_try", HS:JSONEncode({userId = q.bot, from_stage = q.stage,
+                attempts = __ATTEMPTS__, timeout = __TIMEOUT__}))
         end)
         local v = Instance.new("StringValue")
         v.Name = q.bot
@@ -185,7 +186,8 @@ async def qa_swarm(studio, store, round_n):
     stamp = time.strftime('%H%M%S')
     started = time.time()
     await studio.execute_luau(QA_START.replace("__PLAN__", json.dumps(json.dumps(plan)))
-                              .replace("__TIMEOUT__", str(QA_TIMEOUT)), "Server")
+                              .replace("__TIMEOUT__", str(QA_TIMEOUT)).replace("__ATTEMPTS__", str(QA_ATTEMPTS)),
+                              "Server")
     names = json.dumps(json.dumps([q["bot"] for q in plan]))
     frames = {q["bot"]: [] for q in plan}
     results = {}
@@ -206,12 +208,13 @@ async def qa_swarm(studio, store, round_n):
                                      "done": bool(results.get(q["bot"]))})
         if len(results) == len(plan):
             break
-    for _ in range(int(QA_TIMEOUT / 2) + 2):  # wait for the stragglers' verdicts
+    for _ in range(int(QA_TIMEOUT * QA_ATTEMPTS / 2) + 2):  # wait for the stragglers' verdicts
         if len(results) == len(plan):
             break
         await asyncio.sleep(2)
         where = extract_json(await studio.execute_luau(QA_WHERE.replace("__NAMES__", names), "Server")) or {}
         results.update({b: w["result"] for b, w in where.items() if isinstance(w, dict) and w.get("result")})
+    summary = []
     for q in plan:
         res = results.get(q["bot"]) or {}
         body = res.get("result") if isinstance(res.get("result"), dict) else {}
@@ -228,6 +231,11 @@ async def qa_swarm(studio, store, round_n):
             "tester": f"QA bot {q['bot'][2:]} · {q['zone']}",
             "goal": f"Round {round_n}: play stage {q['stage']} to the next checkpoint", "steps": steps,
             "started": started, "ended": time.time(), "goal_met": reached, "summary": verdict}, indent=1))
+        summary.append({"zone": q["zone"], "stage": q["stage"], "reached": reached,
+                        "detail": verdict if res else "no verdict (the run did not finish in time)"})
+    # the next round's critic reads this (forge/rounds.py guide_block): real play, not just a headless report
+    (store.dir / "qa_latest.json").write_text(json.dumps({"round": round_n, "attempts": QA_ATTEMPTS,
+                                                         "bots": summary}, indent=1))
     try:
         await studio.execute_luau('return game:GetService("ServerStorage").ForgeTest:Invoke("bot_clear", "{}")',
                                   "Server")

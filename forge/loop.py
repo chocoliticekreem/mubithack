@@ -875,6 +875,8 @@ class Run:
         blocked_before = (max(prior, key=lambda it: it.get("n", 0)).get("blocked_issues") or []) if prior else []
         history_text = rounds.critic_block(history, rec["acceptance"],
                                            rounds.read_only_list(self.base_files, RUNTIME_FILES), blocked_before)
+        if guide := rounds.guide_block(self.spec, rounds.read_qa(self.store.dir)):
+            history_text = (history_text + "\n\n" + guide).strip()
         critique: dict | None = None
         # the fun critic reads the same files and report, so it runs alongside the critic
         fun_task = asyncio.create_task(self.fun_pass(n, files, report))
@@ -957,6 +959,8 @@ class Run:
             "ended": rec["ended"],
         })
         self.store.save_state(state)
+        with contextlib.suppress(OSError):  # the next build reads this game's dead ends
+            rounds.record_dead_ends(self.settings.runs_dir, self.slug, self.spec, state["iterations"])
         return rec, stop
 
     async def fun_pass(self, n: int, files: dict[str, str], report: dict) -> dict | None:
@@ -1039,8 +1043,10 @@ class Run:
             return f"{i.get('problem', '')} {i.get('fix_hint', '')}"
 
         async def fix_one(path: str, issues: list[dict]) -> None:
-            # issues about an acceptance counter that does not fire yet go first: the score hinges on them
-            issues = sorted(issues, key=lambda i: not rounds.mentioned(text(i), missing))
+            # an obby's required gameplay first (production guide: recipe before polish), then issues about an
+            # acceptance counter that does not fire yet: the score hinges on them
+            issues = sorted(issues, key=lambda i: (not rounds.required_first(self.spec, text(i)),
+                                                   not rounds.mentioned(text(i), missing)))
             problem = "Playtest critique:\n" + "\n".join(
                 f"- {i.get('problem', '')}" + (f" (hint: {i['fix_hint']})" if i.get("fix_hint") else "")
                 for i in issues)
@@ -1106,6 +1112,17 @@ class Run:
         if rec.get("rolled_back_to"):
             lines.append(f"Rolled back to {rec['rolled_back_to']}: this version scored lower than it, "
                          "so the fixes made since then were undone. Learn what made it worse.")
+        # dead ends: what rounds of fixes could not move, in this build and earlier ones (runs/dead_ends.json)
+        now = {"n": rec["n"], "score": rec.get("score"), "acceptance": rec.get("acceptance") or {},
+               "fixed": rec.get("fixed") or {}, "blocked_issues": rec.get("blocked_issues") or []}
+        before = [it for it in self.store.load_state().get("iterations") or [] if it.get("n") != rec["n"]]
+        ends = rounds.dead_ends(before + [now], self.spec)
+        if ends:
+            lines.append("Dead ends in this build so far (rounds of fixes did not move them). Write lessons that "
+                         "stop the next game designing them in:")
+            lines += [f"- {e}" for e in ends]
+        if other := rounds.dead_ends_block(self.settings.runs_dir, exclude=self.slug).strip():
+            lines.append(other)
         failed = [s for s in rec["steps"] if not s.get("ok")]
         if failed:
             lines.append("Failed steps: " + ", ".join(f"{s['step']} ({s.get('error', '')[:80]})" for s in failed))
@@ -1194,7 +1211,7 @@ async def _new_game(idea: str, iterations: int, use_studio: bool, *, settings: S
     if use_director is None:
         use_director = os.environ.get("FORGE_DIRECTOR", "1") != "0"
     prog.phase("design", "Planning the game: the director writes the design doc, then the designer the spec")
-    lessons = read_lessons(settings)
+    lessons = read_lessons(settings) + rounds.dead_ends_block(settings.runs_dir)
     if template.requested_stages(idea) is not None:
         # the course scope Forge will enforce, first in the lessons so the doc's acceptance and systems use its
         # numbers (the user message, never the fixed prompts)
