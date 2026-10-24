@@ -337,6 +337,26 @@ def _err_set(m: dict) -> set[str]:
     return {norm_error(e.get("message")) for e in m.get("errors") or [] if isinstance(e, dict)}
 
 
+DEAD_COUNTERS = "core counters stopped moving"
+
+
+def only_dead_counters(g: dict) -> bool:
+    """A rollback whose only reason is counters that stopped moving: often sampling noise (smoke-play bots
+    land on different stages each run, so jump_pad_used can be 0 by chance), worth one confirming measurement."""
+    regs = g.get("regressions") or []
+    return bool(regs) and all(str(r).startswith(DEAD_COUNTERS) for r in regs)
+
+
+def merge_counters(a: dict, b: dict) -> dict:
+    """`a` with each counter at its larger value across two measurements of the same version: a counter that
+    moved in either one is alive."""
+    out = dict(a)
+    ca, cb = a.get("counters") or {}, b.get("counters") or {}
+    keys = {k for k, v in list(ca.items()) + list(cb.items()) if isinstance(v, (int, float))}
+    out["counters"] = {k: max(float(ca.get(k) or 0), float(cb.get(k) or 0)) for k in keys}
+    return out
+
+
 def gate(before: dict, after: dict) -> dict:
     """Keep or roll back. Hard regressions (any one rolls back): files that don't compile, more headless boot
     errors, new Studio errors, checks that passed and now fail, a core counter that moved and now stays at 0,
@@ -885,6 +905,17 @@ class Autopilot:
         after = self.measure(r, "after", act.get("focus") or self.opts.goal)
         g = gate(before, after) if changed else {"verdict": "kept", "regressions": [], "improvements": [],
                                                   "why": "test only: no files changed"}
+        if changed and g["verdict"] == "rolled_back" and only_dead_counters(g):
+            # confirm before throwing the round away: only counters died, which sampling alone can cause
+            self.log(f"round {r}: only {'; '.join(g['regressions'])[:160]}; measuring once more to confirm")
+            self.check_budget()
+            again = self.measure(r, "confirm", act.get("focus") or self.opts.goal)
+            merged = merge_counters(after, again)
+            g2 = gate(before, merged)
+            g2["confirmed"] = {"first": g["regressions"], "second": g2.get("regressions") or []}
+            if g2["verdict"] != "rolled_back":
+                self.log(f"round {r}: the dead counters moved in the confirming measurement: not a regression")
+            g, after = g2, merged
         g["changed"] = changed
         g["before"], g["after"] = _brief(before), _brief(after)
         if g["verdict"] == "rolled_back":
