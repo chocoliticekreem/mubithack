@@ -3323,7 +3323,9 @@ local function parkMap(plan, F, x: number, z: number, title: string)
 	plan:keepCircle(x, z, 12)
 end
 
-local function buildLobby(plan, F, title: string)
+-- lots: reserved clear spots a game builds on (changingRoom = true -> lots.changingRoom, the left stall's place
+-- in the plaza, facing in)
+local function buildLobby(plan, F, title: string, lots: { [string]: any }?)
 	local z0, z1 = plan.lobbyZ0, plan.rF - 10
 	local zc = (z0 + z1) / 2
 	block(F.lobby, v3(200, 1, z1 - z0), plan:L(0, 0, zc), C.brick, M.Brick, true)
@@ -3353,8 +3355,14 @@ local function buildLobby(plan, F, title: string)
 		local a, b = lamps[k][2], lamps[k + 4][2]
 		lights(F.dress, a, a.Position + v3(0, 0.6, 0), b, b.Position + v3(0, 0.6, 0), 4, 22)
 	end
+	plan.lots = {}
+	if lots and lots.changingRoom then
+		plan.lots.changingRoom = plan:look(-72, 0.6, zc + 4, 1, 0)
+	end
 	for _, sx in { -1, 1 } do
-		Dress.stall(F.dress, plan:look(sx * 78, 0.6, zc - 18, -sx, 0), { C.red, C.gold }, Random.new(sx + 4), nil)
+		if not (sx < 0 and plan.lots.changingRoom) then
+			Dress.stall(F.dress, plan:look(sx * 78, 0.6, zc - 18, -sx, 0), { C.red, C.gold }, Random.new(sx + 4), nil)
+		end
 		Dress.popcorn_cart(F.dress, plan:look(sx * 30, 0.6, z0 + 26, -sx, 0), { C.red, C.gold })
 		Dress.balloon_cluster(F.dress, plan:L(sx * 26, 0.6, z0 + 6), { C.red }, Random.new(sx + 9))
 		Dress.balloon_cluster(F.dress, plan:L(sx * 34, 0.6, z1 - 8), { C.gold }, Random.new(sx + 19))
@@ -4143,9 +4151,10 @@ local function folders(park: Folder)
 end
 
 -- WorldKit.buildPark(opts) -> { anchors = {[i] = CFrame}, gates = {[i] = CFrame}, spawn = CFrame, lobby = CFrame,
--- parts = number }. opts: zones = {{name, theme, palette = {hex, ...}, length?}, ...} (default: the 10 park themes),
--- origin = CFrame (the hub on the ground, LookVector into the park; default CFrame.new()), size = studs (1600),
--- seed = number, title = entrance sign text. Each zone's course is measured from ReplicatedStorage.Levels with the
+-- lots = {[name] = CFrame}, parts = number, courses }. opts: zones = {{name, theme, palette = {hex, ...}, length?}, ...}
+-- (default: the 10 park themes), origin = CFrame (the hub on the ground, LookVector into the park; default
+-- CFrame.new()), size = studs (1600), seed = number, title = entrance sign text, lots = {changingRoom = true} (a clear
+-- spot in the plaza for Cosmetics.buildChangingRoom, in place of the left stall). Each zone's course is measured from ReplicatedStorage.Levels with the
 -- game's ObbyKit (zone i = level zone i); without level data a zone's course is `length` studs straight ahead
 -- (default 460). Replaces an existing workspace.Park and the template Baseplate.
 function WorldKit.buildPark(opts)
@@ -4177,7 +4186,7 @@ function WorldKit.buildPark(opts)
 	groundUnderlay(O, half, F.ground)
 	buildPaths(plan, F)
 	courseAvenues(plan, F)
-	buildLobby(plan, F, title)
+	buildLobby(plan, F, title, if type(opts.lots) == "table" then opts.lots else nil)
 	buildForecourt(plan, F)
 	task.wait()
 	buildRides(plan, F)
@@ -4216,7 +4225,8 @@ function WorldKit.buildPark(opts)
 		park:SetAttribute(string.format("Course%02d", i), string.format("%s, %.0f studs", if z.measured then "level data" else "length",
 			pathLength(z.path)))
 	end
-	return { anchors = anchors, gates = gates, spawn = plan.spawn, lobby = plan.lobby, parts = made, courses = courses }
+	return { anchors = anchors, gates = gates, spawn = plan.spawn, lobby = plan.lobby, lots = plan.lots, parts = made,
+		courses = courses }
 end
 
 -- ============================================================== public: motion on the client

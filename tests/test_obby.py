@@ -641,7 +641,7 @@ def test_kit_builds_zones_at_anchors_with_turns_themes_and_a_connected_ride_gate
     assert f["2"]["look"] == pytest.approx([2 ** -0.5, -(2 ** -0.5)], abs=1e-6)  # 45 right of the course
     assert f["3"]["pos"] == pytest.approx([400, 80, 0]) and f["3"]["look"] == pytest.approx([0, 1], abs=1e-6)  # anchor -90
     assert state["gate"] == {"stage": 2, "nextZone": 2, "prompt": "Ride to Gondola Heights", "padTagged": True}
-    assert state["dress"] == 13 and state["decor"] == 4 and state["props"] == 13 and state["badProps"] == 0
+    assert state["dress"] == 15 and state["decor"] == 4  # 13 pieces + the course and zone 2 start pads and state["props"] == 13 and state["badProps"] == 0
     assert state["dressPlatform"] == "ferris" and state["dressTrampoline"] == "ferris"
     assert player["unearned"]["stage"] == 0 and player["unearned"]["toGate"] < 5  # stage 0 can't ride zone 1's gate
     assert player["touch"]["stage"] == 2 and player["touch"]["saved"] == 2 and player["touch"]["ride"] == 2

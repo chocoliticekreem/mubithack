@@ -340,3 +340,19 @@ def test_correction_message_fits_the_user_budget():
     msg = levels.correction_message("x" * 30_000, zone, errors, 1, 20)
     assert len(msg) <= 24_100 and "## Your previous level data has errors" in msg
     assert director.kit_index()  # the kit the levels need is in the index
+
+
+def test_zone_theme_never_gives_a_later_zone_a_ride_an_earlier_zone_has():
+    spec = {"title": "Funfair Frenzy", "pitch": "an amusement park obby", "levels": {"plan": [
+        {"zone": 1, "name": "Grand Entrance", "theme_id": "entrance"},
+        {"zone": 2, "name": "Candy Carousel", "theme_id": "carousel"},
+        {"zone": 3, "name": "Coaster Corner", "theme_id": "coaster"},
+        {"zone": 4, "name": "Coaster Lights Midway", "theme": "neon arcade under coaster lights"}]}}
+    # the words name a taken ride, so the zone gets its park-order ride (teacups for zone 4), or the next free one
+    assert levels.zone_theme(spec, 4, 6) == "teacups"
+    # once nobody has the coaster, the zone's own words pick it
+    spec["levels"]["plan"][2] = {"zone": 3, "name": "Teacup Twirl", "theme_id": "teacups"}
+    assert levels.zone_theme(spec, 4, 6) == "coaster"
+    # a theme the plan sets explicitly is kept, even a repeat (a human chose it)
+    spec["levels"]["plan"][3]["theme_id"] = "carousel"
+    assert levels.zone_theme(spec, 4, 6) == "carousel"

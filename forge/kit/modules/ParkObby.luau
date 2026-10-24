@@ -108,13 +108,15 @@ function ParkObby.startServer(config: { [string]: any }?)
 	for i, z in zones do
 		zoneOpts[i] = { name = z.name, theme = z.theme, palette = z.palette }
 	end
-	local park = World.buildPark({ zones = zoneOpts, seed = cfg.Seed or 7, size = cfg.ParkSize })
+	local park = World.buildPark({ zones = zoneOpts, seed = cfg.Seed or 7, size = cfg.ParkSize, title = cfg.Title,
+		lots = { changingRoom = true } })
 	onlyParkSpawn()
 
 	local info = Obby.start({
 		themes = Themes,
 		anchors = park.anchors,
 		origin = park.anchors[1],
+		gates = park.gates, -- ground entrances: a player who finished the zone before rides back to it
 		spawn = park.spawn, -- a new player (stage 0) starts in the lobby and walks up the START stairs
 		allowSkip = cfg.AllowSkip == true,
 	})
@@ -357,7 +359,8 @@ function ParkObby.startClient(config: { [string]: any }?)
 	assert(RunService:IsClient(), "ParkObby.startClient runs in a LocalScript")
 	local cfg = config or {}
 	cfg.Zones = cfg.Zones or {}
-	local Music, CC = kit("MusicPlayer"), kit("CosmeticsClient")
+	local Music, CC, World = kit("MusicPlayer"), kit("CosmeticsClient"), kit("WorldKit")
+	World.client() -- the rides move on each client every frame (the server fallback is 30 Hz and looks choppy)
 	trackArea(cfg)
 	local areas = { [LOBBY] = "lobby" }
 	for _, z in cfg.Zones do

@@ -1999,8 +1999,11 @@ local function anchorFor(anchors: any, n: number, zd): CFrame?
 	return nil
 end
 
-local function startPad(parent: Instance, cf: CFrame, look, name: string): BasePart
+local function startPad(parent: Instance, cf: CFrame, look, name: string, themes: any?, themeId: string?): BasePart
 	local m = Obstacles.checkpoint(parent, cf, { stage = 0 }, look)
+	if themes and themeId and type(themes.dress) == "function" then -- dressed like the zone's checkpoints
+		dressed(m, themes.dress, "checkpoint", m, { stage = 0 }, themeId, Random.new(#name * 7919))
+	end
 	m.Name = name
 	local pad = m:FindFirstChild("Checkpoint")
 	CollectionService:RemoveTag(pad, "Checkpoint")
@@ -2165,7 +2168,9 @@ function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 	folder.Parent = opts.parent or workspace
 	course.folder = folder
 	if not course.start then
-		local pad = startPad(folder, origin, theme(1), "Start")
+		local first = zones[1] and zones[1].data
+		local pad = startPad(folder, origin, theme(1), "Start", themes,
+			if first and type(first.theme_id) == "string" and first.theme_id ~= "" then first.theme_id else nil)
 		CollectionService:AddTag(pad, "ObbyStart")
 		course.start = pad
 	end
@@ -2187,7 +2192,7 @@ function ObbyKit.buildLevels(source: any?, opts: { [string]: any }?)
 			local starts = folder:FindFirstChild("ZoneStarts") or Instance.new("Folder")
 			starts.Name = "ZoneStarts"
 			starts.Parent = folder
-			local own = startPad(starts, cursor, look, string.format("Zone%02dStart", z.n))
+			local own = startPad(starts, cursor, look, string.format("Zone%02dStart", z.n), themes, themeId)
 			own:SetAttribute("Stage", nil)
 			own:SetAttribute("Zone", z.n)
 			own:SetAttribute("AfterStage", course.stages)
@@ -2367,6 +2372,35 @@ end
 
 function ObbyKit.getStage(player: Player): number
 	return data[player] and data[player].stage or 0
+end
+
+-- The course's coin ledger, for a shop or costume panel (Cosmetics.start{balance = ObbyKit.coins, spend =
+-- ObbyKit.spend}): one ledger, so a purchase is never refunded by the next coin pickup.
+function ObbyKit.coins(player: Player): number
+	local d = data[player]
+	return if d and d.loaded then d.coins else 0
+end
+
+function ObbyKit.spend(player: Player, amount: number): boolean
+	local d = data[player]
+	amount = trunc(num(amount, 0))
+	if not d or not d.loaded or amount < 0 or d.coins < amount then
+		return false
+	end
+	d.coins -= amount
+	publish(player, d)
+	save(player)
+	return true
+end
+
+function ObbyKit.addCoins(player: Player, amount: number)
+	local d = data[player]
+	amount = trunc(num(amount, 0))
+	if d and d.loaded and amount > 0 then
+		d.coins += amount
+		publish(player, d)
+		save(player)
+	end
 end
 
 function ObbyKit.setStage(player: Player, n: number)

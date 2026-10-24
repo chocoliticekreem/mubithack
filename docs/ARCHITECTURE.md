@@ -144,7 +144,12 @@ forge/                 Python package (uv), entry point `forge`
                        prebuilt ReplicatedStorage/GameAssets.luau (forge/kit: palette, sounds.json, play/burst/shake/
                        styleLighting/part); coder_notes(spec, lessons) puts style + juice ahead of coder/fixer lessons
                        kit modules: forge/kit/modules/<Name>.luau + index.json [{name, path_in_game, genres ("*" = all),
-                       keywords, describe, api}]; match_kit_modules(text) (gaps.detect_genre or a keyword) -> the designer's
+                       keywords, describe, api, genres_only?, requires?, template?}]; match_kit_modules(text) (gaps.detect_genre
+                       or a keyword; genres_only limits a keyword match to those genres; a match brings its `requires`);
+                       template mode (a matched kit with "template"): template_block(kits) in the director and designer
+                       user messages, module budget TEMPLATE_EXTRA_MODULES (2) extra modules, the template's files as
+                       RENDERED prebuilt modules, first-60s counters only from kit_counters(kits) (count("x") /
+                       telemetry("x") in the kit sources; an invented one is cleared from its beat) -> the designer's
                        scope block says PREBUILT, spec module {path, prebuilt, kit: <name>}, install_kit copies the file and
                        forge/genre_checks/<genre>/*.luau into runs/<slug>/checks/ (resolve_consumers: `-- consumer:
                        <file>:"<text>"` -> <file>:<line>; __EXPECTED_STAGES__ from spec levels), kit_api_block(spec) in every
@@ -200,12 +205,27 @@ forge/                 Python package (uv), entry point `forge`
                        course yet (start pad, checkpoint, ride gate, a fall off it: player attribute OnCourse) starts and
                        respawns there instead of on the start pad; every pad floating over open ground (raycast from inside
                        it: a pad over the course or on a WorldKit tower gets none) stands on a non-colliding Support column
-                       and Footing (workspace.Obby.Supports); tags Checkpoint, ObbyStart, ObbyZoneStart, RideGate, RideGatePad,
+                       and Footing (workspace.Obby.Supports); start pads are dressed like their zone's checkpoints;
+                       ObbyKit.coins(player), spend(player, n) -> bool, addCoins(player, n): the course's coin ledger (a
+                       shop spends through it, so the next pickup never refunds a purchase); tags Checkpoint, ObbyStart,
+                       ObbyZoneStart, RideGate, RideGatePad,
                        RideEntrance, RideEntrancePad, ObbyStage, KillPart, Obstacle, ObbyStandable, Coin, JumpPad, Trampoline,
                        Conveyor
   kit/modules/WorldKit.luau  WorldKit.buildPark(opts) builds the amusement park an obby runs through, around the courses
-                       it measures from the level data, and returns anchors (where each zone's course starts), gates
-                       and courses; WorldKit.client() runs the rides on each client; see "Kit modules" below
+                       it measures from the level data, and returns anchors (where each zone's course starts), gates,
+                       lots (opts.lots = {changingRoom = true}: a clear plaza spot) and courses; WorldKit.client() runs
+                       the rides on each client; see "Kit modules" below
+  kit/modules/ParkObby.luau  the park obby template: ParkObby.startServer(Config) builds the park (WorldKit), the course in
+                       it (ObbyKit v2 with anchors, gates, spawn = the lobby, ObbyThemes), the changing room on
+                       lots.changingRoom with Cosmetics spending ObbyKit's ledger, and the finish reward; startClient(Config)
+                       starts WorldKit.client, MusicPlayer (area = Config.Zones[player Zone].name, lobby before stage 1),
+                       CosmeticsClient and the HUD. Every kit is required: a missing one stops the boot with its name, as
+                       does a Config.Zones count that differs from the level zones
+  template.py          template games (a kit entry with "template": {files}): rendered_files(spec) / render(spec, game_dir)
+                       write ParkObby's ReplicatedStorage/Config.luau (zones from spec.levels.plan in order, each zone's
+                       theme_id as is, costumes, finish reward) and the two bootstraps; install_kit and `forge levels` call
+                       render; the files are protected from the fixer. `forge new` on a template obby runs the level
+                       designer first (template.PARK_ZONES x PARK_STAGES_PER_ZONE unless the spec sets levels), then renders
   levels.py            `forge levels <slug> [--zones a-b] [--stages-per-zone 20] [--total-zones N]`: per zone one
                        level_designer call (game, zone, park theme (zone_theme: plan theme_id, planned name words, else the
                        park order for an amusement-park game) + THEME_NOTES + signature kinds introduced early, difficulty per

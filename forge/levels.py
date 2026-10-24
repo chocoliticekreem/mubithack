@@ -199,14 +199,18 @@ def is_park(spec: dict) -> bool:
 def zone_theme(spec: dict, zone: int, total_zones: int) -> str | None:
     """The zone's park theme (obby.THEMES) or None: the plan's theme_id (or a theme that is one), words in the
     planned name/theme, else an amusement-park game's park order (entrance, the rides in turn, finale last)."""
-    planned = _plan(spec).get(zone) or {}
+    plan = _plan(spec)
+    planned = plan.get(zone) or {}
     for key in ("theme_id", "theme"):
         v = str(planned.get(key) or "").strip().lower()
         if v in obby.THEMES:
             return v
+    # a theme an earlier zone already has is never picked again by words or park order: two zones with one ride
+    # look the same (WorldKit builds one landmark per zone, ObbyThemes dresses by theme)
+    taken = {str(p.get("theme_id") or "") for z, p in plan.items() if z < zone}
     text = _words(f"{planned.get('name') or ''} {planned.get('theme') or ''}")
     for theme, words in THEME_WORDS.items():
-        if any(f" {w} " in text for w in words):
+        if theme not in taken and any(f" {w} " in text for w in words):
             return theme
     if not is_park(spec):
         return None
@@ -215,7 +219,9 @@ def zone_theme(spec: dict, zone: int, total_zones: int) -> str | None:
     if zone == total_zones and total_zones > 1:
         return "finale"
     rides = obby.THEMES[1:-1]
-    return rides[(zone - 2) % len(rides)]
+    start = (zone - 2) % len(rides)
+    order = rides[start:] + rides[:start]  # the zone's place in the park order, then the next ride nobody has
+    return next((t for t in order if t not in taken), order[0])
 
 
 def zone_range(zone: int, per_zone: int) -> tuple[int, int]:

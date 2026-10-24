@@ -70,13 +70,14 @@ def template_files(spec: dict) -> list[str]:
 
 
 def park_themes(plan: list[dict]) -> list[str]:
-    """One distinct park theme per zone: the zone's own theme id when it is one, else the first theme its name
-    or theme text names, else the first theme not taken yet."""
+    """One park theme per zone. The level designer's theme_id (the theme its level data was built with) is used
+    as is, so the ride WorldKit builds and the dressing ObbyThemes adds always agree; a zone without one gets the
+    first theme its name or theme text names, else the first theme not taken yet."""
     taken: list[str] = []
     for z in plan:
-        own = str(z.get("theme") or "").strip().lower()
+        own = str(z.get("theme_id") or z.get("theme") or "").strip().lower()
         text = f" {z.get('name') or ''} {z.get('theme') or ''} ".lower()
-        pick = own if own in PARK_THEMES and own not in taken else None
+        pick = own if own in PARK_THEMES and (z.get("theme_id") or own not in taken) else None
         if pick is None:
             pick = next((t for t, words in THEME_WORDS.items()
                          if t not in taken and any(w in text for w in words)), None)

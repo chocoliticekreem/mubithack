@@ -92,3 +92,11 @@ def test_template_mode_plans_content_not_systems():
     # the invented counter is dropped from the beat (it would be dead by construction); the kit's one stays
     assert [(b["beat"], b["counter"]) for b in spec["first_60s"]] == [("grab coins", "coin_collected"), ("equip ears", "")]
     assert not any("costume_equipped" in a for a in spec["acceptance"])
+
+
+def test_config_uses_the_level_designers_theme_id_verbatim():
+    # the level data was built with these ids: Config must match them even when they repeat, or WorldKit's ride
+    # and ObbyThemes' dressing would disagree
+    plan = [{"zone": 1, "name": "A", "theme_id": "carousel"}, {"zone": 2, "name": "B", "theme_id": "carousel"},
+            {"zone": 3, "name": "Haunted Hollow", "theme": "spooky"}]
+    assert template.park_themes(plan) == ["carousel", "carousel", "haunted"]
