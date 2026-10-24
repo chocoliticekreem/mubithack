@@ -427,19 +427,27 @@ def _anomaly_text(a: dict) -> str:
     return " ".join((a["title"], a["system"], a.get("expected", ""), a.get("observed", "")))
 
 
-def candidate_file(settings: Settings, game_dir: Path, anomaly: dict) -> str | None:
+def candidate_file(settings: Settings, game_dir: Path, anomaly: dict,
+                   exclude: set[str] | frozenset[str] = frozenset()) -> str | None:
     """The game file most likely to hold the anomaly (paths and names first, then keywords)."""
     from mubit_tester.ai import find_candidate_files
 
     named = str(anomaly.get("path") or "")
-    if named and (game_dir / named).is_file() and not named.startswith(NOT_IN_STUDIO):
+    if named and (game_dir / named).is_file() and not named.startswith(NOT_IN_STUDIO) and named not in exclude:
         return named  # the fun critic names its file
 
     ranked = find_candidate_files(dataclasses.replace(settings, base_game_dir=game_dir),
                                   _anomaly_text(anomaly), limit=10)
     # only files that are synced into Studio can fix what testers saw (not unit specs or tools)
-    live = [rel for rel, _ in ranked if not rel.startswith(NOT_IN_STUDIO)]
+    live = [rel for rel, _ in ranked if not rel.startswith(NOT_IN_STUDIO) and rel not in exclude]
     return live[0] if live else None
+
+
+def kit_owned_paths(spec: dict) -> set[str]:
+    """Prebuilt, tested engine files in a game (kit modules + GameAssets): `forge fix` never edits them."""
+    from forge import director
+
+    return {e["path_in_game"] for e in director.kit_modules_in(spec)} | {director.GAME_ASSETS}
 
 
 async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before: list[dict], *,
@@ -485,6 +493,7 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             log(f"[checks] regression guards: {len(guards)}/{len(suite)} saved checks pass before the fixes")
     spec = store.run.load_spec() if store.run.spec_path.exists() else {}
     protected = set(RUNTIME_FILES)
+    kit_owned = kit_owned_paths(spec)
     if not edit_human:
         protected |= {p for p in spec.get("base_files") or [] if isinstance(p, str)}
     versions = GameVersions(root)
@@ -521,7 +530,18 @@ async def fix_code(settings: Settings, slug: str, anomalies: list[dict], before:
             results.append({"anomaly": a["title"], "status": "unproven", "investigation": found})
             log(f"[fix] {a['title']}: investigator could not prove a code cause, skipped")
             continue
-        rel = concl.get("file") or candidate_file(settings, root, a)
+        rel = concl.get("file") or candidate_file(settings, root, a, exclude=kit_owned)
+        if rel in kit_owned:
+            # a game bug is fixed in the game's own code that uses the kit, never by patching the tested
+            # engine (a fixer raised the kit's jump height to make a physics check pass)
+            alt = candidate_file(settings, root, a, exclude=kit_owned)
+            log(f"[fix] {a['title']}: {rel} is a prebuilt kit file; "
+                + (f"fixing the game code that uses it instead: {alt}" if alt else "no game file to fix, skipped"))
+            if alt is None:
+                results.append({"anomaly": a["title"], "status": "kit_protected", "investigation": found,
+                                "repro": rp, "path": rel})
+                continue
+            rel = alt
         if rel is None:
             results.append({"anomaly": a["title"], "status": "no_file", "investigation": found, "repro": rp})
             log(f"[fix] {a['title']}: no matching file")
