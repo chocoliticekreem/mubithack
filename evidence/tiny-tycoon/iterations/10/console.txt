@@ -1,0 +1,15 @@
+DataService: using in-memory store
+[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
+[ForgeCheck] PASS claim_phase_plot_assigned_rose
+[ForgeCheck] PASS map_built_once
+[ForgeCheck] PASS plaza_built_once
+[ForgeCheck] PASS themes_built_six
+[ForgeCheck] PASS no_drops_before_claim
+[ForgeCheck] PASS plot_assigned_after_claim
+[ForgeCheck] PASS auto_claims_in_auto_mode
+[ForgeCheck] PASS cubes_dropped_rising
+[ForgeCheck] PASS cubes_collected_positive
+[ForgeCheck] PASS cashin_fx_sent_positive
+[ForgeCheck] PASS cash_rising
+[ForgeCheck] PASS no_output_errors
+[ForgeCheck] RESULT {"failures":[],"passed":12,"failed":0}

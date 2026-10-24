@@ -1,0 +1,27 @@
+{
+  "score": 4,
+  "summary": "The playtest did not run (compile check only), so no runtime behaviour or counters are verified. The files compile and the pieces look reasonable (themed PlazaBuilder, PlotClaimService, Tycoon, Hud). However, Game.server.luau appears to wire up the old assign-on-join flow instead of the plaza and claim-gate flow the spec requires.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The visible header requires only PlotBuilder and Tycoon, never PlazaBuilder or PlotClaimService. It has its own slots/states/teleport/removePlot logic, so players are teleported onto a plot on join. That contradicts the spec: players spawn in the plaza, claim a plot via a gate or the 20s auto-claim, and cubes_dropped stays 0 until then. The counters 'plaza_built', 'themes_built', 'plots_claimed' and 'auto_claims' would likely never fire.",
+      "fix_hint": "Make Game.server.luau a thin bootstrap. Build the plaza and plots (PlotBuilder plus PlazaBuilder), call PlotClaimService.init with the plot list, and delete the per-player slot assignment and teleport-to-plot code. Spawn players at the plaza (SpawnLocation or PivotTo the plaza center). Start the Tycoon only from PlotClaimService.claim. Bump 'map_built' once."
+    },
+    {
+      "path": "ServerScriptService/PlotClaimService.luau",
+      "problem": "The claim flow cannot be verified. It relies on defensive fallbacks for the plot table shape (`p.origin or p.spawnCFrame`, `p.gate or p.Gate`), which suggests an unsettled interface with PlotBuilder. It also calls count('plaza_built') here while PlazaBuilder counts it too, so the counter can reach 2 instead of 1.",
+      "fix_hint": "Define one plot-table shape shared by PlotBuilder and PlotClaimService. Remove the duplicate count('plaza_built') here. Make sure the claim path bumps 'plots_claimed', 'plot_assigned' and 'auto_claims' exactly once per claim, and that the Tycoon starts only after a claim. Guard against the same plot being claimed twice by simultaneous Touched events (check Owner before assigning)."
+    },
+    {
+      "path": "ServerScriptService/PlotBuilder.luau",
+      "problem": "PlotBuilder uses the single Config PLOT_COLOR palette and a SPAWN_LOCAL inside the plot (0,3,12), which fits the old spawn-on-plot flow. The spec requires per-theme floors, decor and no default grey parts, with players spawning in the plaza.",
+      "fix_hint": "Take each plot's floor material and color plus the rail, dropper and pad colors from PlotThemes. Remove or stop using SPAWN_LOCAL for initial spawn. Keep the buy pads off the path between the gate and the plot center so they are not triggered accidentally."
+    },
+    {
+      "path": "ServerScriptService/Tycoon.luau",
+      "problem": "Cubes are unanchored CanCollide parts moved by the conveyor. With up to 30 cubes per plot across 6 plots they can jitter, stick, or knock players around. Cleanup depends on the cap and a Born attribute, and the collector may double-credit or miss cubes.",
+      "fix_hint": "Add a lifetime fallback that destroys any cube older than about 30s. Put cubes in a collision group that does not collide with players, or set CanCollide=false. Make the collector idempotent with a per-cube 'collected' attribute check before paying out."
+    }
+  ],
+  "done": false
+}

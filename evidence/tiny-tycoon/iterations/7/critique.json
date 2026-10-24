@@ -1,0 +1,27 @@
+{
+  "score": 8,
+  "summary": "The game runs end to end with no errors or warnings. All 11 ForgeChecks pass: the map, plaza and 6 themes are built, the plot is auto-claimed, cubes drop and are collected, cash rises, and a Dropper 2 purchase goes through once (dropper_bought and upgrades_bought are both 1). Feedback and polish systems (FX, sounds, tutorial, HUD, shop, rebirth) are all active. The remaining gaps are that the playtest never exercised gate claiming or the later upgrades, and some polish counters look inconsistent.",
+  "issues": [
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The playtest only covered the auto-claim path (auto_claims=1, plots_claimed=1). Claiming a plot by walking onto a gate, with the sign showing the player's name and the gate hiding, was never verified. ForgeChecksPlan.claimMode is 'auto', so a bug in gate touch handling would go unnoticed. The only evidence is the plots_claimed counter, which does not show whether the gate and sign state are correct.",
+      "fix_hint": "Make sure the gate Touched handler checks that the toucher is a player character, has a per-player debounce, and rejects plots that are already claimed. After claiming, set the sign text to the player's name, hide the gate (Transparency=1, CanTouch=false, billboard disabled), and count 'plots_claimed' and 'plot_assigned' once. Consider switching ForgeChecksPlan.claimMode to 'gate' in a later playtest."
+    },
+    {
+      "path": "ServerScriptService/CashInService.luau",
+      "problem": "The census shows 'bursts': 0 and 'sounds_played': 0 on the server, while the counters show bursts=26 and sounds_played=26. Client-side census has client_sounds_played 0 too. The cash-in sound and burst may not actually be playing or may be cleaned up before they are counted, so the counters may be inflated without any real audio or visual feedback.",
+      "fix_hint": "Verify that the cash-in Sound has a valid SoundId and is parented somewhere that can play it (collector part or SoundService). Call :Play() after it is parented and count 'sounds_played' only after Play succeeds. Check that the burst emitter lives long enough, via Debris or Emit, to be visible, and confirm on the client that the PurchaseFx/CashIn remote handlers actually call Play."
+    },
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "problem": "The duplicate-startup guard calls warn() and returns if ForgeWorldBuilt is already set. The spec requires no warnings in the output. A Studio script re-run or a duplicate copy of the script would produce a warning and fail the no_output_errors check.",
+      "fix_hint": "Replace the warn() with a silent return or a print, or use a ForgeTelemetry counter instead, so a benign duplicate start does not add a warning to the output."
+    },
+    {
+      "path": "ServerScriptService/DataService.luau",
+      "problem": "The playtest fell back to an in-memory store ('DataService: using in-memory store'), so the real DataStore save/load path was not exercised. Yielding DataStore calls with retries could stall player setup or leak progress on leave in a live server.",
+      "fix_hint": "Make sure every DataStore call is wrapped in pcall with a timeout, that PlayerRemoving and BindToClose save once without double-saving, and that the player's setup (leaderstats, plot claim) never waits on a load longer than LOAD_TIMEOUT, falling back to defaults."
+    }
+  ],
+  "done": false
+}

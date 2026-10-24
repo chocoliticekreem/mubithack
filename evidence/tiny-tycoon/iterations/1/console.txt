@@ -1,0 +1,1 @@
+[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote

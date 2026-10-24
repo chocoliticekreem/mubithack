@@ -1,20 +1,51 @@
 # Cube Cash Tycoon
 
-Watch cubes roll down your conveyor, cash in, and buy droppers and speed upgrades to grow your tiny factory!
+Claim a themed plot, watch ore roll down your conveyor into a glowing collector, and grow a tiny factory into a gold-and-diamond empire, then rebirth for a permanent multiplier.
 
 Built by Forge's Mubit agent (designer, coder, AI playtests, critic, fixer, verifier).
 
 ## How it plays
 
-Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 seconds onto a conveyor. The conveyor carries cubes to a collector at the end, and the server adds each cube's value to the player's Cash leaderstat and destroys the cube. Two buy pads sit off to the side of the walking area: a second dropper for 25 cash and a faster conveyor for 50 cash. Touching a pad with enough cash buys the upgrade once, so income climbs and the numbers go up.
+Players spawn in a central plaza ringed by 6 themed plots (Candy, Lava, Ice, Jungle, Neon City, Desert) and claim one by walking onto its glowing CLAIM gate (auto-claim after a few seconds). Their dropper drops ore onto the conveyor; the collector pays cash with a cha-ching, sparkles and a floating +$N. Cash buys a data-driven upgrade tree (Droppers 2-4, Silver/Gold/Diamond ore, conveyor speed, cash multipliers) on owner-only glowing buy pads or in the SHOP panel; every purchase visibly grows the plot (dropper machines, chevrons, ore piles, a vault, a plot wall). At $5000 (doubling each time) the player can rebirth for a permanent x1.5, x2, ... multiplier. A first-60-seconds tutorial arrow and banner guide new players, a TOP TYCOONS board in the plaza ranks lifetime earnings, and progress saves with DataStore (in-memory fallback in Studio).
 
 ## Modules
 
+- `ReplicatedStorage/GameAssets.luau`: PREBUILT (do not rewrite): palette, sound ids, play(name, parent?), burst(at, color?, count?), shake(intensity?, seconds?) client-only, styleLighting() server, part(props) -> Part.
 - `ReplicatedStorage/Config.luau`: Shared constants. Returns a table with: DROP_INTERVAL=2, CUBE_VALUE=1, CUBE_SIZE=Vector3.new(1.5,1.5,1.5), CONVEYOR_SPEED=8, FAST_CONVEYOR_SPEED=16, DROPPER_COST=25, CONVEYOR_COST=50, PLOT_SIZE=Vector
 - `ServerScriptService/PlotBuilder.luau`: Builds the world from parts at runtime (baseplate, one plot per slot index) with a small part count (about 15 per plot, 8 plots max). Returns {buildBase(): Part, buildPlot(index:number): Plot} where P
 - `ServerScriptService/Tycoon.luau`: Server-side tycoon logic. Returns {new(player:Player, plot:Plot): Tycoon, Tycoon:destroy()}. On new: starts a drop loop that spawns an unanchored-or-velocity-driven Cube (value Config.CUBE_VALUE, stor
 - `ServerScriptService/Game.server.luau`: Entry point. Creates the remotes folder and the Notify RemoteEvent in ReplicatedStorage. Calls PlotBuilder.buildBase() and counts 'map_built'. On PlayerAdded (and for players already in game) creates 
 - `StarterPlayerScripts/Hud.client.luau`: Creates a ScreenGui at runtime showing a big 'Cash: N' label that reads player.leaderstats.Cash (waiting with a timeout), a small hint line 'Touch the green pads to buy: Dropper 25 / Fast Belt 50', an
+- `ReplicatedStorage/PlotThemes.luau`: Feature: Themed plots and plot claiming for multiplayer: build a bright central spawn plaza (stone tiles, a fountain, lamp posts, trees) with 6 plots arranged in a ring around it. Each plot has its ow
+- `ServerScriptService/PlazaBuilder.luau`: Feature: Themed plots and plot claiming for multiplayer: build a bright central spawn plaza (stone tiles, a fountain, lamp posts, trees) with 6 plots arranged in a ring around it. Each plot has its ow
+- `ServerScriptService/PlotClaimService.luau`: Feature: Themed plots and plot claiming for multiplayer: build a bright central spawn plaza (stone tiles, a fountain, lamp posts, trees) with 6 plots arranged in a ring around it. Each plot has its ow
+- `ReplicatedStorage/Upgrades.luau`: Feature: Dropper tiers and an upgrade tree, data-driven: a new ReplicatedStorage/Upgrades config lists about 12 upgrades with id, name, cost, requires (parent id) and effect. Tree: 4 dropper slots (Dr
+- `ServerScriptService/UpgradeService.luau`: Feature: Dropper tiers and an upgrade tree, data-driven: a new ReplicatedStorage/Upgrades config lists about 12 upgrades with id, name, cost, requires (parent id) and effect. Tree: 4 dropper slots (Dr
+- `StarterPlayerScripts/UpgradeFx.client.luau`: Feature: Dropper tiers and an upgrade tree, data-driven: a new ReplicatedStorage/Upgrades config lists about 12 upgrades with id, name, cost, requires (parent id) and effect. Tree: 4 dropper slots (Dr
+- `ReplicatedStorage/RebirthConfig.luau`: Feature: Rebirth with a multiplier: once a player has bought every upgrade in the tree OR has at least 5000 cash, a glowing golden Rebirth altar on their plot (and a Rebirth button in the HUD) lets th
+- `ServerScriptService/RebirthService.luau`: Feature: Rebirth with a multiplier: once a player has bought every upgrade in the tree OR has at least 5000 cash, a glowing golden Rebirth altar on their plot (and a Rebirth button in the HUD) lets th
+- `StarterPlayerScripts/RebirthClient.client.luau`: Feature: Rebirth with a multiplier: once a player has bought every upgrade in the tree OR has at least 5000 cash, a glowing golden Rebirth altar on their plot (and a Rebirth button in the HUD) lets th
+- `ReplicatedStorage/CashInConfig.luau`: Feature: Satisfying cash-in feedback: when ore reaches the owner's collector, the server fires a CashIn remote to that owner with the amount, the ore tier and the collector position. A client CashInFx
+- `ServerScriptService/CashInService.luau`: Feature: Satisfying cash-in feedback: when ore reaches the owner's collector, the server fires a CashIn remote to that owner with the amount, the ore tier and the collector position. A client CashInFx
+- `StarterPlayerScripts/CashInFx.client.luau`: Feature: Satisfying cash-in feedback: when ore reaches the owner's collector, the server fires a CashIn remote to that owner with the amount, the ore tier and the collector position. A client CashInFx
+- `ReplicatedStorage/UiTheme.luau`: Feature: Shop UI built with the UI kit (the house Theme, rounded panels, big readable buttons): a 'SHOP' button on the left edge of the HUD opens a panel listing every upgrade from ReplicatedStorage/U
+- `StarterPlayerScripts/ShopUi.client.luau`: Feature: Shop UI built with the UI kit (the house Theme, rounded panels, big readable buttons): a 'SHOP' button on the left edge of the HUD opens a panel listing every upgrade from ReplicatedStorage/U
+- `ReplicatedStorage/NumberFormat.luau`: Feature: Leaderboard: leaderstats show Cash and Rebirths for every player, and a big in-world leaderboard board stands in the central plaza (SurfaceGui on a themed stand, title 'TOP TYCOONS') listing 
+- `ServerScriptService/LeaderboardService.server.luau`: Feature: Leaderboard: leaderstats show Cash and Rebirths for every player, and a big in-world leaderboard board stands in the central plaza (SurfaceGui on a themed stand, title 'TOP TYCOONS') listing 
+- `ReplicatedStorage/TutorialConfig.luau`: Feature: First-60-seconds tutorial: a TutorialGuide client script shows a bouncing 3D arrow (a neon arrow part floating above the target plus a Beam from the player to it) and a short instruction bann
+- `ServerScriptService/TutorialService.luau`: Feature: First-60-seconds tutorial: a TutorialGuide client script shows a bouncing 3D arrow (a neon arrow part floating above the target plus a Beam from the player to it) and a short instruction bann
+- `StarterPlayerScripts/TutorialGuide.client.luau`: Feature: First-60-seconds tutorial: a TutorialGuide client script shows a bouncing 3D arrow (a neon arrow part floating above the target plus a Beam from the player to it) and a short instruction bann
+- `ServerScriptService/DataService.luau`: Feature: Data saving: a DataService on the server saves each player's Cash, TotalEarned, Rebirths and owned upgrade ids with DataStoreService (store 'CubeCashTycoon_v1', key 'p_<UserId>'), loading on 
+- `ServerScriptService/JuiceService.luau`: Feature: Juice and polish pass using the prebuilt ReplicatedStorage/GameAssets kit (require it; do not rewrite it): call GameAssets.styleLighting() once on the server so the world has warm sky lightin
+- `StarterPlayerScripts/JuiceFx.client.luau`: Feature: Juice and polish pass using the prebuilt ReplicatedStorage/GameAssets kit (require it; do not rewrite it): call GameAssets.styleLighting() once on the server so the world has warm sky lightin
+- `ServerScriptService/TutorialFlow.luau`: Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the c
+- `StarterPlayerScripts/TutorialBeam.client.luau`: Feature: Fix this bug: Make the tutorial advance through claim, first cash-in, Dropper 2 buy, open SHOP, and buy a tier upgrade. Show the arrow and a visible Beam from the player to each target (the c
+- `StarterPlayerScripts/ShopFx.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened c
+- `ServerScriptService/ShopTelemetry.server.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): In ShopUi.client.luau, scale-tween the panel in on open with a whoosh (GameAssets.play) and increment a shop_opened c
+- `ServerScriptService/PadFeedbackService.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and s
+- `StarterPlayerScripts/PadFeedbackFx.client.luau`: Feature: Visual and feel pass (art, juice, readability; no gameplay rules change): For the visible buy pad, pulse a green Highlight or neon glow and its price tag while the owner's Cash >= cost, and s
+- `ServerScriptService/GrowthModels.luau`: Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades bar
+- `ServerScriptService/PlotGrowth.luau`: Feature: Visible plot growth, split into SMALL modules (each well under 200 lines; the coder's output cap was hit by a single big file last time). The plot is a big empty floor and buying upgrades bar
 
 ## Acceptance checks
 
@@ -26,11 +57,139 @@ Each player gets a bright plot with a dropper that spawns a 1-cash cube every 2 
 - The HUD shows the current Cash and updates as it changes
 - Walking from spawn does not trigger the buy pads accidentally, and the cube count stays under the cap
 - No errors or warnings appear in the output
+- At startup the plaza (stone tiles, fountain, lamp posts, trees) and 6 plots in a ring exist; 'plaza_built' is 1, 'themes_built' is 6 and 'map_built' is 1
+- Each plot has a distinct theme floor material and color plus 3-5 decoration props (lollipops, lava cracks, crystals, palm trees, neon strips, cacti), and no part is default grey; rails, dropper bodies and pads use theme colors
+- Players spawn in the plaza, not on a plot, and cubes_dropped stays 0 until a plot is claimed
+- Each free plot shows a glowing gate with a BillboardGui reading 'Claim <Theme> Plot'
+- Walking onto a gate claims that plot: the sign shows the player's name, the gate hides, 'plots_claimed' and 'plot_assigned' increase, and 'cubes_dropped' starts rising about every 2 seconds
+- A player who does not claim within 20 seconds is auto-claimed to the nearest free plot ('auto_claims' increases) and the dropper starts
+- ReplicatedStorage/Upgrades has 10 upgrades with unique ids, every requires id exists, and the first purchase (Dropper 2) costs 10
+- After claiming a plot, only the Dropper 2 pad is visible on that plot, with a billboard showing its name and '$10'
+- Within about 10 seconds of claiming, Cash reaches 10 and the Dropper 2 pad turns the plot accent color
+- Touching Dropper 2 with enough cash deducts 10 exactly once, the pad vanishes, the Silver, Speed 1 and Dropper 3 pads appear, and 'upgrades_bought' increments
+- Touching a pad with insufficient cash, or whose parent is not owned, does nothing and deducts nothing
+- After Dropper 2 is bought, two cubes spawn per drop cycle and 'cubes_dropped' rises faster
+- With fewer than 5000 Cash and not every upgrade bought, using the Rebirth button or altar prompt changes nothing (Cash and upgrades stay as they were) and 'rebirth_denied' increments.
+- With 5000+ Cash (or every upgrade bought), a rebirth sets Cash to 0, rebuilds the buy pads so only the first-tier pad is visible again, increments the Rebirths leaderstat to 1, and increments 'rebirths' exactly once per rebirth (no double fire from spam clicks).
+- After the first rebirth the multiplier is 1.5, so a collected cube worth 1 pays 1.5 rounded, and after the second rebirth it is x2.0. The second rebirth requires 10000 Cash or every upgrade.
+- A glowing golden altar with a cost billboard exists on the player's claimed plot, away from the spawn path, and is removed when the player leaves.
+- On a successful rebirth the client shows a full-screen golden flash and a 'REBIRTH x<mult>!' banner, and the Rebirth button is present in the HUD.
+- The Rebirths leaderstat appears next to Cash, and no errors or warnings appear in the output.
+- ReplicatedStorage contains RemoteEvents 'CashIn' and 'PurchaseFx' shortly after server start, with no errors or warnings in the output
+- When a cube reaches the owner's collector, 'cashin_fx_sent' increments and the Cash leaderstat still rises as before
+- On each cash-in the owner hears a short ping and sees gold sparkles at the collector and a '+$N' text that rises and fades, colored by ore tier
+- The HUD Cash label visibly pulses (scales up and back) on each cash-in
+- Buying an upgrade plays a pop sound and a confetti burst at the pad, and 'purchase_fx_sent' increments alongside 'upgrades_bought'
+- Under rapid cash-ins no more than 6 popups appear in any one second
+- Playtest shows a 'SHOP' button on the left edge of the screen, and nothing overlaps the Cash HUD
+- Clicking SHOP opens a rounded panel listing all 10 upgrades from ReplicatedStorage/Upgrades as cards with swatch, name, effect text and cost, and 'shop_opened' increases
+- Each card shows exactly one state: Owned, Locked (needs <name>), or Buy
+- Cards whose cost is above current Cash are visibly dimmed, and they un-dim when Cash rises
+- Pressing Buy on Dropper 2 with at least 10 Cash deducts 10 exactly once, the card flips to Owned, Silver, Speed 1 and Dropper 3 cards unlock, 'shop_purchases' and 'upgrades_bought' each increase by 1, and the pad on the plot updates the same as a pad buy
+- Pressing Buy with insufficient Cash, an unmet requires, or no owned plot deducts nothing and does not bump 'shop_purchases'
+- ReplicatedStorage/NumberFormat exists and short(1200)=='1.2K', short(3400000)=='3.4M', short(999)=='999', short(1000)=='1K'
+- The leaderboard shows Cash and Rebirths columns for every player in the server
+- A board stand with a SurfaceGui titled 'TOP TYCOONS' exists in the central plaza and is not default grey
+- The board lists up to 10 rows, each with rank, name, rebirths and formatted earnings, sorted by lifetime earnings descending
+- After a player collects cash, their TotalEarned attribute rises and their row's earnings text updates within about 5 seconds
+- Spending cash on an upgrade does not reduce TotalEarned
+- A new player with no rebirths and fewer than 3 upgrades gets a banner reading 'Walk to a CLAIM gate to claim your plot' and a bouncing neon arrow with a Beam from the character pointing at the nearest free claim gate
+- Claiming a plot changes the banner to 'Watch your dropper make cash' with the arrow on the collector, and 'tutorial_steps' increases
+- The first cash-in changes the banner to 'Step on the glowing pad to buy your first upgrade' and the arrow moves to the cheapest visible buy pad
+- Buying the first upgrade changes the banner to 'Open the SHOP for more' and the SHOP button is highlighted
+- The guide, arrow and Beam disappear after the SHOP is opened or 60 seconds after start, whichever comes first
+- A player who has rebirthed or owns 3+ upgrades sees no tutorial UI, arrow or Beam
+- On join, 'data_loaded' becomes 1 for that player before 'plot_assigned' or 'cubes_dropped' can increase.
+- In Studio without API access the game runs with no errors or warnings in the output, and at most one quiet DataService print appears.
+- 'data_saved' increases roughly every 60 seconds while a player is in the game.
+- When a player leaves, 'data_saved' increases, and shutdown (BindToClose) saves any remaining players without errors.
+- After buying Dropper 2 and earning cash, a rejoin in the same server session (in-memory fallback) restores Cash, TotalEarned, Rebirths and the owned upgrades. The Dropper 2 pad stays hidden and its extra cube spawns still occur.
+- A new player with no save starts with default values, and the existing tutorial and first-purchase flow still works.
+- tier_upgrades counter reaches 1 within 55s (A Silver ore tier is bought, the cubes change colour and a RewardPopup appears. The TOP TYCOONS board refreshes with the player on it.)
+- On startup the Lighting service has Atmosphere, BloomEffect and SunRays/ColorCorrection created by GameAssets.styleLighting, with no errors or warnings in the output
+- Buying Dropper 2 plays the Buy sound, a particle burst at the pad, a short camera shake and the toast 'Unlocked: Dropper 2!', and 'juice_events' increases
+- The new dropper rises in with the popIn animation instead of appearing instantly
+- Touching a pad with too little cash plays the Error sound and the toast 'Need $X more', with the correct X, and deducts nothing
+- Buying an ore tier upgrade shows the big RewardPopup 'GOLD ORE! $N per cube' with the Win sound and a medium shake
+- Rebirthing plays Boom then Win, a large shake and a white flash that fades out
+- PASS map_built=1, plaza_built=1 and themes_built=6, and the counter names are unchanged from existing games
+- PASS cubes_dropped==0 while plot_assigned==0 during the first ~8 seconds after spawn in the plaza
+- In 'auto' mode, with no claim made, plot_assigned>=1 and auto_claims>=1 appear after about 20 seconds and the check passes. In 'gate' mode, walking onto a gate raises plots_claimed and plot_assigned and the check passes
+- After the claim, cubes_dropped rises by at least 1 in every 2.5s sampling window, and cubes_collected becomes >0
+- Cash leaderstat is higher at the end of the sampling windows than at claim time, and cashin_fx_sent>0
+- After the first plot claim in a Studio playtest, the SHOP button opens a panel with exactly one card per ReplicatedStorage/Upgrades entry (10), each showing its price and an affordability state.
+- Touching the Dropper 2 pad with 10 cash deducts exactly 10 once, the pad disappears, the Silver, Speed 1 and Dropper 3 pads appear, and upgrades_bought increments by 1.
+- The rebirth altar is absent below 5000 cash with upgrades unfinished, appears at 5000 cash, and also appears when all upgrades are owned. Rebirthing raises the multiplier and Rebirths, and resets Cash and owned upgrades.
+- The plaza TOP TYCOONS board shows both Cash and Rebirths values for the player, matching their leaderstats.
+- The tutorial banner and arrow are visible after the first claim and advance or clear after the first purchase.
+- In a 60s playtest the player's TutorialStep attribute reaches 5 or higher and 'tutorial_steps' is 5 or more
+- After the plot is claimed (auto-claim included), the step moves from 1 to 2, and after the first cube is collected it moves to 3
+- Buying Dropper 2 moves the tutorial to step 4, and the banner reads 'Tap the SHOP button to open it'
+- Opening the SHOP panel bumps 'shop_opened' once and moves the tutorial to step 5. If the SHOP is never opened, step 4 advances by itself after about 20s
+- Buying any non-Dropper-2 upgrade advances to step 6 and bumps 'tutorial_done'
+- A beam is visible from the player's HumanoidRootPart to the current target on every step and the census reports beams > 0, with a bouncing arrow over the target
+- Opening the shop panel plays a scale-in tween (from about 0.85 to 1) with a whoosh sound, and 'shop_opened' increments once per open
+- Buying an upgrade from the shop with enough cash deducts the cost exactly once, plays the buy sound, flashes the row green, tweens the level bar fill up, and 'shop_purchases' increments
+- Clicking buy with too little cash shakes the row, plays an error buzz, deducts nothing, and leaves 'shop_purchases' unchanged
+- A shop purchase and a pad purchase of the same upgrade go through the same server validation, so a purchase for a non-owned plot or with insufficient cash is rejected the same way in both
+- Opening and closing the panel repeatedly leaves it at scale 1 with no stuck tween and no errors or warnings in the output
+- Rows return to their original position after a shake and to their original color after the flash
+- After a plot is claimed and Cash reaches the Dropper 2 cost (10), the visible pad gets an enabled green Highlight, pulses, and the 'highlights' counter is at least 1
+- The pad's price tag pulses green while Cash >= cost and returns to its normal style when Cash drops below cost
+- After buying, the pulse and Highlight on that pad stop and it vanishes as before, with exactly the normal cost deducted once
+- Touching a pad with Cash below cost flashes it red, plays an audible buzz, shows a 'Need $N' toast, leaves Cash unchanged, and increments 'pad_denied'
+- Repeatedly standing on a pad while poor does not spam toasts or the counter (about 1s debounce)
+- No errors or warnings in output, and existing counters (upgrades_bought, cubes_collected) behave as before
+- After claiming a plot, no growth models exist, and 'plot_growth_built' is 0 for that player until the first purchase.
+- Buying Dropper 2 builds a hopper-on-legs dropper machine with a glowing nozzle on the dropper row, popping in with a burst, and also builds the wall with corner pillars and lamps. 'plot_growth_built' rises by at least 2.
+- Buying Dropper 3 and Dropper 4 each add another dropper machine in a new slot, with no duplicates of earlier ones.
+- Buying Speed 1 and Speed 2 adds chevron arrows on the conveyor sides, and on the client they visibly scroll along the conveyor.
+- Buying the silver, gold and diamond ore upgrades adds matching ore piles or crystal clusters beside the collector.
+- Buying Cash x1.5 and x2 adds a vault or coin stack near the collector with a floating 'x1.5' or 'x2' sign.
+- After claiming a plot and buying Dropper 2, 'plot_growth_built' increases (a dropper machine plus a plot wall) and a themed machine model pops in on the dropper row
+- Buying Speed 1 adds a chevrons model along the conveyor and 'plot_growth_built' increments
+- Buying an ore tier adds an ore pile beside the collector, and buying Cash x1.5 adds a vault with a label next to the collector
+- Calling apply again with the same owned ids does not duplicate models or bump 'plot_growth_built'
+- Each new model pops in with a visible burst, and no growth part is default grey
+- Growth models do not block the player's walking path or the buy pads, and cube flow and cash-in are unaffected
 
 ## How it was built
 
-- 2 build iterations (critic scores: 7.0, 7.0), 7 saved versions, 0 human corrections.
-- Working copy, versions and traces: `runs/tiny-tycoon-each-player-gets-a/` (local); record: `evidence/tiny-tycoon-each-player-gets-a/` (`forge archive`).
+- 13 build iterations (critic scores: 7.0, 4.0, 4.0, 4.0, 6.0, 6.0, 8.0, 7.0, 7.0, 8.0, 7.0, 8.0, 7.0), 87 saved versions, 43 human corrections.
+- Working copy, versions and traces: `runs/tiny-tycoon/` (local); record: `evidence/tiny-tycoon/` (`forge archive`).
+
+## The rebuild (Forge + Mubit, Oct 24)
+
+The first version had one 40x40 plot on a grey baseplate, two unlabeled pads (Dropper 25 / Fast Belt 50) and nothing
+to do after about a minute. Forge rebuilt it on top of that run, and every LLM call went through Mubit.
+
+- **11 `forge feature` requests:** themed plots and claiming, an upgrade tree with ore tiers, rebirth, cash-in VFX and
+  sound, the UI-kit shop, a leaderboard, the first-60-second tutorial, saving, a juice pass, and plot growth (the first
+  attempt hit the coder's 20k-token cap, so it was re-split). The director role added the first-60-seconds script and
+  the GameAssets art kit.
+- **`forge orchestrate` rounds:** gap finder -> fix/visual jobs -> playtest + critic -> checks -> AI-tester fix cycles.
+  `forge fix` ran 7 cycles of 2 AI-tester rounds each.
+- **Human corrections, each a call in the `fixer`/`patcher` Mubit task:** about 40 `forge correct` notes. Examples: the
+  tycoon never started after a claim; the claim-gate call signature was wrong; legacy pads disagreed with the real
+  ones; there was no edge boundary; the HUD overlapped; the shop clipped its cards so Buy never fired; the tutorial
+  had two owners; and an in-game "live check" bought the first upgrade for every player.
+- **Gap-finder corrections in the `gap_finder` task:** 4. These cover stale compile-only evidence, the 4-second
+  playtest window, never routing "verify" gaps to feature jobs, and no self-testing game code.
+- **Rolled back by a human:** 3 rounds of in-game self-test code (ForgeChecks / FeatureVerifier) and one auto-rollback
+  that erased human corrections after a noisy 7-vs-8 critic score.
+
+**Before vs after:**
+
+| Measure | Before | After |
+|---|---|---|
+| Critic | 7.0 | 7-8 (passive 30 s watch, no player input) |
+| Fun critic | n/a | 6.0-6.5 (fun 6, juice 6, clarity 5-6, visuals 7-8) |
+| Grey parts | n/a | 0/764 |
+| Executable checks | 0 | 19/22 pass |
+| Features verified by AI testers | n/a | 10/15 (they bought upgrades and tiers in the shop and rebirthed) |
+
+Screenshots are in `screenshots/`: `before-*.png` and `after-*.png` (overview, player, plot, grown plot, shop,
+cash-in, rebirth).
 
 ## Play it
 

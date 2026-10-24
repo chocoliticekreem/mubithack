@@ -1,0 +1,2 @@
+[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
+DataService: using in-memory store

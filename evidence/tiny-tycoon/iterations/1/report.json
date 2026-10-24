@@ -1,0 +1,15 @@
+{
+  "players": 1,
+  "uptime": 13,
+  "errors": [],
+  "counters": {
+    "map_built": 1,
+    "cubes_dropped": 7,
+    "plot_assigned": 1,
+    "cubes_collected": 5
+  },
+  "warnings": [],
+  "joins": 1,
+  "instances": 325,
+  "compile_errors": []
+}
