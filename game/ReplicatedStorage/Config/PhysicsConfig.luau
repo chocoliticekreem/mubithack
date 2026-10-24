@@ -84,6 +84,13 @@ return Config.define({
 	SplatLandingSpeed = 160,
 	LandingRagdollMin = 1.0,
 	LandingRagdollMax = 3.0,
+	-- fall damage (on top of the hard-landing ragdoll). ~20 studs of drop hits 85 studs/s.
+	FallDamageSpeed = 85, -- studs/s at touchdown before a landing hurts
+	FallDamagePerSpeed = 1.1, -- HP per stud/s above that (30-stud drop ~25 HP, 50 ~60, 70+ downs you)
+	BreakLegSpeed = 115, -- studs/s (~35-stud drop): CRUNCH, a broken leg
+	BrokenLegSeconds = 30, -- heals on its own after this, or a teammate splints it
+	BrokenLegWalkSpeed = 7, -- limping (normal 16), and no jumping
+	SplintSeconds = 2, -- hold time for a teammate's "Splint leg" prompt
 
 	-- banana-peel slips on WetFloor puddles
 	SlipSpeed = 14, -- horizontal studs/s needed to slip

@@ -47,6 +47,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript) :: any
+local Popup = require(Shared:WaitForChild("Popup") :: ModuleScript) :: any
+local SquadConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("SquadConfig") :: ModuleScript) :: any
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("PhysicsConfig") :: ModuleScript) :: any
 local PropPhysics =
@@ -653,6 +655,8 @@ end
 
 local function hookPlayer(player: Player)
 	player.CharacterAdded:Connect(function(c)
+		brokenToken[player] = (brokenToken[player] or 0) + 1
+		player:SetAttribute("BrokenLeg", nil)
 		hookCharacter(player, c)
 	end)
 	if player.Character then
@@ -661,6 +665,93 @@ local function hookPlayer(player: Player)
 end
 
 -- player events ---------------------------------------------------------------------------------------
+-- Broken legs: a hard enough landing goes CRUNCH. Limp (slow, no jumping) and a white cast until it
+-- heals on its own or a teammate holds "Splint leg" on you.
+local brokenToken: { [Player]: number } = {}
+
+local function healLeg(player: Player, by: Player?)
+	if player:GetAttribute("BrokenLeg") ~= true then
+		return
+	end
+	brokenToken[player] = (brokenToken[player] or 0) + 1
+	player:SetAttribute("BrokenLeg", nil)
+	local char = player.Character
+	if char then
+		local cast = char:FindFirstChild("LegCast")
+		if cast then
+			cast:Destroy()
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and player:GetAttribute(Names.Attr.Downed) ~= true then
+			hum.WalkSpeed = math.max(hum.WalkSpeed, SquadConfig.WalkSpeed)
+			hum.UseJumpPower = false
+			hum.JumpHeight = SquadConfig.JumpHeight
+		end
+		local root = rootOfChar(char)
+		if root then
+			Popup.show(player, if by then `{by.DisplayName} splinted your leg!` else "Leg healed. Walk it off!", "good", player)
+		end
+	end
+	count("legs_healed")
+end
+
+local function breakLeg(player: Player, char: Model, hum: Humanoid)
+	if player:GetAttribute("BrokenLeg") == true then
+		return
+	end
+	player:SetAttribute("BrokenLeg", true)
+	brokenToken[player] = (brokenToken[player] or 0) + 1
+	local token = brokenToken[player]
+	if player:GetAttribute(Names.Attr.Downed) ~= true then
+		hum.WalkSpeed = Cfg.BrokenLegWalkSpeed
+	end
+	hum.UseJumpPower = false
+	hum.JumpHeight = 0
+	-- a chunky white cast on the shin (cosmetic)
+	local shin = (char:FindFirstChild("RightLowerLeg") or char:FindFirstChild("Right Leg")) :: BasePart?
+	if shin then
+		local cast = Instance.new("Part")
+		cast.Name = "LegCast"
+		cast.Size = shin.Size + Vector3.new(0.35, -0.1, 0.35)
+		cast.Color = Color3.fromRGB(245, 245, 240)
+		cast.Material = Enum.Material.SmoothPlastic
+		cast.CanCollide = false
+		cast.CanQuery = false
+		cast.CanTouch = false
+		cast.Massless = true
+		cast.CFrame = shin.CFrame
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = shin
+		w.Part1 = cast
+		w.Parent = cast
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "SplintPrompt"
+		prompt.ActionText = "Splint leg"
+		prompt.ObjectText = player.DisplayName
+		prompt.HoldDuration = Cfg.SplintSeconds
+		prompt.MaxActivationDistance = 8
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = cast
+		prompt.Triggered:Connect(function(by: Player)
+			if by ~= player then
+				healLeg(player, by)
+			end
+		end)
+		cast.Parent = char
+	end
+	local root = rootOfChar(char)
+	if root then
+		PhysicsFxService:Pop("land", root.Position + Vector3.new(0, 2, 0), "CRUNCH!")
+		Popup.show(player, "CRUNCH! Broken leg. Limp it off or get a teammate to splint you", "bad", player)
+	end
+	count("legs_broken")
+	task.delay(Cfg.BrokenLegSeconds, function()
+		if brokenToken[player] == token then
+			healLeg(player, nil)
+		end
+	end)
+end
+
 local function onLand(player: Player, rawSpeed: any)
 	local speed = tonumber(rawSpeed)
 	local char = player.Character
@@ -672,7 +763,17 @@ local function onLand(player: Player, rawSpeed: any)
 	if Ragdoll.isRagdolled(char) then
 		return
 	end
-	local secs = PropPhysics.landingSeconds(math.min(speed, 400), Cfg)
+	-- fall damage (a lethal drop downs you via SquadService's DownAtHealth, never kills outright)
+	speed = math.min(speed, 400)
+	if speed >= Cfg.FallDamageSpeed and player:GetAttribute(Names.Attr.Downed) ~= true then
+		local dmg = (speed - Cfg.FallDamageSpeed) * Cfg.FallDamagePerSpeed
+		hum.Health = math.max(1, hum.Health - dmg)
+		count("fall_damage")
+		if speed >= Cfg.BreakLegSpeed then
+			breakLeg(player, char, hum)
+		end
+	end
+	local secs = PropPhysics.landingSeconds(speed, Cfg)
 	if secs <= 0 then
 		return
 	end
