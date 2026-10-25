@@ -440,6 +440,11 @@ class _Smoke:
         except Exception as e:  # noqa: BLE001
             return self.step("kill part", False, f"teleport onto {_tail(kill['path'])} failed: {_err(e)}", t0)
         died, back = await self._death_and_respawn()
+        if not died and getattr(self.studio, "headless", False):
+            # the headless engine fires no touch events, so no kill part can kill here: unknown, not a failure
+            # (production guide 9.3). In Studio the same parts kill in 0.2 s, and the QA bots check them there.
+            return self.skip("kill part", f"touched {_tail(kill['path'])}: the headless engine fires no touch "
+                                          "events; kill parts are checked in Studio")
         deaths = delta(c0 or {}, await self.counters() or {}).get("player_died")
         home, where = await self._respawn_check(back, stage)
         self.step("kill part", died and home, f"touched {_tail(kill['path'])}: " + ("died" if died else "did NOT die")

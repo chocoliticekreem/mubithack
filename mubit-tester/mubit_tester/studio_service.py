@@ -125,6 +125,62 @@ if stages then
 end
 return game:GetService("HttpService"):JSONEncode(out)
 """
+QA_JOURNEY = r"""
+-- Studio QA journey: the player takes zone 1's ride gate, the next zone's entrance, then reaches the last stage.
+local SS = game:GetService("ServerStorage")
+local HS = game:GetService("HttpService")
+local FT = SS:FindFirstChild("ForgeTest")
+local p = game:GetService("Players"):GetPlayers()[1]
+local out = {steps = {}}
+if not FT or not p then return HS:JSONEncode({error = "no harness or player"}) end
+local function stepTo(stage)
+	pcall(function() FT:Invoke("teleport_stage", HS:JSONEncode({userId = p.UserId, stage = stage})) end)
+	task.wait(0.8)
+end
+local function touch(part)
+	local char = p.Character
+	if not (char and part and part:IsA("BasePart")) then return false end
+	char:PivotTo(part.CFrame + Vector3.new(0, 3, 0))
+	task.wait(1.6)
+	return true
+end
+local pads = {}
+for _, d in workspace:GetDescendants() do
+	if d:IsA("BasePart") and (d.Name == "RidePad" or d.Name == "EntrancePad") then table.insert(pads, d) end
+end
+local ride, entrance
+for _, d in pads do
+	local gate = d:FindFirstAncestorOfClass("Model")
+	local s = gate and (gate:GetAttribute("Stage") or gate:GetAttribute("Zone"))
+	if d.Name == "RidePad" and gate and type(gate:GetAttribute("Stage")) == "number" then
+		if not ride or gate:GetAttribute("Stage") < ride[2] then ride = {d, gate:GetAttribute("Stage")} end
+	elseif d.Name == "EntrancePad" and gate then
+		local need = gate:GetAttribute("Need") or gate:GetAttribute("Stage") or 0
+		if not entrance or (type(need) == "number" and need < entrance[2]) then entrance = {d, type(need) == "number" and need or 0} end
+	end
+	local _ = s
+end
+if ride then
+	stepTo(ride[2])
+	table.insert(out.steps, {what = "ride gate after stage " .. ride[2], ok = touch(ride[1])})
+end
+if entrance then
+	table.insert(out.steps, {what = "next zone entrance", ok = touch(entrance[1])})
+end
+local stages = workspace:FindFirstChild("Obby") and workspace.Obby:FindFirstChild("Stages")
+local last = stages and #stages:GetChildren() or 0
+if last > 1 then
+	stepTo(last - 1)
+	local lastStage = stages:FindFirstChild(string.format("Stage%03d", last))
+	local cp = lastStage and (lastStage:FindFirstChild("Checkpoint", true) or lastStage:FindFirstChildWhichIsA("BasePart", true))
+	table.insert(out.steps, {what = "finish line (stage " .. last .. ")", ok = touch(cp)})
+end
+local ok, rep = pcall(function() return HS:JSONDecode(SS.ForgeProbe:Invoke("report")) end)
+out.counters = ok and rep.counters or {}
+return HS:JSONEncode(out)
+"""
+
+
 QA_BOTS = 6  # bots that play at once, each from the first stage of a different zone
 QA_FRAMES = 3  # screenshots per bot: two mid-run, one when its run ends
 QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint, per attempt
@@ -233,9 +289,16 @@ async def qa_swarm(studio, store, round_n):
             "started": started, "ended": time.time(), "goal_met": reached, "summary": verdict}, indent=1))
         summary.append({"zone": q["zone"], "stage": q["stage"], "reached": reached,
                         "detail": verdict if res else "no verdict (the run did not finish in time)"})
-    # the next round's critic reads this (forge/rounds.py guide_block): real play, not just a headless report
+    # the player's own journey: zone 1's ride gate, the next zone's entrance, the finish line. They are touch pads,
+    # and the headless playtest fires no touches, so only Studio can show those counters firing.
+    try:
+        journey = extract_json(await studio.execute_luau(QA_JOURNEY, "Server")) or {}
+    except Exception as error:  # noqa: BLE001 - no journey: the bots' verdicts still go out
+        journey = {"error": str(error)[:200]}
+    # the next round's critic reads this (forge/rounds.py guide_block, loop.studio_counters): real play in Studio
     (store.dir / "qa_latest.json").write_text(json.dumps({"round": round_n, "attempts": QA_ATTEMPTS,
-                                                         "bots": summary}, indent=1))
+                                                         "bots": summary, "journey": journey.get("steps") or [],
+                                                         "counters": journey.get("counters") or {}}, indent=1))
     try:
         await studio.execute_luau('return game:GetService("ServerStorage").ForgeTest:Invoke("bot_clear", "{}")',
                                   "Server")

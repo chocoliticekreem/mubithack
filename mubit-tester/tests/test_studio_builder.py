@@ -185,7 +185,7 @@ def fake_forge(monkeypatch, steps, *, header=True, fail=None):
     async def describe(settings, slug):
         return {'slug': slug}
     monkeypatch.setattr(studio_builder, 'describe_draft', describe)
-    async def new_game(idea, iterations, use_studio, *, settings, llm, ui):
+    async def new_game(idea, iterations, use_studio, *, settings, llm, ui, progress_top=100):
         store = RunStore(settings, 'funfair')
         store.ensure()
         store.save_state(store.new_state(idea))

@@ -871,12 +871,19 @@ class Run:
         prior = self.store.load_state().get("iterations") or []
         history = rounds.past_rounds([it for it in prior if it.get("n") != n], self.spec,
                                      self.store.load_iteration_json)
+        qa = rounds.read_qa(self.store.dir)
+        merged, from_studio = rounds.studio_counters(report.get("counters") or {}, qa)
+        if from_studio:  # evidence from the Studio QA play of this version, named as such in the report
+            report["counters"] = merged
+            report["counters_from_studio_qa"] = from_studio
         rec["acceptance"] = rounds.acceptance(self.spec, report.get("counters") or {}, self.all_sources())
         blocked_before = (max(prior, key=lambda it: it.get("n", 0)).get("blocked_issues") or []) if prior else []
         history_text = rounds.critic_block(history, rec["acceptance"],
                                            rounds.read_only_list(self.base_files, RUNTIME_FILES), blocked_before)
-        if guide := rounds.guide_block(self.spec, rounds.read_qa(self.store.dir)):
+        if guide := rounds.guide_block(self.spec, qa):
             history_text = (history_text + "\n\n" + guide).strip()
+        if idle := rounds.unexercised_block(rec["acceptance"]):
+            history_text = (history_text + "\n\n" + idle).strip()
         critique: dict | None = None
         # the fun critic reads the same files and report, so it runs alongside the critic
         fun_task = asyncio.create_task(self.fun_pass(n, files, report))
@@ -1175,15 +1182,16 @@ class Run:
 
 async def new_game(idea: str, iterations: int = 3, use_studio: bool = True, *,
                    settings: Settings | None = None, llm: Any = None, ui: UI | None = None,
-                   use_director: bool | None = None, jobs: int | None = None) -> str:
+                   use_director: bool | None = None, jobs: int | None = None, progress_top: int = 100) -> str:
     """Design, build and iterate a new game. Returns its slug. jobs = concurrent LLM calls. The build's live
-    progress goes to runs/<slug>/progress.json (forge/progress.py) for the screens that watch it."""
+    progress goes to runs/<slug>/progress.json (forge/progress.py) for the screens that watch it; progress_top < 100
+    when more of the job follows (MuMake installs and improves it), so every screen shows one number."""
     settings = settings or load_settings()
     slug = unique_slug(settings, slugify(idea))
     store = RunStore(settings, slug)
     store.ensure()
     store.save_state(store.new_state(idea))
-    with Progress(store.dir / "progress.json", slug, "new") as prog:
+    with Progress(store.dir / "progress.json", slug, "new", top=progress_top) as prog:
         await _new_game(idea, iterations, use_studio, settings=settings, store=store, llm=llm, ui=ui,
                         use_director=use_director, jobs=jobs, prog=prog)
     return slug
