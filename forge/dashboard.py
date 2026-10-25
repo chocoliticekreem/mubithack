@@ -1082,6 +1082,40 @@ def agent_detail(settings: Settings, slug: str, role: str) -> dict | None:
             "shots": _agent_shots(run_dir, slug, role, cs), "outcomes": _agent_outcomes(run_dir, role, set(files))}
 
 
+LEARNED_ITEMS = 6  # newest lines in "What Mubit learned"
+
+
+def learned_view(run_dir: Path, slug: str, runs_dir: Path, calls: list[dict]) -> dict:
+    """What went back into Mubit for this game, newest first: the fixer's corrections from each round (rounds.py
+    "taught"), the reflector's lessons updates, and the dead ends handed to the next build; plus each task's calls
+    and corrections toward Mubit's training threshold."""
+    from forge import rounds
+
+    its = [it for it in (_read_json(run_dir / "state.json", {}) or {}).get("iterations") or [] if isinstance(it, dict)]
+    items, fixer_corr, lessons, last_lesson = [], 0, 0, None
+    for it in its:
+        n = it.get("n")
+        for t in it.get("taught") or []:
+            fixer_corr += 1
+            items.append({"round": n, "who": "Fixer", "text": _clip(t, 160)})
+        if (_read_json(run_dir / "iterations" / str(n) / "record.json", {}) or {}).get("lessons_updated"):
+            lessons += 1
+            last_lesson = n
+    if lessons:  # one line, not one per round: the corrections are the news
+        items.append({"round": last_lesson, "who": "Reflector",
+                      "text": f"rewrote the shared lessons after {lessons} round{'s' if lessons != 1 else ''}"})
+    ends = next((e for e in rounds.read_dead_ends(runs_dir) if e.get("slug") == slug), None)
+    for line in (ends or {}).get("lines") or []:
+        items.append({"round": its[-1].get("n") if its else None, "who": "Next build", "text": _clip(line, 160)})
+    human = len((_read_json(run_dir / "state.json", {}) or {}).get("corrections") or [])
+    by_role = Counter(c.get("role") for c in calls if c.get("request_id"))
+    corr = {"fixer": fixer_corr + human, "reflector": lessons}
+    tasks = [{"role": r, "calls": by_role[r], "corrections": corr.get(r, 0)}
+             for r in sorted(by_role, key=lambda r: (-corr.get(r, 0), -by_role[r], r))]
+    return {"items": items[::-1][:LEARNED_ITEMS], "corrections": fixer_corr + human, "lessons": lessons,
+            "calls": sum(by_role.values()), "tasks": tasks, "train_at": TRAIN_AT, "console": CONSOLE_URL}
+
+
 def result_view(run_dir: Path, game: dict, team: dict) -> dict:
     """A game's latest result in one glance: the newest screenshot and a one-line verdict."""
     shots = []
@@ -1385,6 +1419,7 @@ def collect(settings: Settings | None = None) -> dict:
         run_dir = RunStore(s, g["slug"]).dir
         g["agents"] = agents_view(game_calls(run_dir), (g.get("live") or {}).get("role"), now)
         g["result"] = result_view(run_dir, g, g["team"])
+        g["learned"] = learned_view(run_dir, g["slug"], s.runs_dir, game_calls(run_dir))
     games.sort(key=lambda g: (g["live"] is None and not (g.get("autopilot") or {}).get("alive"), -g["updated"]))
     return {"now": now, "running": runs, "active": now_view(runs, games, now, progress_all(s, now)), "games": games,
             "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}

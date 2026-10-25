@@ -131,3 +131,24 @@ def test_an_old_finished_build_does_not_take_over_a_later_run_of_the_same_game(s
                                      updated=NOW - 5))  # just finished: its job row still shows the 100%
     rows = db.now_view([job], [game], NOW, db.progress_all(settings, NOW))
     assert rows[0]["progress"]["pct"] == 100
+
+
+def test_what_mubit_learned_lists_corrections_lessons_and_dead_ends_newest_first(settings):
+    from forge import rounds
+
+    store = RunStore(settings, "park")
+    store.ensure()
+    store.save_state({"iterations": [
+        {"n": 1, "taught": ["Gifts left zone_cleared at 0 after 1 try, told to try another way"]},
+        {"n": 2, "taught": []}]})
+    store.save_iteration_json(2, "record.json", {"lessons_updated": True})
+    rounds.record_dead_ends(settings.runs_dir, "park", {"title": "Park"},
+                            [{"n": 2, "score": 5, "acceptance": {"missing": ["zone_cleared"], "unemitted": []}}])
+    calls = [{"role": "fixer", "request_id": "a"}, {"role": "fixer", "request_id": "b"},
+             {"role": "reflector", "request_id": "c"}, {"role": "critic", "request_id": "d"}]
+    got = db.learned_view(store.dir, "park", settings.runs_dir, calls)
+    assert [(i["who"], i["round"]) for i in got["items"]] == [("Next build", 2), ("Reflector", 2), ("Fixer", 1)]
+    assert (got["calls"], got["corrections"], got["lessons"]) == (4, 1, 1)
+    assert [(t["role"], t["calls"], t["corrections"]) for t in got["tasks"]] == [
+        ("fixer", 2, 1), ("reflector", 1, 1), ("critic", 1, 0)]
+    assert db.learned_view(RunStore(settings, "empty").dir, "empty", settings.runs_dir, [])["items"] == []

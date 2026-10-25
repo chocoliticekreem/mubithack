@@ -373,6 +373,21 @@
   @media (max-width: 900px) { .gamecard { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
 
+  /* ---------- "What Mubit learned": a quiet footer under the agents */
+  .learned { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--muted); }
+  .learned .lhead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-weight: 800; }
+  .learned .lhead span:first-child { color: var(--ink); }
+  .learned ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  .learned li { padding: 2px 0; line-height: 1.35; }
+  .learned li b { color: var(--ink); margin-right: 6px; }
+  .learned li .r { margin-right: 6px; opacity: .75; }
+  .learned .train { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+  .learned .tk { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+  .learned .tk i { display: inline-block; width: 54px; height: 5px; border-radius: 9px; background: var(--panel2); overflow: hidden; }
+  .learned .tk i b { display: block; height: 100%; background: var(--leaf); }
+  .learned .note { opacity: .8; }
+  .learned a { color: var(--muted); font-weight: 800; }
+
   /* ---------- "go test" pop-up: once per build, at Ready or 20 minutes in */
   .testpop { position: fixed; inset: 0; display: grid; place-items: center; background: #4b3b2f55; z-index: 50;
     padding: 16px; }
@@ -884,7 +899,21 @@ function renderAgents(g) {
       ${botSvg(member(a.role), a.role)}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
       <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
   put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
-    ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}</div>`);
+    ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}${learnedFoot(g)}</div>`);
+}
+
+// Subtle by design (Anson): what went back into Mubit for this game, and each task's corrections toward training
+function learnedFoot(g) {
+  const L = g.learned;
+  if (!L || (!L.items.length && !L.corrections)) return "";
+  const ul = L.items.map(i => `<li><b>${esc(i.who)}</b>${i.round != null ? `<span class="r">round ${i.round}</span>` : ""}${esc(i.text)}</li>`).join("");
+  const train = L.tasks.filter(t => t.corrections).map(t => `<span class="tk" title="${t.calls} calls, ${t.corrections} corrections">${esc(roleName(t.role))}
+      <i><b style="width:${Math.min(100, t.corrections / L.train_at * 100)}%"></b></i>${t.corrections}/${L.train_at}</span>`).join("");
+  return `<div class="learned"><div class="lhead"><span>What Mubit learned</span>
+      <span>${L.calls} Mubit calls · ${L.corrections} correction${L.corrections === 1 ? "" : "s"} · lessons rewritten ${L.lessons}×</span></div>
+    ${ul ? `<ul>${ul}</ul>` : ""}
+    <div class="train">${train}<span class="note">corrections train each task's model once it has ${L.train_at}</span>
+      <a href="${esc(L.console)}" target="_blank" rel="noopener">Mubit console ↗</a></div></div>`;
 }
 
 function renderDrawer() {
