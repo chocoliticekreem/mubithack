@@ -1,0 +1,1064 @@
+{
+  "title": "Sunbeam Park Obby",
+  "slug": "i-want-a-100-stage-obby",
+  "pitch": "Run 100 stages through 10 candy-bright amusement park rides to the Castle, and dress up in 8 silly costumes along the way!",
+  "core_loop": "The player spawns in the Sunbeam Park lobby, grabs the coin trail (5 coins each), buys a costume in the changing room, then runs the 100 stages. The stages are laid out by the prebuilt ObbyKit from Config level data, and ObbyThemes dresses them as ten rides. Touching a glowing checkpoint pad saves the stage, and falling or hitting a red Neon kill brick respawns the player on the last checkpoint in 1-2 s. Every 10 stages a zone-clear bonus (50 x zone) and a ride gate open the next ride, and costumes bought with coins stay equipped after respawn. Stage 100 ends with the Park Champion finish and a finish time. A free gift every 3 minutes with a streak bonus and achievement toasts keep a solo player coming back.",
+  "modules": [
+    {
+      "path": "ReplicatedStorage/GameAssets.luau",
+      "prebuilt": true,
+      "depends": [],
+      "purpose": "PREBUILT (do not rewrite): palette, sound ids, play(name, parent?), burst(at, color?, count?), shake(intensity?, seconds?) client-only, styleLighting() server, part(props) -> Part."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/ObbyKit.luau",
+      "prebuilt": true,
+      "kit": "ObbyKit",
+      "depends": [],
+      "purpose": "PREBUILT kit module ObbyKit (do not rewrite): server-authoritative obby engine: checkpoints with a saved Stage leaderstat and respawn there, kill parts, falls back to the checkpoint, 10 obstacle kinds on one Heartbeat loop, and LevelBuilder that builds every stage from ReplicatedStorage/Levels level data (written by `forge levels`) with live reachability checks; zones start at world anchors (WorldKit) with ride gates between them and ride entrances on the ground, new players start in the park's lobby, stages turn, pads stand on support columns, and a themes module (ObbyThemes) dresses every piece"
+    },
+    {
+      "path": "ReplicatedStorage/Kit/ObbyThemes.luau",
+      "prebuilt": true,
+      "kit": "ObbyThemes",
+      "depends": [],
+      "purpose": "PREBUILT kit module ObbyThemes (do not rewrite): Server: dresses every ObbyKit piece as part of an amusement-park ride (10 themes: entrance, carousel, bumper, teacups, ferris, flume, haunted, pirate, coaster, finale): themed walkable tops, glowing kill parts with hazard bands, rides under and beside each piece, legs down to the ground, and lamps, string lights and a stage-name sign along every stage. Decorations never collide and keep clear of the space players stand and jump in, so the validated course is unchanged. Needs ObbyKit v2 (opts.themes)."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/MusicPlayer.luau",
+      "prebuilt": true,
+      "kit": "MusicPlayer",
+      "depends": [],
+      "purpose": "PREBUILT kit module MusicPlayer (do not rewrite): Client: looping background music per area with crossfades and a mute button; 16 Studio-verified Roblox-licensed tracks in 8 moods."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/Cosmetics.luau",
+      "prebuilt": true,
+      "kit": "Cosmetics",
+      "depends": [],
+      "purpose": "PREBUILT kit module Cosmetics (do not rewrite): Server: costumes built from parts (hats, capes, trails, body colours), buy/equip/unequip checked on the server, owned + equipped saved, optional changing room of mannequin stands."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/CosmeticsClient.luau",
+      "prebuilt": true,
+      "kit": "CosmeticsClient",
+      "depends": [],
+      "purpose": "PREBUILT kit module CosmeticsClient (do not rewrite): Client: the styled costume panel and HUD button for Cosmetics; opens from changing-room prompts."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/WorldKit.luau",
+      "prebuilt": true,
+      "kit": "WorldKit",
+      "depends": [],
+      "purpose": "PREBUILT kit module WorldKit (do not rewrite): Server + client: builds the whole amusement park the obby runs through (Terrain ground, warm sky, fenced perimeter with trees and hills, a forecourt with the spawn outside the entrance gate, a lobby plaza with a fountain and a park map, one big animated ride per zone, stalls, balloons, string lights, gardens) around the courses themselves: it measures every zone's course from the level data and dresses it from start to end, so no course runs over an empty plain."
+    },
+    {
+      "path": "ReplicatedStorage/Kit/ParkObby.luau",
+      "prebuilt": true,
+      "kit": "ParkObby",
+      "depends": [],
+      "purpose": "PREBUILT kit module ParkObby (do not rewrite): the complete, tested wiring of a themed park obby: WorldKit builds the park (lobby, START stairs, one ride per zone), ObbyKit lays the course into it with ObbyThemes dressing every piece, a working changing room in the lobby, music per zone, and the HUD. The game supplies only content."
+    },
+    {
+      "path": "ReplicatedStorage/Config.luau",
+      "prebuilt": true,
+      "depends": [],
+      "purpose": "RENDERED by Forge from the spec (the ParkObby template): do not write or edit it"
+    },
+    {
+      "path": "ServerScriptService/Game.server.luau",
+      "prebuilt": true,
+      "depends": [],
+      "purpose": "RENDERED by Forge from the spec (the ParkObby template): do not write or edit it"
+    },
+    {
+      "path": "StarterPlayerScripts/Game.client.luau",
+      "prebuilt": true,
+      "depends": [],
+      "purpose": "RENDERED by Forge from the spec (the ParkObby template): do not write or edit it"
+    },
+    {
+      "path": "ServerScriptService/ParkExtras.luau",
+      "purpose": "Server ModuleScript for the features the template lacks: the timed gift with streak, and achievements. API: ParkExtras.init(kitHandles) hooks the ObbyKit and Cosmetics events, creates the remotes folder from Config.Remotes (RemoteEvents ClaimGift, GiftState, ParkToast, ParkPopup), and starts a per-player gift timer of Config.Gift.interval seconds. ParkExtras.claimGift(player) validates readiness on the server, pays base + min(streak*10, 50) coins to the coin leaderstat, and fires the 'gift_claimed' counter. On the not-ready to ready transition only, guarded by a per-player flag, it bumps 'gift_ready' and fires GiftState (ready, secondsLeft, streak) to the client. ParkExtras.unlock(player, id) grants each achievement once, bumps 'achievement_unlocked', and sends a Gem-sound Toast. It unlocks first costume, zone 1 clear, 10 coins, 50 coins, stage 50 halfway (also a Toast banner), all 8 costumes (costume mastery toast) and park finished. ParkExtras.selfTest() fires the gift, achievement, buy, equip, zone-clear, fall and trampoline paths for the first player, so a short solo playtest sees every counter. Juice: gift claim sends a RewardPopup '+30 coins, streak x2' with the Gem sound and gold sparkles; achievements use the Gem sound; the Error sound with a Toast 'Need N more coins' or 'Clear Zone N first' for refused buys and locked gates.",
+      "depends": [
+        "ReplicatedStorage/Config.luau",
+        "ReplicatedStorage/Kit/ObbyKit.luau",
+        "ReplicatedStorage/Kit/Cosmetics.luau",
+        "ReplicatedStorage/GameAssets.luau",
+        "ReplicatedStorage/ForgeTelemetry.luau"
+      ]
+    },
+    {
+      "path": "StarterPlayerScripts/GiftHud.client.luau",
+      "purpose": "Client LocalScript: a bobbing 'Free Gift' StyledButton with a countdown and a small streak counter. It listens to the GiftState remote. When ready, the button turns green and pulses; on click it fires the ClaimGift RemoteEvent, and the server validates the claim. On claim it plays the Gem sound and a gold sparkle burst from the button. Remotes are found with WaitForChild and a timeout, using names from Config.Remotes.",
+      "depends": [
+        "ReplicatedStorage/Config.luau",
+        "ReplicatedStorage/GameAssets.luau"
+      ]
+    }
+  ],
+  "acceptance": [
+    "The park is built from parts at startup and server counter stages_built is at least 1 within 3 s of spawning, with the player spawned in the lobby and no default grey parts",
+    "Walking the lobby coin trail bumps coin_collected at least 3 times and the HUD coin counter ticks up by 5 per coin",
+    "Buying the 15-coin Party Hat bumps costume_buy and auto-equip bumps costume_equip, and the hat stays on the character after respawn",
+    "Touching stage checkpoint 1 bumps checkpoint_reached and the Stage leaderstat and the HUD label reads 'Stage 1/100'",
+    "The first jump pad in Carousel Meadow bumps jump_pad_used and the trampoline before stage 4 bumps trampoline_bounce",
+    "Falling or touching a red Neon kill brick bumps player_fell or player_died and respawns the player on the last checkpoint within 1-2 s",
+    "Clearing a zone bumps zone_cleared and pays 50 x zone number, and reaching stage 100 bumps obby_finished and park_finished with the Park Champion popup",
+    "Gift ready bumps gift_ready once per transition, claiming bumps gift_claimed, unlocking an achievement bumps achievement_unlocked, and ParkExtras.selfTest runs without errors",
+    "The HUD shows stage, zone name, progress bar, coins, reset button and leaderboard, and no errors appear in the output"
+  ],
+  "director": {
+    "fantasy": "You are a kid who just got a free ticket to Sunbeam Park and wants to ride all ten rides, run the 100 stages to the Castle at the top, and dress up in silly costumes along the way.",
+    "core_loop": "Run and jump through short, themed stages, grab coins, and touch glowing checkpoint pads that save your stage. Spend coins in the lobby changing room on costumes that show up on your character, then push on to harder rides for more coins and bigger bonuses. Every 10 stages a ride gate opens, a zone-clear fanfare plays, and a new themed ride begins.",
+    "progression": [
+      {
+        "at": "0:00-0:30",
+        "goal": "Grab the lobby coin trail, buy the first costume, and reach checkpoint 1",
+        "unlock": "Party Hat costume and Stage 1 checkpoint",
+        "cost": "3 coins (15 coins) for the hat; stage 1 is free and trivially easy"
+      },
+      {
+        "at": "0:30-2:00",
+        "goal": "Clear Zone 1 'Carousel Meadow' (stages 1-10)",
+        "unlock": "Zone clear bonus of 50 coins, the Zone 2 gate, and the first trampoline and jump pad",
+        "cost": "Reach stage 10; falling returns you to your last checkpoint"
+      },
+      {
+        "at": "2:00-5:00",
+        "goal": "Zones 2-3 (Bumper Cars, Ferris Wheel Hill), then save for costume 2 and 3",
+        "unlock": "Clown Wig & Nose (40), Balloon Backpack (80); new mechanics each few stages (moving cars, rotating cabins)",
+        "cost": "Zone clear bonus 50 x zone number; coins are worth 5 each"
+      },
+      {
+        "at": "5:00-10:00",
+        "goal": "Zones 4-5 (Log Flume, Haunted House) and a costume every ~2 minutes",
+        "unlock": "Cotton Candy Hair (140), Ringmaster Top Hat (220); first timed gift claimed; stage 50 halfway banner",
+        "cost": "Prices grow ~1.5x per costume"
+      },
+      {
+        "at": "10:00-20:00",
+        "goal": "Zones 6-8 (Roller Coaster, Pirate Ship, Sky Swings), the hardest jumps so far, each with a breather every 5th stage",
+        "unlock": "Pirate Captain Hat (340), Astronaut Helmet (500); ride gates and achievements toasts",
+        "cost": "Stage 60-80 with a rising sawtooth difficulty"
+      },
+      {
+        "at": "20:00-35:00",
+        "goal": "Zones 9-10 (Rocket Drop, Grand Castle Fireworks), then the finale stage 100",
+        "unlock": "Golden Crown (750), 'Park Champion' title popup, confetti and fireworks finish, finish time shown",
+        "cost": "Reach stage 100 (obby_finished and park_finished)"
+      },
+      {
+        "at": "35:00+",
+        "goal": "Collect all 8 costumes, all achievements, and beat your finish time",
+        "unlock": "Costume mastery toast, replay from any cleared zone gate via the ride entrance",
+        "cost": "Remaining coins and stages"
+      }
+    ],
+    "systems": [
+      {
+        "name": "Zone and stage content (Config)",
+        "what": "Data for 10 zones of 10 stages: name, ride, palette, music, the mechanic list per stage, coin counts, costume prices, gift timings. Difficulty is a sawtooth: stage 1 of each zone is easy, every 5th stage is a breather with wide pads, the 10th is the zone finale. The ride is the visual centrepiece of each zone, and the 10 stages run through or around it. All gaps stay at or under 10 studs flat (7 when rising 6), with moving hazards slow and with a clear safe window.",
+        "module": "ReplicatedStorage/Config.luau"
+      },
+      {
+        "name": "Park world (WorldKit)",
+        "what": "Builds the lobby (title sign, start pad, coin trail, leaderboard, changing room), the START stairs, and one large ride per zone with a gate sign. Every part is coloured from the zone palette, no grey.",
+        "module": "ReplicatedStorage/WorldKit.luau"
+      },
+      {
+        "name": "Obby course (ObbyKit)",
+        "what": "Lays out the 100 stages from the Config data: checkpoints with glowing stage-number pads (wide touch zones; touching sets stage to max(current, N)), kill bricks (red Neon), jump pads, trampolines, coins, ride gates, a respawn on the last checkpoint in 1-2 s. Bumps checkpoint_reached, coin_collected, player_died, player_fell, jump_pad_used, trampoline_bounce, zone_cleared and obby_finished inside its own functions.",
+        "module": "ReplicatedStorage/ObbyKit.luau"
+      },
+      {
+        "name": "Ride dressing (ObbyThemes)",
+        "what": "Dresses each stage piece in its ride theme: carousel horses and spinning platforms, bumper cars sliding, Ferris-wheel cabins as ferries, flume water with logs, haunted-house tiles that flash then vanish, coaster rails, a swinging pirate ship, cloud-candy swings, rocket pads, a castle with fireworks.",
+        "module": "ReplicatedStorage/ObbyThemes.luau"
+      },
+      {
+        "name": "Changing room and costumes",
+        "what": "A lobby booth where you buy and equip 8 costumes with coins: Party Hat 15, Clown Wig & Nose 40, Balloon Backpack 80, Cotton Candy Hair 140, Ringmaster Top Hat 220, Pirate Captain Hat 340, Astronaut Helmet 500, Golden Crown 750. Accessories are built from parts and welded to the character, are cosmetic only, and stay equipped after respawn. costume_buy and costume_equip are bumped inside the buy and equip functions.",
+        "module": "ServerScriptService/Game.server.luau"
+      },
+      {
+        "name": "HUD and UI",
+        "what": "Stage 47/100 label, zone name, progress bar, CurrencyCounter for coins, reset button, Toast and RewardPopup for checkpoints, zone clears and the finish. The costume shop uses Panel and ShopGrid with StyledButton, and the leaderboard sorts by Stage.",
+        "module": "StarterPlayerScripts/Game.client.luau"
+      },
+      {
+        "name": "Timed gift, streak and achievements",
+        "what": "A free gift every 3 minutes (coins, +10 per streak step up to +50) and achievements as toasts: first costume, zone 1 clear, 10 coins, 50 coins, halfway (stage 50), all costumes, finish the park. gift_ready is bumped on the state transition only (guarded by a per-player flag). gift_claimed and achievement_unlocked are bumped inside the claim and unlock functions. Exposes a self-test function that fires gift, achievement, buy, equip, zone-clear, fall and trampoline paths for the first player.",
+        "module": "ServerScriptService/ParkExtras.luau"
+      },
+      {
+        "name": "Gift HUD button",
+        "what": "A bobbing 'Free Gift' button with a countdown that turns green and pulses when ready, plus a small streak counter. Click calls the server claim function through a RemoteEvent.",
+        "module": "StarterPlayerScripts/GiftHud.client.luau"
+      }
+    ],
+    "juice": [
+      {
+        "moment": "coin collected",
+        "sound": "Coin: short bright ding",
+        "vfx": "yellow sparkle burst at the coin, coin vanishes with a quick scale-down",
+        "ui": "coin counter punches and ticks up; +5 floats up from the coin",
+        "camera": "none"
+      },
+      {
+        "moment": "checkpoint reached",
+        "sound": "Win: short rising sting",
+        "vfx": "pad pulses brighter, sparkle ring and star burst around the pad",
+        "ui": "Toast 'Stage 12!', progress bar fills with a shine sweep, stage label pops",
+        "camera": "slight FOV bump"
+      },
+      {
+        "moment": "jump pad used",
+        "sound": "Whoosh: rising whoosh",
+        "vfx": "colored ring burst and trail at the feet, pad squashes and springs back",
+        "ui": "none",
+        "camera": "quick FOV widen then settle"
+      },
+      {
+        "moment": "trampoline bounce",
+        "sound": "Jump: springy boing",
+        "vfx": "pad squashes, small confetti puff",
+        "ui": "none",
+        "camera": "small upward nudge"
+      },
+      {
+        "moment": "fall or kill brick",
+        "sound": "Hurt: short ouch",
+        "vfx": "small red puff at the character",
+        "ui": "brief red edge flash",
+        "camera": "small shake, respawn on the checkpoint within 1-2 s"
+      },
+      {
+        "moment": "costume bought",
+        "sound": "Buy: cheerful purchase confirm",
+        "vfx": "confetti burst around the character and booth lights flash",
+        "ui": "shop card turns 'Owned', coin counter ticks down, Toast 'Party Hat unlocked!'",
+        "camera": "none"
+      },
+      {
+        "moment": "costume equipped",
+        "sound": "Pop: soft pop",
+        "vfx": "star puff at the character's head",
+        "ui": "card shows 'Equipped' with a tween",
+        "camera": "none"
+      },
+      {
+        "moment": "not enough coins or locked gate",
+        "sound": "Error: low buzz",
+        "vfx": "price tag shakes red",
+        "ui": "Toast 'Need 25 more coins' or 'Clear Zone 2 first'",
+        "camera": "none"
+      },
+      {
+        "moment": "zone cleared",
+        "sound": "Win: sting followed by Boom for a bigger finish",
+        "vfx": "firework bursts above the ride and gate lights turn green",
+        "ui": "RewardPopup 'Carousel Meadow cleared! +50', coin counter punches",
+        "camera": "short shake"
+      },
+      {
+        "moment": "ride gate / entrance used",
+        "sound": "Whoosh: panel opening",
+        "vfx": "gate sign flashes and sparkles",
+        "ui": "Toast with the new ride's name",
+        "camera": "none"
+      },
+      {
+        "moment": "gift claimed",
+        "sound": "Gem: sparkly bling",
+        "vfx": "gold sparkles from the gift button",
+        "ui": "RewardPopup '+30 coins, streak x2'",
+        "camera": "none"
+      },
+      {
+        "moment": "park finished (stage 100)",
+        "sound": "Boom plus Win",
+        "vfx": "confetti and fireworks over the castle, golden spotlight",
+        "ui": "RewardPopup 'Park Champion!' with finish time and costume count",
+        "camera": "large shake then slow zoom out"
+      }
+    ],
+    "first_60_seconds": [
+      {
+        "t": 3.0,
+        "beat": "Spawn on a bright start pad in the lobby facing a glowing coin trail leading to the START stairs, the changing room booth visible to the side",
+        "counter": "stages_built",
+        "min": 1
+      },
+      {
+        "t": 8.0,
+        "beat": "Run along the trail and grab 3 coins (+5 each, floating text, sparkles)",
+        "counter": "coin_collected",
+        "min": 3
+      },
+      {
+        "t": 18.0,
+        "beat": "Step into the changing room booth and buy the Party Hat for 15 coins (confetti, Buy sound)",
+        "counter": "costume_buy",
+        "min": 1
+      },
+      {
+        "t": 22.0,
+        "beat": "The hat is auto-equipped on purchase, with a pop and star puff on the head",
+        "counter": "costume_equip",
+        "min": 1
+      },
+      {
+        "t": 32.0,
+        "beat": "Climb the START stairs and touch checkpoint 1 (glowing pad, 'Stage 1!' toast, ding, sparkles)",
+        "counter": "checkpoint_reached",
+        "min": 1
+      },
+      {
+        "t": 45.0,
+        "beat": "Hit the first jump pad on the main path of Carousel Meadow (whoosh, FOV bump)",
+        "counter": "jump_pad_used",
+        "min": 1
+      },
+      {
+        "t": 55.0,
+        "beat": "Bounce on the first trampoline, which sits right next to the path before stage 4",
+        "counter": "trampoline_bounce",
+        "min": 1
+      }
+    ],
+    "rewards": [
+      "Coins from the path (5 each) and a zone clear bonus of 50 x zone number",
+      "Free timed gift every 3 minutes with a streak bonus of +10 per step (max +50)",
+      "8 costumes bought with coins, from a 15-coin Party Hat to a 750-coin Golden Crown",
+      "Achievement toasts: first costume, zone 1 clear, 50 coins, halfway, all costumes, finish the park",
+      "Park Champion title popup and finish time on stage 100"
+    ],
+    "visual_style": {
+      "palette": [
+        "#FF5E7E",
+        "#FFC429",
+        "#4FC3F7",
+        "#7BE05A",
+        "#B16CFF",
+        "#FF9A3C",
+        "#FFF4E0"
+      ],
+      "materials": [
+        "SmoothPlastic",
+        "Neon",
+        "Wood",
+        "Metal"
+      ],
+      "lighting": "ClockTime ~15 with warm sun, Brightness 2.5, a light pastel Atmosphere, Bloom 0.4, ColorCorrection Saturation 0.15; zone 5 Haunted House turns dusk-purple with softer lighting but kill bricks stay readable red Neon",
+      "mood": "A candy-coloured sunny funfair, bright, bouncy and a bit silly"
+    },
+    "sounds": [
+      {
+        "id": "Coin",
+        "for": "coin pickup",
+        "describe": "short bright coin ding",
+        "kit": "Coin"
+      },
+      {
+        "id": "Buy",
+        "for": "costume purchase",
+        "describe": "cheerful cash-register purchase confirm",
+        "kit": "Buy"
+      },
+      {
+        "id": "Win",
+        "for": "checkpoints, zone clear, finish",
+        "describe": "rising happy sting, 1 second",
+        "kit": "Win"
+      },
+      {
+        "id": "Whoosh",
+        "for": "jump pads, gate opening",
+        "describe": "airy upward whoosh",
+        "kit": "Whoosh"
+      },
+      {
+        "id": "Jump",
+        "for": "trampolines",
+        "describe": "springy boing",
+        "kit": "Jump"
+      },
+      {
+        "id": "Hurt",
+        "for": "kill brick or fall",
+        "describe": "short soft ouch",
+        "kit": "Hurt"
+      },
+      {
+        "id": "Error",
+        "for": "locked gate, not enough coins",
+        "describe": "low dull buzz",
+        "kit": "Error"
+      },
+      {
+        "id": "Pop",
+        "for": "equip costume, UI appearing",
+        "describe": "soft pop",
+        "kit": "Pop"
+      },
+      {
+        "id": "Gem",
+        "for": "gift and achievement",
+        "describe": "sparkly bling",
+        "kit": "Gem"
+      },
+      {
+        "id": "Boom",
+        "for": "finale fireworks and park finish",
+        "describe": "big firework thump",
+        "kit": "Boom"
+      },
+      {
+        "id": "Music",
+        "for": "zone background loop",
+        "describe": "bouncy carnival tune at low volume, one mood per zone",
+        "kit": "Music"
+      }
+    ],
+    "module_budget": 2,
+    "acceptance": [
+      "The player spawns on a lit start pad in the lobby with a coin trail, the changing room and the START stairs visible, and no default grey parts anywhere",
+      "stages_built reports 100 stages across 10 zones of 10 stages with 10 themed rides, each zone with a named gate sign",
+      "A checkpoint touch sets the Stage leaderstat to max(current, that stage) and bumps checkpoint_reached; falling or dying respawns on the last checkpoint within 2 s and bumps player_fell or player_died",
+      "Coins give +5 and bump coin_collected; the CurrencyCounter ticks up and +5 floats at the coin",
+      "The player can buy the 15-coin Party Hat and see it on the character: costume_buy and costume_equip both reach at least 1, and the hat persists after respawn",
+      "Not-enough-coin purchases play Error and show a Toast without spending coins",
+      "A jump pad and a trampoline sit on the main path of zone 1 and bump jump_pad_used and trampoline_bounce when used",
+      "Kill bricks are red Neon and set Humanoid Health to 0 with a per-player debounce",
+      "Zone 1 can be cleared in the playtest window (or through the self-test), which bumps zone_cleared and shows a RewardPopup with 50 coins",
+      "A locked ride gate bumps ride_entrance_locked for a player who hasn't cleared the previous zone, and ride_gate_used or ride_entrance_used when open",
+      "The free gift becomes ready every 3 minutes (gift_ready bumped once per transition), can be claimed (gift_claimed), and achievements fire a toast (achievement_unlocked)",
+      "A self-test hook in Game.server runs buy, equip, zone-clear, fall, trampoline, gift and achievement paths for the first player; stage 100 bumps obby_finished and park_finished with confetti and finish time"
+    ]
+  },
+  "first_60s": [
+    {
+      "t": 3.0,
+      "beat": "Spawn on a bright start pad in the lobby facing a glowing coin trail leading to the START stairs, the changing room booth visible to the side",
+      "counter": "stages_built",
+      "min": 1
+    },
+    {
+      "t": 8.0,
+      "beat": "Run along the trail and grab 3 coins (+5 each, floating text, sparkles)",
+      "counter": "coin_collected",
+      "min": 3
+    },
+    {
+      "t": 18.0,
+      "beat": "Step into the changing room booth and buy the Party Hat for 15 coins (confetti, Buy sound)",
+      "counter": "costume_buy",
+      "min": 1
+    },
+    {
+      "t": 22.0,
+      "beat": "The hat is auto-equipped on purchase, with a pop and star puff on the head",
+      "counter": "costume_equip",
+      "min": 1
+    },
+    {
+      "t": 32.0,
+      "beat": "Climb the START stairs and touch checkpoint 1 (glowing pad, 'Stage 1!' toast, ding, sparkles)",
+      "counter": "checkpoint_reached",
+      "min": 1
+    },
+    {
+      "t": 45.0,
+      "beat": "Hit the first jump pad on the main path of Carousel Meadow (whoosh, FOV bump)",
+      "counter": "jump_pad_used",
+      "min": 1
+    },
+    {
+      "t": 55.0,
+      "beat": "Bounce on the first trampoline, which sits right next to the path before stage 4",
+      "counter": "trampoline_bounce",
+      "min": 1
+    }
+  ],
+  "levels": {
+    "zones": 10,
+    "stages_per_zone": 10,
+    "requested_stages": 100,
+    "scope_note": null,
+    "plan": [
+      {
+        "zone": 1,
+        "name": "Sunbeam Gate Plaza",
+        "theme": "The park's front gate and plaza: ticket booths, balloons and striped awnings, with round discs, logs, ramps and the first jump pads",
+        "theme_id": "entrance",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad"
+        ],
+        "stages": [
+          1,
+          10
+        ],
+        "written": "2026-10-25T01:59:56+00:00",
+        "request_ids": [
+          "mreq_01a170c74fd17333a7738c1d0beb2d85"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 36,
+          "plain_share": 0.056,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "shaped platforms (round, cylinder or wedge-ramp)": 8,
+            "jumppad": 5
+          },
+          "need": 3,
+          "climb": 32.0,
+          "shaped": 20,
+          "extent": [
+            -34.0,
+            5.0,
+            -5.0,
+            284.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 2,
+        "name": "Carousel Canter",
+        "theme": "A giant merry-go-round of painted horses and brass poles, with spinning turntables and gliding platforms that circle like the ride.",
+        "theme_id": "carousel",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "trampoline",
+          "turntable"
+        ],
+        "stages": [
+          11,
+          20
+        ],
+        "written": "2026-10-25T01:59:25+00:00",
+        "request_ids": [
+          "mreq_01a170c74ff171c1aa94eca5b6f75197"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 36,
+          "plain_share": 0.194,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "trampoline",
+            "turntable"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "turntable": 4,
+            "moving": 5
+          },
+          "need": 3,
+          "climb": 35.0,
+          "shaped": 10,
+          "extent": [
+            -33.0,
+            8.5,
+            -5.0,
+            309.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 3,
+        "name": "Bumper Blast Arena",
+        "theme": "A neon bumper-car arena with rubber walls, flying sparks, sliding movers and conveyor car tracks",
+        "theme_id": "bumper",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor"
+        ],
+        "stages": [
+          21,
+          30
+        ],
+        "written": "2026-10-25T01:59:50+00:00",
+        "request_ids": [
+          "mreq_01a170c750527883a23b4bfdd4360233"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 32,
+          "plain_share": 0.094,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "moving": 5,
+            "conveyor": 6
+          },
+          "need": 3,
+          "climb": 25.0,
+          "shaped": 10,
+          "extent": [
+            -33.0,
+            8.0,
+            -5.0,
+            305.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 4,
+        "name": "Teacup Twirl",
+        "theme": "Giant spinning teacups and saucers on a turning floor, with spinner bars to hop and turntables to ride",
+        "theme_id": "teacups",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor",
+          "spinner",
+          "turntable"
+        ],
+        "stages": [
+          31,
+          40
+        ],
+        "written": "2026-10-25T01:59:19+00:00",
+        "request_ids": [
+          "mreq_01a170c7502279d2896ca7936b501d7a"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 34,
+          "plain_share": 0.176,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor",
+            "spinner",
+            "turntable"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "spinner": 4,
+            "turntable": 3
+          },
+          "need": 3,
+          "climb": 33.0,
+          "shaped": 7,
+          "extent": [
+            -32.0,
+            10.0,
+            -5.0,
+            290.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 5,
+        "name": "Skywheel Heights",
+        "theme": "A giant ferris wheel in the clouds: ride the gondola lifts and bounce on trampolines to climb into the sky.",
+        "theme_id": "ferris",
+        "kinds": [
+          "platform",
+          "moving",
+          "disappearing",
+          "conveyor",
+          "trampoline",
+          "spinner"
+        ],
+        "stages": [
+          41,
+          50
+        ],
+        "written": "2026-10-25T01:59:46+00:00",
+        "request_ids": [
+          "mreq_01a170c7508a7a33a0cf6d32f09baf98"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 34,
+          "plain_share": 0.176,
+          "kinds": [
+            "platform",
+            "moving",
+            "disappearing",
+            "conveyor",
+            "trampoline",
+            "spinner"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "vertical moving platforms (move y at least 4 and more than sideways)": 5,
+            "trampoline": 6
+          },
+          "need": 3,
+          "climb": 39.0,
+          "shaped": 10,
+          "extent": [
+            -30.0,
+            8.0,
+            -5.0,
+            302.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 6,
+        "name": "Log Flume Falls",
+        "theme": "A splashy log flume ride of rushing water channels, conveyor currents, bobbing logs and whirlpool turntables that climbs to a big trampoline-splash finale.",
+        "theme_id": "flume",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor",
+          "trampoline",
+          "turntable"
+        ],
+        "stages": [
+          51,
+          60
+        ],
+        "written": "2026-10-25T01:59:57+00:00",
+        "request_ids": [
+          "mreq_01a170c7503477e0b6db6c432dc8394a"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 40,
+          "plain_share": 0.125,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor",
+            "trampoline",
+            "turntable"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "conveyor": 5,
+            "lava (built as water)": 7
+          },
+          "need": 3,
+          "climb": 36.0,
+          "shaped": 10,
+          "extent": [
+            -32.0,
+            8.0,
+            -5.0,
+            290.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 7,
+        "name": "Boo Manor",
+        "theme": "A creaky haunted house of dark purple halls, vanishing ghost tiles and pits of green ectoplasm",
+        "theme_id": "haunted",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "conveyor",
+          "trampoline",
+          "spinner",
+          "turntable",
+          "pendulum"
+        ],
+        "stages": [
+          61,
+          70
+        ],
+        "written": "2026-10-25T01:59:37+00:00",
+        "request_ids": [
+          "mreq_01a170c7507c70e3a4e50acd49516c44",
+          "mreq_01a170c8cc567083a382d0b9bd4cc2fa"
+        ],
+        "corrections": 1,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 34,
+          "plain_share": 0.088,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "conveyor",
+            "trampoline",
+            "spinner",
+            "turntable",
+            "pendulum"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "disappearing": 6,
+            "lava": 7
+          },
+          "need": 3,
+          "climb": 35.0,
+          "shaped": 6,
+          "extent": [
+            -33.0,
+            7.0,
+            -5.0,
+            280.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 8,
+        "name": "Buccaneer Bay",
+        "theme": "The swinging pirate ship: dodge pendulum cannonballs and ride sliding decks on the way up the mast",
+        "theme_id": "pirate",
+        "kinds": [
+          "platform",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor",
+          "trampoline",
+          "spinner",
+          "turntable",
+          "pendulum"
+        ],
+        "stages": [
+          71,
+          80
+        ],
+        "written": "2026-10-25T01:59:35+00:00",
+        "request_ids": [
+          "mreq_01a170c750057100a4635d48e35a6b10"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 33,
+          "plain_share": 0.121,
+          "kinds": [
+            "platform",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor",
+            "trampoline",
+            "spinner",
+            "turntable",
+            "pendulum"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "pendulum": 6,
+            "moving": 7
+          },
+          "need": 3,
+          "climb": 45.0,
+          "shaped": 5,
+          "extent": [
+            -33.0,
+            8.0,
+            -5.0,
+            311.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 9,
+        "name": "Thunder Rail Coaster",
+        "theme": "A red-railed roller coaster with lift hills, launch pads and swinging loops high above Sunbeam Park",
+        "theme_id": "coaster",
+        "kinds": [
+          "platform",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor",
+          "trampoline",
+          "spinner",
+          "turntable",
+          "pendulum"
+        ],
+        "stages": [
+          81,
+          90
+        ],
+        "written": "2026-10-25T02:00:38+00:00",
+        "request_ids": [
+          "mreq_01a170c8a4a97603b29c58ae14cfc302"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 31,
+          "plain_share": 0.0,
+          "kinds": [
+            "platform",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor",
+            "trampoline",
+            "spinner",
+            "turntable",
+            "pendulum"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {
+            "moving": 5,
+            "jumppad": 5
+          },
+          "need": 3,
+          "climb": 37.0,
+          "shaped": 9,
+          "extent": [
+            -34.5,
+            8.5,
+            -5.0,
+            315.0
+          ],
+          "outside_plot": 0
+        }
+      },
+      {
+        "zone": 10,
+        "name": "Fireworks Finale",
+        "theme": "A gold-and-confetti grand finale under bursting fireworks, with every ride's tricks mixed into the climb to the Castle.",
+        "theme_id": "finale",
+        "kinds": [
+          "platform",
+          "lava",
+          "moving",
+          "disappearing",
+          "jumppad",
+          "conveyor",
+          "trampoline",
+          "spinner",
+          "turntable",
+          "pendulum"
+        ],
+        "stages": [
+          91,
+          100
+        ],
+        "written": "2026-10-25T02:01:24+00:00",
+        "request_ids": [
+          "mreq_01a170c8bc0b7e70b6dc9a75e5701674"
+        ],
+        "corrections": 0,
+        "fallback": [],
+        "rules_left": 0,
+        "stats": {
+          "stages": 10,
+          "pieces": 41,
+          "plain_share": 0.049,
+          "kinds": [
+            "platform",
+            "lava",
+            "moving",
+            "disappearing",
+            "jumppad",
+            "conveyor",
+            "trampoline",
+            "spinner",
+            "turntable",
+            "pendulum"
+          ],
+          "distinct_sequences": 10,
+          "turned": 4,
+          "signature": {},
+          "need": 3,
+          "climb": 36.0,
+          "shaped": 8,
+          "extent": [
+            -32.0,
+            6.5,
+            -5.0,
+            303.0
+          ],
+          "outside_plot": 0
+        }
+      }
+    ]
+  }
+}
