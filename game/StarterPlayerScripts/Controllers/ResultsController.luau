@@ -24,10 +24,19 @@ local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("OfferCard") :: ModuleScript) :: any
 
+local GamepadNav = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("GamepadNav") :: ModuleScript) :: any
+
 local ResultsController = {}
 ResultsController.Priority = 60
 
 local controllers: { [string]: any } = {}
+
+local TEN_FOOT = (function(): boolean
+	local ok, v = pcall(function()
+		return game:GetService("GuiService"):IsTenFootInterface()
+	end)
+	return ok and v == true
+end)()
 
 local CARD_W, CARD_H = 190, 250
 local gui: ScreenGui? = nil
@@ -326,6 +335,9 @@ local function show(payload: Types.ResultsPayload)
 		local v = cam.ViewportSize
 		local side = if math.min(v.X, v.Y) < 500 then 44 else 0 -- notch / rounded corners on phones
 		fit.Scale = math.clamp(math.min((v.X - 2 * side) / 1280, (v.Y - 6) / 720), 0.3, 1.4)
+		if TEN_FOOT then
+			fit.Scale *= 0.9 -- consoles: keep NEXT CALL / BACK TO STATION inside the TV-safe 90%
+		end
 	end
 	refit()
 	local cam = workspace.CurrentCamera
@@ -586,6 +598,15 @@ local function show(payload: Types.ResultsPayload)
 		end
 		hide()
 	end)
+	-- gamepad: the cursor waits on NEXT CALL! (the biggest button) once it's up; the D-pad reaches BACK TO
+	-- STATION and the pass offer card's BUY / No thanks. B just closes the screen (the server still
+	-- brings the squad home after its countdown).
+	GamepadNav.menu(root, {
+		default = function()
+			return nextBtn
+		end,
+		back = hide,
+	})
 
 	task.spawn(function()
 		task.wait(1.6)

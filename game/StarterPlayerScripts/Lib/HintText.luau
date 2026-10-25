@@ -25,26 +25,36 @@ local PROMPT = "@prompt" -- touch: the ProximityPrompt's own button
 
 -- every key the game's hints mention. touch = the title of the real on-screen button (ContextAction
 -- titles in InventoryController / RescueController / VehicleController, HUD chips), pad = gamepad
--- button (ProximityPrompts use their default GamepadKeyCode, ButtonX).
+-- button. The whole gamepad map is docs/game/17-console-support.md. Prompts follow
+-- PromptConfig.GamepadKeys (E -> X, F -> Y, T -> R1, set on every prompt by PromptController). Keys whose
+-- job is a HUD button (P B H N J K ; L) say "D-PAD LEFT": it puts the gamepad cursor on the HUD buttons
+-- (ClientLib/GamepadNav), then A presses the one you pick.
+HintText.Menu = "D-PAD LEFT"
 HintText.Keys = {
 	E = { touch = PROMPT, pad = "X" },
-	R = { touch = PROMPT, pad = "X" },
-	T = { touch = PROMPT, pad = "X" },
-	F = { touch = PROMPT, pad = "X" },
+	R = { touch = PROMPT, pad = "D-PAD RIGHT" }, -- TruckRespawn (unflip / respawn the truck)
+	T = { touch = PROMPT, pad = "R1" },
+	F = { touch = PROMPT, pad = "Y" },
 	G = { touch = "DROP", pad = "B" }, -- InvDrop / RescueDrop
-	Q = { touch = "THROW", pad = "L1" }, -- InvThrow (RescueThrow is YEET / X: pass ctx)
+	Q = { touch = "THROW", pad = "L1" }, -- InvThrow / RescueThrow (touch title YEET: pass ctx)
 	["1"] = { touch = "SWAP", pad = "D-PAD UP" }, -- InvSwap
 	["2"] = { touch = "SWAP", pad = "D-PAD UP" },
-	H = { touch = "HELP" }, -- OnboardingController HELP chip
-	J = { touch = "SKIP" }, -- MissionGuideController SKIP button
-	K = { touch = "DANCE" }, -- BattlePassController DANCE button
-	P = { touch = "PASS" },
-	B = { touch = "STORE" },
-	[";"] = { touch = "ADMIN" },
-	M = { touch = "M" }, -- the minimap's round "M" map button
+	H = { touch = "HELP", pad = HintText.Menu }, -- OnboardingController HELP chip
+	J = { touch = "SKIP", pad = HintText.Menu }, -- MissionGuideController SKIP button
+	K = { touch = "DANCE", pad = HintText.Menu }, -- BattlePassController DANCE button
+	P = { touch = "PASS", pad = HintText.Menu },
+	B = { touch = "STORE", pad = HintText.Menu },
+	N = { pad = HintText.Menu }, -- NEWS chip
+	L = { pad = HintText.Menu }, -- DISPATCH chip
+	[";"] = { touch = "ADMIN", pad = HintText.Menu },
+	M = { touch = "M", pad = "D-PAD DOWN" }, -- the minimap's round "M" map button
+	V = { pad = "R3" }, -- first / third person, truck camera
+	Z = { pad = "L3" }, -- station emotes: L3 cycles wave -> facepalm -> blame
+	X = { pad = "L3" },
+	C = { pad = "L3" },
+	Y = { pad = "D-PAD RIGHT" }, -- Dispatch ACCEPT
 	SPACE = { touch = "JUMP", pad = "A" },
 	CLICK = { touch = "TAP", pad = "R2" },
-	-- V (camera), Z X C (emotes): keyboard only
 } :: { [string]: Entry }
 
 local function entry(key: string, ctx: Ctx?): Entry?
@@ -168,6 +178,11 @@ function HintText.format(text: string, mode: Mode, ctx: Ctx?): string
 	if mode == "touch" then
 		s = string.gsub(s, "%f[%w]W/S%f[^%w]", "stick")
 		s = string.gsub(s, "%f[%w]A/D%f[^%w]", "stick")
+	else
+		-- trucks: R2 gas, L2 brake / reverse, left stick steers (Roblox's own vehicle controls)
+		s = string.gsub(s, "%f[%w]W/S%f[^%w]", "R2/L2")
+		s = string.gsub(s, "%f[%w]A/D%f[^%w]", "stick")
+		s = string.gsub(s, "%f[%w]SPACE%f[^%w]", "A")
 	end
 	return s
 end

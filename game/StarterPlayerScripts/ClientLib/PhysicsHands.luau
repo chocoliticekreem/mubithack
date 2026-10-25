@@ -5,7 +5,7 @@
 --     underdamped spring (HandsMath), so hands lag, overshoot and wobble; the palm collides with the
 --     world, so it bumps walls, presses on doors and shoves props. Stretchy turnout sleeves run from
 --     the shoulder to each wrist.
---   * Input (desktop): no tool -> LMB = left hand, RMB = right hand: hold to reach toward the
+--   * Input (desktop; gamepad R2 = LMB, L2 = RMB): no tool -> LMB = left hand, RMB = right hand: hold to reach toward the
 --     crosshair and grab what's there, release to let go (throws keep momentum). Both hands on one
 --     heavy thing lifts it. Holding a tool -> LMB uses it (ToolController sprays; the axe is
 --     ClientLib/AxeArm) and RMB is the free left hand. Swing a hand into a teammate to slap them
@@ -669,6 +669,8 @@ function PhysicsHands.BindInput(self: PhysicsHands)
 				self:_button(2, true)
 			elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
 				self:_button(2, true)
+			elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
+				self:_button(1, true) -- gamepad R2 = left click (a Tool in hand owns it, like LMB)
 			end
 		end)
 	)
@@ -681,6 +683,8 @@ function PhysicsHands.BindInput(self: PhysicsHands)
 				self:_button(2, false)
 			elseif input.KeyCode == Enum.KeyCode.ButtonL2 then
 				self:_button(2, false)
+			elseif input.KeyCode == Enum.KeyCode.ButtonR2 then
+				self:_button(1, false)
 			end
 		end)
 	)

@@ -473,7 +473,7 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { "E" }, '"Pick up" a person, a pet or a prop. They ride in your CARRY slot.')
 	helpRow(list, nx(), { "WALK" }, "Walk them into the glowing drop zone at the truck: that's a rescue!")
 	helpRow(list, nx(), { "G" }, "Put them down. Gently. They remember.")
-	helpRow(list, nx(), { "hold Q" }, "YEET them. Landing in the drop zone still counts. Probably.", { Q = { touch = "YEET", pad = "X" } })
+	helpRow(list, nx(), { "hold Q" }, "YEET them. Landing in the drop zone still counts. Probably.", { Q = { touch = "YEET", pad = "L1" } })
 	helpRow(list, nx(), { "E", "E" }, "The panda needs TWO: both of you press E on it, then waddle.")
 	helpHeader(list, nx(), "WATER")
 	helpRow(list, nx(), { hoseKey }, "Next to ANY side of a truck: grab the hose (again to stow it). It never runs out of water.")
@@ -486,7 +486,7 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { keyName(VehicleConfig.KeyDoor, "E") }, "Open the door.")
 	helpRow(list, nx(), { enter }, "Get in. Driver: W/S drive, A/D steer, SPACE hops out.", nil,
 		"Get in. Driver: the stick drives and steers, OUT gets you out.")
-	local truckKeys = { G = { touch = "SIREN", pad = "X" }, H = { touch = "HONK", pad = "Y" }, R = { touch = "RESPAWN", pad = "" }, V = { pad = "R3" } }
+	local truckKeys = { G = { touch = "SIREN", pad = "X" }, H = { touch = "HONK", pad = "Y" }, R = { touch = "RESPAWN", pad = "D-PAD RIGHT" }, V = { pad = "R3" } }
 	helpRow(list, nx(), { keyName(VehicleConfig.KeySiren, "G"), keyName(VehicleConfig.KeyHorn, "H") }, "Siren and horn.", truckKeys)
 	helpRow(list, nx(), { keyName(VehicleConfig.KeyRespawn, "R"), keyName(VehicleConfig.KeyCam, "V") }, "Unflip the truck, switch camera.", truckKeys,
 		"Stuck or flipped? RESPAWN TRUCK puts it back on the road.")
@@ -515,6 +515,7 @@ local function buildHelp(gui: ScreenGui): Frame
 	end
 	ui.replay = btn("Replay", "REPLAY TUTORIAL", -120, RED)
 	ui.close = btn("Close", "GOT IT", 120, Color3.fromHex("#3B6E4A"))
+	ui.close:SetAttribute("GamepadDefault", true) -- gamepad: the cursor opens on GOT IT, never on REPLAY
 	return panel
 end
 

@@ -330,6 +330,7 @@ local function build()
 	UiKit.onTap(favorite, promptFavorite)
 	ui.favorite = favorite
 	local ok = UiKit.button(row, "Ok", "OK!", UDim2.fromOffset(190, 86), UDim2.new(), Palette.UiGood)
+	ok:SetAttribute("GamepadDefault", true) -- gamepad: the cursor opens on OK!, not on a social prompt
 	ok.LayoutOrder = 3
 	ok.TextSize = 46
 	UiKit.onTap(ok, function()

@@ -44,8 +44,19 @@ local function keepsDefault(prompt: ProximityPrompt): boolean
 	return prompt:GetAttribute("PromptDefaultStyle") == true
 end
 
+-- gamepad button from the keyboard key (PromptConfig.GamepadKeys: E -> X, F -> Y, T -> R1). Local, like
+-- Style: prompt input is read on this client. Keyboard / touch never look at GamepadKeyCode.
+local function padKey(prompt: ProximityPrompt)
+	local map = Cfg.GamepadKeys or {}
+	local want = map[prompt.KeyboardKeyCode.Name] or Cfg.GamepadDefault or Enum.KeyCode.ButtonX
+	if prompt.GamepadKeyCode ~= want then
+		prompt.GamepadKeyCode = want
+	end
+end
+
 -- every prompt, every input: Custom (TapUseController adds AlwaysShow on touch)
 local function restyle(prompt: ProximityPrompt)
+	padKey(prompt)
 	if keepsDefault(prompt) then
 		return
 	end
@@ -88,7 +99,7 @@ local function outlineOf(prompt: ProximityPrompt, part: BasePart): Instance?
 end
 
 local function keyText(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInputType): string
-	if inputType == Enum.ProximityPromptInputType.Gamepad then
+	if inputType == Enum.ProximityPromptInputType.Gamepad or InputHints.mode() == "gamepad" then
 		return (string.gsub(prompt.GamepadKeyCode.Name, "Button", ""))
 	end
 	return prompt.KeyboardKeyCode.Name
@@ -141,6 +152,7 @@ local function show(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInpu
 	if prompt.Style ~= Enum.ProximityPromptStyle.Custom then
 		restyle(prompt)
 	end
+	padKey(prompt)
 	local part = adorneeOf(prompt)
 	if not part then
 		return

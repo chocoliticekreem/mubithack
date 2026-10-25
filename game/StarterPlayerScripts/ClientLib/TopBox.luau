@@ -34,7 +34,11 @@ local function place(b: Frame)
 	local vpX = if cam then cam.ViewportSize.X else 1280
 	local sc = b:FindFirstChildOfClass("UIScale")
 	if sc then
-		sc.Scale = if vpX < 1100 then 0.82 else 1
+		-- consoles: the top bar is read from the sofa, a size up (still inside the top-bar row)
+		local tenFoot = (pcall(function()
+			return GuiService:IsTenFootInterface()
+		end)) and GuiService:IsTenFootInterface()
+		sc.Scale = if vpX < 1100 then 0.82 elseif tenFoot then 1.15 else 1
 	end
 	local barH = if bar.Height > 0 then bar.Height else 58
 	local h = math.clamp(barH - 12, 32, 40)

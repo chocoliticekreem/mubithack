@@ -502,7 +502,7 @@ function Minimap.new()
 		align = Enum.TextXAlignment.Left,
 	})
 	help.ZIndex = 5
-	InputHints.setPick(help, help.Text, "drag to pan  ·  pinch to zoom  ·  tap to drop a pin")
+	InputHints.setPick(help, help.Text, "drag to pan  ·  pinch to zoom  ·  tap to drop a pin", "right stick to pan  ·  + / - to zoom  ·  B to close")
 	local view = frame(panel, "View", GROUND)
 	view.Position = UDim2.fromOffset(12, 48)
 	view.Size = UDim2.new(1, -24, 1, -82)
@@ -598,6 +598,32 @@ function Minimap.new()
 				if self.onPin then
 					self.onPin(wx, wz)
 				end
+			end
+		end
+	end)
+	-- gamepad: the big map is a menu (cursor on + / - / centre / X, B closes, ClientLib/GamepadNav) and the
+	-- right stick pans it
+	pcall(function()
+		local GamepadNav = require(script.Parent:WaitForChild("GamepadNav") :: ModuleScript) :: any
+		GamepadNav.menu(panel, {
+			back = function()
+				self:toggleBig(false)
+			end,
+			default = function()
+				return panel:FindFirstChild("ZoomIn") :: GuiObject?
+			end,
+		})
+	end)
+	game:GetService("RunService").RenderStepped:Connect(function(dt: number)
+		if not self.bigOpen or InputHints.mode() ~= "gamepad" then
+			return
+		end
+		for _, st in UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1) do
+			if st.KeyCode == Enum.KeyCode.Thumbstick2 and st.Position.Magnitude > 0.2 then
+				local s = math.max(self:bigScale(), 0.01)
+				local px = 600 * dt / s -- ~600 screen px per second at full tilt
+				self.bigCenter = { x = self.bigCenter.x + st.Position.X * px, z = self.bigCenter.z - st.Position.Y * px }
+				self:layoutBig()
 			end
 		end
 	end)

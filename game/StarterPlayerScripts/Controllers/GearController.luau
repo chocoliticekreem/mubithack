@@ -606,7 +606,7 @@ local function openLocker()
 			if card then
 				UiKit.shake(card.btn, 0.2, 4)
 			end
-			toast(InputHints.pick("The hose lives on your fire truck! (T at the truck)", "The hose lives on your fire truck!"), false)
+			toast(InputHints.pick("The hose lives on your fire truck! (T at the truck)", "The hose lives on your fire truck!", "The hose lives on your fire truck! (R1 at the truck)"), false)
 			return
 		end
 		if card then
@@ -620,6 +620,7 @@ local function openLocker()
 		ask("take", id, slot)
 	end
 
+	local padDefaultSet = false
 	for i, id in Progression.lockerItems() do
 		local def = ItemDefs.get(id)
 		-- the cell holds two SIBLING buttons (the card, and its BACK chip on top), never one inside the
@@ -633,6 +634,10 @@ local function openLocker()
 		local b = Instance.new("TextButton")
 		b.Name = "Pick"
 		b.Text = ""
+		if not padDefaultSet and id ~= "Hose" then
+			padDefaultSet = true
+			b:SetAttribute("GamepadDefault", true) -- gamepad: the cursor opens on the first item you can take
+		end
 		b.AutoButtonColor = true
 		b.BackgroundColor3 = Palette.UiCream
 		b.Size = UDim2.fromScale(1, 1)

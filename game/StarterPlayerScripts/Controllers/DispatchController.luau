@@ -356,7 +356,9 @@ local function build()
 	al.Parent = actions
 	local acc = button(actions, "Accept", GREEN, UDim2.fromOffset(150, 44))
 	acc.LayoutOrder = 1
-	InputHints.setChip(acc, Cfg.Keys.Accept, "ACCEPT")
+	-- gamepad: D-pad right accepts (bound only while the card shows); D-pad left puts the cursor on
+	-- ACCEPT, then right reaches DECLINE / NO CALLS
+	InputHints.setPick(acc, `[{Cfg.Keys.Accept}] ACCEPT`, "ACCEPT", "ACCEPT ►")
 	UiKit.onTap(acc, acceptOffer)
 	local dec = button(actions, "Decline", Palette.UiPanelDark, UDim2.fromOffset(130, 44))
 	dec.LayoutOrder = 2
@@ -500,6 +502,24 @@ function DispatchController:Start()
 			acceptOffer()
 		elseif offer and k == Cfg.Keys.Decline then
 			declineOffer()
+		end
+	end)
+
+	-- gamepad: D-pad right = ACCEPT while the card is up (above the truck's / station's D-pad right =
+	-- RESPAWN TRUCK, which only matters for the few seconds a call rings)
+	local ContextActionService = game:GetService("ContextActionService")
+	local function padAccept(_: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
+		if state == Enum.UserInputState.Begin and offer then
+			acceptOffer()
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end
+	ui.card:GetPropertyChangedSignal("Visible"):Connect(function()
+		if ui.card.Visible then
+			ContextActionService:BindActionAtPriority("DispatchPadAccept", padAccept, false, Enum.ContextActionPriority.High.Value + 100, Enum.KeyCode.DPadRight)
+		else
+			ContextActionService:UnbindAction("DispatchPadAccept")
 		end
 	end)
 

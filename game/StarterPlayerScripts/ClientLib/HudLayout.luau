@@ -311,7 +311,11 @@ function HudLayout.modal(panel: GuiObject, opts: ModalOpts?)
 	local function baseScale(): number
 		local cam = workspace.CurrentCamera
 		local v = if cam then cam.ViewportSize else Vector2.new(1280, 720)
-		return math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
+		local okK, kit = pcall(function()
+			return require(script.Parent:WaitForChild("UiKit") :: ModuleScript) :: any
+		end)
+		local maxS = if okK and type(kit) == "table" and type(kit.MaxScale) == "number" then kit.MaxScale else 1.4
+		return math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, maxS)
 	end
 	local fitted = false
 	local function fit(open: boolean)
@@ -372,6 +376,11 @@ function HudLayout.modal(panel: GuiObject, opts: ModalOpts?)
 			HudLayout.ModalChanged:Fire(HudLayout.modalOpen())
 		end
 	end
+	-- gamepad: the cursor lands in the panel when it opens and B is the backdrop click (ClientLib/GamepadNav)
+	pcall(function()
+		local GamepadNav = require(script.Parent:WaitForChild("GamepadNav") :: ModuleScript) :: any
+		GamepadNav.menu(panel, { back = o.onDismiss, companions = o.companions })
+	end)
 	panel:GetPropertyChangedSignal("Visible"):Connect(apply)
 	panel.Destroying:Connect(function()
 		openModals[panel] = nil

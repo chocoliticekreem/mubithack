@@ -367,6 +367,8 @@ local function renderPicker()
 		btn.Size = UDim2.new(0.22, 0, 0, 52)
 		btn.BackgroundColor3 = if not on then C.CardOff elseif m.id == current then C.Green else C.Red
 		btn.AutoButtonColor = on and leader
+		btn.Selectable = on and leader -- gamepad: the cursor skips COMING SOON (and a non-leader's rows)
+		btn:SetAttribute("GamepadDefault", m.id == current and on and leader) -- opens on the squad's call
 		btn.Text = if not on then "COMING SOON" elseif m.id == current then "PICKED" else "ROLL OUT"
 		btn.TextScaled = true
 		btn.Font = Enum.Font.LuckiestGuy

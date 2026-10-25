@@ -399,6 +399,21 @@ end
 
 ---------------------------------------------------------------------------- chase camera
 
+-- gamepad right stick looks around the truck (same yaw / pitch the mouse right-drag sets; it eases back
+-- behind the truck 0.8 s after you let go)
+local function padLook(dt: number)
+	for _, st in UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1) do
+		if st.KeyCode == Enum.KeyCode.Thumbstick2 then
+			local p = st.Position
+			if p.Magnitude > 0.2 then
+				camYaw -= p.X * dt * 3
+				camPitch = math.clamp(camPitch + p.Y * dt * 1.2, -0.25, 0.8)
+				lookReleasedAt = os.clock()
+			end
+		end
+	end
+end
+
 local function camStep(dt: number)
 	local truck = driving
 	local chassis = truck and truck.PrimaryPart
@@ -407,6 +422,7 @@ local function camStep(dt: number)
 		return
 	end
 	cam.CameraType = Enum.CameraType.Scriptable
+	padLook(dt)
 	if not looking and os.clock() - lookReleasedAt > 0.8 then
 		local k = math.min(1, dt * 2.5)
 		camYaw -= camYaw * k
@@ -796,14 +812,9 @@ local function onLookInput(input: InputObject, processed: boolean)
 	elseif input.UserInputType == Enum.UserInputType.MouseMovement and looking then
 		camYaw -= input.Delta.X * 0.006
 		camPitch = math.clamp(camPitch + input.Delta.Y * 0.004, -0.25, 0.8)
-	elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
-		local p = input.Position
-		if p.Magnitude > 0.2 then
-			camYaw -= p.X * 0.08
-			camPitch = math.clamp(camPitch + p.Y * 0.03, -0.25, 0.8)
-			lookReleasedAt = os.clock()
-		end
 	end
+	-- gamepad right stick: read every frame in camStep (padLook), not per InputChanged event: a stick held
+	-- still fires no events, so the old per-event turn stopped while you held it over
 end
 
 ---------------------------------------------------------------------------- respawn button
@@ -922,7 +933,7 @@ local function respawnLoop()
 		if bind ~= respawnBound then
 			respawnBound = bind
 			if bind then
-				ContextActionService:BindAction("TruckRespawn", onAction, false, key("KeyRespawn", Enum.KeyCode.R))
+				ContextActionService:BindAction("TruckRespawn", onAction, false, key("KeyRespawn", Enum.KeyCode.R), Enum.KeyCode.DPadRight)
 			else
 				ContextActionService:UnbindAction("TruckRespawn")
 			end
@@ -1208,7 +1219,7 @@ local function updateSeated()
 			hint.Text = InputHints.pick(
 				`SPACE: hop out   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
 				"Stick: push to drive, let go to stop   ·   OUT  SIREN  HONK",
-				"A: hop out   X: siren   Y: horn   R3: camera"
+				"R2 gas  L2 brake  stick steer   A: out   X: siren   Y: horn   R3: camera   D-PAD RIGHT: unflip"
 			)
 		elseif truck then
 			hint.Text = InputHints.pick("SPACE: hop off", "Tap OFF to hop off", "A: hop off")

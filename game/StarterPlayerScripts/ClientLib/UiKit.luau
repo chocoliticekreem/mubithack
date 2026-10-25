@@ -26,6 +26,16 @@ local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("P
 
 local UiKit = {}
 
+-- Xbox / PlayStation (GuiService:IsTenFootInterface): read from the sofa, so HUDs may grow a bit more
+-- (1080p TV: 1.5 = the 1280x720 design filling the screen, vs 1.4 on a desktop monitor)
+UiKit.TenFoot = (function(): boolean
+	local ok, v = pcall(function()
+		return game:GetService("GuiService"):IsTenFootInterface()
+	end)
+	return ok and v == true
+end)()
+UiKit.MaxScale = if UiKit.TenFoot then 1.5 else 1.4
+
 UiKit.Header = Enum.Font.LuckiestGuy
 UiKit.Body = Enum.Font.FredokaOne
 
@@ -50,7 +60,7 @@ function UiKit.screen(name: string, displayOrder: number?, fullBleed: boolean?):
 		local cam = workspace.CurrentCamera
 		if cam then
 			local v = cam.ViewportSize
-			scale.Scale = math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, 1.4)
+			scale.Scale = math.clamp(math.min(v.X / 1280, v.Y / 720), 0.55, UiKit.MaxScale)
 		end
 	end
 	rescale()
