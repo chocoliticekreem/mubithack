@@ -74,51 +74,57 @@ unreachable level, confusing goals, repetitive content or an unfair progression 
 [game production guide](docs/GAME_PRODUCTION_GUIDE.md) defines priorities for 16 game families,
 architecture foundations, feature/level contracts, testing and model evaluation.
 
-## How much time can it save?
+## Vanilla development vs plain MCP vs MuMake
 
-For planning, compare the same small custom prototype: one short course or core loop, basic UI,
-an upgrade or checkpoint mechanic, a playthrough and one fix/retest pass. Assume Studio, accounts,
-AI access and tools are already configured. These ranges exclude publishing, original asset
-production, complex persistence and a commercial release's full testing requirements.
+| | Vanilla development | Plain MCP-driven development | MuMake-driven development |
+|---|---|---|---|
+| Building | You design, script and assemble the game | An AI agent edits the game through Studio tools | A production harness coordinates planning, reusable kits, level generation and installation |
+| Testing | You playtest and organise checks | The agent can control characters, inspect the game and run tests; the workflow depends on its instructions | Repeatable checks, QA bots, scripted player journeys and recorded outcomes are part of the workflow |
+| Improvement | You diagnose, change and retest | You and the agent decide what to change and how to verify it | Review/fix rounds use previous outcomes; the agent repair workflow verifies changes and can roll them back |
+| Learning between runs | Your experience and notes | Whatever context or memory the agent maintains | Saved lessons and failed attempts carry forward; corrections go back through the same Mubit tasks |
+| Time for a small first prototype | **2–6 hours estimated** | **30–90 minutes estimated** | **Under 20 minutes targeted**, then more runs to refine |
 
-| Approach | Time to budget for that prototype | Where the work goes |
-|---|---|---|
-| Build manually in Studio | **2–6 hours**, an illustrative planning estimate | Design, scripting, scene/UI work, playtesting, debugging and retesting |
-| General AI assistant + Studio MCP | **30–90 minutes**, an illustrative planning estimate | AI can build and playtest; the session still needs its goals, context, checks and iteration decisions |
-| MuMake native or AI plugin + Mubit | **Under 20 minutes** is the first-playable target; allow further runs for refinement | A reusable build/test/improve workflow, game context, tested modules, prioritised fixes and task-specific learning |
+The manual and plain-MCP times are illustrative planning estimates for a small custom game with
+setup complete, not a measured comparison. MuMake's target is the first playable handoff; further
+refinement adds time. MCP already supports building and playtesting. MuMake packages the production
+workflow, reusable systems and evidence around those tools, so creators do not have to assemble
+that workflow themselves. These records do not provide a same-brief timing comparison across all three.
 
-The manual and general-MCP ranges are our planning assumptions, not measured industry averages or
-a controlled competitor benchmark. Experienced creators and existing templates may be much faster;
-unfamiliar systems and complex mechanics may take much longer. Our evidence does not establish a
-universal speed advantage for either MuMake surface.
+### Example: Sunbeam Park Obby
 
-The illustrative manual budget is 30–60 minutes for planning, 60–240 for building and 30–60 for
-testing/fixing. The general-AI budget is 5–15, 10–30 and 15–45 minutes respectively. These are
-work-allocation estimates, not timings reported by the sources below. MuMake's 20-minute target
-ends at the first playable handoff; further refinement adds time and must be counted when
-comparing equivalent quality.
+Prompt: **“i want a 100 stage obby”**.
 
-Useful reference points:
+The [committed game](games/sunbeam-park-obby/README.md) and
+[demo reflection](docs/research/2026-10-25-mumake-reflection.md) show what the MuMake harness adds:
 
-- **Manual learning:** Roblox's [intro to coding and game design lesson](https://create.roblox.com/docs/education/lesson-plans/intro-to-game-and-coding)
-  allocates **120 minutes** to an introductory obby workshop, including instruction and independent
-  work. This is a learning example with a different scope, not a benchmark for an experienced developer.
-- **General MCP already plays games:** Roblox's [Studio MCP announcement](https://devforum.roblox.com/t/assistant-updates-studio-built-in-mcp-server-and-playtest-automation/4474643)
-  describes automated play sessions, keyboard/mouse input and character movement. MuMake's intended
-  advantage is the repeatable production and learning workflow, not exclusive access to playtesting.
-- **Measured local result:** the [2026-10-24 tycoon benchmark](evidence/bench/20261024T040253Z.md)
-  took **576 seconds, or 9.6 minutes**, including a real Studio playtest, one iteration and **8/8
-  executable checks passing**. It had no compile errors left, critic 7/10 and fun 6.2/10, but passed
-  only **5/9 readiness parts**. It supports a fast build-and-check cycle, not a fully finished game
-  or a measured result for every plugin interface.
-- **Measured pipeline improvement:** across two compile-only builds, elapsed time fell from
-  **2,243 to 1,142 seconds, about 2× faster**, after concurrency and related pipeline changes.
-  Both used Mubit. This is not a measurement of trained adapters versus a general MCP assistant.
-  See [benchmark methods and results](docs/BENCH.md).
+- **About six minutes to the playable build**, as reported in the demo reflection. It generated
+  100 stages across 10 zones, reusing the park, obby, cosmetics and music kits. The level data was
+  designed in parallel; the game-specific scripts added gifts and extras.
+- **Automatic installation into the existing Studio window**, followed by repeated playtest,
+  critic and fixer rounds. The Studio phase ran six QA bots in parallel and a scripted journey.
+- **Evidence beyond generated code:** the recorded Studio journey exercised a ride gate, the next
+  zone entrance and the stage-100 finish trigger. This does not establish a complete 100-stage
+  traversal by a player.
+- **A visible testing gap:** four rounds reported 0 game errors but stayed at 6/10. Acceptance
+  counters not exercised fell from nine to five, then stopped moving. Costume buying/equipping,
+  gift readiness/claiming and achievements remained unexercised by that run's playtests.
+- **An explicit handoff:** the demo was stopped during round five, and its “Ready for review”
+  dashboard status was set manually. That status is not evidence of autonomous completion.
 
-To replace the estimates with a fair comparison, run identical briefs through all three workflows,
-use the same acceptance checks and starting assets, record total time and human intervention,
-and repeat across games and skill levels. Count success only when the agreed gameplay works.
+The example demonstrates the integrated workflow and its remaining coverage gaps. It does not
+measure how long the same obby would take through plain MCP. Its Mubit integration records calls
+and corrections and carries lessons forward; the reflection does not show a game built using a
+Mubit-retrained adapter. The next runs need to prove the missing behaviour rather than just repeat
+changes until a score rises. The later shop-journey fix does not retroactively verify this snapshot.
+
+| After round 1 | After round 4 |
+|---|---|
+| ![Sunbeam Park Obby lobby after the first round](games/sunbeam-park-obby/screenshots/round-1.png) | ![Sunbeam Park Obby lobby after the fourth round](games/sunbeam-park-obby/screenshots/round-4.png) |
+
+For another timed example, the [tycoon benchmark](evidence/bench/20261024T040253Z.md) took
+**9.6 minutes**, including a real Studio playtest and **8/8 executable checks passing**, while
+passing only 5/9 readiness parts. [Benchmark methods and results](docs/BENCH.md) separate build
+speed, test coverage and readiness.
 
 ## Why Mubit is part of the loop
 
@@ -135,8 +141,8 @@ A recorded correction is not an instant model update. Training depends on accept
 workspace settings; a trained adapter needs evaluation and a verified serving path before claiming
 it improves the live workflow. See [Mubit's adapter guide](https://docs.mubit.ai/guides/first-adapter)
 and our [production guide](docs/GAME_PRODUCTION_GUIDE.md#12-model-learning-and-evaluation).
-The measured speed gains above come from pipeline improvements; an additional speed benefit from
-Mubit learning needs a controlled comparison.
+These build timings do not isolate a speed benefit from Mubit learning; that needs a controlled
+comparison.
 
 The host chat model is configured separately: installing an MCP plugin does not reroute the
 assistant's own inference. Use the Mubit-backed tools for game-production tasks; if the host's
