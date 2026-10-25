@@ -97,7 +97,7 @@ return Config.define({
 	-- Keys (Enum.KeyCode names)
 	KeyEnter = "F", -- seat prompts (Drive / Ride shotgun / Hop on)
 	KeyDoor = "E", -- door handle prompt
-	KeyExit = "F",
+	KeyExit = "Space", -- jump out (was F); there is no drift any more
 	KeySiren = "G",
 	KeyHorn = "H",
 	KeyCam = "V", -- chase <-> cab view

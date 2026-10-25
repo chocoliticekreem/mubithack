@@ -9,7 +9,7 @@
 --     roof, visors, pillars and your own body go see-through - shotgun passengers in first person get
 --     the same). FirstPersonController
 --     is paused and comes back on exit.
---   * Keys (VehicleConfig.Key*): WASD drive, SPACE handbrake/drift, F hop out, G siren, H horn, V camera,
+--   * Keys (VehicleConfig.Key*): WASD drive, SPACE hop out (no drift), G siren, H horn, V camera,
 --     R unflip/respawn. Passengers: F hops off. While seated, every ProximityPrompt is hidden and a hint
 --     bar shows the keys instead. Getting out is instant: you stand beside the truck on a free spot (Lib/Vehicle/TruckExit).
 --     A "RESPAWN TRUCK" button (and R) also shows on foot when your truck is flipped or far away.
@@ -585,19 +585,16 @@ local function enterDrive(truck: Model)
 		savedFov = cam.FieldOfView
 	end
 	local high = Enum.ContextActionPriority.High.Value
-	ContextActionService:BindActionAtPriority("TruckHandbrake", onAction, true, high, Enum.KeyCode.Space, Enum.KeyCode.ButtonA)
 	ContextActionService:BindActionAtPriority("TruckHorn", onAction, true, high, key("KeyHorn", Enum.KeyCode.H), Enum.KeyCode.ButtonY)
 	ContextActionService:BindActionAtPriority("TruckSiren", onAction, true, high, key("KeySiren", Enum.KeyCode.G), Enum.KeyCode.ButtonX)
-	ContextActionService:BindActionAtPriority("TruckExit", onAction, true, high, key("KeyExit", Enum.KeyCode.F), Enum.KeyCode.ButtonB)
+	ContextActionService:BindActionAtPriority("TruckExit", onAction, true, high, key("KeyExit", Enum.KeyCode.Space), Enum.KeyCode.ButtonA, Enum.KeyCode.ButtonB)
 	ContextActionService:BindActionAtPriority("TruckCam", onAction, false, high, key("KeyCam", Enum.KeyCode.V), Enum.KeyCode.ButtonR3)
-	ContextActionService:SetTitle("TruckHandbrake", "DRIFT")
 	ContextActionService:SetTitle("TruckHorn", "HONK")
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
 	-- touch: one cluster round the jump button (ClientLib/ThumbLayout) instead of Roblox's default
 	-- spots, which piled DRIFT / HONK / SIREN / OUT on top of each other on some phones
-	ThumbLayout.place("TruckHandbrake", "primary", onAction)
-	ThumbLayout.place("TruckExit", "above", onAction)
+	ThumbLayout.place("TruckExit", "primary", onAction) -- no drift: OUT is the big button
 	ThumbLayout.place("TruckHorn", "upleft", onAction)
 	ThumbLayout.place("TruckSiren", "left", onAction)
 	-- first-person players (zoomed all the way in) start in the cab view, everyone else in the chase cam
@@ -633,7 +630,7 @@ local function exitDrive()
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	end
 	UserInputService.MouseIconEnabled = true
-	for _, a in { "TruckHandbrake", "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
+	for _, a in { "TruckHorn", "TruckSiren", "TruckExit", "TruckCam" } do
 		ThumbLayout.forget(a)
 		ContextActionService:UnbindAction(a)
 	end
@@ -1009,11 +1006,12 @@ local function updateSeated()
 				onAction,
 				true,
 				Enum.ContextActionPriority.High.Value,
-				key("KeyExit", Enum.KeyCode.F),
+				key("KeyExit", Enum.KeyCode.Space),
+				Enum.KeyCode.ButtonA,
 				Enum.KeyCode.ButtonB
 			)
 			ContextActionService:SetTitle("TruckExit", "OFF")
-			ThumbLayout.place("TruckExit", "above", onAction)
+			ThumbLayout.place("TruckExit", "primary", onAction)
 		end
 	end
 	if truck ~= hintTruck then
@@ -1027,12 +1025,12 @@ local function updateSeated()
 		if isDriver then
 			-- touch: the buttons are the ContextAction titles bound above (OUT, SIREN, HONK, DRIFT)
 			hint.Text = InputHints.pick(
-				`{VehicleConfig.KeyExit}: exit   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   SPACE: drift   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
-				"Stick: drive + steer   ·   buttons: OUT  SIREN  HONK  DRIFT",
-				"B: exit   X: siren   Y: horn   A: drift   R3: camera"
+				`SPACE: hop out   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
+				"Stick: drive + steer   ·   buttons: OUT  SIREN  HONK",
+				"A: hop out   X: siren   Y: horn   R3: camera"
 			)
 		elseif truck then
-			hint.Text = InputHints.pick(`{VehicleConfig.KeyExit}: hop off`, "Tap OFF to hop off", "B: hop off")
+			hint.Text = InputHints.pick("SPACE: hop off", "Tap OFF to hop off", "A: hop off")
 		end
 	end
 end
