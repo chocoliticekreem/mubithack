@@ -83,4 +83,31 @@ return Config.define({
 	-- Store UI
 	StoreKey = Enum.KeyCode.B,
 	ThankYouSeconds = 4,
+
+	-- Pass offers (Services/OfferService decides, rules in Lib/Monetization/OfferRules; drawn by
+	-- ClientLib/OfferCard on the results screen and as a small lobby card after a level up).
+	-- Honest by design: real price on the BUY button, no timers, no "limited", no random rewards,
+	-- never for a pass you own / that isn't for sale, never on a rookie call. NEXT CALL stays primary.
+	Offers = {
+		ResultsEvery = 2, -- results offer on every Nth completed (non-rookie) call this session: 2nd, 4th, ...
+		MaxPerSession = 4, -- offers shown per session, all moments together
+		MinGapSeconds = 150, -- at least this long between two offers
+		MaxDeclines = 2, -- "No thanks" this many times to one pass = stop offering it this session
+		LobbyCardsPerSession = 1, -- the lobby level-up card
+		LobbyCardSeconds = 12, -- it hides itself after this
+		DecideDelay = 2.5, -- s after MissionEnded (XP / level / pass XP land just after the results go out)
+		ClickWindow = 600, -- s: a pass bought this soon after tapping its offer counts as an offer purchase
+		RescueHero = 2, -- rescued at least this many this call = the "HERO RESCUE!" reason
+		-- what the card says, by pass key then reason (OfferRules reasons: foam, level, rescue, passxp, default)
+		Headlines = {
+			UnlimitedFoam = { foam = "OUT OF FOAM?", default = "NEVER RUN DRY!" },
+			PremiumPass = { level = "LEVEL UP!", rescue = "HERO RESCUE!", passxp = "GO GOLD!", default = "GO GOLD!" },
+		},
+		Short = { -- one line under the pass name (what you actually get)
+			UnlimitedFoam = "Foam never runs out!",
+			PremiumPass = "Gold helmets + titles",
+		},
+		-- the owned-perks tag beside the helmet number over a player's head (everyone else sees it)
+		PerkTag = { Px = 26, Gap = 4 },
+	},
 })

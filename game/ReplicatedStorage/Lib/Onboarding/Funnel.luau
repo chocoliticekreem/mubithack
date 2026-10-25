@@ -53,6 +53,12 @@ Funnel.Events = table.freeze({
 	NotifyAccepted = "NotifyAccepted", -- value: 1; reserved: Roblox doesn't report the opt-in answer to the game
 	FavoritePrompted = "FavoritePrompted", -- value: 1; the favorite-the-game prompt opened
 	FavoriteAccepted = "FavoriteAccepted", -- value: 1; PromptSetFavoriteCompleted said Success
+	-- pass offers (Services/OfferService; CustomField01 = "<PassKey>_<moment>", moment results | lobby)
+	OfferShown = "OfferShown", -- value: 1; the client drew the offer card
+	OfferClicked = "OfferClicked", -- value: 1; BUY on the card (the Roblox purchase prompt opens)
+	OfferDeclined = "OfferDeclined", -- value: 1; "No thanks"
+	OfferPurchased = "OfferPurchased", -- value: R$ price; bought within Offers.ClickWindow of tapping BUY on its offer
+	PassPurchased = "PassPurchased", -- value: R$ price; every pass purchase (CustomField01 = "<PassKey>_offer" | "<PassKey>_store")
 })
 
 export type Track = { last: number }

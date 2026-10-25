@@ -24,7 +24,9 @@
 -- Fanfare: a pass bought, a :giftpass gift or a donation calls FanfareService:Celebrate (nil-guarded): the
 --   server-wide banner + confetti + gold glow + "what you got" card (FanfareController).
 -- Public API: :GiftPass(player, key, byUserId) / :RevokePass(player, key) -> (ok, message),
---   :ResetDonorBoard() -> (ok, message), :Owns(player, key) -> boolean
+--   :ResetDonorBoard() -> (ok, message), :Owns(player, key) -> boolean, :PromptPass(player, key) (OfferService)
+-- Perk tag: pass owners get round pass icons beside their helmet number (Lib/Monetization/PerkTag), on
+--   spawn and whenever Pass_<Key> changes.
 -- Writes: Player attrs Pass_<Key>, PassGifted_<Key>, RobuxDonated; Model "DonationBoard" in the Station location
 -- Consumes (nil-guarded): DataService (:WaitForProfile/:GetProfile/:Update/:Save/:IsPersistent,
 --   .ProfileLoaded), MapService (.LocationBuilt, :GetLocation)
@@ -53,6 +55,7 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local Lib = ServerScriptService:WaitForChild("Lib")
 local Rules = require(Lib:WaitForChild("Monetization"):WaitForChild("MonetizationRules") :: ModuleScript)
 local Schema = require(Lib:WaitForChild("Data"):WaitForChild("ProfileSchema") :: ModuleScript)
+local PerkTag = require(Lib:WaitForChild("Monetization"):WaitForChild("PerkTag") :: ModuleScript)
 
 local MonetizationService = {}
 MonetizationService.Priority = 60
@@ -116,6 +119,25 @@ local function topUpFoam(player: Player)
 	end
 end
 
+-- the owned-perks icons beside the helmet number (Lib/Monetization/PerkTag): everyone sees who owns what
+local function refreshPerkTag(player: Player)
+	local char = player.Character
+	if not char then
+		return
+	end
+	local list = {}
+	for _, def in Cfg.Passes do
+		if player:GetAttribute(Cfg.Attr.PassPrefix .. def.key) == true then
+			table.insert(list, { icon = def.icon or "?", color = def.color or Palette.UiWater })
+		end
+	end
+	local tag = Cfg.Offers and Cfg.Offers.PerkTag or {}
+	local ok, err = pcall(PerkTag.apply, char, player, list, tag.Px, tag.Gap)
+	if not ok then
+		warn(`[MonetizationService] PerkTag: {err}`)
+	end
+end
+
 local function applyAttrs(player: Player)
 	if not player.Parent then
 		return
@@ -142,6 +164,7 @@ local function applyAttrs(player: Player)
 			mirroredPremiumDebug[player] = nil
 		end
 	end
+	refreshPerkTag(player)
 end
 
 local function checkOwnership(player: Player)
@@ -651,6 +674,10 @@ local function onPlayerAdded(player: Player)
 			end
 		end
 	end)
+	player.CharacterAdded:Connect(function(char: Model)
+		char:WaitForChild("Head", 10)
+		refreshPerkTag(player)
+	end)
 	applyAttrs(player)
 	task.spawn(checkOwnership, player)
 end
@@ -758,6 +785,11 @@ end
 
 function MonetizationService:Owns(player: Player, key: string): boolean
 	return owns(player, key)
+end
+
+-- OfferService: the BUY on an offer card takes the store's exact path (validates, "already own", prompt).
+function MonetizationService:PromptPass(player: Player, key: string)
+	handleBuy(player, "pass", key)
 end
 
 -- Owner gift (AdminService :giftpass): saved in the profile, applied at once. An in-game entitlement only.
