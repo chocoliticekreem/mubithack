@@ -58,6 +58,6 @@ equal(prows[2].kind,"progress") equal(prows[2].text,"  42% Building zone 4") equ
 equal(prows[3].kind,"note")
 equal(A.rows({runs={{slug="f",events={},progress={pct=30,phase="failed"}}}})[2].status,"fail")
 equal(A.rows({runs={{slug="f",events={},progress={pct=30,stalled=true}}}})[2].status,"stopped")
-equal(A.rows({runs={}})[1].text,"no Forge runs yet")
+equal(A.rows({runs={}})[1].text,"no MuMake runs yet")
 equal(A.rows(nil)[1].kind,"note")
 print("ForgeBridge Runs panel: all checks passed")

@@ -489,7 +489,7 @@ local function buildUi()
 		local err = errorFor(path)
 		push({ type = "fix_request", script = path, class = sel.ClassName, place = placeName(),
 			error = err and clip(err.message, 1500) or "", trace = err and clip(err.trace, 1500) or "" })
-		note = "Sent " .. sel.Name .. " to Forge."
+		note = "Sent " .. sel.Name .. " to MuMake."
 		refresh()
 		return true
 	end

@@ -1577,7 +1577,7 @@ def rollback(settings: Settings, slug: str, version: str) -> dict:
     if not re.fullmatch(r"v\d+", version or ""):
         raise RollbackError(400, f"bad version {version!r}")
     if live_for(settings, slug, running(settings)):
-        raise RollbackError(409, "Forge is building this game right now; wait until the run finishes")
+        raise RollbackError(409, "MuMake is building this game right now; wait until the run finishes")
     try:
         tag = GameVersions(RunStore(settings, slug).game_dir).restore(version, "from the dashboard")
     except VersionError as e:
