@@ -29,14 +29,18 @@ TICK_S = 1.0
 
 
 class Progress:
-    def __init__(self, path: Path, slug: str, command: str = "new", *, clock: Callable[[], float] = time.time):
+    def __init__(self, path: Path, slug: str, command: str = "new", *, clock: Callable[[], float] = time.time,
+                 top: int = 100, start_pct: int = 0):
+        """top < 100: this build is the first part of a longer job (MuMake: install and improvement rounds follow),
+        so its 0-100 is written as 0-top and its done() leaves the file running for the next part."""
         self.path = Path(path)
+        self.top = max(1, min(100, int(top)))
         self.clock = clock
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         now = clock()
-        self.state = {"slug": slug, "command": command, "running": True, "pct": 0, "phase": "design",
+        self.state = {"slug": slug, "command": command, "running": True, "pct": int(start_pct), "phase": "design",
                       "step": "Starting", "items": None, "started": now, "updated": now, "eta_s": None,
                       "events": []}
         self.bands = dict(BANDS)
@@ -103,7 +107,10 @@ class Progress:
 
     def done(self, text: str, ok: bool = True) -> None:
         with self._lock:
-            self.state.update(running=False, pct=100, phase="done", step=text, eta_s=0)
+            if self.top < 100:  # not the end of the job: the next part takes over this file from here
+                self.state.update(pct=self.top, step=text, eta_s=None)
+            else:
+                self.state.update(running=False, pct=100, phase="done", step=text, eta_s=0)
             self.state["events"].append({"t": self.clock(), "text": text, "ok": ok})
             del self.state["events"][:-MAX_EVENTS]
             self._refresh(self.clock(), keep_pct=True)
@@ -166,7 +173,7 @@ class Progress:
     def _refresh(self, now: float, keep_pct: bool = False) -> None:
         s = self.state
         if not keep_pct:
-            s["pct"] = max(int(s["pct"]), min(99, int(self._pct(now))))
+            s["pct"] = max(int(s["pct"]), min(99 if self.top >= 100 else self.top, int(self._pct(now) * self.top / 100)))
             elapsed = now - s["started"]
             s["eta_s"] = int(elapsed * (100 - s["pct"]) / s["pct"]) if s["pct"] >= 5 else None
         s["updated"] = now

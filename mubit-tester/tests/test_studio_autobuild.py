@@ -115,14 +115,14 @@ def iteration(**over):
 
 @pytest.mark.parametrize('it,reason', [
     (iteration(), None),
-    (iteration(score=5.5), 'score 5.5/10, needs 6'),
+    (iteration(score=6.5), 'score 6.5/10, needs 7'),
     (iteration(score=9, errors=['Stage 3: attempt to index nil']), '1 error in the last playtest'),
     (iteration(engine='none'), 'could not playtest'),
     (iteration(failed_steps=['playtest']), 'could not playtest'),
     (iteration(score=None), 'did not score'),
     (iteration(errors=['ServerScriptService/ForgeTest.server.luau:2151: attempt to perform arithmetic']), None),
 ])
-def test_standard_needs_score_6_no_errors_and_a_real_playtest(settings, it, reason):
+def test_standard_needs_score_7_no_errors_and_a_real_playtest(settings, it, reason):
     store = big_draft(settings, files=1, size=10)
     state = store.load_state()
     state['iterations'] = [it]
@@ -209,7 +209,8 @@ async def test_a_failing_round_ends_the_rounds_with_its_reason(settings, monkeyp
     draft = await studio_builder.describe_draft(settings, store.slug)
     result = await finish_draft(settings, draft, lambda *a: None, install=install)
     assert len(calls) == 1
-    assert result['standard'] == {'ready': False, 'reason': 'Round 1 could not finish: RuntimeError: Mubit is down',
+    assert result['standard'] == {'ready': False, 'review': False,
+                                  'reason': 'Round 1 could not finish: RuntimeError: Mubit is down',
                                   'score': 4, 'errors': 0, 'rounds': 0}
 
 

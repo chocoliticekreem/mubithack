@@ -266,7 +266,7 @@ def fake_build(monkeypatch, first_score=5):
 async def test_make_game_builds_installs_improves_and_says_ready(service, monkeypatch):
     service.settings = replace(service.settings, mubit_api_key='test-only')
     fake_build(monkeypatch)
-    rounds = fake_rounds(monkeypatch, [5, 6, 9])
+    rounds = fake_rounds(monkeypatch, [5, 7, 9])
     seen = []
     set_progress = service.set_progress
     monkeypatch.setattr(service, 'set_progress', lambda job, p: (seen.append(p.get('pct')), set_progress(job, p)))
@@ -277,15 +277,15 @@ async def test_make_game_builds_installs_improves_and_says_ready(service, monkey
     flow = [m for m in messages if m.startswith(('Writing', 'Installed', 'Round', 'Ready', 'Not '))]
     assert flow == ['Writing your game code…', 'Installed in Studio: 1 script',
                     'Round 1: score 5/10, 0 errors, fixed 2 problems', 'Round 1 in Studio: 1 script changed',
-                    'Round 2: score 6/10, 0 errors, fixed 2 problems', 'Round 2 in Studio: 1 script changed',
-                    'Ready: score 6/10 after 2 rounds']
+                    'Round 2: score 7/10, 0 errors, fixed 2 problems', 'Round 2 in Studio: 1 script changed',
+                    'Ready: score 7/10 after 2 rounds']
     assert len(rounds) == 2
     assert len(FakeStudio.synced) == 3 and all(p.name == 'game' for p in FakeStudio.synced)
     assert all(len(code) < 200_000 for code in FakeStudio.codes)
     assert not FakeStudio.playing and FakeStudio.stopped == 0
     result = job['result']
     assert result['in_studio'] and result['studio_current'] and result['ready']
-    assert result['standard'] == {'ready': True, 'reason': 'score 6/10 with 0 errors', 'score': 6, 'errors': 0,
+    assert result['standard'] == {'ready': True, 'review': False, 'reason': 'score 7/10 with 0 errors', 'score': 7, 'errors': 0,
                                   'rounds': 2}
     assert job['progress']['pct'] == 100
     assert seen[0] == 70 and seen == sorted(seen) and any(70 <= p <= 75 for p in seen[1:3])
@@ -304,7 +304,7 @@ async def test_make_game_not_up_to_standard_still_finishes_in_studio(service, mo
     assert job['state'] == 'passed'
     assert len(rounds) == 12  # the safety cap: the 9 a 13th round would score never happens
     assert job['result']['standard']['ready'] is False and job['result']['standard']['rounds'] == 12
-    assert job['events'][-1]['message'] == 'Not ready after 12 rounds: score 5/10, needs 6'
+    assert job['events'][-1]['message'] == 'Not ready after 12 rounds: score 5/10, needs 7'
     assert job['events'][-1]['ok'] is False
     view = service.snapshot('test-marker')['history'][0]['presentation']
     assert view['status'] == 'In Studio, not up to standard yet'
@@ -427,7 +427,7 @@ async def test_make_game_progress_reaches_the_plugin_state(service, monkeypatch)
         on_progress({'pct': 60, 'phase': 'levels', 'step': 'Designing zones 3, 4, 5 of 10',
                      'items': {'label': 'zones', 'done': 2, 'total': 10}, 'eta_s': 180})
         state = service.snapshot('test-marker')
-        assert state['active']['progress']['pct'] == 42  # the build is the first 70% of the job
+        assert state['active']['progress']['pct'] == 60  # progress.json already holds the job's % (one number everywhere)
         assert state['active']['progress']['eta_s'] is None
         assert state['active']['progress']['items'] == {'label': 'zones', 'done': 2, 'total': 10}
         assert [e.get('ok') for e in state['active']['events'][-2:]] == [None, False]
@@ -443,6 +443,6 @@ async def test_make_game_progress_reaches_the_plugin_state(service, monkeypatch)
     saved = json.loads((service.store / f"job-{job['id']}.json").read_text())
     assert saved['progress']['step'] == 'Designing zones 3, 4, 5 of 10'
     view = service.snapshot('test-marker')['history'][0]
-    assert view['progress']['pct'] == 42 and view['presentation']['status'] == 'Your first draft is ready'
+    assert view['progress']['pct'] == 60 and view['presentation']['status'] == 'Your first draft is ready'
     service.set_progress(job, {'pct': 99})
-    assert job['progress']['pct'] == 42
+    assert job['progress']['pct'] == 60

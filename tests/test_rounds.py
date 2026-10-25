@@ -244,3 +244,12 @@ def test_an_obby_fixes_required_gameplay_before_polish():
     ordered = sorted(issues, key=lambda t: not rounds.required_first(obby, t))
     assert ordered[:2] == [issues[1], issues[3]]
     assert not rounds.required_first({"genre": "tycoon"}, issues[1])
+
+
+def test_counters_the_headless_player_never_triggers_are_unknown_not_broken():
+    acc = {"met": ["coin_collected"], "missing": ["costume_buy", "park_finished", "ghost_counter"],
+           "unemitted": ["ghost_counter"]}
+    block = rounds.unexercised_block(acc)
+    assert "A script bumps costume_buy, park_finished, but the scripted headless player never did" in block
+    assert "ghost_counter" not in block  # nothing bumps it: that one really is missing
+    assert rounds.unexercised_block({"met": ["a_b"], "missing": []}) == ""

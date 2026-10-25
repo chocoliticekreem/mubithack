@@ -291,6 +291,20 @@ def required_first(spec: dict, text: str) -> bool:
     return is_obby(spec) and bool(REQUIRED_RX.search(text))
 
 
+def unexercised_block(acc: dict) -> str:
+    """Counters a script does bump but that read 0: the headless player never did those actions (buy, finish all
+    stages, take a ride gate). Production guide 9.3: an unexercised case is unknown, not a failed one. A real run
+    sat at 5/10 for rounds while the fixer rewrote working code for exactly these."""
+    gone = set(acc.get("unemitted") or [])
+    idle = [c for c in acc.get("missing") or [] if c not in gone]
+    if not idle:
+        return ""
+    return ("## Not exercised by this playtest (unknown, not broken)\n"
+            f"A script bumps {', '.join(idle[:8])}, but the scripted headless player never did those actions, so they "
+            "read 0. Judge those features from the code that bumps them and from the Studio QA bots. Do not lower the "
+            "score or ask for a rewrite only because they read 0; raise an issue only if the code path is wrong.")
+
+
 # ---------------------------------------------------------------- dead ends, carried from build to build
 # The reflector rewrites runs/lessons.md each round, so what one build could never fix lives in its own file:
 # runs/dead_ends.json, one entry per game (its latest rounds). The next build's director and designer read it,

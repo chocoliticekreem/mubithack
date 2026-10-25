@@ -27,8 +27,9 @@ PROGRESS_KEYS = ('pct', 'phase', 'step', 'items', 'eta_s')
 POLL_S = 1.0
 # a make_game job's % : build 0-70, install 70-75, improvement rounds 75-99, ready 100
 BUILD_PCT, INSTALL_PCT, ROUNDS_PCT = 70, 75, 99
-STANDARD_SCORE = 6
+STANDARD_SCORE = 7
 MAX_ROUNDS = 12  # safety cap only: rounds run until the game is up to standard
+REVIEW_AFTER_S = 20 * 60  # from the start of the build: stop and hand the game over for review
 HARNESS = re.compile(r'Forge(Test|Probe|TestAgent|Telemetry)\b')
 ROUND_EXPECTED_S = 240.0
 
@@ -184,7 +185,8 @@ async def build_draft(settings, idea, emit, *, llm=None, on_progress=None):
     feed = ProgressFeed(settings, ui, idea, emit, on_progress)
     watch = asyncio.create_task(feed.run())
     try:
-        slug = await new_game(idea, iterations=1, use_studio=False, settings=settings, llm=llm, ui=ui)
+        slug = await new_game(idea, iterations=1, use_studio=False, settings=settings, llm=llm, ui=ui,
+                              progress_top=BUILD_PCT)  # progress.json shows the whole job's %, like MuMake
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -330,15 +332,14 @@ async def install_draft(studio, settings, slug, *, place_id=0):
 
 
 def build_share(on_progress):
-    """The build's own 0-100 progress as the first BUILD_PCT of a make_game job."""
+    """The build's progress, already written as the first BUILD_PCT of a make_game job (new_game progress_top)."""
     if on_progress is None:
         return None
 
     def relay(summary):
         pct = summary.get('pct')
         # the build's ETA ends at the build, not at ready
-        on_progress({**summary, 'eta_s': None,
-                     'pct': int(pct * BUILD_PCT / 100) if isinstance(pct, (int, float)) else pct})
+        on_progress({**summary, 'eta_s': None, 'pct': min(int(pct), BUILD_PCT) if isinstance(pct, (int, float)) else pct})
     return relay
 
 
@@ -402,7 +403,7 @@ async def finish_draft(settings, draft, emit, *, install, on_progress=None, llm=
         started = json.loads((store.dir / 'progress.json').read_text()).get('started')
     except (OSError, ValueError, AttributeError):
         started = None
-    with Progress(store.dir / 'progress.json', slug, 'improve') as prog:
+    with Progress(store.dir / 'progress.json', slug, 'improve', start_pct=BUILD_PCT) as prog:
         prog.bands.update(install=(BUILD_PCT, INSTALL_PCT), improve=(INSTALL_PCT, ROUNDS_PCT))
         if isinstance(started, (int, float)):
             prog.state['started'] = started  # the ETA counts from the start of the build
@@ -459,7 +460,12 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=
                expected_s=ROUND_EXPECTED_S * 3)  # unknown number of rounds: creep, never a fixed count
     feed.poll()
     done, failure = 0, None
-    while not status['ready'] and done < rounds:
+    begun = prog.state['started']
+
+    def out_of_time():  # a round takes a few minutes: none starts that would end well past the review time
+        return time.time() - begun + ROUND_EXPECTED_S / 2 > REVIEW_AFTER_S
+
+    while not status['ready'] and done < rounds and not out_of_time():
         prefix = f'Round {done + 1}'
         prog.step(f'{prefix}: playtesting, reviewing and fixing')
         feed.poll()
@@ -491,16 +497,20 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=
     ready = status['ready'] and studio['current']
     if status['ready'] and not studio['current']:
         reason = f"up to standard, but Studio does not have this version: {studio['problem']}"
+    review = not ready and not failure and studio['current'] and out_of_time()
     if ready:
         final = f"Ready: score {status['score']:g}/10 {after}"
+    elif review:  # 20 minutes in: hand over what the rounds reached, for a human to play and judge
+        score = f"{status['score']:g}/10" if status['score'] is not None else "not scored"
+        final = f"Ready for review: score {score} {after} (the 20-minute mark)"
     else:
         final = f"Not ready {after}: {reason}"
     if studio['current']:
         await launch(True)
-    prog.done(final[:300], ready)
+    prog.done(final[:300], ready or review)
     feed.poll()
     result = dict(draft)
     result.update(in_studio=studio['in'], studio_current=studio['current'],
-                  standard={'ready': ready, 'reason': reason, 'score': status['score'],
+                  standard={'ready': ready, 'review': review, 'reason': reason, 'score': status['score'],
                             'errors': status['errors'], 'rounds': done})
     return result
