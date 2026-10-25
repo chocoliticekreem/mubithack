@@ -82,6 +82,36 @@ the winners. Each was checked at 400 px wide. Sources: `src/Ads2.tsx` and `src/T
 New in-game crops in `public/shots/`: `map-winter/fog/dusk/night.jpg` (the same street under different
 map variants) and `school-class*.jpg` (the furnished classroom), cut from Studio captures with the HUD removed.
 
+## Wave 3: icon A/B set and new angles (`out/`)
+Our goal is to move a 1% CTR to 3–5%. Each creative has one bold subject and a sticker rim (a thick white outline
+plus an ink outline), with bright fire against blue or night. Text is 1–4 words, or none.
+`TESTING.md` ranks all 29 creatives and explains how to rotate and cut them.
+`COPY.md` has the text for the Roblox fields. Sources: `src/Icons3.tsx`, `src/Ads3.tsx`, `src/kit3.tsx`
+(head-on truck, puppy, stopwatch, moon and stars).
+
+| File | Hook | Look |
+|---|---|---|
+| `icon-v3-face.png` | (none) | Giant brave penguin face in the red 67 helmet, on blue, fire below |
+| `icon-v3-spray.png` | (none) | Penguin blasting a wall of fire, on deep blue |
+| `icon-v3-truck.png` | (none) | Head-on fire truck, penguin driver, sirens on a yellow burst |
+| `icon-v3-word.png` | BE A FIRE FIGHTER! | Three huge words over flames |
+| `icon-v3-rescue.png` | (none) | Penguin carrying a happy kid chick out of the fire |
+| `icon-v3-night.png` | (none) | Night sky, moon, burning house, a glowing cyan hose jet |
+| `ad-24-play-with-friends.jpg` | PLAY WITH FRIENDS! | Two penguins, two jets, one fire |
+| `ad-25-oops-wrong-house.jpg` | OOPS! WRONG HOUSE! | A proud penguin soaking the calm blue house while the one next door burns |
+| `ad-26-whos-inside.jpg` | WHO'S INSIDE? | Glowing eyes in a dark burning window |
+| `ad-27-new-dispatch-radio.jpg` | NEW! DISPATCH RADIO! | A giant buzzing radio on pink |
+| `ad-28-beat-the-clock.jpg` | BEAT THE CLOCK! | A stopwatch on fire, a panicking penguin |
+| `ad-29-save-the-puppy.jpg` | SAVE THE PUPPY! | A giant scared puppy between two fires, on blue |
+| `ad-30-your-own-fire-truck.jpg` | YOUR OWN FIRE TRUCK! | A head-on truck with a penguin driver |
+| `ad-31-night-fire.jpg` | NIGHT FIRE! | Navy sky, moon, a glowing jet into a house fire |
+| `ad-32-aaah-fire.jpg` | AAAH! FIRE! | Bold variant: a giant screaming penguin face |
+| `ad-33-help.jpg` | HELP! | Bold variant: a kid chick in a burning window, with a speech bubble |
+
+Some brief lines changed because the game can't back them up:
+- "60 SECONDS TO SAVE THEM" became **BEAT THE CLOCK!**, because on-scene timers run for minutes.
+- "ONLY 1% SAVE EVERYONE" became **WHO'S INSIDE?**, because we have no such stat.
+
 ## Re-render
 ```bash
 cd marketing/ads

@@ -2,9 +2,11 @@ import React from "react";
 import { Composition, Still } from "remotion";
 import { AdBackdraft, AdBoom, AdChief, AdCloseup, AdRooftop, AdSaveCat, AdSaveThem, AdSquad, AdWhoStarted } from "./Ads";
 import { Ad10, Ad11, Ad12, Ad13, Ad14, Ad15, Ad16, Ad17, Ad18, Ad19, Ad20, Ad21, Ad22, Ad23 } from "./Ads2";
+import { Ad24, Ad25, Ad26, Ad27, Ad28, Ad29, Ad30, Ad31, Ad32, Ad33 } from "./Ads3";
 import { Thumb01, Thumb02, Thumb03, Thumb04, Thumb05 } from "./Thumbs";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
 import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
+import { IconFace, IconNight, IconRescue, IconSpray, IconTruck, IconWord } from "./Icons3";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
 
 const I = { width: 512, height: 512 };
@@ -25,6 +27,12 @@ export const Root: React.FC = () => (
     <Still id="icon-v2-e" component={IconE} {...I} />
     <Still id="icon-final" component={IconFinal} {...I} />
     <Still id="icon-final-oneline" component={IconFinalLine} {...I} />
+    <Still id="icon-v3-face" component={IconFace} {...I} />
+    <Still id="icon-v3-spray" component={IconSpray} {...I} />
+    <Still id="icon-v3-truck" component={IconTruck} {...I} />
+    <Still id="icon-v3-word" component={IconWord} {...I} />
+    <Still id="icon-v3-rescue" component={IconRescue} {...I} />
+    <Still id="icon-v3-night" component={IconNight} {...I} />
     <Still id="ad-01-save-them-all" component={AdSaveThem} {...A} />
     <Still id="ad-02-who-started-the-fire" component={AdWhoStarted} {...A} />
     <Still id="ad-03-save-the-cat" component={AdSaveCat} {...A} />
@@ -48,6 +56,16 @@ export const Root: React.FC = () => (
     <Still id="ad-21-can-you-save-them" component={Ad21} {...A} />
     <Still id="ad-22-giant-fire" component={Ad22} {...A} />
     <Still id="ad-23-fire-squad" component={Ad23} {...A} />
+    <Still id="ad-24-play-with-friends" component={Ad24} {...A} />
+    <Still id="ad-25-oops-wrong-house" component={Ad25} {...A} />
+    <Still id="ad-26-whos-inside" component={Ad26} {...A} />
+    <Still id="ad-27-new-dispatch-radio" component={Ad27} {...A} />
+    <Still id="ad-28-beat-the-clock" component={Ad28} {...A} />
+    <Still id="ad-29-save-the-puppy" component={Ad29} {...A} />
+    <Still id="ad-30-your-own-fire-truck" component={Ad30} {...A} />
+    <Still id="ad-31-night-fire" component={Ad31} {...A} />
+    <Still id="ad-32-aaah-fire" component={Ad32} {...A} />
+    <Still id="ad-33-help" component={Ad33} {...A} />
     <Still id="thumb-01-be-a-firefighter" component={Thumb01} {...A} />
     <Still id="thumb-02-trucks-and-dispatch" component={Thumb02} {...A} />
     <Still id="thumb-03-school-rescue" component={Thumb03} {...A} />
