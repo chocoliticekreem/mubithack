@@ -94,6 +94,13 @@ return Config.define({
 	MaxStepDt = 1 / 30, -- kicks/accelerations never use a longer frame than this
 	MaxTiltPerFrame = 0.12, -- radians of pitch/roll the body may turn in one frame (7 rad/s at 60 fps)
 
+	-- Wheels (visual only, each client animates the "WheelMotor"s of trucks near its camera; the
+	-- suspension rays still carry the truck): the front pair steer with DriveSeat.SteerFloat, and all
+	-- of them roll with the chassis' forward speed (backwards in reverse; radius = the Wheel_ part's).
+	WheelSteerAngle = 30, -- degrees at full lock
+	WheelSteerRate = 10, -- 1/s: how fast the front wheels follow the stick
+	WheelAnimRange = 250, -- studs from the camera; farther trucks' wheels stay put
+
 	-- Doors (physical, HingeConstraint "DoorHinge"; positive angle = open when DoorDir = 1)
 	DoorDir = 1, -- flip to -1 if a live test shows the doors swinging INTO the cab
 	DoorOpenAngle = 95, -- degrees; also the hinge limit, so an opening door slams into it and wobbles
