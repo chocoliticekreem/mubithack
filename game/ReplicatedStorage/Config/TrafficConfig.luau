@@ -8,13 +8,13 @@ return Config.define({
 	Enabled = true, -- false = no traffic at all
 
 	-- Population (spawn and despawn near players only)
-	MaxCars = 44, -- hard cap on live cars (30-60 is the budget)
-	CarsPerPlayer = 20, -- target cars per player, capped by MaxCars
+	MaxCars = 14, -- hard cap on live cars (was 44: too many, they bunched up and jammed)
+	CarsPerPlayer = 5, -- target cars per player, capped by MaxCars
 	SpawnMin = 110, -- never spawn closer than this to any player (no pop-in in your face)
 	SpawnMax = 360, -- spawn within this of some player
 	DespawnRadius = 460, -- cars farther than this from every player vanish
-	SpawnClear = 22, -- no other car within this of a spawn point
-	SpawnPerSecond = 4, -- max new cars per second
+	SpawnClear = 70, -- no other car within this of a spawn point (spread out, no bunches)
+	SpawnPerSecond = 1, -- max new cars per second
 	-- weights per kind (Lib/Traffic/CarBuilder kinds)
 	KindWeights = { sedan = 40, taxi = 18, van = 20, bus = 7, icecream = 5 } :: { [string]: number },
 
@@ -51,7 +51,7 @@ return Config.define({
 	MajorHeadStart = 2.5, -- through-road cars count as having arrived this much earlier (unsignalled)
 	RerouteAfter = 4, -- waited this long at a free line: pick another exit
 	ForceAfter = 9, -- waited this long: go anyway (deadlock breaker)
-	GhostAfter = 11, -- stopped without excuse this long: drive through other cars for GhostSeconds
+	GhostAfter = 5, -- stopped without excuse this long: drive through other cars for GhostSeconds
 	GhostSeconds = 3,
 	PassAfter = 1.5, -- blocked by a parked truck / person this long: drive round it
 	PassStalledAfter = 3.5, -- blocked by a stalled car (not queueing) this long: drive round it
@@ -70,7 +70,7 @@ return Config.define({
 
 	-- Emergency yield (fire truck with SirenOn, and moving)
 	YieldMinSpeed = 6, -- a parked siren truck is an obstacle to drive round, not a reason to pull over
-	YieldMax = 12, -- never sit pulled over longer than this
+	YieldMax = 6, -- never sit pulled over longer than this
 	YieldImmune = 8, -- after giving up, ignore sirens this long
 	YieldRadius = 120, -- a siren truck within this, coming from behind -> pull over
 	OncomingRadius = 55, -- a siren truck ahead coming at us this close -> pull over too
