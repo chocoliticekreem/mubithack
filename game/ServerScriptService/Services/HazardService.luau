@@ -66,6 +66,7 @@ HazardService.Priority = 70
 HazardService.Triggered = Signal.new() :: Signal.Signal<string, string>
 HazardService.Zapped = Signal.new() :: Signal.Signal<Player, Player?>
 HazardService.Flung = Signal.new() :: Signal.Signal<Player, string>
+HazardService.Caused = Signal.new() :: Signal.Signal<Player?, string> -- (culprit, "backdraft"): BlameService
 
 type Handle = { stop: () -> () }
 type Armed = { conns: { RBXScriptConnection }, threads: { thread }, prompts: { Instance }, collapsed: { [string]: boolean } }
@@ -1064,6 +1065,7 @@ local function backdraft(instanceId: string, root: Instance, params: { [string]:
 		end
 	end
 	Popup.show(d, `BACKDRAFT! {displayName(culprit)} opened the wrong door`, "blame", culprit)
+	HazardService.Caused:Fire(culprit, "backdraft")
 	return true
 end
 
