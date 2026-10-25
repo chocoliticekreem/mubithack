@@ -871,11 +871,16 @@ class Run:
         prior = self.store.load_state().get("iterations") or []
         history = rounds.past_rounds([it for it in prior if it.get("n") != n], self.spec,
                                      self.store.load_iteration_json)
+        qa = rounds.read_qa(self.store.dir)
+        merged, from_studio = rounds.studio_counters(report.get("counters") or {}, qa)
+        if from_studio:  # evidence from the Studio QA play of this version, named as such in the report
+            report["counters"] = merged
+            report["counters_from_studio_qa"] = from_studio
         rec["acceptance"] = rounds.acceptance(self.spec, report.get("counters") or {}, self.all_sources())
         blocked_before = (max(prior, key=lambda it: it.get("n", 0)).get("blocked_issues") or []) if prior else []
         history_text = rounds.critic_block(history, rec["acceptance"],
                                            rounds.read_only_list(self.base_files, RUNTIME_FILES), blocked_before)
-        if guide := rounds.guide_block(self.spec, rounds.read_qa(self.store.dir)):
+        if guide := rounds.guide_block(self.spec, qa):
             history_text = (history_text + "\n\n" + guide).strip()
         if idle := rounds.unexercised_block(rec["acceptance"]):
             history_text = (history_text + "\n\n" + idle).strip()
