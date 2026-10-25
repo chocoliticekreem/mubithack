@@ -124,7 +124,7 @@ function MapKit.window(parent: Instance, name: string, cf: CFrame): Part
 	})
 end
 
--- Red fire hydrant with a refill prompt (tagged Hydrant). cf = base on the ground.
+-- Red fire hydrant (tagged Hydrant; decoration: no prompt, trucks have endless water). cf = base on the ground.
 function MapKit.hydrant(parent: Instance, cf: CFrame): Model
 	local m = Instance.new("Model")
 	m.Name = "Hydrant"
@@ -137,13 +137,6 @@ function MapKit.hydrant(parent: Instance, cf: CFrame): Model
 	MapKit.part(m, "Cap", cf * CFrame.new(0, 3.2, 0), Vector3.new(1.6, 0.6, 1.6), { color = MapKit.Red })
 	MapKit.part(m, "NozzleL", cf * CFrame.new(-0.9, 2, 0), Vector3.new(0.6, 0.6, 0.6), { color = Color3.fromRGB(230, 200, 60) })
 	MapKit.part(m, "NozzleR", cf * CFrame.new(0.9, 2, 0), Vector3.new(0.6, 0.6, 0.6), { color = Color3.fromRGB(230, 200, 60) })
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Hydrant"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 8
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = body
 	m.PrimaryPart = body
 	m.Parent = parent
 	return m

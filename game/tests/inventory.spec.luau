@@ -1,6 +1,6 @@
 --!strict
 -- Inventory slot/state rules (ReplicatedStorage/Lib/Items/ItemDefs): grab, drop, throw, swap, fumble,
--- shared reels (2 nozzles a truck), thrown-axe spin, throw charge, truck water, supply lines, bonks.
+-- shared reels (2 nozzles a truck), thrown-axe spin, throw charge, no supply line, bonks.
 local Spec = require("./Spec")
 local D = require("../ReplicatedStorage/Lib/Items/ItemDefs") :: any
 
@@ -153,7 +153,7 @@ Spec.test("reels are anyone's: two nozzles per truck, a lying one gets reeled ba
 	Spec.eq(D.reelSlot(2, 0, 2), "full")
 	Spec.eq(D.reelSlot(1, 1, 2), "reclaim") -- the dropped one comes back on the reel for you
 	Spec.eq(D.reelSlot(0, 2, 2), "reclaim")
-	Spec.eq(D.reelSlot(0, 0, 1), "new") -- a hydrant: one line
+	Spec.eq(D.reelSlot(0, 0, 1), "new") -- a one-nozzle reel
 	Spec.eq(D.reelSlot(1, 0, 1), "full")
 end)
 
@@ -182,66 +182,10 @@ Spec.test("throw speed scales with charge, clamped", function()
 	Spec.near(D.throwSpeed(0 / 0, 30, 90), 30)
 end)
 
-Spec.test("truck water: draws what is there, never below zero", function()
-	local w, d = D.drawWater(10, 4)
-	Spec.near(w, 6)
-	Spec.near(d, 4)
-	local w2, d2 = D.drawWater(3, 4)
-	Spec.near(w2, 0)
-	Spec.near(d2, 3)
-	local w3, d3 = D.drawWater(5, -2)
-	Spec.near(w3, 5)
-	Spec.near(d3, 0)
-end)
-
-Spec.test("supply line tops the tank up to its size", function()
-	Spec.near(D.supplyStep(100, 600, 50, 2), 200)
-	Spec.near(D.supplyStep(590, 600, 50, 1), 600)
-	Spec.near(D.supplyStep(100, 600, 50, -1), 100)
-end)
-
-Spec.test("supply line stretch states", function()
-	Spec.eq(D.supplyState(30, 45, 1.4), "ok")
-	Spec.eq(D.supplyState(50, 45, 1.4), "taut")
-	Spec.eq(D.supplyState(70, 45, 1.4), "snap")
-end)
-
-Spec.test("supply line drive-off strain builds while pulling and bleeds off", function()
-	Spec.near(D.supplyStrain(0, true, 0.5, 1), 0.5)
-	Spec.near(D.supplyStrain(1, true, 0.5, 1), 1.5)
-	Spec.near(D.supplyStrain(1, false, 0.5, 1), 0.5)
-	Spec.near(D.supplyStrain(0.2, false, 1, 1), 0)
-	Spec.near(D.supplyStrain(1, true, -1, 1), 1)
-end)
-
-Spec.test("hydrant [R]: grab, stow, reel in, unhook, busy", function()
-	Spec.eq(D.hydrantAction("home", false), "grab")
-	Spec.eq(D.hydrantAction("held", true), "stow")
-	Spec.eq(D.hydrantAction("held", false), "busy")
-	Spec.eq(D.hydrantAction("loose", false), "reel")
-	Spec.eq(D.hydrantAction("hooked", false), "unhook")
-end)
-
-Spec.test("truck intake [R]: hook, unhook, one line per truck, reach", function()
-	Spec.eq(D.intakeAction(true, false, 30, 60), "hook")
-	Spec.eq(D.intakeAction(true, false, 70, 60), "far")
-	Spec.eq(D.intakeAction(false, true, 30, 60), "unhook")
-	Spec.eq(D.intakeAction(true, true, 30, 60), "busy")
-	Spec.eq(D.intakeAction(false, false, 30, 60), "none")
-end)
-
-Spec.test("the supply coupling is a hand-only, tethered world fixture", function()
-	local def = D.get("SupplyHose")
-	Spec.truthy(def)
-	Spec.eq(def.tethered, true)
-	Spec.eq(def.fixture, true)
-	Spec.eq(def.backable, false)
-	local ok, s, plan = D.grab({}, "SupplyHose")
-	Spec.eq(ok, true)
-	Spec.eq(s.hand, "SupplyHose")
-	Spec.eq(plan.slot, "hand")
-	Spec.eq((D.grab({ hand = "SupplyHose" }, "SupplyHose")), false)
-	Spec.eq((D.swap({ hand = "SupplyHose" })), false)
+Spec.test("no supply line: the coupling item is gone (trucks have endless water)", function()
+	Spec.eq(D.get("SupplyHose"), nil)
+	Spec.eq((D :: any).drawWater, nil)
+	Spec.eq((D :: any).hydrantAction, nil)
 end)
 
 Spec.test("bonks only at speed", function()

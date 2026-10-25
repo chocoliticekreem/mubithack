@@ -301,10 +301,10 @@ local function onSpray(player: Player, aimArg: any)
 	if not (char and head) then
 		return
 	end
-	-- the same rule as ToolService.equipped: whichever Tool is in the hand, and it must have something left
+	-- the same rule as ToolService.equipped: whichever Tool is in the hand (the extinguisher needs foam left)
 	local kind: string? = nil
 	if char:FindFirstChild("Hose") then
-		kind = if ((player:GetAttribute(Names.Attr.Water) :: number?) or 0) > 0 then "hose" else nil
+		kind = "hose" -- trucks have endless water: the hose never runs dry
 	elseif char:FindFirstChild("Extinguisher") then
 		kind = if ((player:GetAttribute("Foam") :: number?) or 0) > 0 then "foam" else nil
 	end

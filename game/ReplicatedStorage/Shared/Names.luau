@@ -8,8 +8,8 @@ Names.Tag = table.freeze({
 	Flammable = "Flammable", -- BasePart <= 8 studs; MapService builders -> FireService
 	Burning = "Burning", -- Flammable part on fire; FireService -> FireFx, Squad, Blame
 	Door = "Door", -- door panel with a ProximityPrompt; MapKit.door -> ToolService
-	Hydrant = "Hydrant", -- refill part with a ProximityPrompt; MapKit.hydrant -> ToolService
-	TruckRefill = "TruckRefill", -- refill part on the truck with a ProximityPrompt; TruckBuilder -> ToolService
+	Hydrant = "Hydrant", -- hydrant / pond / pool water: decoration (no prompt); MapKit.hydrant -> EventService geyser
+	TruckRefill = "TruckRefill", -- the truck's hose reel (Grab Hose prompt, endless water); TruckBuilder -> InventoryService
 	RescueDropoff = "RescueDropoff", -- invisible volume at the truck; TruckBuilder -> RescueService
 	Rescuable = "Rescuable", -- NPC Model; RescueService -> RescueController, Hud
 	StationSpawn = "StationSpawn", -- 4 spawn pads, attr Slot 1..4; StationBuilder -> MapService/SquadService

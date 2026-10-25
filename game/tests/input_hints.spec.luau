@@ -21,8 +21,8 @@ Spec.test("prompt keys become the prompt's own button", function()
 	Spec.eq(touch("Driver's seat: press F"), "Driver's seat: tap the button")
 	Spec.eq(touch("Fuse box on the wall. Hold E. Do NOT stand in it."), "Fuse box on the wall. Hold the button. Do NOT stand in it.")
 	Spec.eq(touch("Too heavy! A buddy must hold [E] too"), "Too heavy! A buddy must hold the button too")
-	Spec.eq(touch("Hydrant: press R to grab the supply line"), "Hydrant: tap the button to grab the supply line")
-	Spec.eq(touch("Unhook it [R] before you drive off!"), "Unhook it (tap) before you drive off!")
+	Spec.eq(touch("Locker: press R to grab the axe"), "Locker: tap the button to grab the axe")
+	Spec.eq(touch("Grab it [R] before you drive off!"), "Grab it (tap) before you drive off!")
 end)
 
 Spec.test("a bare key in a sentence", function()
@@ -51,7 +51,7 @@ end)
 Spec.test("no raw key token survives in the shipped hint copy", function()
 	local lines = {
 		"The big red LOCKER in the locker room. Walk up and press E.",
-		"Stand by any side of your truck, press T. Or E on a hydrant. It's a leash.",
+		"Stand by any side of your truck, press T. Its water never runs out.",
 		"The city below is toast. Carry folks up (E).",
 		"Both of you press E on the panda.",
 		"Take it from the big red LOCKER (E), hold it, face the trunk and click.",

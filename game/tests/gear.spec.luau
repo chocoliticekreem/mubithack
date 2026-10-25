@@ -18,7 +18,7 @@ Spec.test("every gear id is in GearOrder exactly once and is a real item", funct
 		seen[id] = true
 	end
 	for id, def in D.Items do
-		if not def.fixture then -- world fixtures (the hydrant's supply coupling) never sit in a locker
+		if not def.fixture then -- world fixtures never sit in a locker
 			Spec.truthy(seen[id], `{id} missing from GearOrder`)
 		end
 	end
@@ -157,7 +157,7 @@ Spec.test("the LOCKER menu: cards, locks and the hose", function()
 	local items = P.lockerItems()
 	Spec.truthy(has(items, "Extinguisher") and has(items, "Hose") and has(items, "Axe"), "the basics are cards")
 	Spec.truthy(has(items, "GoldenAxe") and has(items, "GasMask"), "locked ones still show")
-	Spec.eq(has(items, "SupplyHose"), false, "world fixtures are not cards")
+	Spec.eq(has(items, "SupplyHose"), false, "no supply line item")
 	Spec.eq(P.lockerState("Axe", 1), "open")
 	Spec.eq(P.lockerState("GoldenAxe", 1), "locked")
 	Spec.eq(P.lockerState("GoldenAxe", 10), "open")

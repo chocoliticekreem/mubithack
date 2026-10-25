@@ -5,7 +5,7 @@
 --   Clearing        centre (12, 24), r 40: ranger cabin (log walls, locked door, radio desk), the
 --                   hikers' abandoned campfire (F1), TruckSpot + squad spawns.
 --   Radio tower     (52, -24), 46 tall lattice, red beacon; scorched patch with dead snags (F3).
---   Creek           winds north-south at X ~ -95; three wide pools are refills (tag Hydrant).
+--   Creek           winds north-south at X ~ -95; three wide pools (tag Hydrant, scenery).
 --   Tent camp       (-140, -118): two tents, hiker R1 down in the smoke + dog R2 (F2 log).
 --   Bamboo grove    (150, -50): the escaped panda R4 (F4 log). Hiker R3 sits on a creek rock.
 --   ~120 low-poly pines (PropKit.tree kind "pine"), logs, rocks, bushes, dry grass tufts (<= 4 studs).
@@ -363,18 +363,11 @@ local function rescueSpawn(parent: Instance, id: string, kind: string, bid: stri
 	return marker(parent, id, cf * CFrame.new(0, 1, 0), v(2, 2, 2), Names.Tag.RescueSpawn, attrs)
 end
 
--- Water part that refills hoses (tag Hydrant + prompt, like the town pool).
-local function refill(p: BasePart, id: string)
+-- Creek pool water (tag Hydrant, like the town pool; scenery only: trucks have endless water).
+local function creekPool(p: BasePart, id: string)
 	CollectionService:AddTag(p, Names.Tag.Hydrant)
 	p:SetAttribute("HydrantId", id)
 	p:SetAttribute("Creek", true)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Creek"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 14
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = p
 end
 
 ------------------------------------------------------------------------------------------------
@@ -567,14 +560,14 @@ local function creek(model: Model, o: CFrame, rng: Random)
 		local w = part(m, "Water", cf * CFrame.new(0, 0.2, 0), v(10, 0.3, len), C.Water, { transparency = 0.25, collide = false })
 		w.Reflectance = 0.15
 	end
-	-- three wide pools: hose refills
+	-- three wide pools
 	for i, z in { -120, 10, 150 } do
 		local x = creekX(z)
 		disc(m, "PoolBed", o, x, z, 24, 0.07, 0.1, C.CreekBed)
 		local pool = disc(m, "Pool", o, x, z, 20, 0.4, 0.4, C.Water, { transparency = 0.2, collide = false })
 		pool.Reflectance = 0.15
 		pool.Name = `CreekPool{i}`
-		refill(pool, `Creek{i}`)
+		creekPool(pool, `Creek{i}`)
 		for k = 0, 5 do
 			local ang = k * math.pi / 3 + 0.3
 			rock(m, at(o, x + math.cos(ang) * 11.5, 0, z + math.sin(ang) * 11.5), rng:NextNumber(1.4, 2.4), rng)

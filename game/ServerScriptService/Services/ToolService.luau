@@ -1,16 +1,16 @@
 --!strict
--- ToolService [owner: G1]. Loadout (Hose, Axe, Extinguisher), backpack water tank, hose spray with
--- recoil, friendly fire, puddles (WetFloor), refills, doors that fly off their hinges, axe bonks.
+-- ToolService [owner: G1]. Loadout (Hose, Axe, Extinguisher), hose spray with recoil (endless water:
+-- the hose never runs dry), friendly fire, puddles (WetFloor), doors that fly off their hinges, axe bonks.
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10):
---   ToolService:GiveLoadout(player: Player)              -- Hose + Axe + Extinguisher, full tank/foam
---   ToolService:Refill(player: Player, litres: number?)  -- nil = full (tank; foam too at a truck)
+--   ToolService:GiveLoadout(player: Player)              -- Hose + Axe + Extinguisher, full water/foam
+--   ToolService:Refill(player: Player, litres: number?)  -- compat: sets Water full (it never drains now)
 --   ToolService:ResetDoors(locationId: string)           -- un-break every door of a location/instance
 --   ToolService:CreateTool(itemId: string, player: Player): Tool?  -- v2: a fresh "Hose" | "Axe" | "Extinguisher"
 --     Tool for InventoryService to put in a hand (nil for other ids)
 -- v2 (docs/game/08 "Inventory"): when InventoryService is running it owns where tools come from, so
---   GiveLoadout only resets the tank/foam attrs (no Backpack tools), and the Hydrant / TruckRefill
---   prompts are InventoryService's (nozzle off the reel, supply lines), not hooked here.
+--   GiveLoadout only resets the water/foam attrs (no Backpack tools), and the TruckRefill (reel)
+--   prompt is InventoryService's (nozzle off the reel), not hooked here. Hydrants are decoration.
 --   ToolService:HitDoor(player, door, hits?)             -- v2: HandsService axe-head impact (1..DoorHits)
 --   ToolService:PushDoor(door): boolean                  -- v2: hand shove opens an unlocked closed door
 --   ToolService:PryDoor(door): boolean                   -- gear: Halligan/Crowbar pop a locked door open
@@ -28,14 +28,14 @@
 --            juice only (splash overlay, shake); the shove itself goes through Ragdoll.knockback
 --          Tool/Fx     (S->C all, kind: string, position: Vector3, extra: number?) -- "crack", "chop",
 --            "bonk", "sploosh", "whoosh" world pops + nearby camera shake
--- Writes: Player attrs Water, TankSize, Spraying, Foam, FoamSize, HoseRocket;
+-- Writes: Player attrs Water, TankSize (always full: the hose never drains them), Spraying, Foam, FoamSize, HoseRocket;
 --         Door attrs Locked, Broken; puddle parts tagged WetFloor under workspace.Puddles
 -- Reads: Player attrs Carrying (RescueService), Downed (SquadService), HosePressure (HoseLine);
 --        character attr Ragdolled;
---        prompts under parts tagged Hydrant / TruckRefill / Door (one ProximityPrompt each, builders)
+--        prompts under parts tagged Door (one ProximityPrompt each, builders)
 -- Calls (nil-guarded): FireService:ApplyWater, HeatService:Cool, MapService:GetLocation/GetInstance,
 --        Lib/Tools/HoseLine (attach/detach/getPressure; optional, owned by another lane)
--- Counters: water_used, refills, doors_broken, hose_teammate_hits, hose_knockdowns, axe_swings,
+-- Counters: water_used, doors_broken, hose_teammate_hits, hose_knockdowns, axe_swings,
 --           axe_teammate_hits, puddles, foam_used, hose_rockets
 -- Foam: at most one puff per 0.85 / SprayHz s per player (server-side, on top of the remote's rate limit).
 -- Test hooks (DevHook only): _spray(player, aim), _swing(player), _doorPrompt(player, door), _selftest(),
@@ -262,11 +262,10 @@ local function markSpraying(player: Player)
 end
 
 local function pressureOf(player: Player): number
-	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	local size = (player:GetAttribute(Names.Attr.TankSize) :: number?) or ToolConfig.TankSize
-	-- HoseLine.getPressure is 1 with no line attached, lower while kinked; it scales the tank pressure.
+	-- endless water: always a full blast; HoseLine.getPressure (1 with no line attached, lower while
+	-- kinked) is the only thing that weakens it
 	local line = hoseLineCall("getPressure", player)
-	return ToolMath.pressure(water, size, if type(line) == "number" then line else nil)
+	return ToolMath.pressure(1, 1, if type(line) == "number" then line else nil)
 end
 
 local function charParts(): { Instance }
@@ -487,13 +486,9 @@ local function equipped(player: Player): string?
 end
 
 local function sprayHose(player: Player, char: Model, head: BasePart, aim: Vector3, origin: Vector3?)
-	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	local litres = math.min(water, ToolConfig.LitresPerSpray)
-	if litres <= 0 then
-		return
-	end
+	-- trucks have endless water: spraying never empties anything (no tank, no refills)
+	local litres = ToolConfig.LitresPerSpray
 	local pressure = pressureOf(player)
-	player:SetAttribute(Names.Attr.Water, water - litres)
 	Telemetry.count("water_used", litres)
 	ToolService.WaterUsed:Fire(player, litres)
 	markSpraying(player)
@@ -874,20 +869,7 @@ local function onDoorPrompt(player: Player, door: BasePart)
 	end
 end
 
--- refills and hose lines -------------------------------------------------------------------
-local function onRefill(player: Player, part: BasePart, isTruck: boolean)
-	if blocked(player) then
-		return
-	end
-	ToolService:Refill(player, nil)
-	if isTruck then
-		player:SetAttribute(ATTR_FOAM_SIZE, ToolConfig.FoamSize)
-		player:SetAttribute(ATTR_FOAM, ToolConfig.FoamSize)
-	end
-	hoseLineCall("attach", player, part)
-	fx("refill", part.Position, player.UserId)
-end
-
+-- hose lines -------------------------------------------------------------------------------
 local function hookCharacter(player: Player, char: Model)
 	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
 	if hum then
@@ -929,14 +911,6 @@ function ToolService:Start()
 		end
 	end)
 	puddles()
-	if not services.InventoryService then -- v2: InventoryService owns the reel and hydrant prompts
-		watchTag(Names.Tag.Hydrant, function(player: Player, part: BasePart)
-			onRefill(player, part, false)
-		end)
-		watchTag(Names.Tag.TruckRefill, function(player: Player, part: BasePart)
-			onRefill(player, part, true)
-		end)
-	end
 	watchTag(Names.Tag.Door, onDoorPrompt)
 	Players.PlayerAdded:Connect(hookPlayer)
 	for _, p in Players:GetPlayers() do
@@ -1001,16 +975,10 @@ function ToolService:CreateTool(itemId: string, player: Player): Tool?
 	return nil
 end
 
-function ToolService:Refill(player: Player, litres: number?)
-	local size = (player:GetAttribute(Names.Attr.TankSize) :: number?) or ToolConfig.TankSize
-	local water = (player:GetAttribute(Names.Attr.Water) :: number?) or 0
-	local new = math.min(size, water + (litres or size))
-	player:SetAttribute(Names.Attr.TankSize, size)
-	player:SetAttribute(Names.Attr.Water, new)
-	Telemetry.count("refills")
-	if new >= size then
-		Popup.show(player, "Tank full!", "good", player)
-	end
+-- Compat (shared contract): the hose never drains, so this just makes sure Water reads full. Silent.
+function ToolService:Refill(player: Player, _litres: number?)
+	player:SetAttribute(Names.Attr.TankSize, ToolConfig.TankSize)
+	player:SetAttribute(Names.Attr.Water, ToolConfig.TankSize)
 end
 
 -- Accepts a locationId (v1) or an instanceId (v1.5 parallel missions).

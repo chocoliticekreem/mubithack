@@ -972,7 +972,7 @@ local function houseD(model: Model, origin: CFrame)
 end
 
 ------------------------------------------------------------------------------------------------
--- Backyard pool behind House D (24 x 14 x 4 deep, infinite hose refill)
+-- Backyard pool behind House D (24 x 14 x 4 deep)
 ------------------------------------------------------------------------------------------------
 local POOL = { x0 = 90, x1 = 114, z0 = -29, z1 = -15 }
 
@@ -1003,13 +1003,6 @@ local function pool(model: Model, origin: CFrame)
 	})
 	water.CanQuery = true
 	water:SetAttribute("Pool", true)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Pool"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 12
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = water
 	-- ladder
 	for _, dz in { -1, 1 } do
 		part(m, "LadderRail", origin * CFrame.new(x1 - 1.2, -0.4, z1 - 4 + dz), v(0.4, 4, 0.4), C.Chrome, { collide = false })

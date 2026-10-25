@@ -6,7 +6,6 @@
 --   ItemProps.build(id, "back", scale?)   -> Model  strapped on a character's back (massless, no collision)
 --   ItemProps.tool(id) -> Tool                       a plain hand Tool for items ToolService doesn't make
 -- The Hose nozzle has an Attachment "HoseEnd" at the tail of its Handle (the reel line ties on there);
--- the SupplyHose coupling has "CouplingEnd" at the tail of its hose stub (the hydrant supply line).
 -- The Flashlight has an Attachment "Beam" on its lens (GearService hangs the SpotLight there).
 -- Axe tiers (Axe = Rusty, FireAxe, GoldenAxe) share one shape with tier colours from ItemDefs.axe.
 --   ItemProps.build(id, "face", scale?)   -> Model  worn on the face (gas mask; like "back")
@@ -132,12 +131,6 @@ local SPECS: { [string]: { PartSpec } } = {
 		{ name = "Valve", size = Vector3.new(0.5, 0.5, 0.5), at = CFrame.new(0, 1.95, 0), color = "#C89A3C", material = Enum.Material.Metal },
 		{ name = "Tag", size = Vector3.new(0.7, 0.7, 0.1), at = CFrame.new(0, -0.2, -0.62), color = "#2A9D8F" },
 	},
-	-- the hydrant supply line's brass coupling with a stub of fat yellow hose behind it
-	SupplyHose = {
-		{ name = "Handle", size = Vector3.new(1.6, 1.0, 1.0), at = ROT_FWD, color = "#C89A3C", material = Enum.Material.Metal, shape = Enum.PartType.Cylinder },
-		{ name = "Lugs", size = Vector3.new(0.35, 1.5, 1.5), at = CFrame.new(0, 0, -0.55) * ROT_FWD, color = "#D9B25A", material = Enum.Material.Metal, shape = Enum.PartType.Cylinder },
-		{ name = "Stub", size = Vector3.new(1.6, 0.85, 0.85), at = CFrame.new(0, 0, 1.4) * ROT_FWD, color = "#F2C230", shape = Enum.PartType.Cylinder },
-	},
 	Hose = {
 		{ name = "Handle", size = Vector3.new(0.65, 0.65, 2.4), at = CFrame.new(), color = "#E8B83A" },
 		{ name = "Tip", size = Vector3.new(0.8, 0.8, 0.6), at = CFrame.new(0, 0, -1.5), color = "#C89A3C", material = Enum.Material.Metal },
@@ -193,12 +186,6 @@ local function assemble(id: string, scale: number): (Model, BasePart)
 		local a = Instance.new("Attachment")
 		a.Name = "HoseEnd"
 		a.Position = Vector3.new(0, 0, h.Size.Z / 2)
-		a.Parent = h
-	elseif id == "SupplyHose" then
-		-- the supply line ties on at the tail of the hose stub (item +Z)
-		local a = Instance.new("Attachment")
-		a.Name = "CouplingEnd"
-		a.CFrame = h.CFrame:ToObjectSpace(CFrame.new(0, 0, 2.2 * scale))
 		a.Parent = h
 	elseif id == "Flashlight" then
 		local a = Instance.new("Attachment")

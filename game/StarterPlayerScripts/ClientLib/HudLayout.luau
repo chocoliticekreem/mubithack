@@ -4,12 +4,12 @@
 --
 -- Screen zones (design units at 1280x720; every ScreenGui scales them with its UiKit ViewportScale):
 --   top bar row  Roblox menu buttons | ProfileHud level panel + battle pass pip | (free) | minimap
---   top-centre   stack "TopCentre": mission timer -> objective / CALL! card -> alarm banner -> toasts
---                -> supply-line warning. Each one sits under the previous VISIBLE one.
+--   top-centre   stack "TopCentre": mission timer -> objective / CALL! card -> alarm banner -> toasts.
+--                Each one sits under the previous VISIBLE one.
 --   top-left     stack "Left": objectives -> building integrity -> mission guide card
 --   top-right    minimap (NavMinimap, in the top-bar row) -> its turn-hint slot -> squad strip
 --   left edge    [P] PASS, [B] STORE chips (lobby); bottom-left [H] HELP / carry card
---   bottom       hotbar (centre), carry slot above it, truck hints, heat/tank gauges (right)
+--   bottom       hotbar (centre), carry slot above it, truck hints, heat gauge (right)
 --   centre       transient banners (heat warning, level-up / tier-up cards)
 --   modal        PASS / STORE / HELP / LOCKER / mission picker / big map: HudLayout.modal() dims
 --                everything under them and lifts their ScreenGui above the HUD while open.

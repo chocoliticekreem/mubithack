@@ -6,7 +6,7 @@
 --   Red barn         32 x 24, centre (40, -2), gambrel roof, hayloft, stalls, locked east door.
 --   Farmhouse        28 x 20, centre (-100, 14), porch facing the road.
 --   Wheat field      X -150..150, Z -130..-36, behind a post-and-rail fence at Z -33.
---   Silo, windmill, chicken coop + pen, duck pond (refill, tagged Hydrant), tractor, scarecrow.
+--   Silo, windmill, chicken coop + pen, duck pond (tagged Hydrant), tractor, scarecrow.
 -- Fire starts (tag FireStart on Flammable parts, attr FireId): F1 haystack HAY1 (the cigarette),
 --   F2 dry grass by the field fence, F3 wheat at the field edge, F4 bale stack by the barn.
 -- Rescue spawns (invisible 2x2x2, tag RescueSpawn, attrs Kind/Pose/SpawnId/BuildingId):
@@ -1153,13 +1153,6 @@ local function pond(model: Model, o: CFrame, rng: Random)
 	water.Reflectance = 0.15
 	water:SetAttribute("Pond", true)
 	water:SetAttribute("HydrantId", "Pond")
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
-	prompt.ObjectText = "Pond"
-	prompt.HoldDuration = 0.5
-	prompt.MaxActivationDistance = 16
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = water
 	m.PrimaryPart = water
 	-- rim stones
 	for i = 0, 13 do

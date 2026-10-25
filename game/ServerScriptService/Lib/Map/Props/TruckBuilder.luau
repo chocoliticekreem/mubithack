@@ -3,7 +3,7 @@
 -- API: TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 --   cf = ground point under the truck centre; the truck faces -Z of cf. About 10 W x 9.6 H x 27 L studs.
 --   Static, fully anchored model (VehicleService makes it drivable later). PrimaryPart = "Chassis".
---   Tags: model -> Names.Tag.Truck; "Reel" (hose reel, ProximityPrompt "Refill") -> TruckRefill;
+--   Tags: model -> Names.Tag.Truck; "Reel" (hose reel, ProximityPrompt "Grab Hose") -> TruckRefill;
 --   "RescueDropoff" (invisible, non-collide box around the whole truck) -> RescueDropoff.
 --   Named parts for VehicleService/VehicleController: Chassis, Wheel_<axle>_<L|R>, LightRed, LightBlue,
 --   LightWhite, Siren, Headlight_L/R, TailLight_L/R, Bench_L/R (crew seats), Deck.
@@ -510,7 +510,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 		-- Grab handle at the rear corners.
 		P(`GrabRail_{s}`, Vector3.new(side * 4.75, 6.6, 12.9), Vector3.new(0.25, 2.0, 0.25), Chrome, deco)
 	end
-	-- Hose reel on the back wall of the compartment block; this is the refill point.
+	-- Hose reel on the back wall of the compartment block: where the hose comes from (endless water).
 	local reel = P("Reel", Vector3.new(0, 5.4, 7.6), Vector3.new(4.6, 2.4, 2.4), HoseYellow, { shape = Enum.PartType.Cylinder, tags = { Names.Tag.TruckRefill } })
 	for _, side in { -1, 1 } do
 		P(`ReelFlange_{if side < 0 then "L" else "R"}`, Vector3.new(side * 2.45, 5.4, 7.6), Vector3.new(0.3, 3.1, 3.1), Chrome, { shape = Enum.PartType.Cylinder, material = Enum.Material.Metal })
@@ -521,7 +521,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	end
 	P("Nozzle", Vector3.new(1.4, 4.0, 8.4), Vector3.new(0.5, 1.2, 0.5), Brass, deco)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Refill"
+	prompt.ActionText = "Grab Hose"
 	prompt.ObjectText = "Fire Truck 67"
 	prompt.HoldDuration = 0.5
 	prompt.MaxActivationDistance = 10

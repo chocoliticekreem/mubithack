@@ -64,7 +64,7 @@ return {
 		hose = {
 			id = "hose",
 			head = "GRAB THE HOSE",
-			sub = "Stand by any side of your truck, press T. Or E on a hydrant. It's a leash.",
+			sub = "Stand by any side of your truck, press T. Its water never runs out.",
 			target = { kind = "truck", tag = "TruckRefill" },
 			done = { kind = "hand", item = "Hose" },
 			maxSeconds = 60,

@@ -14,7 +14,7 @@
 --   * Fire trucks: tap the body, a door or a seat from up to VehicleConfig.TapEnterRange studs and you sit
 --     straight in (Vehicle/Enter on the server: driver seat if it's yours and free, else the nearest free
 --     seat). No door to open first, so the door never swings into you. Truck door / seat prompts are
---     never bubbled (the truck's IN bubble covers them); its lockers, reel and supply intakes are.
+--     never bubbled (the truck's IN bubble covers them); its lockers and reel are.
 -- Dev: Player attr ForceTouchUI = true makes a left mouse click act as a tap (Studio has no touch), and
 -- InputHintsMode = "touch" (ClientLib/InputHints) puts the whole UI in touch mode.
 local CollectionService = game:GetService("CollectionService")
@@ -112,8 +112,6 @@ local VERBS: { { string } } = {
 	{ "^Take", "GRAB" },
 	{ "^Carry", "CARRY" },
 	{ "^Refill", "FILL" },
-	{ "^Hook", "HOOK" },
-	{ "^Unhook", "UNHOOK" },
 	{ "^Open", "OPEN" },
 	{ "^Close", "CLOSE" },
 	{ "^Break", "BREAK" },
