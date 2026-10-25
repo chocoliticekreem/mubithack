@@ -117,7 +117,8 @@ local function makeSlot(parent: Instance, key: string, label: string, order: num
 	sizeLimit.Parent = glyph
 	-- keycap: what this slot's key does (cream chip, ink text, sits on the tile's top edge)
 	local keyChip = chip(tile, "Key", label, UDim2.fromOffset(math.max(30, #label * 8 + 12), 18), UDim2.fromOffset(-4, -9), Palette.UiCream, Palette.UiInk, 12)
-	InputHints.setPick(keyChip, label, (string.gsub(label, "^1/2 ", ""))) -- phones: the SWAP button, no keys
+	-- phones: the SWAP button, no keys; gamepad: D-pad up swaps
+	InputHints.setPick(keyChip, label, (string.gsub(label, "^1/2 ", "")), (string.gsub(label, "^1/2 ", "▲ ")))
 	local bar = Instance.new("Frame")
 	bar.Name = "Gauge"
 	-- a pill tucked inside the tile's rounded bottom edge (clear of the 12 px corners + 3 px border), so it

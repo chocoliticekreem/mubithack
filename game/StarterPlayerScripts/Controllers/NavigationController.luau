@@ -890,7 +890,7 @@ function NavigationController:Start()
 			mm:toggleBig()
 		end
 		return Enum.ContextActionResult.Pass
-	end, false, NavigationConfig.BigMapKey or Enum.KeyCode.M)
+	end, false, NavigationConfig.BigMapKey or Enum.KeyCode.M, Enum.KeyCode.DPadDown) -- gamepad: D-pad down
 	-- forget cached incident centres when sites are rebuilt
 	CollectionService:GetInstanceRemovedSignal(INCIDENT_TAG):Connect(function(inst: Instance)
 		incidentPos[inst] = nil

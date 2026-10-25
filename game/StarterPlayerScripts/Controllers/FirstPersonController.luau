@@ -766,6 +766,14 @@ function FirstPersonController:Start()
 			state.viewFlip = not state.viewFlip
 		end
 	end)
+	-- gamepad: R3 (right stick press) is V. In a truck VehicleController binds R3 higher (cab / chase cam).
+	-- (one above Default: Roblox's camera binds R3 to its zoom steps at Default)
+	game:GetService("ContextActionService"):BindActionAtPriority("FPViewFlip", function(_: string, st: Enum.UserInputState): Enum.ContextActionResult
+		if st == Enum.UserInputState.Begin then
+			state.viewFlip = not state.viewFlip
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.Default.Value + 1, Enum.KeyCode.ButtonR3)
 
 	state.fov = tonumber(PhysicsConfig.FieldOfView) or 80
 	state.mission = inMission()

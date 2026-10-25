@@ -432,7 +432,7 @@ function RescueController:Start()
 		slot.Visible = on
 		if on and not bound then
 			ContextActionService:BindAction("RescueDrop", onDrop, true, Enum.KeyCode.G, Enum.KeyCode.ButtonB)
-			ContextActionService:BindAction("RescueThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonX)
+			ContextActionService:BindAction("RescueThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1) -- L1 = throw, like InvThrow (X stays the prompt button)
 			ContextActionService:SetTitle("RescueDrop", "DROP")
 			ContextActionService:SetTitle("RescueThrow", "YEET")
 			-- touch: drawn in the thumb cluster round the jump button (ClientLib/ThumbLayout)
@@ -451,7 +451,7 @@ function RescueController:Start()
 			-- HudController's carry slot already says what and where; this panel is the controls
 			local kind = kindOf(id)
 			local lol = if kind == "panda" then " (lol)" else ""
-			InputHints.setPick(label, `[G] DROP   [hold Q] YEET{lol}`, `Tap DROP   ·   hold YEET{lol}`, `[B] DROP   [hold X] YEET{lol}`)
+			InputHints.setPick(label, `[G] DROP   [hold Q] YEET{lol}`, `Tap DROP   ·   hold YEET{lol}`, `[B] DROP   [hold L1] YEET{lol}`)
 			slot.Size = UDim2.fromOffset(330, 66)
 			TweenService:Create(slot, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 				Size = UDim2.fromOffset(360, 74),

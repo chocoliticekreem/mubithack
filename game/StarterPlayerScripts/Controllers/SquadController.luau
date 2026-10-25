@@ -46,6 +46,8 @@ local EMOTE_KEYS: { [Enum.KeyCode]: string } = {
 	[Enum.KeyCode.X] = "facepalm",
 	[Enum.KeyCode.C] = "blame",
 }
+local PAD_EMOTES = { "wave", "facepalm", "blame" }
+local padEmote = 0
 
 -- Same rules as Lib/Squad/SquadRules (server-only folder), inlined for the client.
 local function orbit(i: number, n: number, t: number, radius: number, rps: number): (number, number)
@@ -500,6 +502,11 @@ function SquadController:Start()
 			return
 		end
 		local emote = EMOTE_KEYS[input.KeyCode]
+		if input.KeyCode == Enum.KeyCode.ButtonL3 then
+			-- gamepad: L3 (left stick press) cycles wave -> facepalm -> blame
+			padEmote = padEmote % #PAD_EMOTES + 1
+			emote = PAD_EMOTES[padEmote]
+		end
 		if not emote or not inLobby() or LocalPlayer:GetAttribute(Names.Attr.Downed) == true then
 			return
 		end
