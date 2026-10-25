@@ -20,7 +20,7 @@ equal(A.line({status="running",text="coder: Shop.luau",age_s=1}),"● coder: Sho
 equal(A.line({status="weird",text="x",age_s=7}),"· x")
 assert(utf8.len(A.line({status="ok",text=string.rep("a",300),age_s=0}))<A.maxText+4,"long text is clipped")
 -- Status colours: known statuses get one, info and unknown use the theme text.
-equal(A.color("ok")[1],46) equal(A.color("fail")[1],215) equal(A.color("running")[3],204)
+equal(A.color("ok")[1],95) equal(A.color("fail")[1],217) equal(A.color("running")[3],194)
 equal(A.color("info"),nil) equal(A.color(nil),nil)
 -- Run header: the slug on the left (clipped), status and age in the right-hand column.
 equal(A.header({slug="obby-3",title="Funfair Frenzy",status="running",age_s=30}),"obby-3")

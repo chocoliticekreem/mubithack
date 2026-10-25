@@ -233,23 +233,42 @@ end
 -- ---------------------------------------------------------------- dock widget (Edit only)
 
 local function buildUi()
-	local toolbar = plugin:CreateToolbar("MuHack")
-	local button = toolbar:CreateButton("ForgeBridgePanel", "Show MuHack status, ask MuHack to fix, run tests", "", "MuHack")
+	local toolbar = plugin:CreateToolbar("MuMake Runs")
+	local button = toolbar:CreateButton("ForgeBridgePanel", "Show MuMake runs, ask MuMake to fix, run tests", "", "MuMake Runs")
 	button.ClickableWhenViewportHidden = true
 	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, true, false, 320, 380, 260, 280)
 	local widget = plugin:CreateDockWidgetPluginGui("ForgeBridgeStatus", info)
-	widget.Title = "MuHack"
+	widget.Title = "MuMake Runs"
 	widget.Name = "ForgeBridgeStatus"
 	table.insert(connections, button.Click:Connect(function() widget.Enabled = not widget.Enabled end))
 
+	-- The dashboard's cream tokens (forge/dashboard.html :root), the same in every Studio theme.
+	local CREAM = {
+		MainBackground = Color3.fromHex("FBF4E4"), MainText = Color3.fromHex("4B3B2F"),
+		DimmedText = Color3.fromHex("8A7766"), BrightText = Color3.fromHex("4B3B2F"),
+		leaf = Color3.fromHex("7FB069"), peach = Color3.fromHex("F4A685"), green = Color3.fromHex("5F9E4A"),
+		red = Color3.fromHex("D9534F"), amber = Color3.fromHex("B8693F"), line = Color3.fromHex("ECDFC6"),
+	}
 	local function color(c)
-		local ok, v = pcall(function() return settings().Studio.Theme:GetColor(Enum.StudioStyleGuideColor[c]) end)
-		return if ok then v else Color3.fromRGB(46, 46, 46)
+		return CREAM[c]
+	end
+	local FONTS
+	local fontsOk = pcall(function()
+		local nunito = Font.fromEnum(Enum.Font.Nunito).Family
+		FONTS = {
+			body = Font.new(nunito, Enum.FontWeight.SemiBold), bold = Font.new(nunito, Enum.FontWeight.Bold),
+			head = Font.fromEnum(Enum.Font.FredokaOne),
+		}
+	end)
+	if not fontsOk then
+		FONTS = { body = Font.fromEnum(Enum.Font.BuilderSans), bold = Font.fromEnum(Enum.Font.BuilderSansBold),
+			head = Font.fromEnum(Enum.Font.BuilderSansBold) }
 	end
 	local root = Instance.new("ScrollingFrame")
 	root.Size = UDim2.fromScale(1, 1)
 	root.BorderSizePixel = 0
 	root.ScrollBarThickness = 6
+	root.ScrollBarImageColor3 = color("line")
 	root.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	root.CanvasSize = UDim2.new()
 	root.Parent = widget
@@ -262,7 +281,7 @@ local function buildUi()
 	list.Parent = root
 
 	local order = 0
-	local function label(text, size, bold, parent)
+	local function label(text, size, bold, parent, head)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
 		l.Size = UDim2.new(1, -4, 0, 0)
@@ -270,7 +289,7 @@ local function buildUi()
 		l.TextWrapped = true
 		l.TextXAlignment = Enum.TextXAlignment.Left
 		l.TextYAlignment = Enum.TextYAlignment.Top
-		l.Font = if bold then Enum.Font.SourceSansBold else Enum.Font.SourceSans
+		l.FontFace = if head then FONTS.head elseif bold then FONTS.bold else FONTS.body
 		l.TextSize = size or 15
 		l.Text = text
 		if not parent then
@@ -309,13 +328,13 @@ local function buildUi()
 			local b = Instance.new("TextButton")
 			b.Size = UDim2.new(1 / #specs, -4, 1, 0)
 			b.Position = UDim2.new((i - 1) / #specs, if i > 1 then 4 else 0, 0, 0)
-			b.Font = Enum.Font.SourceSansBold
+			b.FontFace = FONTS.bold
 			b.TextSize = 15
 			b.Text = spec
 			b.AutoButtonColor = true
 			b.BorderSizePixel = 0
 			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, 4)
+			corner.CornerRadius = UDim.new(0, 17)
 			corner.Parent = b
 			b.Parent = row
 			out[i] = b
@@ -323,17 +342,17 @@ local function buildUi()
 		return table.unpack(out)
 	end
 
-	local title = label("MuHack", 20, true)
+	local title = label("MuMake", 26, true, nil, true)
 	local conn = label("connecting…", 14)
-	local fix, tests = buttonRow({ "Ask MuHack to fix this", "Run tests" })
+	local fix, tests = buttonRow({ "Ask MuMake to fix this", "Run tests" })
 	local labels = {}
 	local values = {}
-	for _, f in { "Job", "Role at work", "Last test", "Selected", "Last error", "MuHack says" } do
+	for _, f in { "Job", "Role at work", "Last test", "Selected", "Last error", "MuMake says" } do
 		local k, v = field(f)
 		labels[f] = k
 		values[f] = v
 	end
-	local runsTitle = label("Runs", 15, true)
+	local runsTitle = label("Runs", 18, true, nil, true)
 	order += 1
 	local runsBox = Instance.new("Frame")
 	runsBox.BackgroundTransparency = 1
@@ -376,10 +395,10 @@ local function buildUi()
 		title.TextColor3 = color("BrightText")
 		runsTitle.TextColor3 = color("BrightText")
 		foot.TextColor3 = color("DimmedText")
-		fix.BackgroundColor3 = Color3.fromRGB(0, 122, 204)
+		fix.BackgroundColor3 = color("leaf")
 		fix.TextColor3 = Color3.new(1, 1, 1)
-		tests.BackgroundColor3 = Color3.fromRGB(46, 160, 67)
-		tests.TextColor3 = Color3.new(1, 1, 1)
+		tests.BackgroundColor3 = color("peach")
+		tests.TextColor3 = color("MainText")
 	end
 
 	local function refresh()
@@ -387,17 +406,17 @@ local function buildUi()
 		local path = sel and fullName(sel)
 		local err = errorFor(path)
 		conn.Text = (if online then "● connected" else "○ bridge offline") .. "  ·  " .. placeName()
-		conn.TextColor3 = if online then Color3.fromRGB(46, 160, 67) else Color3.fromRGB(204, 120, 0)
+		conn.TextColor3 = if online then color("green") else color("amber")
 		values["Job"].Text = forge.job or "idle"
 		values["Role at work"].Text = forge.role or "—"
 		values["Last test"].Text = forge.last_test or "not run yet"
 		local lt = tostring(forge.last_test or "")
-		values["Last test"].TextColor3 = if string.sub(lt, 1, 4) == "PASS" then Color3.fromRGB(46, 160, 67)
-			elseif string.sub(lt, 1, 4) == "FAIL" then Color3.fromRGB(215, 58, 73) else color("MainText")
+		values["Last test"].TextColor3 = if string.sub(lt, 1, 4) == "PASS" then color("green")
+			elseif string.sub(lt, 1, 4) == "FAIL" then color("red") else color("MainText")
 		values["Selected"].Text = path or "select a script in the Explorer"
 		values["Last error"].Text = if err then clip(err.message, 300) else "none seen"
-		values["Last error"].TextColor3 = if err then Color3.fromRGB(215, 58, 73) else color("MainText")
-		values["MuHack says"].Text = note or forge.message or "—"
+		values["Last error"].TextColor3 = if err then color("red") else color("MainText")
+		values["MuMake says"].Text = note or forge.message or "—"
 		foot.Text = string.format("events sent %d  ·  commands run %d%s", stats.sent, stats.cmds,
 			if stats.lastMs then string.format("  ·  last command %.1f ms in Studio", stats.lastMs) else "")
 	end
@@ -409,7 +428,8 @@ local function buildUi()
 		end
 		for i, row in Activity.rows(feed) do
 			local rgb = Activity.color(row.status)
-			local font = if row.kind == "run" then Enum.Font.SourceSansBold else Enum.Font.SourceSans
+			-- Enum fonts here, not FontFace, so GetTextSize measures the aside column exactly.
+			local font = if row.kind == "run" then Enum.Font.FredokaOne else Enum.Font.Nunito
 			local size = if row.kind == "run" then 15 else 14
 			local item = Instance.new(if row.kind == "event" then "TextButton" else "Frame")
 			item.BackgroundTransparency = 1
@@ -481,7 +501,6 @@ local function buildUi()
 	end
 	table.insert(connections, fix.Activated:Connect(askFix))
 	table.insert(connections, tests.Activated:Connect(runTests))
-	table.insert(connections, settings().Studio.ThemeChanged:Connect(function() paint(); refresh(); renderActivity() end))
 	pcall(function()
 		table.insert(connections, game:GetService("Selection").SelectionChanged:Connect(function() note = nil; refresh() end))
 	end)

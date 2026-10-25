@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MuHack Workshop</title>
+<title>MuMake Workshop</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 58'%3E%3Crect x='6' y='26' width='52' height='26' rx='5' fill='%23ff8a1f' stroke='%231a1033' stroke-width='4'/%3E%3Cpath d='M6 26v-9a11 11 0 0 1 11-11h30a11 11 0 0 1 11 11v9z' fill='%23ffd23f' stroke='%231a1033' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -373,7 +373,37 @@
   @media (max-width: 900px) { .gamecard { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 560px) { .nowrow { grid-template-columns: minmax(0, 1fr) auto; } .nowrow > :first-child { display: none; } .agents { grid-template-columns: minmax(0, 1fr); } }
 
-  /* ---------- "go test" pop-up: once per build, at Ready or 20 minutes in */
+  /* ---------- "What Mubit learned": a quiet footer under the agents */
+  .learned { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--muted); }
+  .learned .lhead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-weight: 800; }
+  .learned .lhead span:first-child { color: var(--ink); }
+  .learned ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  .learned li { padding: 2px 0; line-height: 1.35; }
+  .learned li b { color: var(--ink); margin-right: 6px; }
+  .learned li .r { margin-right: 6px; opacity: .75; }
+  .learned .train { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
+  .learned .tk { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+  .learned .tk i { display: inline-block; width: 54px; height: 5px; border-radius: 9px; background: var(--panel2); overflow: hidden; }
+  .learned .tk i b { display: block; height: 100%; background: var(--leaf); }
+  .learned .note { opacity: .8; }
+  .learned a { color: var(--muted); font-weight: 800; }
+
+  /* ---------- agent levels: Lv badge, thin xp bar, a green arrow when the newest round really improved it */
+  .agent .lv { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #e6efd9;
+    color: var(--green); font: 900 10.5px var(--body); vertical-align: 1px; letter-spacing: .02em; }
+  .agent .lv.up { background: var(--leaf); color: #fff; }
+  .agent .xp { display: block; height: 3px; margin-top: 4px; border-radius: 9px; background: var(--line); overflow: hidden; }
+  .agent .xp b { display: block; height: 100%; background: var(--leaf); border-radius: 9px; }
+  .lvpop { position: absolute; z-index: 40; pointer-events: none;
+    font: 900 13px var(--body); color: var(--green); white-space: nowrap; animation: lvrise 2s ease-out forwards; }
+  .lvpop .ar { display: inline-block; font-size: 16px; margin-right: 2px; }
+  .lvpop .plus { margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--leaf); color: #fff; font-size: 11px; }
+  @keyframes lvrise { 0% { opacity: 0; translate: 0 6px } 15% { opacity: 1; translate: 0 -4px }
+    75% { opacity: 1; translate: 0 -16px } 100% { opacity: 0; translate: 0 -24px } }
+  @media (prefers-reduced-motion: reduce) { .lvpop { animation: lvfade 2s linear forwards; } }
+  @keyframes lvfade { 0%, 80% { opacity: 1 } 100% { opacity: 0 } }
+
+  /* ---------- "go test" pop-up: once per build, when it says Ready (or ready for review) */
   .testpop { position: fixed; inset: 0; display: grid; place-items: center; background: #4b3b2f55; z-index: 50;
     padding: 16px; }
   .testpop[hidden] { display: none; }
@@ -384,7 +414,6 @@
   .testpop .how { margin-bottom: 18px; }
   .testpop button { font: 800 16px var(--body); background: var(--leaf); color: #fff; border: 0; border-radius: 999px;
     padding: 10px 26px; cursor: pointer; }
-  .testpop.wait button { background: var(--peach); }
   @keyframes pop { from { transform: scale(.85); opacity: 0 } to { transform: scale(1); opacity: 1 } }
   @media (prefers-reduced-motion: reduce) { .testpop .box { animation: none; } }
 
@@ -542,8 +571,8 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">MUHACK</div>
-    <div class="tag">What MuHack's agents are doing, and what each one did.</div>
+    <div class="logo">MUMAKE</div>
+    <div class="tag">What MuMake's agents are doing, and what each one did.</div>
     <select class="pick" id="pick" aria-label="Pick a game"></select>
     <button class="btn ghost small" id="moreBtn" aria-pressed="false" aria-controls="more">More</button>
   </header>
@@ -562,7 +591,7 @@
       <div><h2>Every game, in detail</h2><div id="games" class="ngrid"></div></div>
     </section>
   </section>
-  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for MuHack. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
+  <div class="credits" id="updated">Characters, chests and trophy are hand-drawn SVG for MuMake. Agents are Bottts by Pablo Stanley via DiceBear. Fonts: Fredoka and Nunito (Google Fonts, OFL).</div>
 </div>
 
 <div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Snapshot"><div class="card sheet" id="sheet"></div></div>
@@ -881,10 +910,60 @@ function renderAgents(g) {
   if (!g) { put("agentsBox", ""); return; }
   const list = g.agents || [];
   const cards = list.map((a, ai) => `<button class="agent ${a.running ? "running" : ""} ${AGENT && AGENT.role === a.role ? "sel" : ""}" data-role="${esc(a.role)}" data-tipa="${ai}" aria-label="${esc(roleName(a.role))}: see what it did">
-      ${botSvg(member(a.role), a.role)}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}</span>
-      <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span></span></button>`).join("");
+      ${botSvg(member(a.role), a.role)}<span style="min-width:0"><span class="nm" style="display:block">${esc(roleName(a.role))}${lvBadge(a)}</span>
+      <span class="st" style="display:block">${a.running ? "working now" : esc(ago(a.last_ts))} · ${a.calls} call${a.calls === 1 ? "" : "s"}${a.failed ? ` · <span class="bad">${a.failed} failed</span>` : ""}</span>${xpBar(a)}</span></button>`).join("");
   put("agentsBox", `<div class="card"><div class="sec-head"><h2>Agents</h2><span class="sub">each one is a Mubit task · click one to see what it did</span></div>
-    ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}</div>`);
+    ${cards ? `<div class="agents">${cards}</div>` : `<div class="empty">No agent has run on this game yet.</div>`}${learnedFoot(g)}</div>`);
+  levelPops(g);
+}
+
+// Levels (Anson): xp only from what Forge recorded (corrections Mubit took, fixes confirmed, scores up, lessons
+// rewritten, clean zones, QA pass rate). A green arrow pops once per agent per round, only when that round improved it.
+function lvBadge(a) {
+  const L = a.level;
+  return L ? ` <span class="lv ${L.improved ? "up" : ""}">Lv ${L.level}</span>` : "";
+}
+function xpBar(a) {
+  const L = a.level;
+  if (!L) return "";
+  const pct = Math.round(100 * (L.xp - L.floor_xp) / Math.max(1, L.next_xp - L.floor_xp));
+  return `<span class="xp" title="${L.xp} xp · ${L.next_xp - L.xp} to Lv ${L.level + 1}"><b style="width:${pct}%"></b></span>`;
+}
+const LV_SEEN = new Set();
+function levelPops(g) {
+  for (const a of g.agents || []) {
+    const L = a.level;
+    if (!L || !L.improved || L.round == null) continue;
+    const key = `forge-lv:${g.slug}:${a.role}:${L.round}`;
+    let seen = LV_SEEN.has(key);
+    try { seen = seen || localStorage.getItem(key) === "1"; localStorage.setItem(key, "1"); } catch (e) { /* private window */ }
+    LV_SEEN.add(key);
+    if (seen) continue;
+    const card = document.querySelector(`#agentsBox .agent[data-role="${CSS.escape(a.role)}"]`);
+    const r = (card?.querySelector(".lv") || card)?.getBoundingClientRect();
+    if (!r || !r.width) continue;
+    const pop = document.createElement("div");
+    pop.className = "lvpop";
+    pop.innerHTML = `<span class="ar">▲</span>${L.level_up ? `<span class="plus">+1 Lv</span>` : ""}`;
+    pop.style.left = (r.right + scrollX + 4) + "px";
+    pop.style.top = (r.top + scrollY - 2) + "px";
+    document.body.appendChild(pop);
+    setTimeout(() => pop.remove(), 2100);
+  }
+}
+
+// Subtle by design (Anson): what went back into Mubit for this game, and each task's corrections toward training
+function learnedFoot(g) {
+  const L = g.learned;
+  if (!L || (!L.items.length && !L.corrections)) return "";
+  const ul = L.items.map(i => `<li><b>${esc(i.who)}</b>${i.round != null ? `<span class="r">round ${i.round}</span>` : ""}${esc(i.text)}</li>`).join("");
+  const train = L.tasks.filter(t => t.corrections).map(t => `<span class="tk" title="${t.calls} calls, ${t.corrections} corrections">${esc(roleName(t.role))}
+      <i><b style="width:${Math.min(100, t.corrections / L.train_at * 100)}%"></b></i>${t.corrections}/${L.train_at}</span>`).join("");
+  return `<div class="learned"><div class="lhead"><span>What Mubit learned</span>
+      <span>${L.calls} Mubit calls · ${L.corrections} correction${L.corrections === 1 ? "" : "s"} · lessons rewritten ${L.lessons}×</span></div>
+    ${ul ? `<ul>${ul}</ul>` : ""}
+    <div class="train">${train}<span class="note">corrections train each task's model once it has ${L.train_at}</span>
+      <a href="${esc(L.console)}" target="_blank" rel="noopener">Mubit console ↗</a></div></div>`;
 }
 
 function renderDrawer() {
@@ -979,7 +1058,7 @@ function renderLanes(g) {
     <div class="tile ${best ? "hot" : ""}"><div class="k">Speed-up</div><div class="v">${best ? `×${best.x}` : "–"}<small>${best ? ` ${secs(best.before_secs)} → ${secs(best.after_secs)}` : ""}</small></div></div>
     <div class="tile"><div class="k">Corrections fed</div><div class="v">${led.corrections ?? 0}<small> · ${led.verified ?? 0} kept</small></div></div>
   </div>`;
-  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as MuHack makes its first Mubit call.</div>`;
+  if (!L.lanes.length) return `${tiles}<div class="empty">No agent has run on this game yet. Its lanes show up here as soon as MuMake makes its first Mubit call.</div>`;
   const ticks = [0, .25, .5, .75, 1].map(f => `<span>${secs(span * f)}</span>`).join("");
   return `${tiles}<div class="lanes">${L.lanes.map((ln, li) => laneRow(ln, li, span, liveSpan)).join("")}</div>
     <div class="axis"><span></span><div>${ticks}</div><span>now: step · “thought” · latency</span></div>`;
@@ -1072,9 +1151,9 @@ function renderSpeed(g) {
   const ups = (sp.speedups || []).map(s => `<div class="tile hot"><div class="k">${esc(s.stage)}</div><div class="v">${s.x ? `×${s.x}` : "–"}<small> ${secs(s.before_secs)} → ${secs(s.after_secs)}</small></div></div>`).join("");
   const bars = sp.stages.map(s => `<div class="brow"><div class="bl"><span><span class="nm">${esc(s.stage)}</span>${s.parallel > 1 ? ` <span class="muted">×${s.parallel} at once</span>` : ""}</span>
       <span>${secs(s.secs)}${s.running ? " …" : ""}${s.x ? ` <span class="xf">×${s.x} faster</span>` : ""}</span></div>
-    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="MuHack: ${secs(s.secs)}"></i></div></div>`).join("");
+    <div class="bpair">${s.before_secs ? `<i class="before" style="width:${s.before_secs / max * 100}%" title="one at a time: ${secs(s.before_secs)}"></i>` : ""}<i class="after" style="width:${(s.secs || 0) / max * 100}%" title="MuMake: ${secs(s.secs)}"></i></div></div>`).join("");
   return `${ups ? `<div class="tiles">${ups}</div>` : ""}
-    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>MuHack, agents side by side</span></div>
+    <div class="key"><span><i style="background:var(--grey)"></i>one call at a time</span><span><i style="background:var(--green)"></i>MuMake, agents side by side</span></div>
     <div class="bars">${bars}</div>
     <div class="small muted" style="margin-top:10px">${sp.calls} Mubit calls · median ${ms(sp.p50_ms) || "–"} · p90 ${ms(sp.p90_ms) || "–"}${g.team.has_timings ? "" : " · from calls.jsonl"}</div>`;
 }
@@ -1129,7 +1208,7 @@ function renderTeamInto(g) {
   if (!$("tLanes")) { for (const k of ["tLanes", "tFeed", "tLedger", "tTimeline", "tSpeed", "mcSub", "tAuto"]) delete last[k]; put("team", TEAM_SKELETON); }
   $("tAutoCard").style.display = g.autopilot ? "" : "none";
   put("tAuto", renderAutopilot(g));
-  put("mcSub", `Every MuHack agent and tester, side by side${g.live ? " · live" : ""}`);
+  put("mcSub", `Every MuMake agent and tester, side by side${g.live ? " · live" : ""}`);
   put("tLanes", renderLanes(g));
   for (const k of Object.keys(SHOTS)) if (!k.startsWith("agent#")) delete SHOTS[k];
   put("tFeed", renderFeed(g));
@@ -1181,6 +1260,7 @@ function agentTipHtml(a) {
     return `<li class="${st}"><b>${st === "ok" ? "✓" : st === "bad" ? "✗" : "…"}</b><span>${esc(c.step || {ok: "answered", bad: "failed", pend: "cut short"}[st])}<small>${esc(ago(c.ts))}${c.latency_ms ? ` · ${ms(c.latency_ms)}` : ""}</small></span></li>`; }).join("");
   const st = a.running ? "pend" : a.failed ? "bad" : "ok";
   return `<div class="tip-head"><span class="tip-who">${esc(roleName(a.role))}</span><span class="stamp ${st}">${a.running ? "… working" : a.failed ? `✗ ${a.failed} failed` : "✓ all answered"}</span></div>
+    ${a.level ? `<div class="tip-line"><b>Lv ${a.level.level}</b> · ${a.level.xp} xp${a.level.improved ? ` · <span class="ok">▲ round ${a.level.round}: ${esc(a.level.reason)}</span>` : a.level.round != null ? ` · no gain in round ${a.level.round}` : ""}</div>` : ""}
     <div class="tip-title">${a.calls} call${a.calls === 1 ? "" : "s"} · latest first</div>
     ${rows ? `<ul class="tip-checks tip-calls">${rows}</ul>` : ""}<div class="tip-line" style="margin-top:6px">click for what it did</div>`;
 }
@@ -1386,32 +1466,31 @@ async function refresh() {
     renderPicker(); renderCondensed(); if (moreOn()) renderMain(); renderNerd(); noticeNew(); loadAgent(); testPopup();
     const deep = decodeURIComponent(location.hash).match(/^#shot=(.+)$/);  // link straight to one screenshot
     if (deep && SHOTS[deep[1]] && LB !== deep[1]) { LB = deep[1]; renderLightbox(); history.replaceState(null, "", location.pathname); }
-    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for MuHack · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
+    $("updated").textContent = `Updated ${new Date().toLocaleTimeString()} · refreshes every ${pollMs() / 1000}s · characters, chests and trophy are hand-drawn SVG for MuMake · agents are Bottts by Pablo Stanley via DiceBear · fonts Fredoka and Nunito (Google Fonts, OFL)`;
   } catch (e) {
     $("updated").textContent = "Can't reach forge dashboard: is it still running?";
   }
 }
-// "Go test" (Anson): one pop-up per build when it says Ready, or 20 minutes in while rounds still run (the game in
-// Studio is playable from its first install). Remembered per build in this browser, so a reload never repeats it.
-const TEST_AFTER_S = 20 * 60, POPPED = new Set();
+// "Go test" (Anson): one pop-up per build, only once it is finished: Ready, or ready for review (a build stops
+// itself at 20 minutes and says so). Remembered per build in this browser, so a reload never repeats it.
+const POPPED = new Set();
 function testPopup() {
   for (const a of DATA?.active || []) {
     const p = a.progress;
     if (!p || !a.slug || !p.started) continue;
-    const ready = p.phase === "done" && p.events?.[0]?.ok !== false;  // events are newest first
-    const long = p.running && Date.now() / 1000 - p.started >= TEST_AFTER_S;
-    if (!ready && !long) continue;
-    const key = `forge-test-pop:${a.slug}:${p.started}:${ready ? "ready" : "20m"}`;
+    const review = /ready for review/i.test(`${p.step} ${p.events?.[0]?.text || ""}`);
+    const ready = !p.running && (p.phase === "done" || review) && p.events?.[0]?.ok !== false;  // events are newest first
+    if (!ready) continue;
+    const key = `forge-test-pop:${a.slug}:${p.started}:ready`;
     let seen = POPPED.has(key);
     try { seen = seen || localStorage.getItem(key) === "1"; localStorage.setItem(key, "1"); } catch (e) { /* private window */ }
     POPPED.add(key);
     if (seen) continue;
     const box = $("testPop");
-    box.className = ready ? "testpop" : "testpop wait";
-    box.innerHTML = `<div class="box"><div class="big" id="testPopTitle">${ready ? "Your game is ready. Go test it!" : "20 minutes in: go test it!"}</div>
-      <div class="why">${esc(a.title || a.slug)} · ${esc(ready ? p.step : `still improving: ${p.step}`)}</div>
-      <div class="how">${ready ? "It is running in Studio now: click the game view, then WASD to move and Space to jump."
-        : "The game in Studio is playable now: press Play and try it. The rounds keep updating it."}</div>
+    box.className = "testpop";
+    box.innerHTML = `<div class="box"><div class="big" id="testPopTitle">${review ? "Ready for review. Go test it!" : "Your game is ready. Go test it!"}</div>
+      <div class="why">${esc(a.title || a.slug)} · ${esc(p.step)}</div>
+      <div class="how">It is running in Studio now: click the game view, then WASD to move and Space to jump.</div>
       <button type="button" id="testPopOk">Got it</button></div>`;
     box.hidden = false;
     $("testPopOk").focus();

@@ -2,9 +2,9 @@
 -- No Instances or services here, so tests/activity.spec.luau runs it outside Studio.
 local Activity = {maxText=96}
 
--- RGB per event status; nil means "use the Studio theme's main text colour".
+-- RGB per event status from the dashboard's tokens; nil means "use the panel's ink text colour".
 Activity.colors = {
-    ok={46,160,67}, fail={215,58,73}, running={0,122,204}, stopped={150,150,150},
+    ok={95,158,74}, fail={217,83,79}, running={79,156,194}, stopped={138,119,102},
 }
 local MARKS = {ok="·", fail="!", running="●", stopped="○", info="·"}
 
