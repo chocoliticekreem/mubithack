@@ -20,7 +20,9 @@
 --       axe rack, O2 tanks, trampoline, door to the hose tower.
 --   West wing X -60..-20, ground floor:
 --       Locker room (Z -40..6): THE LOCKER (one big red cabinet on the partition wall, part "StationLocker",
---       tag StationLocker; GearService adds its prompt), 8 decorative coat racks (helmet, coat, boots;
+--       tag StationLocker; GearService adds its prompt; every other locker / coat rack carries an invisible
+--       "LockerSpot" box, tag StationLockerSpot, with the same prompt, and "LockerRoomZone" (tag
+--       StationLockerRoom) covers the whole room: anywhere in it counts as at the locker), 8 coat racks (helmet, coat, boots;
 --       1..4 on the west wall, 5..8 on the free-standing "GearSpine"; nothing to grab), StationSpawn pads
 --       in front of each (attrs Slot + Helmet 1..8), spare lockers, bench, stairs up, fire pole + Mat.
 --       Watch room (X -60..-40, Z 6..30): dispatch desk + monitors, big "DispatchScreen" (SurfaceGui
@@ -48,6 +50,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Names = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Names") :: ModuleScript)
 local MapKit = require(script.Parent.Parent:WaitForChild("MapKit") :: ModuleScript)
+local GearCfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("GearConfig") :: ModuleScript) :: any
 
 local TagAny = Names.Tag :: any
 local AttrAny = Names.Attr :: any
@@ -901,8 +904,27 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 
 	------------------------------------------------------------ locker room
 	-- ONE big red LOCKER everyone uses (part "StationLocker", tag StationLocker: GearService gives it the
-	-- "Open Locker" prompt, GearController's menu does the rest). The 8 coat racks are decoration only
-	-- (no tag, no prompts, no numbers); their StationSpawn pads sit 7.7 studs in front of each board.
+	-- "Locker" prompt, GearController's menu does the rest). Every coat rack and spare locker opens the
+	-- same menu (an invisible "LockerSpot" box, tag StationLockerSpot), and the whole room is one zone
+	-- (tag StationLockerRoom): stand anywhere in it and the nearest locker's prompt reaches you.
+	-- StationSpawn pads sit 7.7 studs in front of each coat board.
+	local TAG_LOCKER_SPOT = GearCfg.LockerSpotTag or "StationLockerSpot"
+	local function lockerSpot(parent: Instance, x: number, y: number, z: number, sx: number, sy: number, sz: number)
+		local b = box(parent, "LockerSpot", x, y, z, sx, sy, sz, C.Locker, { collide = false, transparency = 1 })
+		b.CanTouch = false
+		b.CanQuery = true -- a tap's ray has to land on it (TapUseController)
+		b.CastShadow = false
+		CollectionService:AddTag(b, TAG_LOCKER_SPOT)
+	end
+	do
+		local zone = span(lockerRoom, "LockerRoomZone", -59.5, -20.4, FLOOR, SLAB0, -39.5, 5.6, C.Locker, { collide = false, transparency = 1 })
+		if zone then
+			zone.CanTouch = false
+			zone.CanQuery = false -- never eats a tap or a hose ray
+			zone.CastShadow = false
+			CollectionService:AddTag(zone, GearCfg.LockerRoomTag or "StationLockerRoom")
+		end
+	end
 	local RACK_Z = { -4, -12, -20, -28 }
 	local function gearRack(i: number, bx: number, z: number)
 		local rack = folder(lockerRoom, `CoatRack{i}`)
@@ -916,6 +938,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		box(rack, "CoatBand", bx + 0.85, FLOOR + 2.7, z + 1.3, 0.9, 0.5, 1.9, C.Lime, { collide = false })
 		box(rack, "BootL", bx + 1.5, FLOOR + 0.8, z - 1, 1.6, 1.6, 1, C.Ink)
 		box(rack, "BootR", bx + 1.5, FLOOR + 0.8, z + 0.2, 1.6, 1.6, 1, C.Ink)
+		lockerSpot(rack, bx + 1.2, FLOOR + 3.9, z, 2.6, 7.8, 5)
 		-- spawn pad (StationSpawn)
 		local px = bx + 7.7
 		local pad = box(spawns, `SpawnPad{i}`, px, FLOOR - 0.1, z, 4.4, 0.4, 4.4, C.Line)
@@ -978,6 +1001,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		prop("locker", lockerRoom, facing(x, FLOOR, 4.6, 0, -1), { door = true, helmet = k }, function()
 			box(lockerRoom, "Locker", x, FLOOR + 3.75, 4.6, 3, 7.5, 2, C.Locker)
 		end)
+		lockerSpot(lockerRoom, x, FLOOR + 3.8, 4.5, 3.2, 7.7, 2.4)
 	end
 	-- bench along the back of the spine, facing the west-wall racks
 	prop("bench", lockerRoom, facing(-44.8, FLOOR, -16, -1, 0), { length = 10 }, function()

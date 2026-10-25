@@ -61,6 +61,9 @@ return Config.define({
 
 	-- the station LOCKER (one shared cabinet, a menu; GearService + GearController)
 	LockerTag = "StationLocker", -- StationBuilder tags the cabinet's body part
+	LockerSpotTag = "StationLockerSpot", -- every OTHER locker / coat rack in the locker room (same menu)
+	LockerRoomTag = "StationLockerRoom", -- an invisible box over the whole locker room: in it = at the locker
+	LockerRoomReach = 70, -- inside the room, every locker prompt reaches this far (one prompt, anywhere)
 	LockerDistance = 12, -- its prompt's reach (big, so little kids find it); the server allows a bit more
 	LockerCooldown = 0.25, -- s between two locker requests from one player
 	RestoreDelay = 1, -- s after a spawn before the saved loadout goes back on (InventoryService sets up first)

@@ -5,8 +5,9 @@
 --     Saw). Unlocks persist in the profile (ProfileSchema v3 `gear`). A level-up tells the client what it
 --     unlocked (Gear/Unlocked).
 --   * THE LOCKER: one big shared cabinet in the station locker room (part tagged StationLocker, built by
---     StationBuilder). Its "Open Locker" prompt (E / tap, attr GearLocker) opens GearController's menu:
---     picture cards for every item. The menu only ASKS (Gear/Locker); the server checks you're at the
+--     StationBuilder). Its "Locker" prompt (E / tap, attr GearLocker) opens GearController's menu of
+--     picture cards for every item. Every other locker / coat rack in the room (tag StationLockerSpot)
+--     has the same prompt, and anywhere in the room (tag StationLockerRoom) counts as at the locker. The menu only ASKS (Gear/Locker); the server checks you're at the
 --     locker, the unlock level (locked cards say "Reach Level N!"), the hose rule (it lives on the truck)
 --     and a cooldown, then sets your slots with InventoryService:Equip (hand + back 2-slot model, the
 --     mask on your face). No 3D grabbing, no per-player racks.
@@ -73,6 +74,8 @@ GearService.Priority = 60
 
 local SITE_TAG = "IncidentSite"
 local TAG_LOCKER = Cfg.LockerTag or "StationLocker"
+local TAG_LOCKER_SPOT = Cfg.LockerSpotTag or "StationLockerSpot"
+local TAG_LOCKER_ROOM = Cfg.LockerRoomTag or "StationLockerRoom"
 local AXES = { Axe = true, FireAxe = true, GoldenAxe = true }
 local ROOFY = { "^Roof", "^Ceiling", "^Gable", "^Ridge", "^Parapet" }
 
@@ -971,12 +974,34 @@ local function currentEq(player: Player): Eq
 	}
 end
 
-local function nearLocker(player: Player): boolean
-	for _, inst in CollectionService:GetTagged(TAG_LOCKER) do
-		if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) then
-			local reach = Cfg.LockerDistance + math.max(inst.Size.X, inst.Size.Z) / 2 + 4
-			if Net.near(player, inst.Position, reach) then
+-- inside the station's locker room box (a few studs of slack, so the doorway counts)
+local function inLockerRoom(pos: Vector3): boolean
+	for _, z in CollectionService:GetTagged(TAG_LOCKER_ROOM) do
+		if z:IsA("BasePart") and z:IsDescendantOf(workspace) then
+			local l = z.CFrame:PointToObjectSpace(pos)
+			local h = z.Size / 2 + Vector3.new(3, 3, 3)
+			if math.abs(l.X) <= h.X and math.abs(l.Y) <= h.Y and math.abs(l.Z) <= h.Z then
 				return true
+			end
+		end
+	end
+	return false
+end
+
+-- at ANY locker: anywhere in the locker room, or in reach of the big one / a locker spot
+local function nearLocker(player: Player): boolean
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root and inLockerRoom(root.Position) then
+		return true
+	end
+	for _, tag in { TAG_LOCKER, TAG_LOCKER_SPOT } do
+		for _, inst in CollectionService:GetTagged(tag) do
+			if inst:IsA("BasePart") and inst:IsDescendantOf(workspace) then
+				local reach = Cfg.LockerDistance + math.max(inst.Size.X, inst.Size.Z) / 2 + 4
+				if Net.near(player, inst.Position, reach) then
+					return true
+				end
 			end
 		end
 	end
@@ -1155,15 +1180,15 @@ local function hookLocker(inst: Instance)
 	end
 	local body = inst :: BasePart
 	lockers[body] = true
-	-- the prompt sits on the front (-X) face, at chest height
+	-- the big one's prompt sits on its front (-X) face at chest height; a locker spot's in its middle
 	local att = Instance.new("Attachment")
 	att.Name = "LockerPoint"
-	att.Position = Vector3.new(-(body.Size.X / 2 + 0.6), -1, 0)
+	att.Position = if body:HasTag(TAG_LOCKER) then Vector3.new(-(body.Size.X / 2 + 0.6), -1, 0) else Vector3.zero
 	att.Parent = body
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "LockerPrompt"
-	prompt.ActionText = "Open Locker"
-	prompt.ObjectText = "LOCKER"
+	prompt.ActionText = "Locker" -- small: the card reads "E Locker", the phone bubble LOCKER
+	prompt.ObjectText = ""
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
 	prompt.HoldDuration = 0
@@ -1341,6 +1366,7 @@ function GearService:Start()
 	end)
 
 	watchTag(TAG_LOCKER, hookLocker)
+	watchTag(TAG_LOCKER_SPOT, hookLocker)
 	watchTag(Names.Tag.Door, hookDoor)
 	watchTag(Names.Tag.Window, hookWindow)
 	watchTag(SITE_TAG, hookSite)
