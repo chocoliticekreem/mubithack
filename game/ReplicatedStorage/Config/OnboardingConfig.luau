@@ -27,11 +27,11 @@ return Config.define({
 		seat = { head = "HOP BACK IN!", sub = "Walk up to the truck and press {enter}", subTouch = "Tap the truck to hop in" },
 		ride = { head = "YOU'RE IN THE TRUCK!", sub = "Your driver follows the GPS. Hang on!" },
 		drive = {
-			head = "YOU'RE IN! FOLLOW THE GPS",
-			sub = "W/S drive  -  A/D steer  -  {siren} siren  -  {horn} horn",
+			head = "HIT THE SIREN! FOLLOW THE GPS",
+			sub = "{siren} siren  -  W/S drive  -  A/D steer  -  {horn} horn",
 			-- phones / gamepads (ClientLib/InputHints): the truck's own on-screen buttons
-			subTouch = "Stick to drive  -  SIREN and HONK buttons",
-			subPad = "Stick to drive  -  X siren  -  Y horn",
+			subTouch = "Tap SIREN!  Stick to drive, follow the arrow",
+			subPad = "X siren!  Stick to drive  -  Y horn",
 		},
 	},
 	DriveHintSeconds = 8,

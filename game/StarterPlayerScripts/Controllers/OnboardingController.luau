@@ -10,7 +10,7 @@
 --     (Onboarding/Done -> settings.onboarded). Each step: a card at the top centre, a bouncing arrow
 --     and a Highlight on the target, and an edge arrow when it's off screen.
 --   * Dispatch hints (everyone, every mission): the squad starts IN its truck (LobbyService boards it), so
---     YOU'RE IN! FOLLOW THE GPS (driver) / YOU'RE IN THE TRUCK! (riders), a few seconds each; got out on
+--     HIT THE SIREN! FOLLOW THE GPS (driver) / YOU'RE IN THE TRUCK! (riders), a few seconds each; got out on
 --     the way: HOP BACK IN with the arrow on the truck you were riding.
 --   * Lobby declutter: the graphics button and emote hint only show with Help open (H).
 --   * Help (H): a scrollable cheat sheet (attr Menu, so the mouse frees in first person): the 3 slots
