@@ -5,7 +5,8 @@
 --     breathing loop; your own InvFace model is hidden while the camera is in your head.
 --   * THERMAL CAMERA (InvHand == "ThermalCam"): trapped people glow orange through walls, cold tint +
 --     a "THERMAL" readout.
---   * LOCKER: the big shared locker's "Open Locker" prompt (attr GearLocker; E, or tap it) opens one
+--   * LOCKER: the big shared locker's "Locker" prompt (attr GearLocker; E, or tap it; any locker / coat
+--     rack in the locker room too, and from anywhere in that room every locker's prompt reaches) opens one
 --     kid-sized menu: IN HAND / SWAP / ON BACK on the left, a picture card per item (a ViewportFrame of
 --     ReplicatedStorage.LockerIcons) on the right, a big CLOSE. Tap a card = hold it, its BACK chip = put
 --     it on your back, tap the worn mask = take it off, tap a slot = put it away. Locked cards show a
@@ -450,6 +451,38 @@ local function nearestLocker(): BasePart?
 	return best
 end
 
+-- in the station's locker room box (GearService checks the same box, with the same slack)
+local function inLockerRoom(pos: Vector3): boolean
+	for _, z in CollectionService:GetTagged(Cfg.LockerRoomTag or "StationLockerRoom") do
+		if z:IsA("BasePart") and z:IsDescendantOf(workspace) then
+			local l = z.CFrame:PointToObjectSpace(pos)
+			local h = z.Size / 2 + Vector3.new(3, 3, 3)
+			if math.abs(l.X) <= h.X and math.abs(l.Y) <= h.Y and math.abs(l.Z) <= h.Z then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Anywhere in the locker room, every locker's prompt reaches you (locally): PC shows one "E Locker"
+-- card, a phone one LOCKER bubble over the nearest locker, and tapping ANY locker opens the menu.
+local function lockerReachTick()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local inRoom = root ~= nil and inLockerRoom(root.Position)
+	local reach = if inRoom then Cfg.LockerRoomReach or 70 else Cfg.LockerDistance
+	for _, tag in { Cfg.LockerTag or "StationLocker", Cfg.LockerSpotTag or "StationLockerSpot" } do
+		for _, p in CollectionService:GetTagged(tag) do
+			local att = p:FindFirstChild("LockerPoint")
+			local prompt = att and att:FindFirstChild("LockerPrompt")
+			if prompt and prompt:IsA("ProximityPrompt") and prompt.MaxActivationDistance ~= reach then
+				prompt.MaxActivationDistance = reach
+			end
+		end
+	end
+end
+
 local function openLocker()
 	closeLocker()
 	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
@@ -889,12 +922,14 @@ function GearController:Start()
 			if thermalOn then
 				thermalTick()
 			end
+			lockerReachTick()
 			-- walked away from the locker (or got teleported off to a call): close the menu
 			if lockerGui then
 				local char = player.Character
 				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 				local lk = nearestLocker()
-				if not root or not lk or (lk.Position - root.Position).Magnitude > Cfg.LockerCloseDistance then
+				local inRoom = root ~= nil and inLockerRoom(root.Position)
+				if not root or (not inRoom and (not lk or (lk.Position - root.Position).Magnitude > Cfg.LockerCloseDistance)) then
 					closeLocker()
 				end
 			end
