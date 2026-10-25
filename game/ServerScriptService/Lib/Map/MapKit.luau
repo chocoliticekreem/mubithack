@@ -124,7 +124,7 @@ function MapKit.window(parent: Instance, name: string, cf: CFrame): Part
 	})
 end
 
--- Red fire hydrant (tagged Hydrant; decoration: no prompt, trucks have endless water). cf = base on the ground.
+-- Red fire hydrant (Body tagged Hydrant; InventoryService gives it a [T] Grab Hose prompt). cf = base on the ground.
 function MapKit.hydrant(parent: Instance, cf: CFrame): Model
 	local m = Instance.new("Model")
 	m.Name = "Hydrant"

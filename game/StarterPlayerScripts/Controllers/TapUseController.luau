@@ -109,6 +109,7 @@ end
 
 -- one short verb for the bubble
 local VERBS: { { string } } = {
+	{ "^Grab Hose", "HOSE" }, -- the truck's reel and the street hydrants
 	{ "^Grab", "GRAB" },
 	{ "^Pick up", "GRAB" }, -- a rescue's Carry prompt says "Pick up" too: verbOf maps it to CARRY first
 	{ "^Take", "GRAB" },

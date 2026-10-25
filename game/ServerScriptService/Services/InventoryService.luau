@@ -29,8 +29,13 @@
 --   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart; holding the
 --   extinguisher, [T] swaps it for the hose), Truck (attrs OwnerUserId,
 --   Driver), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
--- Water: a truck's hose NEVER runs out (no truck tank, no refills, no supply lines). Hydrants are just
---   decoration (no prompts).
+-- Water: a truck's hose NEVER runs out (no truck tank, no refills, no supply lines). Street hydrants
+--   (MapKit.hydrant: a Model with Body tagged Hydrant + Cap + nozzles, not station ones, not ponds/pools/
+--   creeks that share the tag) get a "HydrantHosePrompt" on the Body ([T] / ButtonY / tap, attrs InvPrompt
+--   + InvHydrant): the SAME hose as the truck's reel (endless water, HoseLine kind "Hydrant",
+--   HoseLineConfig.LengthHydrant), HosesPerTruck nozzles per hydrant; holding the extinguisher it swaps,
+--   holding another source's hose it swaps lines. HydrantController relabels it locally and hides it
+--   while you drive.
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
 -- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher
@@ -40,14 +45,14 @@
 --   attr Item); prompts with attr InvPrompt (Style Custom: InventoryController draws them).
 -- Calls (nil-guarded): ToolService:CreateTool, HeatService:GetHeat/Cool,
 --   Lib/Tools/HoseLine attach/detach, Shared/Ragdoll.
--- Counters: inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,
+-- Counters: inv_hose_hydrant, inv_grabs, inv_drops, inv_throws, inv_bonks, inv_fumbles, inv_swaps, inv_hose_out,
 --   inv_hose_stowed, inv_props_carried, inv_restocks, inv_locker_equips
 -- Thrown: Cfg.ThrowSpinItems (axes, bars) tomahawk end over end at Cfg.AxeThrowSpin rad/s; the rest tumble.
 -- One hand Tool at a time: any other inventory Tool (attr InvItem) under the character or in the
 --   Backpack is destroyed on every apply; a Tool knocked into the Backpack (UnequipTools) comes back to
 --   the hand once you are not downed or carrying (hooked per character, the Backpack is new each spawn).
 -- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),
---   _fumble(player), _reel(player, reel?, from?: Vector3)
+--   _fumble(player), _reel(player, reel?, from?: Vector3)  (reel may be a hydrant Body)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -289,8 +294,13 @@ local function reelAttachment(reel: BasePart): Attachment
 	return na
 end
 
+local function isHydrantSource(part: BasePart): boolean
+	return part:HasTag(Names.Tag.Hydrant)
+end
+
 local function hoseLength(reel: BasePart): number
-	return tonumber(reel:GetAttribute("HoseLength")) or HoseLineConfig.LengthTruck
+	return tonumber(reel:GetAttribute("HoseLength"))
+		or (if isHydrantSource(reel) then HoseLineConfig.LengthHydrant else HoseLineConfig.LengthTruck)
 end
 
 local function addFlyer(part: BasePart, thrower: Player, what: string)
@@ -1134,19 +1144,25 @@ local function onReel(player: Player, reel: BasePart)
 	if (hum and hum.SeatPart) or not nearSource(player, reel) then
 		return
 	end
+	local hydrant = isHydrantSource(reel)
 	local hand = ps.hand
 	if hand and hand.id == "Hose" then
 		local from = hand.data.reel
-		if from ~= nil and from ~= reel and from:IsDescendantOf(workspace) then
+		local other = from ~= nil and from ~= reel and from:IsDescendantOf(workspace)
+		if other and not hydrant and not isHydrantSource(from :: BasePart) then
 			say(player, ps, "That hose belongs to another truck!")
 			return
 		end
 		ps.hand = nil
-		apply(player, ps)
-		Telemetry.count("inv_hose_stowed")
-		fx("stow", reel.Position, "Hose")
-		say(player, ps, "Hose back on the reel")
-		return
+		if other then
+			hand = nil -- a hydrant in the mix: drop the old line, take this one (same endless hose)
+		else
+			apply(player, ps)
+			Telemetry.count("inv_hose_stowed")
+			fx("stow", reel.Position, "Hose")
+			say(player, ps, if hydrant then "Hose back on the hydrant" else "Hose back on the reel")
+			return
+		end
 	end
 	-- Holding the extinguisher (everyone does after the training fire): [T] at the truck swaps it for the
 	-- hose. It used to refill the foam instead, so "GRAB THE HOSE: press T" did nothing on a kid's first
@@ -1170,7 +1186,8 @@ local function onReel(player: Player, reel: BasePart)
 			player:SetAttribute("Foam", ToolConfig.FoamSize)
 		end
 		local one = #holders == 1
-		say(player, ps, `{namesOf(holders)} {if one then "has" else "have"} this truck's hose{if one then "" else "s"}!`)
+		local what = if hydrant then "hydrant" else "truck"
+		say(player, ps, `{namesOf(holders)} {if one then "has" else "have"} this {what}'s hose{if one then "" else "s"}!`)
 		return
 	end
 	local reclaim = if slot == "reclaim" then lying[1] else nil
@@ -1180,6 +1197,9 @@ local function onReel(player: Player, reel: BasePart)
 			removeLoose(reclaim)
 		end
 		Telemetry.count("inv_hose_out")
+		if hydrant then
+			Telemetry.count("inv_hose_hydrant")
+		end
 		if swapped then
 			Telemetry.count("inv_hose_swapped")
 			say(player, ps, "HOSE! Endless water. Spray the fire!", "good")
@@ -1254,6 +1274,51 @@ local function hookReel(inst: Instance)
 		if reel.Parent and hookTruckHose(reel) then
 			p.Enabled = false
 		end
+	end)
+end
+
+-- hydrants: the same hose as the truck reel ----------------------------------------------------------
+-- Only real street hydrants (MapKit.hydrant's Body + Cap + nozzles): ponds, pools and creeks share the
+-- Hydrant tag but stay scenery, and the station's hydrants (inside the StationOrigin model) stay props.
+local function hydrantBody(inst: Instance): BasePart?
+	if not inst:IsA("BasePart") or inst.Name ~= "Body" then
+		return nil
+	end
+	local m = inst.Parent
+	if not m or not m:IsA("Model") or not m:FindFirstChild("Cap") or not m:FindFirstChild("NozzleL") then
+		return nil
+	end
+	local cur: Instance? = m
+	while cur and cur ~= workspace do
+		if cur:GetAttribute("StationOrigin") ~= nil then
+			return nil
+		end
+		cur = cur.Parent
+	end
+	return inst
+end
+
+local function hookHydrant(inst: Instance)
+	local body = hydrantBody(inst)
+	if not body or body:FindFirstChild("HydrantHosePrompt") then
+		return
+	end
+	local p = Instance.new("ProximityPrompt")
+	p.Name = "HydrantHosePrompt"
+	p.ActionText = "Grab Hose"
+	p.ObjectText = "Hydrant"
+	p.KeyboardKeyCode = Cfg.TruckHoseKey or Enum.KeyCode.T
+	p.GamepadKeyCode = Enum.KeyCode.ButtonY
+	p.HoldDuration = 0
+	p.MaxActivationDistance = Cfg.HydrantHoseReach or 8
+	p.RequiresLineOfSight = false
+	p.Style = Enum.ProximityPromptStyle.Custom
+	p:SetAttribute(ATTR_PROMPT, true)
+	p:SetAttribute("InvHydrant", true) -- HydrantController relabels it locally (Grab / Stow Hose)
+	p.Parent = body
+	promptHooked[p] = true
+	p.Triggered:Connect(function(player: Player)
+		onReel(player, body)
 	end)
 end
 
@@ -1435,6 +1500,7 @@ function InventoryService:Start()
 		setupTruck(inst)
 	end)
 	watchTag(Names.Tag.TruckRefill, hookReel)
+	watchTag(Names.Tag.Hydrant, hookHydrant)
 	watchTag(Cfg.CarryTag, hookCarryable)
 
 	Players.PlayerAdded:Connect(hookPlayer)
