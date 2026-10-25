@@ -1,6 +1,8 @@
 import React from "react";
 import { Composition, Still } from "remotion";
 import { AdBackdraft, AdBoom, AdChief, AdCloseup, AdRooftop, AdSaveCat, AdSaveThem, AdSquad, AdWhoStarted } from "./Ads";
+import { Ad10, Ad11, Ad12, Ad13, Ad14, Ad15, Ad16, Ad17, Ad18, Ad19, Ad20, Ad21, Ad22, Ad23 } from "./Ads2";
+import { Thumb01, Thumb02, Thumb03, Thumb04, Thumb05 } from "./Thumbs";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
 import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
@@ -32,6 +34,25 @@ export const Root: React.FC = () => (
     <Still id="ad-07-backdraft" component={AdBackdraft} {...A} />
     <Still id="ad-08-rooftop-rescue" component={AdRooftop} {...A} />
     <Still id="ad-09-fire-chief" component={AdChief} {...A} />
+    <Still id="ad-10-be-a-firefighter" component={Ad10} {...A} />
+    <Still id="ad-11-put-out-the-fire" component={Ad11} {...A} />
+    <Still id="ad-12-save-the-kids" component={Ad12} {...A} />
+    <Still id="ad-13-drive-the-fire-truck" component={Ad13} {...A} />
+    <Still id="ad-14-house-on-fire" component={Ad14} {...A} />
+    <Still id="ad-15-answer-the-call" component={Ad15} {...A} />
+    <Still id="ad-16-save-the-panda" component={Ad16} {...A} />
+    <Still id="ad-17-stop-the-fire" component={Ad17} {...A} />
+    <Still id="ad-18-fire-truck-race" component={Ad18} {...A} />
+    <Still id="ad-19-spray-it" component={Ad19} {...A} />
+    <Still id="ad-20-rescue-everyone" component={Ad20} {...A} />
+    <Still id="ad-21-can-you-save-them" component={Ad21} {...A} />
+    <Still id="ad-22-giant-fire" component={Ad22} {...A} />
+    <Still id="ad-23-fire-squad" component={Ad23} {...A} />
+    <Still id="thumb-01-be-a-firefighter" component={Thumb01} {...A} />
+    <Still id="thumb-02-trucks-and-dispatch" component={Thumb02} {...A} />
+    <Still id="thumb-03-school-rescue" component={Thumb03} {...A} />
+    <Still id="thumb-04-8-player-squad" component={Thumb04} {...A} />
+    <Still id="thumb-05-new-map" component={Thumb05} {...A} />
     <Composition id="vid-15s-16x9" component={Vid15} durationInFrames={VID15_FRAMES} fps={30} {...A} />
     <Composition id="vid-06s-16x9" component={Vid6} durationInFrames={VID6_FRAMES} fps={30} {...A} />
   </>
