@@ -26,7 +26,8 @@
 --          kinds: "grab", "drop", "throw", "bonk", "fumble", "stow"
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
 --   (attr Item), TruckRefill (the reel: nozzle; anyone's, Cfg.HosesPerTruck nozzles each, grabbed and
---   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart), Truck (attrs OwnerUserId,
+--   stowed with [T] from any side of the truck via a "TruckHosePrompt" on its PrimaryPart; holding the
+--   extinguisher, [T] swaps it for the hose), Truck (attrs OwnerUserId,
 --   Driver), CarryTag props. A truck with no TruckCompartment parts gets its "Locker_*" doors tagged.
 -- Water: a truck's hose NEVER runs out (no truck tank, no refills, no supply lines). Hydrants are just
 --   decoration (no prompts).
@@ -1147,18 +1148,27 @@ local function onReel(player: Player, reel: BasePart)
 		say(player, ps, "Hose back on the reel")
 		return
 	end
+	-- Holding the extinguisher (everyone does after the training fire): [T] at the truck swaps it for the
+	-- hose. It used to refill the foam instead, so "GRAB THE HOSE: press T" did nothing on a kid's first
+	-- call. The extinguisher goes back in the truck (its compartments still hand out fresh ones).
+	local swapped = false
 	if hand and hand.id == "Extinguisher" then
-		hand.data.foam = ToolConfig.FoamSize
-		player:SetAttribute("FoamSize", ToolConfig.FoamSize)
-		player:SetAttribute("Foam", ToolConfig.FoamSize)
-		say(player, ps, "Extinguisher refilled!", "good")
-		return
+		ps.hand = nil
+		swapped = true
 	end
 	-- anyone's truck: its hose has endless water
 	local holders = holdersOf(reel, player)
 	local lying = lyingOf(reel)
 	local slot = ItemDefs.reelSlot(#holders, #lying, capOf(reel))
 	if slot == "full" then
+		if swapped then
+			ps.hand = hand -- no free hose: keep the extinguisher, topped up
+			if hand then
+				hand.data.foam = ToolConfig.FoamSize
+			end
+			player:SetAttribute("FoamSize", ToolConfig.FoamSize)
+			player:SetAttribute("Foam", ToolConfig.FoamSize)
+		end
 		local one = #holders == 1
 		say(player, ps, `{namesOf(holders)} {if one then "has" else "have"} this truck's hose{if one then "" else "s"}!`)
 		return
@@ -1170,7 +1180,14 @@ local function onReel(player: Player, reel: BasePart)
 			removeLoose(reclaim)
 		end
 		Telemetry.count("inv_hose_out")
+		if swapped then
+			Telemetry.count("inv_hose_swapped")
+			say(player, ps, "HOSE! Endless water. Spray the fire!", "good")
+		end
 		fx("grab", reel.Position, "Hose")
+	elseif swapped then
+		ps.hand = hand
+		apply(player, ps)
 	end
 end
 
@@ -1193,7 +1210,7 @@ local function hookTruckHose(reel: BasePart): boolean
 	p.RequiresLineOfSight = false
 	p.Style = Enum.ProximityPromptStyle.Custom
 	p:SetAttribute(ATTR_PROMPT, true)
-	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Stow Hose / Refill Foam)
+	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Grab / Stow Hose)
 	p.Parent = base
 	promptHooked[p] = true
 	p.Triggered:Connect(function(player: Player)
@@ -1227,7 +1244,7 @@ local function hookReel(inst: Instance)
 	p:SetAttribute(ATTR_PROMPT, true)
 	p.HoldDuration = 0
 	p.MaxActivationDistance = math.max(p.MaxActivationDistance, 12)
-	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Stow Hose / Refill Foam)
+	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Grab / Stow Hose)
 	p.Triggered:Connect(function(player: Player)
 		onReel(player, reel)
 	end)

@@ -64,15 +64,17 @@ return {
 		hose = {
 			id = "hose",
 			head = "GRAB THE HOSE",
-			sub = "Stand by any side of your truck, press T. Its water never runs out.",
+			sub = "Stand by your truck, press T. Its water never runs out.",
 			target = { kind = "truck", tag = "TruckRefill" },
 			done = { kind = "hand", item = "Hose" },
-			maxSeconds = 60,
+			-- live funnel: 42% quit between arriving and the first fire out; a kid stuck on this step must
+			-- reach SPRAY THE FIRE (the arrow on the flames) fast. The extinguisher sprays too.
+			maxSeconds = 20,
 		},
 		spray = {
 			id = "spray",
-			head = "SPRAY THE BASE",
-			sub = "Aim low and hold click. Flames hate wet feet.",
+			head = "SPRAY THE FIRE!",
+			sub = "Follow the arrow. Hold left click on the flames.",
 			target = { kind = "burning" },
 			done = { kind = "fireOut" },
 			maxSeconds = 60,
@@ -98,12 +100,13 @@ return {
 
 	Missions = {
 		house_fire = {
-			tip = "Spray the BASE of the flames, then carry everyone to the truck.",
+			tip = "Spray the flames, then carry everyone outside.",
 			steps = {
 				"hose",
 				"spray",
 				{ use = "carry", sub = "Neighbours, a cat, a dog, even a panda... E to pick up." },
-				"deliver",
+				-- indoor rescues count once they're OUTSIDE (RescueConfig.SafeOutside): no need to reach the truck
+				{ use = "deliver", head = "GET THEM OUTSIDE!", sub = "Carry them out the front door. Outside = saved!" },
 			},
 		},
 		apartment_trampoline = {
