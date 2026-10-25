@@ -358,4 +358,20 @@ Spec.test("spreadPick: far from burning fires and each other, never on a rescue 
 	Spec.eq(Flow.spreadPick(cands, {}, {}, 8, 1)[1], 1, "nothing burning: ties keep the caller's order")
 end)
 
+Spec.test("capRescues: rookie calls keep at most N, round robin over the kinds", function()
+	local list = { { kind = "Civilian", count = 2 }, { kind = "Cat", count = 1 }, { kind = "Dog", count = 1 } }
+	local two = Flow.capRescues(list, 2)
+	Spec.eq(#two, 2)
+	Spec.eq(two[1].kind .. two[1].count .. two[2].kind .. two[2].count, "Civilian1Cat1", "one of each, catalog order")
+	local four = Flow.capRescues(list, 4)
+	local n = 0
+	for _, r in four do
+		n += r.count
+	end
+	Spec.eq(n, 4, "all four when the cap allows")
+	Spec.eq(#Flow.capRescues(list, 0), 0, "cap 0 = nobody")
+	Spec.eq(Flow.capRescues({ { kind = "Panda", count = 1 } }, 5)[1].count, 1, "never more than the catalog")
+	Spec.eq(list[1].count, 2, "input untouched")
+end)
+
 return Spec.finish()

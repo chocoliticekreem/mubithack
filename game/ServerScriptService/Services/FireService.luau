@@ -9,6 +9,8 @@
 --   FireService:CountBurning(locationId: string?): number   -- locationId or v1.5 instanceId; nil = all
 --   FireService:ExtinguishAll(locationId: string?)          -- nil = every location/instance
 --   FireService:ClearInstance(instanceId: string)            -- v1.5, called by MissionService at mission end
+--   FireService:SetLocationCap(locationId: string, cap: number?) -- this location's own MaxBurningPerLocation
+--     (rookie calls: GameConfig.Rookie.FireCap); nil = back to the config cap. Forgotten with the location.
 -- Indexes MapService.LocationBuilt (key = locationId) and v1.5 MapService.InstanceBuilt (key = instanceId).
 --   FireService:IndexLocation(model: Instance, locationId: string)  -- index a model built outside
 --     MapService (FirstFireService's training fire) as its own fire location; Destroying frees it
@@ -51,6 +53,7 @@ type Location = {
 	burning: { [Cell]: true },
 	count: number,
 	capWarned: boolean,
+	cap: number?, -- SetLocationCap: overrides FireConfig.MaxBurningPerLocation for this location
 }
 
 local FireService = {}
@@ -89,7 +92,7 @@ local function startBurning(c: Cell, cause: Player?): boolean
 		return false
 	end
 	local l = loc(c.location)
-	if not FireSim.canIgnite(l.count, FireConfig.MaxBurningPerLocation, totalBurning, FireConfig.MaxBurning) then
+	if not FireSim.canIgnite(l.count, l.cap or FireConfig.MaxBurningPerLocation, totalBurning, FireConfig.MaxBurning) then
 		if not l.capWarned then
 			l.capWarned = true
 			Telemetry.count("fire_cap_hit")
@@ -386,6 +389,13 @@ function FireService:ClearInstance(instanceId: string)
 	end
 	self:ExtinguishAll(instanceId)
 	forget(instanceId)
+end
+
+function FireService:SetLocationCap(locationId: string, cap: number?)
+	if type(locationId) ~= "string" then
+		return
+	end
+	loc(locationId).cap = if type(cap) == "number" and cap > 0 then math.floor(cap) else nil
 end
 
 function FireService:IndexLocation(model: Instance, locationId: string)

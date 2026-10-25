@@ -322,8 +322,12 @@ local function show(payload: Types.ResultsPayload)
 		end
 	end)
 
-	local good = payload.trapped == 0 and payload.burningAtEnd == 0
-	local headlineText = if payload.reason == "allOut" and good
+	-- a rookie call that ran out of time is still a win (MissionService, GameConfig.Rookie.TimeoutIsWin)
+	local rookieWin = (payload :: any).rookieWin == true
+	local good = (payload.trapped == 0 and payload.burningAtEnd == 0) or rookieWin
+	local headlineText = if rookieWin
+		then "CALL COMPLETE!"
+		elseif payload.reason == "allOut" and good
 		then "ALL CLEAR!"
 		elseif good then "MISSION COMPLETE"
 		elseif payload.reason == "allOut" then "FIRES OUT!"

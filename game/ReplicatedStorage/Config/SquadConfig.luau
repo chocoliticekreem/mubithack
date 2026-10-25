@@ -8,6 +8,7 @@ return Config.define({
 	-- Downed
 	DownAtHealth = 5, -- Humanoid health at or below this downs the player instead of killing them
 	BleedOutSeconds = 25, -- downed this long with nobody helping -> respawn at the truck (or a station pad)
+	SoloBleedOutSeconds = 6, -- ...but alone on a call (nobody can revive you) it's a short nap, not a 25 s crawl
 	CrawlSpeed = 3, -- WalkSpeed while downed (slow worm crawl on your back)
 	FlopSeconds = 1.2, -- Ragdoll.enable on the way down (G1's Shared/Ragdoll), then the lying pose
 	DownedHipHeight = 0.3, -- Humanoid.HipHeight while lying
@@ -36,7 +37,7 @@ return Config.define({
 	-- MissionService (main) already ends a run as "wiped" when every squad member is Downed, so by
 	-- default SquadService only fires Wiped + counts squad_wipes. true = also end it here ("forced").
 	WipeEndsMission = false,
-	WipeMinPlayers = 1,
+	WipeMinPlayers = 2, -- a squad of one is never "wiped" (GameConfig.SoloNeverWipes): they respawn at the truck
 	WipeGraceSeconds = 2, -- comedic beat before "MISSION FAILED"
 	-- emotes (lobby only, number keys 1..3)
 	Emotes = { "wave", "facepalm", "blame" },

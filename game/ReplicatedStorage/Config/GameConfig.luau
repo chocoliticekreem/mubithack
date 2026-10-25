@@ -39,6 +39,20 @@ return Config.define({
 			{ at = 180, fires = 4, setPiece = "flashover", text = "FLASHOVER! A whole room just went up!" },
 		},
 	},
+	-- ROOKIE CALLS (MissionService): while anyone in the squad has played fewer than `Calls` calls, the call is
+	-- short and kind. Live funnel: a far first call (40-65 s drive), 120 burning parts and 5 rescues lost
+	-- 29% on the drive, 42% before the first fire out, and most of the rest before "complete".
+	Rookie = {
+		Calls = 2, -- profile missionsPlayed below this = rookie
+		NearestSite = true, -- the nearest free site (no MinDispatchStuds): a short drive
+		ArrivalFires = 3, -- fires lit on arrival (instead of the catalog/scaled count)
+		FireCap = 10, -- burning parts the site may hold (FireService:SetLocationCap): spread can't snowball
+		MaxRescues = 2, -- people/pets to carry out (round robin over the catalog's kinds)
+		NoEscalation = true, -- no "spreading upstairs" / flashover phases
+		TimeoutIsWin = true, -- time runs out: "CALL COMPLETE!" with at least 1 star, never TIME'S UP
+	},
+	-- a squad of one is never "wiped": a downed solo player respawns at the truck (SquadConfig.SoloBleedOutSeconds)
+	SoloNeverWipes = true,
 	FireAvoidRescueStuds = 8,
 	RescuesPerExtraPlayers = 2, -- +1 rescuable per 2 extra players (where the site has spawn markers)
 	RekindleSeconds = 4, -- nothing has burned at the site this long after arrival: light the site's FireStart markers
