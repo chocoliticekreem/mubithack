@@ -326,10 +326,17 @@ local function track(name: string, state: Enum.UserInputState)
 	end
 end
 
+-- the same key always does the same thing: with a person in your arms G / Q drop / throw THEM, whichever
+-- controller bound last (both sink the key)
+local function carryingPerson(): boolean
+	local c = LocalPlayer:GetAttribute(Names.Attr.Carrying)
+	return type(c) == "string" and c ~= ""
+end
+
 local function onDrop(n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
 	track(n, state)
-	if not hasItem() then
-		return Enum.ContextActionResult.Pass
+	if not hasItem() or carryingPerson() then
+		return Enum.ContextActionResult.Pass -- carrying someone: G / Q are always RescueController's
 	end
 	if state == Enum.UserInputState.Begin and DropR then
 		DropR:FireServer()
@@ -339,7 +346,7 @@ end
 
 local function onThrow(n: string, state: Enum.UserInputState, _i: InputObject): Enum.ContextActionResult
 	track(n, state)
-	if not hasItem() then
+	if not hasItem() or carryingPerson() then
 		chargeStart = nil
 		return Enum.ContextActionResult.Pass
 	end
@@ -544,7 +551,7 @@ function InventoryController:Start()
 			cf.Visible = true
 			local c = chargeOf()
 			fill.Size = UDim2.fromScale(c, 1)
-			fill.BackgroundColor3 = if c >= 1 then Palette.UiRed else Palette.FireBody
+			fill.BackgroundColor3 = if c >= 1 then Palette.UiGood else Palette.FireBody -- full = ready (green), not danger
 		else
 			cf.Visible = false
 		end

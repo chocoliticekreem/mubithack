@@ -46,7 +46,7 @@ return {
 	DoneFlashSeconds = 0.9, -- the "NICE!" tick between steps
 	ArrowHeight = 4.5,
 	ArrowBob = 0.6,
-	HighlightColor = "#5BE0FF", -- guide highlight (the station tutorial is yellow; this is a calmer cyan)
+	HighlightColor = "#FFC531", -- guide highlight: Palette.UiWarn, the same yellow as the station tutorial (yellow = objective; cyan read as water)
 	ChipNew = "NEW CALL",
 	RookieLine = "Rookie on the call: {names}. Show them how!",
 
@@ -91,7 +91,7 @@ return {
 		deliver = {
 			id = "deliver",
 			head = "DROP THEM AT THE TRUCK",
-			sub = "Walk into the glowing drop zone. Yeeting (hold Q) also counts. Probably.",
+			sub = "Walk up to the back of the truck. Yeeting (hold Q) also counts. Probably.", -- the drop zone is invisible: never promise a glow
 			target = { kind = "truck", tag = "RescueDropoff" },
 			done = { kind = "rescued" },
 			maxSeconds = 75,

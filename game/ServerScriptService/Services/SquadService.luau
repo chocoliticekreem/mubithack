@@ -594,7 +594,7 @@ end
 
 function SquadService:_tryRevive(victim: Player, by: Player, method: string)
 	local a, b = rootOf(victim), rootOf(by)
-	local ok = SquadRules.canRevive({
+	local ok, why = SquadRules.canRevive({
 		self = victim == by,
 		victimDowned = victim:GetAttribute(Names.Attr.Downed) == true,
 		reviverDowned = by:GetAttribute(Names.Attr.Downed) == true,
@@ -602,6 +602,9 @@ function SquadService:_tryRevive(victim: Player, by: Player, method: string)
 		distance = if a and b then (a.Position - b.Position).Magnitude else math.huge,
 		maxDistance = SquadConfig.ReviveDistance + 2,
 	})
+	if not ok and (why == "too far" or why == "other squad") then
+		Popup.show(by, if why == "too far" then "Too far! Get closer" else "Not your squad!", "hint", by)
+	end
 	if ok then
 		self:Revive(victim, by, method)
 	end

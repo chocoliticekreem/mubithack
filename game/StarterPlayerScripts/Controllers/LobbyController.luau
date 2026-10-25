@@ -488,7 +488,13 @@ local function showToast(text: string, seconds: number)
 		if t.Text ~= text then
 			return
 		end
-		TweenService:Create(t, TweenInfo.new(0.5), { TextTransparency = 1 }):Play()
+		local fade = TweenService:Create(t, TweenInfo.new(0.5), { TextTransparency = 1 })
+		fade.Completed:Connect(function()
+			if t.Text == text then
+				t.Visible = false -- hidden, so HudLayout's TopCentre stack closes the gap under it
+			end
+		end)
+		fade:Play()
 		if s then
 			TweenService:Create(s, TweenInfo.new(0.5), { Transparency = 1 }):Play()
 		end

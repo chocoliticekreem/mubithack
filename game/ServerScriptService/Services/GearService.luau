@@ -683,6 +683,7 @@ local function kick(player: Player, door: BasePart, force: boolean?): boolean
 		return false
 	end
 	if not Net.near(player, door.Position, Cfg.Reach + 3) then
+		Popup.show(player, "Too far! Get closer", "hint", player)
 		return false
 	end
 	local now = os.clock()

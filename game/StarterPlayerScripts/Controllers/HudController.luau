@@ -895,7 +895,7 @@ local function refresh(t: number)
 	end
 	u.carry.Visible = carrying
 	if carrying then
-		u.carryText.Text = `CARRYING: {kind}\nBring to the TRUCK!`
+		u.carryText.Text = `CARRYING: {kind}\nGet them OUTSIDE or to the TRUCK!` -- either counts (RescueService)
 	end
 
 	-- downed

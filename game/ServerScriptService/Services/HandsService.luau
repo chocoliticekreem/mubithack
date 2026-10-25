@@ -385,6 +385,8 @@ local function onPush(player: Player, rawPart: any, rawVel: any)
 			local ok, opened = call("ToolService", "PushDoor", part)
 			if ok and opened then
 				Telemetry.count("hands_doors_pushed")
+			elseif part:GetAttribute(Names.Attr.Locked) == true and part:GetAttribute(Names.Attr.Broken) ~= true then
+				Popup.show(part, "Locked! Use the axe or kick it", "hint", player) -- was a silent bump
 			end
 		end
 		return
