@@ -1,0 +1,75 @@
+-- Zone 7: Boo Manor (stages 61-70). Level data written by `forge levels` (Mubit level_designer), built by ObbyKit. Data, not code.
+return {
+	zone = 7,
+	name = "Boo Manor",
+	theme = "A creaky haunted house of dark purple halls, vanishing ghost tiles and pits of green ectoplasm",
+	theme_id = "haunted",
+	palette = { "#6A3FB5", "#7CFF6B", "#FF8A3D" },
+	material = "WoodPlanks",
+	stages = {
+		{ stage = 61, name = "Phantom Porch", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 3, spacing = 2, on = 3, off = 1.5, stagger = 0.6 },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 8, 1, 6 } },
+			{ kind = "platform", gap = 0, rise = 0.5, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 62, name = "Ectoplasm Creek", pieces = {
+			{ kind = "conveyor", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 14 }, speed = 6, dir = "forward" },
+			{ kind = "platform", gap = 4, rise = 1, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 10, 1, 5 } },
+			{ kind = "turntable", gap = 0, rise = 0.5, side = 0, coins = 0, size = { 12, 1, 12 }, speed = 30 },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 63, name = "Spinning Specter", pieces = {
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 3, spacing = 2, on = 3, off = 1.5, stagger = 0.6 },
+			{ kind = "spinner", gap = 4, rise = 0, side = 0, coins = 0, size = { 14, 1, 14 }, speed = 60, bar_height = 2 },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 8, 1, 5 } },
+			{ kind = "platform", gap = 0, rise = 0.5, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 64, name = "Poltergeist Pogo", turn = -90, pieces = {
+			{ kind = "trampoline", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, bounce = 70 },
+			{ kind = "checkpoint", gap = 4, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 65, name = "Swinging Skull", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 2, size = { 10, 1, 8 }, shape = "block" },
+			{ kind = "pendulum", gap = 4, rise = 0, side = 2, coins = 0, size = { 6, 1, 14 }, swing = 60, period = 4, length = 10, phase = 0 },
+			{ kind = "platform", gap = 4, rise = 0, side = -2, coins = 2, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 66, name = "Creaky Cellar", pieces = {
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 4, spacing = 3, on = 2.5, off = 1.5, stagger = 0.6 },
+			{ kind = "platform", gap = 3, rise = 1, side = 3, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 10, 1, 6 } },
+			{ kind = "platform", gap = 0, rise = 0.5, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "checkpoint", gap = 6, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 67, name = "Dumbwaiter", turn = -90, pieces = {
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 16, 0 }, period = 6, phase = 0 },
+			{ kind = "checkpoint", gap = 3, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 68, name = "Haunted Gauntlet", turn = -90, pieces = {
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 0, 5 }, period = 4, phase = 0 },
+			{ kind = "pendulum", gap = 7, rise = 0, side = 3, coins = 0, size = { 5, 1, 10 }, swing = 60, period = 3.5, length = 10, phase = 0 },
+			{ kind = "disappearing", gap = 4, rise = 0, side = -2, coins = 0, size = { 4, 1, 4 }, count = 3, spacing = 2, on = 2.5, off = 1.5, stagger = 0.6 },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 8, 1, 5 } },
+			{ kind = "platform", gap = 0, rise = 0.5, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 69, name = "Ghoul Gears", pieces = {
+			{ kind = "turntable", gap = 4, rise = 0, side = 0, coins = 0, size = { 12, 1, 12 }, speed = 40 },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 10, 1, 8 } },
+			{ kind = "conveyor", gap = 0, rise = 0.5, side = 0, coins = 0, size = { 5, 1, 10 }, speed = 6, dir = "forward" },
+			{ kind = "disappearing", gap = 5, rise = 0, side = -3, coins = 0, size = { 4, 1, 4 }, count = 3, spacing = 2, on = 2.5, off = 1.5, stagger = 0.8 },
+			{ kind = "checkpoint", gap = 5, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 70, name = "The Grand Phantom", pieces = {
+			{ kind = "disappearing", gap = 5, rise = 0, side = 0, coins = 0, size = { 4, 1, 4 }, count = 3, spacing = 2, on = 2.2, off = 1.8, stagger = 0.8 },
+			{ kind = "lava", gap = 0, rise = -0.5, side = 0, size = { 8, 1, 7 } },
+			{ kind = "pendulum", gap = 0, rise = 0.5, side = 0, coins = 0, size = { 5, 1, 10 }, swing = 65, period = 2.6, length = 10, phase = 0 },
+			{ kind = "spinner", gap = 5, rise = 0, side = 3, coins = 0, size = { 10, 1, 10 }, speed = 110, bar_height = 2 },
+			{ kind = "checkpoint", gap = 6, rise = 1, side = 0, coins = 0 },
+		} },
+	},
+}

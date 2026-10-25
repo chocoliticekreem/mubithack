@@ -1,0 +1,75 @@
+-- Zone 5: Skywheel Heights (stages 41-50). Level data written by `forge levels` (Mubit level_designer), built by ObbyKit. Data, not code.
+return {
+	zone = 5,
+	name = "Skywheel Heights",
+	theme = "A giant ferris wheel in the clouds: ride the gondola lifts and bounce on trampolines to climb into the sky.",
+	theme_id = "ferris",
+	palette = { "#FF7A2F", "#3FB8F5", "#FFE066" },
+	material = "SmoothPlastic",
+	stages = {
+		{ stage = 41, name = "Boarding Platform", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, move = { 0, 5, 0 }, period = 6, phase = 0 },
+			{ kind = "platform", gap = 4, rise = 4, side = 2, coins = 2, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "conveyor", gap = 4, rise = -4, side = -2, coins = 0, size = { 6, 1, 14 }, speed = 6, dir = "forward" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 42, name = "First Bounce", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "trampoline", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, bounce = 70 },
+			{ kind = "platform", gap = 5, rise = 6, side = 3, coins = 2, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "platform", gap = 5, rise = -6, side = -2, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 5, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 43, name = "Double Bounce", pieces = {
+			{ kind = "trampoline", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, bounce = 70 },
+			{ kind = "trampoline", gap = 5, rise = 6, side = 3, coins = 0, size = { 6, 1, 6 }, bounce = 70 },
+			{ kind = "platform", gap = 5, rise = 6, side = -2, coins = 2, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "platform", gap = 5, rise = -6, side = 2, coins = 0, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "moving", gap = 4, rise = -6, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 4, 0 }, period = 5, phase = 0 },
+			{ kind = "checkpoint", gap = 4, rise = 3, side = 0, coins = 0 },
+		} },
+		{ stage = 44, name = "Sky Lift", turn = -90, pieces = {
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 16, 0 }, period = 6, phase = 0 },
+			{ kind = "checkpoint", gap = 3, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 45, name = "Cotton Candy Cabin", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 12, 1, 12 }, shape = "round" },
+			{ kind = "conveyor", gap = 4, rise = 0, side = 2, coins = 0, size = { 6, 1, 12 }, speed = 5, dir = "forward" },
+			{ kind = "platform", gap = 4, rise = 0, side = -2, coins = 2, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 46, name = "Wave Ride", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 4, spacing = 3, on = 2.2, off = 1.5, stagger = 0.6 },
+			{ kind = "platform", gap = 4, rise = 2, side = 3, coins = 2, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 5, rise = -2, side = 0, coins = 0 },
+		} },
+		{ stage = 47, name = "Spring Seat", turn = -90, pieces = {
+			{ kind = "trampoline", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, bounce = 75 },
+			{ kind = "checkpoint", gap = 4, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 48, name = "Gondola Hop", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "moving", gap = 4, rise = 0, side = -2, coins = 0, size = { 8, 1, 8 }, move = { 0, 6, 0 }, period = 5, phase = 0 },
+			{ kind = "platform", gap = 4, rise = 5, side = 2, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "trampoline", gap = 5, rise = -5, side = -2, coins = 0, size = { 6, 1, 6 }, bounce = 70 },
+			{ kind = "platform", gap = 5, rise = 6, side = 2, coins = 2, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 5, rise = -6, side = 0, coins = 0 },
+		} },
+		{ stage = 49, name = "Flickering Spokes", pieces = {
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 3, spacing = 3, on = 2.2, off = 1.5, stagger = 0.6 },
+			{ kind = "platform", gap = 6, rise = 3, side = 3, coins = 1, size = { 7, 1, 7 }, shape = "round" },
+			{ kind = "trampoline", gap = 5, rise = 0, side = -2, coins = 0, size = { 6, 1, 6 }, bounce = 70 },
+			{ kind = "platform", gap = 5, rise = 4, side = 2, coins = 2, size = { 7, 1, 7 }, shape = "block" },
+			{ kind = "checkpoint", gap = 6, rise = -7, side = 0, coins = 0 },
+		} },
+		{ stage = 50, name = "Top of the Wheel", pieces = {
+			{ kind = "spinner", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 1, 10 }, speed = 70, bar_height = 2 },
+			{ kind = "moving", gap = 4, rise = 0, side = 2, coins = 0, size = { 6, 1, 6 }, move = { 0, 5, 0 }, period = 4, phase = 0 },
+			{ kind = "trampoline", gap = 4, rise = 4, side = -2, coins = 0, size = { 6, 1, 6 }, bounce = 75 },
+			{ kind = "spinner", gap = 5, rise = 5, side = 2, coins = 0, size = { 10, 1, 10 }, speed = 100, bar_height = 2 },
+			{ kind = "checkpoint", gap = 7, rise = -5, side = 0, coins = 0 },
+		} },
+	},
+}

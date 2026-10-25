@@ -1,0 +1,77 @@
+-- Zone 2: Carousel Canter (stages 11-20). Level data written by `forge levels` (Mubit level_designer), built by ObbyKit. Data, not code.
+return {
+	zone = 2,
+	name = "Carousel Canter",
+	theme = "A giant merry-go-round of painted horses and brass poles, with spinning turntables and gliding platforms that circle like the ride.",
+	theme_id = "carousel",
+	palette = { "#FF5FA8", "#FFC23D", "#6EC6FF" },
+	material = "SmoothPlastic",
+	stages = {
+		{ stage = 11, name = "Pony Steps", pieces = {
+			{ kind = "platform", gap = 3, rise = 3, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "platform", gap = 3, rise = 4, side = 0, coins = 0, size = { 10, 1, 8 }, shape = "block" },
+			{ kind = "disappearing", gap = 3, rise = 3, side = 0, coins = 0, size = { 6, 1, 6 }, count = 3, spacing = 2, on = 4, off = 1.5, stagger = 0.6 },
+			{ kind = "checkpoint", gap = 3, rise = -8, side = 0, coins = 0 },
+		} },
+		{ stage = 12, name = "First Spin", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "turntable", gap = 4, rise = 0, side = 0, coins = 0, size = { 16, 1, 16 }, speed = 20 },
+			{ kind = "platform", gap = 4, rise = 0, side = 2, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "turntable", gap = 4, rise = 1, side = 0, coins = 0, size = { 12, 1, 12 }, speed = 30 },
+			{ kind = "checkpoint", gap = 4, rise = -1, side = 0, coins = 0 },
+		} },
+		{ stage = 13, name = "Brass Pole Glide", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, move = { 0, 0, 6 }, period = 6, phase = 0 },
+			{ kind = "platform", gap = 8, rise = 0, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 5, 0, 0 }, period = 5, phase = 0 },
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 14, name = "Big Top Bounce", turn = -90, pieces = {
+			{ kind = "jumppad", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, power = 90, forward = 20 },
+			{ kind = "checkpoint", gap = 6, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 15, name = "Ferry Ride", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, move = { 0, 0, 10 }, period = 9, phase = 0 },
+			{ kind = "platform", gap = 12, rise = 0, side = 0, coins = 2, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 16, name = "Horse Hop", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "lava", gap = 0, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "turntable", gap = 2, rise = 0, side = 0, coins = 0, size = { 14, 1, 14 }, speed = 30 },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 0, 6 }, period = 5, phase = 0 },
+			{ kind = "platform", gap = 8, rise = 0, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 17, name = "Canopy Trampoline", turn = -90, pieces = {
+			{ kind = "trampoline", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, bounce = 70 },
+			{ kind = "checkpoint", gap = 4, rise = 15, side = 0, coins = 0 },
+		} },
+		{ stage = 18, name = "Brass Rail Balance", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "platform", gap = 5, rise = 1, side = 2, coins = 0, size = { 3, 1, 10 }, shape = "block" },
+			{ kind = "platform", gap = 6, rise = 0, side = -2, coins = 1, size = { 3, 1, 10 }, shape = "block" },
+			{ kind = "lava", gap = 0, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "platform", gap = 3, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 4, rise = -1, side = 0, coins = 0 },
+		} },
+		{ stage = 19, name = "Merry Mix-Up", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "turntable", gap = 4, rise = 1, side = 0, coins = 0, size = { 14, 1, 14 }, speed = 40 },
+			{ kind = "moving", gap = 4, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 0, 6 }, period = 5, phase = 0 },
+			{ kind = "disappearing", gap = 8, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 2, spacing = 3, on = 3, off = 1.5, stagger = 0.6 },
+			{ kind = "checkpoint", gap = 3, rise = -1, side = 0, coins = 0 },
+		} },
+		{ stage = 20, name = "Grand Carousel", pieces = {
+			{ kind = "platform", gap = 4, rise = 2, side = 0, coins = 0, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "turntable", gap = 6, rise = 1, side = 0, coins = 0, size = { 10, 1, 10 }, speed = 60 },
+			{ kind = "lava", gap = 0, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "moving", gap = 2, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, move = { 0, 0, 6 }, period = 4, phase = 0 },
+			{ kind = "disappearing", gap = 8, rise = 1, side = 0, coins = 0, size = { 5, 1, 5 }, count = 2, spacing = 3, on = 2.5, off = 2, stagger = 0.8 },
+			{ kind = "checkpoint", gap = 6, rise = -2, side = 0, coins = 0 },
+		} },
+	},
+}
