@@ -566,6 +566,14 @@ local function show(payload: Types.ResultsPayload)
 		local holder, face = card(strip, payload, award, i)
 		table.insert(cards, { holder, face })
 	end
+	-- squad calls: SQUAD + BEST TEAMMATE cards (TeamBonusController) flip in first
+	local team = controllers.TeamBonusController
+	if team and type(team.ResultsCards) == "function" then
+		local ok, extra = pcall(team.ResultsCards, team, strip, payload, CARD_W, CARD_H)
+		for i, pair in if ok and type(extra) == "table" then extra else {} do
+			table.insert(cards, i, pair)
+		end
+	end
 
 	-- session hook: the next unlock as a goal ("NEXT UNLOCK: Gas Mask at Level 2!"), then NEXT CALL! (one tap
 	-- straight into a fresh call, DispatchService Dispatch/Next) beside BACK TO STATION

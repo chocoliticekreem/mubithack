@@ -17,11 +17,13 @@
 --     MapService (FirstFireService's training fire) as its own fire location; Destroying frees it
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?), Charred(part)
 --          Doused(player: Player, hits: number)   -- a player's spray hit at least one burning part
+--          Combo(part, hoses: { Player }, mult: number) -- 2+ players hosing one part at once (TeamRules:
+--            every hose on it cools x comboMult; at most once per part per ComboPopSeconds)
 -- Writes: tag Burning; attrs FireLevel (1..3, nil when out), Charred (true) + Color/Material on burnt-out parts
 -- Budget: every location (mission instance) is stepped on its own and has its own MaxBurningPerLocation
 --   cap, so parallel missions never starve each other; MaxBurning is a server-wide safety net.
 -- Counters: fires_ignited, fires_spread, fires_extinguished, parts_charred, fire_tick_over_budget,
---   fire_cap_hit
+--   fire_cap_hit, fire_combos
 -- Test hooks (DevHook only): _index(model, locationId), _forget(locationId), _ignite(pos),
 --   _water(origin, aim, litres), _selftest()
 
@@ -36,6 +38,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local FireConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("FireConfig") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local FireSim = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Fire"):WaitForChild("FireSim") :: ModuleScript)
+local TeamRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Social"):WaitForChild("TeamRules") :: ModuleScript)
 
 type Cell = {
 	part: BasePart,
@@ -47,6 +50,8 @@ type Cell = {
 	location: string,
 	cause: Player?, -- who lit it (for Blame)
 	area: Instance?, -- SetAreaCap: the capped area this part is in
+	sprayers: { [Player]: number }?, -- COMBO: os.clock() of each hose's last hit on this part
+	comboAt: number?, -- last COMBO signal for this part
 }
 
 type Location = {
@@ -64,6 +69,7 @@ FireService.Spread = Signal.new() :: Signal.Signal<BasePart, BasePart>
 FireService.Extinguished = Signal.new() :: Signal.Signal<BasePart, Player?>
 FireService.Charred = Signal.new() :: Signal.Signal<BasePart>
 FireService.Doused = Signal.new() :: Signal.Signal<Player, number>
+FireService.Combo = Signal.new() :: Signal.Signal<BasePart, { Player }, number>
 
 local services: { [string]: any } = {}
 local cells: { [BasePart]: Cell } = {}
@@ -123,6 +129,8 @@ local function stopBurning(c: Cell, charred: boolean)
 	if c.state ~= FireSim.BURNING then
 		return
 	end
+	c.sprayers = nil
+	c.comboAt = nil
 	local l = loc(c.location)
 	l.burning[c] = nil
 	l.count -= 1
@@ -316,6 +324,8 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 	end
 	local hit = 0
 	local out: { Cell } = {}
+	local combos: { Cell } = {}
+	local now = os.clock()
 	local near = tonumber(FireConfig.HoseNearRadius) or 0
 	local frontDot = tonumber(FireConfig.HoseNearFrontDot) or 0
 	local flatAim = Vector3.new(aim.X, 0, aim.Z)
@@ -349,6 +359,20 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 					end
 					a = a.Parent
 				end
+				-- COMBO: two or more hoses on this part at once -> every hose cools faster (solo: x1)
+				if player then
+					local s = c.sprayers or {}
+					c.sprayers = s
+					s[player] = now
+					local hoses = TeamRules.activeSprayers(s, now)
+					if hoses >= 2 then
+						mult *= TeamRules.comboMult(hoses)
+						if now - (c.comboAt or -math.huge) >= TeamRules.Cfg.ComboPopSeconds then
+							c.comboAt = now
+							table.insert(combos, c)
+						end
+					end
+				end
 				if FireSim.cool(c :: any, litres * mult, FireConfig :: any) then
 					table.insert(out, c)
 				else
@@ -359,6 +383,18 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 	end
 	if hit > 0 and player then
 		FireService.Doused:Fire(player, hit)
+	end
+	for _, c in combos do
+		local hoses: { Player } = {}
+		for p, t in c.sprayers or {} do
+			if now - t <= TeamRules.Cfg.ComboWindow and p.Parent ~= nil then
+				table.insert(hoses, p)
+			end
+		end
+		if #hoses >= 2 then
+			Telemetry.count("fire_combos")
+			FireService.Combo:Fire(c.part, hoses, TeamRules.comboMult(#hoses))
+		end
 	end
 	for _, c in out do -- apply after the loop: never remove keys from a set while iterating it
 		stopBurning(c, false)
