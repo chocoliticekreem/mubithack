@@ -71,7 +71,7 @@ return Config.define({
 	HotDoorAt = 0.5, -- DoorHeat (0..1) above this burns your hand when you grab it
 	JoltHeat = 18, -- body heat from grabbing a hot door handle
 	JoltPush = 18, -- studs/s backwards
-	FeelKey = Enum.KeyCode.T, -- "Feel door" prompt
+	FeelKey = Enum.KeyCode.F, -- "Feel door" prompt: F = the door's second action (T is only ever the hose)
 	-- rescue NPCs
 	ChokeAt = 0.45, -- smoke fraction where NPCs start choking
 	ChokeDps = 0.4, -- HP / s at full smoke (NPC Health 100: ~4 min in thick smoke; was dying too fast)

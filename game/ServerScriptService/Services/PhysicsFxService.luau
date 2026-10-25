@@ -765,7 +765,7 @@ local function breakLeg(player: Player, char: Model, hum: Humanoid)
 		prompt.ActionText = "Splint leg"
 		prompt.ObjectText = player.DisplayName
 		prompt.HoldDuration = Cfg.SplintSeconds
-		prompt.MaxActivationDistance = 8
+		prompt.MaxActivationDistance = 10 -- PromptConfig.Reach
 		prompt.RequiresLineOfSight = false
 		prompt.Parent = cast
 		prompt.Triggered:Connect(function(by: Player)

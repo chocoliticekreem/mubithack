@@ -108,7 +108,8 @@ function MapKit.door(parent: Instance, name: string, cf: CFrame, locked: boolean
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = if locked then "Break (axe)" else "Open"
 	prompt.ObjectText = "Door"
-	prompt.MaxActivationDistance = 8
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 10 -- PromptConfig.Reach
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = d
 	return d

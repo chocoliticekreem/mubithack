@@ -748,7 +748,7 @@ local function onDoorGrab(site: Site, li: number, player: Player)
 		pcall(Ragdoll.knockback, char, flat(root.Position - l.part.Position) * Cfg.JoltPush + Vector3.new(0, 8, 0))
 	end
 	fx("jolt", l.part.Position, {})
-	Popup.show(player, `YOWCH! Hot handle. Feel the door first! ({Cfg.FeelKey.Name})`, "bad", player)
+	Popup.show(player, `YOWCH! Hot handle. Feel the door first!`, "bad", player)
 end
 
 local function hookLink(site: Site, li: number)
@@ -781,9 +781,9 @@ local function hookLink(site: Site, li: number)
 	prompt.ActionText = "Feel door"
 	prompt.ObjectText = "Hot?"
 	prompt.KeyboardKeyCode = Cfg.FeelKey
-	prompt.GamepadKeyCode = Enum.KeyCode.DPadUp
-	prompt.HoldDuration = 0.35
-	prompt.MaxActivationDistance = 7
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonY -- the second-action button, like Kick / Slap (DPadUp is SWAP)
+	prompt.HoldDuration = 0 -- PromptConfig: instant
+	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.UIOffset = Vector2.new(0, 70)
 	prompt.Enabled = not l.sim.open

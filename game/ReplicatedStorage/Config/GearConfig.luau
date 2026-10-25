@@ -29,7 +29,7 @@ return Config.define({
 
 	-- broken windows: "Climb in" puts you this far past the pane
 	ClimbThrough = 3.2,
-	ClimbPromptDistance = 7,
+	ClimbPromptDistance = 10, -- PromptConfig.Reach
 
 	-- ladder: a TrussPart stood against the wall in front of you
 	LadderMaxHeight = 34,

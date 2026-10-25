@@ -7,8 +7,8 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 return Config.define({
 	Count = 5, -- NPCs spawned per round (one per RescueSpawn marker, up to this many)
 	CarryReach = 12, -- studs: a Pick up prompt trigger further away than this is ignored
-	CarryHold = 0.5, -- seconds to hold the Pick up prompt
-	PromptDistance = 8, -- ProximityPrompt MaxActivationDistance
+	CarryHold = 0, -- picking up is instant, like every other pick-up (PromptConfig)
+	PromptDistance = 10, -- ProximityPrompt MaxActivationDistance (PromptConfig.Reach)
 	WalkSpeed = 16, -- normal speed restored after a drop or delivery
 	-- carrier speed multiplier per kind (the panda is heavy)
 	SpeedCivilian = 0.75,

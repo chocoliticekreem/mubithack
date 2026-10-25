@@ -540,8 +540,8 @@ local function placeLadder(player: Player, root: BasePart)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Take Ladder"
 	prompt.ObjectText = "Ladder"
-	prompt.HoldDuration = 0.4
-	prompt.MaxActivationDistance = 7
+	prompt.HoldDuration = 0 -- PromptConfig: taking is instant
+	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.UIOffset = Vector2.new(0, 0)
 	local att = Instance.new("Attachment")
@@ -738,7 +738,7 @@ local function hookDoor(inst: Instance)
 	prompt.KeyboardKeyCode = Cfg.KickKey
 	prompt.GamepadKeyCode = Enum.KeyCode.ButtonY
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 7
+	prompt.MaxActivationDistance = 10 -- PromptConfig.Reach (the kick itself checks Reach + 3)
 	prompt.RequiresLineOfSight = false
 	prompt.UIOffset = Vector2.new(0, -60)
 	prompt.Parent = att
@@ -815,7 +815,7 @@ local function hookWindow(inst: Instance)
 		prompt.Name = "ClimbPrompt"
 		prompt.ActionText = "Climb through"
 		prompt.ObjectText = "Broken window"
-		prompt.HoldDuration = 0.35
+		prompt.HoldDuration = 0 -- PromptConfig: instant
 		prompt.MaxActivationDistance = Cfg.ClimbPromptDistance
 		prompt.RequiresLineOfSight = false
 		prompt.Parent = att
@@ -954,7 +954,7 @@ buildHatch = function(site: Model)
 	prompt.ActionText = "Drop in"
 	prompt.ObjectText = "Roof hatch"
 	prompt.HoldDuration = Cfg.HatchOpenSeconds
-	prompt.MaxActivationDistance = 8
+	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("GearHatch", true) -- GearController shortens the hold for pry-bar holders
 	prompt.Parent = hatch

@@ -30,7 +30,7 @@ return Config.define({
 	SlapReviveHealth = 20, -- F slaps them awake instantly...
 	SlapBlame = 1, -- ...but the slapper earns a blame point (Revived signal, method "slap")
 	SlapImpulse = 30, -- studs/s shove on the slapped victim (Ragdoll.knockback)
-	ReviveDistance = 9,
+	ReviveDistance = 10, -- PromptConfig.Reach
 	WalkSpeed = 16,
 	JumpHeight = 7.2,
 	-- squad wipe
