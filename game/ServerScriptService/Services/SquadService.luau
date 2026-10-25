@@ -509,7 +509,11 @@ function SquadService:Down(player: Player, cause: string, culprit: Player?)
 		return
 	end
 	player:SetAttribute(Names.Attr.Downed, true)
-	player:SetAttribute(SquadConfig.AttrDownedUntil, workspace:GetServerTimeNow() + SquadConfig.BleedOutSeconds)
+	-- alone (nobody in your squad/run to give you oxygen): a short nap, then back at the truck
+	local groupKey = groupKeyOf(player)
+	local alone = groupKey == nil or #membersOf(groupKey) <= 1
+	local bleedOut = if alone then (tonumber(SquadConfig.SoloBleedOutSeconds) or SquadConfig.BleedOutSeconds) else SquadConfig.BleedOutSeconds
+	player:SetAttribute(SquadConfig.AttrDownedUntil, workspace:GetServerTimeNow() + bleedOut)
 	hum:UnequipTools()
 	hum.WalkSpeed = SquadConfig.CrawlSpeed
 	hum.UseJumpPower = false
@@ -572,7 +576,7 @@ function SquadService:Down(player: Player, cause: string, culprit: Player?)
 	Net.notify(player, `You're down!{why}`, "bad")
 	Popup.show(player, `DOWN!{why}`, "bad", culprit)
 
-	task.delay(SquadConfig.BleedOutSeconds, function()
+	task.delay(bleedOut, function()
 		if downToken[player] ~= token or player:GetAttribute(Names.Attr.Downed) ~= true or not player.Parent then
 			return
 		end

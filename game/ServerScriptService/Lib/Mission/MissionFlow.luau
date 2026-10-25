@@ -428,6 +428,39 @@ function MissionFlow.scaledRescues(rescues: { { kind: string, count: number } },
 	return out
 end
 
+-- At most `max` rescues in total, picked round robin over the kinds in catalog order (a rookie call with
+-- max 2 out of { Civilian 2, Cat 1, Dog 1 } gets one Civilian and one Cat, not two Civilians).
+function MissionFlow.capRescues(rescues: { { kind: string, count: number } }, max: number): { { kind: string, count: number } }
+	local left: { number } = {}
+	local out: { { kind: string, count: number } } = {}
+	for i, r in rescues do
+		left[i] = math.max(0, math.floor(r.count or 0))
+		out[i] = { kind = r.kind, count = 0 }
+	end
+	local total, progressed = 0, true
+	while total < max and progressed do
+		progressed = false
+		for i in rescues do
+			if total >= max then
+				break
+			end
+			if left[i] > 0 then
+				left[i] -= 1
+				out[i].count += 1
+				total += 1
+				progressed = true
+			end
+		end
+	end
+	local kept: { { kind: string, count: number } } = {}
+	for _, r in out do
+		if r.count > 0 then
+			table.insert(kept, r)
+		end
+	end
+	return kept
+end
+
 export type P3 = { x: number, y: number, z: number }
 
 local function d2(a: P3, b: P3): number
