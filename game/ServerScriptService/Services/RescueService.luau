@@ -22,6 +22,9 @@
 --          Delivered(player, rescueId, kind)      -- per carrier who brought it in (Blame credit)
 --          Thrown(player, rescueId)               -- a YEET (Blame "Yeet")
 --          Toasted(rescueId, kind, culprit: Player?)  -- culprit = recent thrower/dropper/carrier
+--          Escorted(helper, carrier, rescueId)    -- once per helper per NPC: a squadmate (same InstanceId)
+--            walked within TeamRules EscortRadius of the carrier; while one does, the carrier walks
+--            x EscortSpeedMult (Player attr Escorted = true). One player still carries alone.
 -- Remotes: Rescue/Drop (C->S, none, 2/s), Rescue/Throw (C->S, aim: Vector3 unit, charge: number 0..1, 2/s),
 --          Rescue/Fx (S->C all, kind: "delivered"|"landed"|"yeet"|"toasted"|"picked", pos: Vector3, data: table?)
 -- Writes: workspace.Rescuables/<RescueId> Models (tag Rescuable; attrs RescueId, Kind, RescueState
@@ -53,6 +56,7 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local RescueLib = ServerScriptService:WaitForChild("Lib"):WaitForChild("Rescue")
 local Builder = require(RescueLib:WaitForChild("RescueNpcBuilder") :: ModuleScript)
 local Rules = require(RescueLib:WaitForChild("RescueRules") :: ModuleScript)
+local TeamRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Social"):WaitForChild("TeamRules") :: ModuleScript)
 
 local RescueService = {}
 RescueService.Priority = 50
@@ -62,6 +66,7 @@ RescueService.Picked = Signal.new() :: Signal.Signal<Player, string, string>
 RescueService.Delivered = Signal.new() :: Signal.Signal<Player, string, string>
 RescueService.Thrown = Signal.new() :: Signal.Signal<Player, string>
 RescueService.Toasted = Signal.new() :: Signal.Signal<string, string, Player?>
+RescueService.Escorted = Signal.new() :: Signal.Signal<Player, Player, string>
 
 type Npc = {
 	id: string,
@@ -115,6 +120,8 @@ type Npc = {
 	dropper: Player?,
 	droppedAt: number?,
 	lastCarrier: Player?,
+	escorts: { [Player]: boolean }?, -- TEAMWORK: squadmates who walked with this NPC's carrier
+	escorted: boolean?, -- a squadmate is with the carrier right now (faster carry)
 }
 
 type Fire = { pos: Vector3, reach: number, level: number }
@@ -492,7 +499,9 @@ local function releaseCarry(npc: Npc): { Player }
 	clearPhysics(npc)
 	local was = npc.carriers
 	npc.carriers = {}
+	npc.escorted = false
 	for _, p in was do
+		p:SetAttribute("Escorted", nil)
 		if carrying(p) == npc.id then
 			p:SetAttribute(Names.Attr.Carrying, "")
 			restoreSpeed(p)
@@ -992,6 +1001,42 @@ local function validCarrier(p: Player): boolean
 	return not (p.Character and Ragdoll.isRagdolled(p.Character))
 end
 
+-- TEAMWORK escort: a squadmate (same InstanceId, not carrying, not downed) near the carrier makes the carry
+-- faster and is credited once (Escorted). Bonus only: with nobody near, the speed is the normal one.
+local function tickEscort(npc: Npc)
+	local carrier = npc.carriers[1]
+	local hrp = carrier and rootOf(carrier)
+	local run = carrier and carrier:GetAttribute(Names.Attr.InstanceId)
+	local near = false
+	if hrp and type(run) == "string" and run ~= "" then
+		for _, p in Players:GetPlayers() do
+			if table.find(npc.carriers, p) == nil and p:GetAttribute(Names.Attr.InstanceId) == run and validCarrier(p) then
+				local r = rootOf(p)
+				if r and (r.Position - hrp.Position).Magnitude <= TeamRules.Cfg.EscortRadius then
+					near = true
+					local escorts = npc.escorts or {}
+					npc.escorts = escorts
+					if not escorts[p] then
+						escorts[p] = true
+						RescueService.Escorted:Fire(p, carrier, npc.id)
+					end
+				end
+			end
+		end
+	end
+	if near ~= (npc.escorted == true) then
+		npc.escorted = near
+		local speed = Rules.speed(npc.kind, #npc.carriers, RescueConfig) * (if near then TeamRules.Cfg.EscortSpeedMult else 1)
+		for _, p in npc.carriers do
+			local hum = humanoid(p)
+			if hum then
+				hum.WalkSpeed = speed
+			end
+			p:SetAttribute("Escorted", if near then true else nil)
+		end
+	end
+end
+
 local function tickCarried(npc: Npc, fires: { Fire }, dt: number)
 	for _, p in npc.carriers do
 		if not validCarrier(p) or carrying(p) ~= npc.id then
@@ -1023,6 +1068,7 @@ local function tickCarried(npc: Npc, fires: { Fire }, dt: number)
 			return
 		end
 	end
+	tickEscort(npc)
 	if math.random() < dt / RescueConfig.VoiceInterval then
 		say(npc, "carried") -- keeps screaming / meowing while dangling
 	end
