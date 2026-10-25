@@ -34,6 +34,8 @@
 --   p.updates (v8): { lastSeen, prompted } = UpdateLog versions (Config/UpdateLog, Services/UpdateLogService)
 --   ProfileSchema.markUpdateSeen(p, version): boolean        -- v8: true = newly seen (the WHAT'S NEW panel)
 --   ProfileSchema.markNotifyPrompted(p, version): boolean    -- v8: true = first opt-in prompt for this version
+--   ProfileSchema.markLikeAsked(p): number                   -- updates.likeAsks += 1 (the "Having fun? 👍" card,
+--                                                               Services/SocialAskService); returns the new count
 --   ProfileSchema.xpForLevel(level): number                  -- lifetime XP at the start of `level`
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
@@ -77,7 +79,9 @@ export type PassData = { season: string, xp: number, free: { number }, premium: 
 export type Gifts = { passes: { [string]: { by: number, at: number } } }
 -- lastSeen = newest Config/UpdateLog version this player closed the panel for ("" = never);
 -- prompted = the version we last showed the "get notified" opt-in prompt for ("" = never)
-export type Updates = { lastSeen: string, prompted: string }
+-- likeAsks = how many times the "Having fun? 👍" card was shown (capped by Lib/Social/AskRules MaxEver).
+-- Added inside v8 without a bump (a missing count is 0), so older servers never refuse these saves.
+export type Updates = { lastSeen: string, prompted: string, likeAsks: number }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -168,7 +172,7 @@ function ProfileSchema.default(now: number): Profile
 		donations = { robux = 0, count = 0, receipts = {} },
 		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
 		gifts = { passes = {} },
-		updates = { lastSeen = "", prompted = "" },
+		updates = { lastSeen = "", prompted = "", likeAsks = 0 },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -454,8 +458,9 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		local v = p.updates[key]
 		p.updates[key] = if type(v) == "string" and #v <= 32 then v else ""
 	end
+	p.updates.likeAsks = math.min(count(p.updates.likeAsks), 1000)
 	for key in p.updates do
-		if key ~= "lastSeen" and key ~= "prompted" then
+		if key ~= "lastSeen" and key ~= "prompted" and key ~= "likeAsks" then
 			p.updates[key] = nil
 		end
 	end
@@ -815,7 +820,7 @@ end
 local function updatesOf(p: Profile): Updates
 	local u = (p :: any).updates
 	if type(u) ~= "table" then
-		u = { lastSeen = "", prompted = "" };
+		u = { lastSeen = "", prompted = "", likeAsks = 0 };
 		(p :: any).updates = u
 	end
 	return u
@@ -847,6 +852,12 @@ function ProfileSchema.markNotifyPrompted(p: Profile, version: string): boolean
 	end
 	u.prompted = version
 	return true
+end
+
+function ProfileSchema.markLikeAsked(p: Profile): number
+	local u = updatesOf(p)
+	u.likeAsks = math.min(count(u.likeAsks) + 1, 1000)
+	return u.likeAsks
 end
 
 function ProfileSchema.setSetting(p: Profile, key: string, value: any): boolean

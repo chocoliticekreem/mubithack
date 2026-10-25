@@ -59,6 +59,14 @@ Funnel.Events = table.freeze({
 	OfferDeclined = "OfferDeclined", -- value: 1; "No thanks"
 	OfferPurchased = "OfferPurchased", -- value: R$ price; bought within Offers.ClickWindow of tapping BUY on its offer
 	PassPurchased = "PassPurchased", -- value: R$ price; every pass purchase (CustomField01 = "<PassKey>_offer" | "<PassKey>_store")
+	-- friendly asks (Services/SocialAskService; CustomField01 = where: like | lobby | results). Nothing is ever
+	-- given for liking, favoriting or inviting. FavoritePrompted / FavoriteAccepted / NotifyPrompted above are
+	-- reused with field "like" when they come from the "Having fun? 👍" card.
+	LikeAskShown = "LikeAskShown", -- value: 1; the "Having fun? 👍" card opened (field "like")
+	LikeAskClosed = "LikeAskClosed", -- value: seconds it was open; field "like_ok" | "like_dismiss" | "like_back"
+	InviteAskShown = "InviteAskShown", -- value: 1; the results-screen "Bring your friends next time!" line
+	InvitePrompted = "InvitePrompted", -- value: 1; SocialService:PromptGameInvite opened
+	InviteSent = "InviteSent", -- value: number of friends invited (GameInvitePromptClosed recipients)
 })
 
 export type Track = { last: number }

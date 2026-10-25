@@ -9,6 +9,8 @@
 -- Pass offer: OfferService may send one Monetization/Offer (moment "results") for this screen; it is drawn
 -- (ClientLib/OfferCard) bottom-left, only after NEXT CALL / BACK TO STATION are up, and never covers or
 -- delays them. NEXT CALL stays the biggest button.
+-- Invite line: after the buttons, SocialAskController:ResultsReady may add "Bring your friends next time!"
+-- top-left (squad calls only); an offer card arriving later takes it down (never both on one screen).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -24,6 +26,8 @@ local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitFor
 
 local ResultsController = {}
 ResultsController.Priority = 60
+
+local controllers: { [string]: any } = {}
 
 local CARD_W, CARD_H = 190, 250
 local gui: ScreenGui? = nil
@@ -46,6 +50,10 @@ local function tryOffer()
 	local ok, err = pcall(function()
 		local card = OfferCard.build(root, o, { position = UDim2.fromOffset(12, 592) })
 		UiKit.pop(card, 0.3)
+		local nudge = root:FindFirstChild("InviteNudge")
+		if nudge then
+			nudge:Destroy() -- one ask per screen: the pass offer wins
+		end
 	end)
 	if not ok then
 		warn(`[ResultsController] offer card: {err}`)
@@ -613,6 +621,12 @@ local function show(payload: Types.ResultsPayload)
 		offerRoot = root
 		offerToken = token
 		tryOffer()
+		local ask = controllers.SocialAskController
+		if ask and type(ask.ResultsReady) == "function" then
+			pcall(ask.ResultsReady, ask, root, payload, function(): boolean
+				return token == showToken
+			end)
+		end
 	end)
 end
 
@@ -633,7 +647,9 @@ end
 
 local currentInstance: string? = nil
 
-function ResultsController:Init(_controllers: { [string]: any }) end
+function ResultsController:Init(all: { [string]: any })
+	controllers = all
+end
 
 function ResultsController:Start()
 	Net.event("Mission", "Results").OnClientEvent:Connect(function(payload: Types.ResultsPayload)
