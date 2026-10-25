@@ -484,8 +484,8 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { kick }, "Kick a locked door (or chop it with the axe). Broken windows: climb through.")
 	helpHeader(list, nx(), "TRUCK")
 	helpRow(list, nx(), { keyName(VehicleConfig.KeyDoor, "E") }, "Open the door.")
-	helpRow(list, nx(), { enter }, "Get in / out. Driver: W/S drive, A/D steer, SPACE drift.", nil,
-		"Get in. Driver: the stick drives and steers, DRIFT drifts, OUT gets you out.")
+	helpRow(list, nx(), { enter }, "Get in. Driver: W/S drive, A/D steer, SPACE hops out.", nil,
+		"Get in. Driver: the stick drives and steers, OUT gets you out.")
 	local truckKeys = { G = { touch = "SIREN", pad = "X" }, H = { touch = "HONK", pad = "Y" }, R = { touch = "RESPAWN", pad = "" }, V = { pad = "R3" } }
 	helpRow(list, nx(), { keyName(VehicleConfig.KeySiren, "G"), keyName(VehicleConfig.KeyHorn, "H") }, "Siren and horn.", truckKeys)
 	helpRow(list, nx(), { keyName(VehicleConfig.KeyRespawn, "R"), keyName(VehicleConfig.KeyCam, "V") }, "Unflip the truck, switch camera.", truckKeys,
