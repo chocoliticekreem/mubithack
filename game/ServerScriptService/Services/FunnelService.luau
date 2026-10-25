@@ -9,13 +9,25 @@
 --       ("queued"), 7 Mission Launched (InstanceId set), 8 In Truck (seated in a Truck), 9 Arrived On
 --       Scene (the run's RoundState Active), 10 First Mission Fire Out (FireService.Extinguished by you
 --       on a call), 11 Mission Complete (MissionService.MissionEnded), 12 Back In Lobby (InstanceId "").
+--   * Onboarding v3 funnel "OnboardingV3" (LogFunnelStepEvent, funnelSessionId = one GUID per join),
+--     brand-new players only, 17 steps (Lib/Onboarding/Funnel.OnboardingV3): 1 Joined, 2 Spawned,
+--     3 Cutscene Shown (Seen coldopen), 4 Cutscene Ended (Seen coldopen_end), 5 Fire Card Shown (Seen
+--     firecard), 6 First Spray, 7 Fire Out (FirstFire "panda"), 8 Panda Picked Up (RescueService.Picked on the
+--     cold-open panda), 9 Panda Saved (FirstFire "done"), 10 HUD Revealed (Seen hud), 11 Pad Stepped
+--     (SquadId set), 12 Call Launched, 13 In Truck, 14 Arrived On Scene, 15 First Fire Out On Call,
+--     16 Call Complete, 17 Back In Lobby.
+--   * Device: every onboarding step (legacy and v3) carries CustomField01 = the Player attr Device
+--     (Phone | Tablet | PC | Console | Unknown; OnboardingService, from the client's Onboarding/Ready). Steps
+--     wait for it (at most DEVICE_WAIT s, then "Unknown") so a funnel can be split by device.
 --   * Mission funnel "Mission" (LogFunnelStepEvent, funnelSessionId = the run's InstanceId), everyone,
 --     every call: Dispatched, In Truck, Arrived On Scene, First Fire Out, Mission Complete, Back In Lobby.
 --   * Custom events (LogCustomEvent): FirstSpraySeconds (CustomField01 New | Returning),
 --     SessionMinutes (on leave, CustomField01 New | Returning), OnboardingQuitStep (new players on leave:
 --     value = furthest step number, CustomField01 = its step name), TutorialSkipped, FirstCallDeclined.
 --     UpdateLogShown, NotifyPrompted, NotifyAccepted, FavoritePrompted, FavoriteAccepted (UpdateLogService
---     through FunnelService:LogCustom).
+--     through FunnelService:LogCustom). ColdOpenSkipped (value = seconds into the cutscene, CustomField01 =
+--     device), OnboardingV3QuitStep (new players on leave: value = furthest v3 step, CustomField01 = its
+--     name, CustomField02 = device).
 -- Public API: FunnelService:LogCustom(player, event, value, field?) -- event must be a Funnel.Events name
 -- Server-side only; every AnalyticsService call is pcall'd (a failing call counts analytics_error).
 -- Counters: analytics_onboarding_step, analytics_mission_step, analytics_custom, analytics_error
@@ -39,16 +51,24 @@ FunnelService.Priority = 95 -- after OnboardingService (25), FireService (50), M
 
 local TRUCK_TAG: string = (Names.Tag :: any).Truck or "Truck"
 local FIELD1 = Enum.AnalyticsCustomFieldKeys.CustomField01.Name
+local FIELD2 = Enum.AnalyticsCustomFieldKeys.CustomField02.Name
+local DEVICE_ATTR = "Device" -- OnboardingService, from the client's Onboarding/Ready
+local DEVICE_WAIT = 15 -- s after joining: onboarding steps wait this long for the device, then "Unknown"
+local V3 = Funnel.OnboardingV3
 local END_REASONS = { time = "Time", allOut = "All Out", forced = "Forced" } -- constant field values
 
 type State = {
 	t0: number,
 	isNew: boolean?, -- nil until OnboardingService resolves Onboarded
-	pending: { string }, -- onboarding steps seen before isNew was known
+	pending: { string }, -- onboarding steps seen before isNew / the device was known (legacy or v3 names)
 	onb: Funnel.Track,
+	v3: Funnel.Track,
+	v3Session: string, -- funnelSessionId of this join's OnboardingV3 funnel
+	device: string?, -- nil until the client said (or DEVICE_WAIT ran out)
 	runs: { [string]: Funnel.Track }, -- mission funnel per run (InstanceId)
 	run: string, -- current (or last) run id
 	spawned: boolean,
+	skipLogged: boolean?,
 }
 
 local services: { [string]: any } = {}
@@ -79,15 +99,39 @@ local function instanceId(player: Player): string
 	return if type(id) == "string" then id else ""
 end
 
+-- legacy step name -> its v3 name, where the two funnels share a step under different names
+local V3_NAME: { [string]: string } = {
+	["Saw Fire Card"] = "Fire Card Shown",
+	["Mission Launched"] = "Call Launched",
+	["First Mission Fire Out"] = "First Fire Out On Call",
+	["Mission Complete"] = "Call Complete",
+}
+
 ------------------------------------------------------------------------------------------ steps
 
+local function deviceFields(s: State): { [string]: string }
+	return { [FIELD1] = s.device or "Unknown" }
+end
+
+-- one name may be a legacy step, a v3 step or both (same meaning): each funnel only takes its own names
 local function sendOnboarding(player: Player, s: State, name: string)
 	local idx = Funnel.reach(s.onb, Funnel.Onboarding, name)
 	if idx then
 		count("analytics_onboarding_step")
-		note(`onboarding {player.UserId} {idx} {name}`)
-		analytics("LogOnboardingFunnelStepEvent", player, idx, name)
+		note(`onboarding {player.UserId} {idx} {name} {s.device}`)
+		analytics("LogOnboardingFunnelStepEvent", player, idx, name, deviceFields(s))
 	end
+	local v3 = V3_NAME[name] or name
+	local i3 = Funnel.reach(s.v3, V3, v3)
+	if i3 then
+		count("analytics_onboarding_v3_step")
+		note(`onboardingV3 {player.UserId} {i3} {v3} {s.device}`)
+		analytics("LogFunnelStepEvent", player, Funnel.V3FunnelName, s.v3Session, i3, v3, deviceFields(s))
+	end
+end
+
+local function ready(s: State): boolean
+	return s.isNew ~= nil and s.device ~= nil
 end
 
 local function onboarding(player: Player, name: string)
@@ -95,7 +139,7 @@ local function onboarding(player: Player, name: string)
 	if not s then
 		return
 	end
-	if s.isNew == nil then
+	if not ready(s) then
 		table.insert(s.pending, name)
 	elseif s.isNew then
 		sendOnboarding(player, s, name)
@@ -133,13 +177,11 @@ end
 
 ------------------------------------------------------------------------------------------ watchers
 
-local function resolveNew(player: Player)
+local function flush(player: Player)
 	local s = states[player]
-	local v = player:GetAttribute(OnboardingConfig.DoneAttr or "Onboarded")
-	if not s or s.isNew ~= nil or v == nil then
+	if not s or not ready(s) then
 		return
 	end
-	s.isNew = v == false
 	local pending = s.pending
 	s.pending = {}
 	if s.isNew then
@@ -147,6 +189,32 @@ local function resolveNew(player: Player)
 			sendOnboarding(player, s, name)
 		end
 	end
+end
+
+local function resolveNew(player: Player)
+	local s = states[player]
+	local v = player:GetAttribute(OnboardingConfig.DoneAttr or "Onboarded")
+	if not s or s.isNew ~= nil or v == nil then
+		return
+	end
+	s.isNew = v == false
+	flush(player)
+end
+
+local function resolveDevice(player: Player, force: boolean?)
+	local s = states[player]
+	if not s or s.device ~= nil then
+		return
+	end
+	local d = player:GetAttribute(DEVICE_ATTR)
+	if Funnel.isDevice(d) then
+		s.device = d :: string
+	elseif force then
+		s.device = "Unknown"
+	else
+		return
+	end
+	flush(player)
 end
 
 local function watchCharacter(player: Player, char: Model)
@@ -195,8 +263,24 @@ local function onPlayer(player: Player)
 	if states[player] then
 		return
 	end
-	states[player] = { t0 = os.clock(), isNew = nil, pending = {}, onb = Funnel.new(), runs = {}, run = "", spawned = false }
+	states[player] = {
+		t0 = os.clock(),
+		isNew = nil,
+		pending = {},
+		onb = Funnel.new(),
+		v3 = Funnel.new(),
+		v3Session = HttpService:GenerateGUID(false),
+		device = nil,
+		runs = {},
+		run = "",
+		spawned = false,
+	}
 	onboarding(player, "Joined")
+	player:GetAttributeChangedSignal(DEVICE_ATTR):Connect(function()
+		resolveDevice(player)
+	end)
+	resolveDevice(player)
+	task.delay(DEVICE_WAIT, resolveDevice, player, true)
 	local attr = OnboardingConfig.DoneAttr or "Onboarded"
 	player:GetAttributeChangedSignal(attr):Connect(function()
 		resolveNew(player)
@@ -211,10 +295,19 @@ local function onPlayer(player: Player)
 	end)
 	player:GetAttributeChangedSignal(FirstFireConfig.PhaseAttr):Connect(function()
 		local phase = player:GetAttribute(FirstFireConfig.PhaseAttr)
-		if phase == "done" then
-			onboarding(player, "Fire Out")
+		if phase == "panda" then
+			onboarding(player, "Fire Out") -- the house fire is out (legacy step 5, v3 step 7)
+		elseif phase == "done" then
+			onboarding(player, "Fire Out") -- (a shared house: someone else finished the fire)
+			onboarding(player, "Panda Saved")
 		elseif phase == "queued" then
 			onboarding(player, "Auto Queued")
+		end
+	end)
+	player:GetAttributeChangedSignal(Names.Attr.SquadId):Connect(function()
+		local sid = player:GetAttribute(Names.Attr.SquadId)
+		if type(sid) == "string" and sid ~= "" then
+			onboarding(player, "Pad Stepped")
 		end
 	end)
 	player:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
@@ -239,6 +332,12 @@ local function onLeave(player: Player)
 	if s.isNew == true then
 		-- where a brand-new player was when they left (the rage-quit question)
 		custom(player, Funnel.Events.OnboardingQuitStep, s.onb.last, Funnel.lastName(s.onb, Funnel.Onboarding))
+		count("analytics_custom")
+		note(`custom {player.UserId} {Funnel.Events.OnboardingV3QuitStep} {s.v3.last} {s.device}`)
+		analytics("LogCustomEvent", player, Funnel.Events.OnboardingV3QuitStep, s.v3.last, {
+			[FIELD1] = Funnel.lastName(s.v3, V3),
+			[FIELD2] = s.device or "Unknown",
+		})
 	end
 end
 
@@ -283,9 +382,21 @@ end
 function FunnelService:Start()
 	local Onboarding = services.OnboardingService
 	if Onboarding and Onboarding.Seen then
-		Onboarding.Seen:Connect(function(player: Player, step: string)
+		Onboarding.Seen:Connect(function(player: Player, step: string, value: number?)
 			if step == "firecard" then
 				onboarding(player, "Saw Fire Card")
+			elseif step == "coldopen" then
+				onboarding(player, "Cutscene Shown")
+			elseif step == "coldopen_end" then
+				onboarding(player, "Cutscene Ended")
+			elseif step == "coldopen_skip" then
+				local s = states[player]
+				if s and not s.skipLogged then
+					s.skipLogged = true
+					custom(player, Funnel.Events.ColdOpenSkipped, math.floor((value or 0) * 10 + 0.5) / 10, s.device or "Unknown")
+				end
+			elseif step == "hud" then
+				onboarding(player, "HUD Revealed")
 			end
 		end)
 	end
@@ -312,6 +423,14 @@ function FunnelService:Start()
 			end
 			onboarding(by, "First Mission Fire Out")
 			mission(by, "First Fire Out")
+		end)
+	end
+	local Rescue = services.RescueService
+	if Rescue and Rescue.Picked then
+		Rescue.Picked:Connect(function(player: Player, rescueId: string, _kind: string)
+			if player:GetAttribute(FirstFireConfig.PandaAttr) == rescueId then
+				onboarding(player, "Panda Picked Up")
+			end
 		end)
 	end
 	local Mission = services.MissionService
@@ -347,8 +466,11 @@ function FunnelService:_state(player: Player): string
 	end
 	return HttpService:JSONEncode({
 		isNew = s.isNew,
+		device = s.device,
 		onboarding = s.onb.last,
 		onboardingStep = Funnel.lastName(s.onb, Funnel.Onboarding),
+		v3 = s.v3.last,
+		v3Step = Funnel.lastName(s.v3, V3),
 		pending = s.pending,
 		run = s.run,
 		runs = runs,

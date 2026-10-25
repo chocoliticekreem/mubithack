@@ -10,10 +10,14 @@
 --       the pad with the most people that still has room (ride with strangers), nil if all full
 --   FirstFire.bucket(seconds: number) -> string    -- session length bucket for the counters
 --   FirstFire.Buckets                               -- { { name, max } } ascending (max = nil: open)
+--   FirstFire.pickSpot(spots: { { burning: boolean, busy: boolean, blocked: boolean } }) -> number?
+--       the panda-house spot for a new arrival: one still burning (share it: the cold open, the spray and the
+--       panda are all still ahead), else the first spot nobody is using, nil if every spot is taken / blocked
 --   FirstFire.card(phase: string?, sinceDone: number, celebrateSeconds: number) -> string?
---       which first-fire card the client shows: "fire" (put it out), "done" (the reward pop: until the
---       auto-queue lands, then at most celebrateSeconds after the fire went out), "call" (on the pad for
---       the auto-queued first call: what's happening + GO NOW / NOT YET), or nil
+--       which first-fire card the client shows: "fire" (spray it), "panda" (fire out: get the panda out),
+--       "done" (the reward pop: until the auto-queue lands, then at most celebrateSeconds after the panda
+--       was saved), "call" (on the pad for the auto-queued first call: what's happening + GO NOW /
+--       NOT YET), or nil
 local FirstFire = {}
 
 function FirstFire.shouldRun(onboarded: boolean?, inMission: boolean, enabled: boolean): boolean
@@ -49,6 +53,22 @@ function FirstFire.pickPad(pads: { PadInfo }): number?
 	return if best then best.padId else nil
 end
 
+export type SpotInfo = { burning: boolean, busy: boolean, blocked: boolean }
+
+function FirstFire.pickSpot(spots: { SpotInfo }): number?
+	for i, s in spots do
+		if s.burning and not s.blocked then
+			return i
+		end
+	end
+	for i, s in spots do
+		if not s.busy and not s.blocked then
+			return i
+		end
+	end
+	return nil
+end
+
 FirstFire.Buckets = table.freeze({
 	table.freeze({ name = "lt1m", max = 60 }),
 	table.freeze({ name = "1to5m", max = 300 }),
@@ -71,6 +91,9 @@ end
 function FirstFire.card(phase: string?, sinceDone: number, celebrateSeconds: number): string?
 	if phase == "burning" then
 		return "fire"
+	end
+	if phase == "panda" then
+		return "panda" -- fire out: pick up the panda / carry it outside (the client picks which)
 	end
 	if phase == "done" then
 		return "done" -- until the auto-queue lands (a few seconds)

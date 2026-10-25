@@ -10,8 +10,13 @@
 --     ClientReady = true and fires .ClientReady. FirstFireService waits for it before lighting the training
 --     fire, LobbyService / BattlePassService re-send their state on it: a slow phone load (30k-part map)
 --     never misses a tutorial card, the board or the pass state.
---   * Onboarding/Seen (C->S, step: string, 2/s): the client actually drew a tutorial card. Only ids in
---     SEEN_STEPS are accepted (fires .Seen(player, step)); FunnelService logs "Saw Fire Card" from it.
+--   * Onboarding/Ready carries the device (Phone | Tablet | PC | Console, Lib/Onboarding/Funnel.device on the
+--     client; anything else = "Unknown") -> Player attr Device (FunnelService tags every onboarding step).
+--   * Onboarding/Seen (C->S, step: string, value: number?, 2/s): the client actually showed something. Only
+--     ids in SEEN_STEPS are accepted: firecard, coldopen (the cutscene started), coldopen_end (it ended;
+--     value = seconds), coldopen_skip (skipped; value = seconds in), hud (the post-panda HUD reveal). Fires
+--     .Seen(player, step, value); FunnelService logs the funnel steps, FirstFireService hands over the
+--     extinguisher on coldopen_end.
 --   * Onboarding/Skip (C->S, none, 1/s): SKIP TUTORIAL -> MarkDone + .Skipped(player) (FirstFireService
 --     puts the training fire away). Onboarding/SkipCall (C->S, none, 1/s): NOT YET on the auto-queued
 --     first call -> .CallDeclined(player) (FirstFireService steps them off the pad).
@@ -24,7 +29,7 @@
 --   OnboardingService:IsOnboarded(player): boolean
 --   OnboardingService:MarkDone(player)
 --   OnboardingService:WaitForClient(player, timeout: number): boolean   -- true once ClientReady
--- Signals: ClientReady(player), Seen(player, step), Skipped(player), CallDeclined(player)
+-- Signals: ClientReady(player), Seen(player, step, value?), Skipped(player), CallDeclined(player)
 -- Counters: onboarding_started, onboarding_done, onboarding_skipped (returning player), client_ready,
 --   client_ready_seconds (sum: join -> handshake), tutorial_skipped, first_call_declined
 -- Test hooks (DevHook only): _reset(player) (fresh first-join next time), _selftest()
@@ -38,17 +43,21 @@ local Signal = require(Shared:WaitForChild("Signal") :: ModuleScript)
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local OnboardingConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("OnboardingConfig") :: ModuleScript) :: any
 local OnboardingFlow = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("OnboardingFlow") :: ModuleScript)
+local Funnel = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("Funnel") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 
 local OnboardingService = {}
 OnboardingService.Priority = 25 -- after DataService (20)
 OnboardingService.ClientReady = Signal.new() :: Signal.Signal<Player>
-OnboardingService.Seen = Signal.new() :: Signal.Signal<Player, string>
+OnboardingService.Seen = Signal.new() :: Signal.Signal<Player, string, number?>
 OnboardingService.Skipped = Signal.new() :: Signal.Signal<Player>
 OnboardingService.CallDeclined = Signal.new() :: Signal.Signal<Player>
 
 local READY_ATTR = "ClientReady" -- Player attr: the client booted and connected its remote handlers
-local SEEN_STEPS = { firecard = true } -- Onboarding/Seen ids the server accepts (constant set)
+-- Onboarding/Seen ids the server accepts (constant set): the fire card, the cold open start / end (value =
+-- seconds into it; "coldopen_skip" = skipped then), the post-panda HUD reveal
+local SEEN_STEPS = { firecard = true, coldopen = true, coldopen_end = true, coldopen_skip = true, hud = true }
+local DEVICE_ATTR = "Device" -- Player attr: Phone | Tablet | PC | Console (Lib/Onboarding/Funnel.Devices)
 
 local services: { [string]: any } = {}
 local joinedAt: { [Player]: number } = {}
@@ -159,7 +168,10 @@ function OnboardingService:WaitForClient(player: Player, timeout: number): boole
 	return player:GetAttribute(READY_ATTR) == true
 end
 
-local function onReady(player: Player)
+local function onReady(player: Player, device: any)
+	if player:GetAttribute(DEVICE_ATTR) == nil then
+		player:SetAttribute(DEVICE_ATTR, if Funnel.isDevice(device) then device else "Unknown")
+	end
 	if player:GetAttribute(READY_ATTR) == true then
 		return
 	end
@@ -202,9 +214,10 @@ function OnboardingService:Start()
 		OnboardingService:MarkDone(player)
 	end)
 	Net.onServer(Net.event("Onboarding", "Ready"), { rate = 1, burst = 2 }, onReady)
-	Net.onServer(Net.event("Onboarding", "Seen"), { rate = 2, burst = 2 }, function(player: Player, step: any)
+	Net.onServer(Net.event("Onboarding", "Seen"), { rate = 2, burst = 3 }, function(player: Player, step: any, value: any)
 		if type(step) == "string" and SEEN_STEPS[step] then
-			OnboardingService.Seen:Fire(player, step)
+			local v = if type(value) == "number" and value == value then math.clamp(value, 0, 600) else nil
+			OnboardingService.Seen:Fire(player, step, v)
 		end
 	end)
 	Net.onServer(Net.event("Onboarding", "Skip"), { rate = 1, burst = 1 }, function(player: Player)

@@ -4,7 +4,10 @@
 -- Every name here is a CONSTANT: AnalyticsService caps distinct step / event names, so nothing
 -- free-form (player names, mission titles, ids) ever goes into a name.
 --
---   Funnel.Onboarding      -- ordered step names of the first-session funnel (LogOnboardingFunnelStepEvent)
+--   Funnel.Onboarding      -- ordered step names of the first-session funnel (LogOnboardingFunnelStepEvent),
+--                             legacy meanings kept (v1/v2); CustomField01 = device since v3
+--   Funnel.OnboardingV3    -- ordered steps of the v3 funnel (LogFunnelStepEvent, Funnel.V3FunnelName)
+--   Funnel.Devices, Funnel.device(info) -> string, Funnel.isDevice(name) -> boolean
 --   Funnel.Mission         -- ordered step names of the per-call funnel (LogFunnelStepEvent, MissionFunnelName)
 --   Funnel.MissionFunnelName
 --   Funnel.Events          -- custom event names (LogCustomEvent)
@@ -31,6 +34,66 @@ Funnel.Onboarding = table.freeze({
 	"Back In Lobby",
 })
 
+-- Onboarding v3 (cold open + panda house, 2026-10-25). Its steps differ from the legacy onboarding funnel
+-- above, so it is its OWN recurring funnel (LogFunnelStepEvent, funnel name "OnboardingV3", one session per
+-- join) and the legacy funnel keeps its 12 meanings untouched (both are logged, so old vs new compare).
+-- Every step carries the device (CustomField01 = Funnel.Devices). If a step's meaning ever changes, add
+-- "OnboardingV4" instead of renumbering this one.
+Funnel.V3FunnelName = "OnboardingV3"
+Funnel.OnboardingV3 = table.freeze({
+	"Joined", -- 1 the server saw the player
+	"Spawned", -- 2 first character
+	"Cutscene Shown", -- 3 the cold open started on the client
+	"Cutscene Ended", -- 4 watched to the end or skipped (ColdOpenSkipped says when)
+	"Fire Card Shown", -- 5 SPRAY THE FIRE! on screen
+	"First Spray", -- 6 first spray that hit a burning part
+	"Fire Out", -- 7 the panda house fire is out
+	"Panda Picked Up", -- 8 picked up the panda
+	"Panda Saved", -- 9 carried it outside (celebration + XP)
+	"HUD Revealed", -- 10 the client revealed the XP bar / HELP / pads stage
+	"Pad Stepped", -- 11 on a squad pad (the auto-queued first call, or walked onto one)
+	"Call Launched", -- 12 InstanceId set
+	"In Truck", -- 13 seated in a truck on the call
+	"Arrived On Scene", -- 14 the run went Active
+	"First Fire Out On Call", -- 15 put out a fire on the call
+	"Call Complete", -- 16 MissionEnded
+	"Back In Lobby", -- 17 InstanceId back to ""
+})
+
+-- device tag (CustomField01 of every onboarding step; constant set)
+Funnel.Devices = table.freeze({ "Phone", "Tablet", "PC", "Console", "Unknown" })
+
+export type DeviceInfo = {
+	touch: boolean,
+	keyboard: boolean,
+	mouse: boolean,
+	gamepad: boolean,
+	tenFoot: boolean,
+	viewportX: number,
+	viewportY: number,
+}
+
+-- Phone / Tablet / PC / Console from what the client reports. Console = a 10-foot interface (Xbox /
+-- PlayStation), or a gamepad with no keyboard and no touch screen. Touch-only: the short side of the
+-- screen decides (phones are < 600 px tall in landscape, tablets more).
+function Funnel.device(d: DeviceInfo): string
+	if d.tenFoot then
+		return "Console"
+	end
+	if d.touch and not d.keyboard and not d.mouse then
+		local short = math.min(d.viewportX, d.viewportY)
+		return if short >= 600 then "Tablet" else "Phone"
+	end
+	if d.gamepad and not d.keyboard and not d.touch then
+		return "Console"
+	end
+	return "PC"
+end
+
+function Funnel.isDevice(name: any): boolean
+	return type(name) == "string" and table.find(Funnel.Devices, name) ~= nil
+end
+
 Funnel.MissionFunnelName = "Mission"
 Funnel.Mission = table.freeze({
 	"Dispatched",
@@ -47,6 +110,9 @@ Funnel.Events = table.freeze({
 	OnboardingQuitStep = "OnboardingQuitStep", -- value: furthest onboarding step number when a new player left
 	TutorialSkipped = "TutorialSkipped", -- value: onboarding step number when they pressed SKIP
 	FirstCallDeclined = "FirstCallDeclined", -- value: seconds left on the countdown when they pressed NOT YET
+	-- Onboarding v3 (CustomField01 = device)
+	ColdOpenSkipped = "ColdOpenSkipped", -- value: seconds into the cold open when they skipped it
+	OnboardingV3QuitStep = "OnboardingV3QuitStep", -- value: furthest OnboardingV3 step number when a new player left (CustomField01 = step name, CustomField02 = device)
 	-- WHAT'S NEW panel (Services/UpdateLogService; CustomField01 = the Config/UpdateLog version)
 	UpdateLogShown = "UpdateLogShown", -- value: 1 = popped up on join, 2 = opened from the NEWS chip
 	NotifyPrompted = "NotifyPrompted", -- value: 1; the update-notification opt-in prompt opened

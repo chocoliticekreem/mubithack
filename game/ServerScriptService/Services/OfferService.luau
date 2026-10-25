@@ -142,6 +142,9 @@ local function send(player: Player, s: State, key: string, reason: string, momen
 	if not r then
 		return "no remote"
 	end
+	if player:GetAttribute("FirstCallDone") == false then
+		return "first call not done" -- Onboarding v3: no offer before a newbie's first call is complete
+	end
 	s.nextId += 1
 	s.pending = { id = s.nextId, key = key, moment = moment }
 	local heads = O.Headlines[key] or {}
