@@ -1,4 +1,0 @@
-DataService: using in-memory store
-[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
-[ForgeCheck] FAIL runner_error expected=no error actual=ServerScriptService.ForgeChecks:125: attempt to compare number <= table
-[ForgeCheck] RESULT {"failures":[{"id":"runner_error","expected":"no error","actual":"ServerScriptService.ForgeChecks:125: attempt to compare number <= table"}],"passed":0,"failed":1}

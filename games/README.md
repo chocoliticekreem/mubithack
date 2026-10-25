@@ -16,6 +16,7 @@ evidence/<slug>/ committed record of the agent's work (forge archive)
 | Game | Where | Made by |
 |---|---|---|
 | Flame and Blame | [`flame-and-blame/`](flame-and-blame/README.md), code still in `game/` | the team, plus agent-built features |
+| Sunbeam Park Obby | [`sunbeam-park-obby/`](sunbeam-park-obby/README.md) | MuMake, from one prompt |
 | Agent-built games | `games/<slug>/` via `forge promote-game <slug>` | Forge, from one idea |
 
 ## Lifecycle of an agent-built game

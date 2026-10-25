@@ -213,7 +213,7 @@ def test_incremental_pull_script_skips_unchanged_files(tmp_path):
     assert lines[4] == "|" + fsync.hashes(fsync.manifest_entries(root))["ServerScriptService/Lib/B.luau"]
 
 
-@pytest.mark.parametrize("game", ["games/tiny-tycoon/game", "game"])
+@pytest.mark.parametrize("game", ["games/sunbeam-park-obby/game", "game"])
 def test_real_games_boot_headless(game):
     root = REPO / game
     if not (root / "ServerScriptService").is_dir():
