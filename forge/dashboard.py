@@ -986,7 +986,113 @@ def _gist(path: Path | None) -> dict:
 AGENT_TIP_CALLS = 8  # newest calls listed in an agent card's hover card
 
 
-def agents_view(calls: list[dict], live_role: str | None = None, now: float | None = None) -> list[dict]:
+LEVEL_XP = 3  # xp per level: Lv = 1 + xp // LEVEL_XP
+QA_RUN_RX = re.compile(r"^(\d+)-qa-")
+SCORE_ROLES = {"critic": lambda rec, it: it.get("score"), "fun_critic": lambda rec, it: (rec.get("fun") or {}).get("score")}
+
+
+def _round_of(ts: float | None, ends: list[tuple[int, float | None]]) -> int | None:
+    """The first finished round that ended at or after ts; None while the round it belongs to still runs."""
+    if ts is None:
+        return None
+    return next((n for n, end in ends if end is not None and ts <= end), None)
+
+
+def _signals(run_dir: Path, its: list[dict], calls: list[dict]) -> dict[str, list[tuple[int | None, int, str]]]:
+    """role -> [(round, xp, why it improved or "")]: only things Forge recorded. A correction is xp (Mubit learned
+    something) but not an improvement; an improvement is a counter that started firing, a fix confirmed, a score
+    that rose, a lessons rewrite, a zone passed with no corrections, a higher QA pass rate."""
+    ends = [(it.get("n"), _epoch(it.get("ended"))) for it in its]
+    out: dict[str, list] = {}
+    add = lambda role, n, xp, why="": out.setdefault(role, []).append((n, xp, why))  # noqa: E731
+    prev_met, prev_score = None, {}
+    for it in its:
+        n = it.get("n")
+        rec = _read_json(run_dir / "iterations" / str(n) / "record.json", {}) or {}
+        for t in it.get("taught") or []:
+            if "fix confirmed" in t:
+                add("fixer", n, 2, _clip(t, 90))
+            else:
+                add("fixer", n, 1)
+        met = (it.get("acceptance") or {}).get("met")
+        if isinstance(met, list):
+            if prev_met is not None and len(met) > prev_met:
+                add("fixer", n, len(met) - prev_met, f"acceptance counters firing {prev_met} -> {len(met)}")
+            prev_met = len(met)
+        for role, get in SCORE_ROLES.items():
+            sc = _num(get(rec, it))
+            if sc is None:
+                continue
+            was = prev_score.get(role)
+            rose = was is not None and sc > was
+            add(role, n, 2 if rose else 1, f"score it gave rose {was:g} -> {sc:g}" if rose else "")
+            prev_score[role] = sc
+        if rec.get("lessons_updated"):
+            add("reflector", n, 1, "rewrote the shared lessons from this round")
+    human = (_read_json(run_dir / "state.json", {}) or {}).get("corrections") or []
+    for _ in human:
+        add("fixer", None, 1)
+    clean: dict[int | None, int] = {}
+    for line in _tail(run_dir / "levels" / "log.jsonl", 2000):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        att = row.get("attempts") if isinstance(row, dict) else None
+        if not isinstance(att, list) or not att or row.get("fallback") or (_num(att[-1].get("errors")) or 0) > 0:
+            continue
+        n = _round_of(_epoch(row.get("ts")), ends)
+        corr = int(_num(row.get("corrections")) or 0)
+        add("level_designer", n, 1 + min(corr, 2))
+        if corr == 0:
+            clean[n] = clean.get(n, 0) + 1
+    for n, k in clean.items():
+        add("level_designer", n, 0, f"{k} zone{'s' if k != 1 else ''} passed with no corrections")
+    qa: dict[int, list[bool]] = {}
+    root = run_dir / "tests"
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        m = QA_RUN_RX.match(d.name)
+        met = (_read_json(d / "report.json", {}) or {}).get("goal_met") if m else None
+        if isinstance(met, bool):
+            qa.setdefault(int(m.group(1)), []).append(met)
+    testers = {c["role"] for c in calls if SHOT_ROLES.get(c["role"]) == "tester"}
+    prev_rate = None
+    for n in sorted(qa):
+        rate = sum(qa[n]) / len(qa[n])
+        why = f"QA pass rate rose {prev_rate:.0%} -> {rate:.0%}" if prev_rate is not None and rate > prev_rate else ""
+        for role in testers:
+            add(role, n, sum(qa[n]), why)
+        prev_rate = rate
+    return out
+
+
+def agent_levels(run_dir: Path, calls: list[dict]) -> dict[str, dict]:
+    """role -> {level, xp, next_xp, round, improved, reason, level_up, gained}: xp from the signals above (a role
+    with none earns 1 per answered call, and never gets an arrow). improved/level_up are about the newest
+    finished round only."""
+    its = sorted((it for it in (_read_json(run_dir / "state.json", {}) or {}).get("iterations") or []
+                  if isinstance(it, dict) and isinstance(it.get("n"), int)), key=lambda it: it["n"])
+    latest = its[-1]["n"] if its else None
+    sig = _signals(run_dir, its, calls)
+    out = {}
+    for role in dict.fromkeys(c["role"] for c in calls):
+        evs = sig.get(role)
+        if evs is None:
+            evs = [(None, 1, "") for c in calls if c["role"] == role and not c.get("error") and not c.get("aborted")]
+        xp = sum(e[1] for e in evs)
+        now_evs = [e for e in evs if latest is not None and e[0] == latest]
+        gained = sum(e[1] for e in now_evs)
+        why = [e[2] for e in now_evs if e[2]]
+        level = 1 + xp // LEVEL_XP
+        out[role] = {"level": level, "xp": xp, "floor_xp": (level - 1) * LEVEL_XP, "next_xp": level * LEVEL_XP,
+                     "round": latest, "improved": bool(why), "reason": "; ".join(why[:2]), "gained": gained,
+                     "level_up": bool(why) and 1 + (xp - gained) // LEVEL_XP < level,
+                     "rounds_improved": len({e[0] for e in evs if e[2] and e[0] is not None})}
+    return out
+
+
+def agents_view(calls: list[dict], live_role: str | None = None, now: float | None = None,
+                levels: dict[str, dict] | None = None) -> list[dict]:
     """One row per agent (Mubit role) of a game: calls, failures, where it ran, its latest step and thought.
     The one at work right now first (the role of a call made in the last FRESH_CALL seconds, else the
     role the live log names), then the most recently active."""
@@ -1005,7 +1111,8 @@ def agents_view(calls: list[dict], live_role: str | None = None, now: float | No
         out.append({"role": role, "calls": len(cs), "failed": sum(1 for c in cs if c.get("error")), "recent": recent,
                     "sources": list(dict.fromkeys(c["source"] for c in cs)), "last_ts": _epoch(last.get("ts")),
                     "latency_ms": int(_num(last.get("latency_ms")) or 0),
-                    "step": g["step"] or ROLE_STEP.get(role, ""), "thought": g["thought"], "running": False})
+                    "step": g["step"] or ROLE_STEP.get(role, ""), "thought": g["thought"], "running": False,
+                    "level": (levels or {}).get(role)})
     out.sort(key=lambda a: -(a["last_ts"] or 0))
     now = time.time() if now is None else now
     mine = next((a for a in out[:1] if a["last_ts"] is not None and now - a["last_ts"] <= FRESH_CALL), None) \
@@ -1417,9 +1524,10 @@ def collect(settings: Settings | None = None) -> dict:
     for g in games:
         g["team"] = team_view(s, g["slug"], g, now)
         run_dir = RunStore(s, g["slug"]).dir
-        g["agents"] = agents_view(game_calls(run_dir), (g.get("live") or {}).get("role"), now)
+        calls = game_calls(run_dir)
+        g["agents"] = agents_view(calls, (g.get("live") or {}).get("role"), now, agent_levels(run_dir, calls))
         g["result"] = result_view(run_dir, g, g["team"])
-        g["learned"] = learned_view(run_dir, g["slug"], s.runs_dir, game_calls(run_dir))
+        g["learned"] = learned_view(run_dir, g["slug"], s.runs_dir, calls)
     games.sort(key=lambda g: (g["live"] is None and not (g.get("autopilot") or {}).get("alive"), -g["updated"]))
     return {"now": now, "running": runs, "active": now_view(runs, games, now, progress_all(s, now)), "games": games,
             "mubit": {**mubit_view(s), "ledger": ledger_view(s)}}
