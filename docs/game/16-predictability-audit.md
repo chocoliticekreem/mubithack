@@ -57,11 +57,11 @@ lobby banner 35, toasts 40, lobby toast 45; Left: objectives 10, integrity 20, g
 
 | # | Issue | Where | Fix | Status |
 |---|---|---|---|---|
-| H1 | **Every level-up showed two centre cards:** "LEVEL N!" (ProfileController), then "LEVEL N!" again (GearController), even with no new gear. | GearController Gear/Unlocked | The gear card only shows when there is new gear. | FIXED #B |
-| H2 | **The lobby toast never hid.** It faded its text but stayed Visible, so the TopCentre stack kept a gap for it. | LobbyController.showToast | Visible = false after the fade. | FIXED #B |
-| H3 | **The guide colour was cyan** (MissionGuides.HighlightColor #5BE0FF). It read as water (UiWater), while the tutorial objective is yellow. | MissionGuides | Yellow #FFC531 (UiWarn), the same as the tutorial. | FIXED #B |
-| H4 | **Red on a neutral button:** the locker CLOSE was red. | GearController | UiPanelDark. | FIXED #B |
-| H5 | **A full throw charge turned red** (reads as danger). | InventoryController | UiGood. | FIXED #B |
+| H1 | **Every level-up showed two centre cards:** "LEVEL N!" (ProfileController), then "LEVEL N!" again (GearController), even with no new gear. | GearController Gear/Unlocked | The gear card only shows when there is new gear. | FIXED #251 |
+| H2 | **The lobby toast never hid.** It faded its text but stayed Visible, so the TopCentre stack kept a gap for it. | LobbyController.showToast | Visible = false after the fade. | FIXED #251 |
+| H3 | **The guide colour was cyan** (MissionGuides.HighlightColor #5BE0FF). It read as water (UiWater), while the tutorial objective is yellow. | MissionGuides | Yellow #FFC531 (UiWarn), the same as the tutorial. | FIXED #251 |
+| H4 | **Red on a neutral button:** the locker CLOSE was red. | GearController | UiPanelDark. | FIXED #251 |
+| H5 | **A full throw charge turned red** (reads as danger). | InventoryController | UiGood. | FIXED #251 |
 | H6 | **Carrying shows in three places** (HUD card bottom-left, RescueController carry slot, hotbar CARRY slot). The HUD card sits on the phone thumbstick. | HudController carry card | Remove the HUD card and keep the hotbar slot. | PROPOSAL |
 | H7 | **Centre cards land at three heights:** level-up 0.62, gear unlock 0.3, tier-up 0.52. | ProfileController, GearController, BattlePassController | One `HudLayout.CentreY` for every celebrate card. | PROPOSAL |
 | H8 | **Two toast systems in TopCentre** with different styles (HUD toast: dark pill; lobby toast: bare cream text). | LobbyController | Route lobby toasts through the HUD toast (one queue, dedupe, cap 2). | PROPOSAL |
@@ -76,14 +76,14 @@ lobby banner 35, toasts 40, lobby toast 45; Left: objectives 10, integrity 20, g
 
 | # | Issue | Where | Fix | Status |
 |---|---|---|---|---|
-| R1 | **The hose stream looked longer than it worked.** The visible arc lands about 45 studs out, but water only counted to 30 (FireConfig.HoseRange). Spraying a fire 31-45 studs away looked like a hit and did nothing. | FireConfig | HoseRange 42: if the water reaches it, it counts. | FIXED #B |
-| R2 | **Empty extinguisher: silence.** Both client and server skipped the spray without a word. | ToolController spray loop | "Empty! Grab the hose at the truck" over you, at most every 2.5 s. | FIXED #B |
-| R3 | **Locked door with bare hands: silence** (a push did nothing). The prompt said "Locked! Use the axe" without mentioning the kick. | HandsService PushDoor, ToolService | "Locked! Use the axe or kick it" for both. | FIXED #B |
-| R4 | **Revive failed silently** when too far or on another squad (the reason from SquadRules was dropped). | SquadService._tryRevive | "Too far! Get closer" / "Not your squad!". | FIXED #B |
-| R5 | **Hose reel / hydrant / gear rack out of range: silence.** | InventoryService onReel, onStock | "Too far! Get closer (to the hose)". | FIXED #B |
-| R6 | **Kick too far: silence.** | GearService.kick | "Too far! Get closer". | FIXED #B |
-| R7 | Corrective popups were muted by POP-UPS: OFF. | WorldPopup / PopupLogic | New popup kind `hint`: always shown to the player it's about. R2-R6 use it. | FIXED #B |
-| R8 | **The rescue text didn't match the rule.** The HUD said "Bring to the TRUCK!", but bringing someone outside also counts. The guide said "Walk into the glowing drop zone", but nothing glows (the drop-off is invisible). | HudController, MissionGuides | "Get them OUTSIDE or to the TRUCK!" and "Walk up to the back of the truck." | FIXED #B |
+| R1 | **The hose stream looked longer than it worked.** The visible arc lands about 45 studs out, but water only counted to 30 (FireConfig.HoseRange). Spraying a fire 31-45 studs away looked like a hit and did nothing. | FireConfig | HoseRange 42: if the water reaches it, it counts. | FIXED #251 |
+| R2 | **Empty extinguisher: silence.** Both client and server skipped the spray without a word. | ToolController spray loop | "Empty! Grab the hose at the truck" over you, at most every 2.5 s. | FIXED #251 |
+| R3 | **Locked door with bare hands: silence** (a push did nothing). The prompt said "Locked! Use the axe" without mentioning the kick. | HandsService PushDoor, ToolService | "Locked! Use the axe or kick it" for both. | FIXED #251 |
+| R4 | **Revive failed silently** when too far or on another squad (the reason from SquadRules was dropped). | SquadService._tryRevive | "Too far! Get closer" / "Not your squad!". | FIXED #251 |
+| R5 | **Hose reel / hydrant / gear rack out of range: silence.** | InventoryService onReel, onStock | "Too far! Get closer (to the hose)". | FIXED #251 |
+| R6 | **Kick too far: silence.** | GearService.kick | "Too far! Get closer". | FIXED #251 |
+| R7 | Corrective popups were muted by POP-UPS: OFF. | WorldPopup / PopupLogic | New popup kind `hint`: always shown to the player it's about. R2-R6 use it. | FIXED #251 |
+| R8 | **The rescue text didn't match the rule.** The HUD said "Bring to the TRUCK!", but bringing someone outside also counts. The guide said "Walk into the glowing drop zone", but nothing glows (the drop-off is invisible). | HudController, MissionGuides | "Get them OUTSIDE or to the TRUCK!" and "Walk up to the back of the truck." | FIXED #251 |
 | R9 | The rescue zone is invisible until after it counts (the green disc only flashes on success). | RescueService / TruckBuilder RescueDropoff | Faint neon disc at the truck while you carry someone. | PROPOSAL |
 | R10 | Foam works further than it looks (visual 12 studs, cools to 30): lenient, but not predictable. Water also passes through walls (no line of sight). | ToolService -> FireService:ApplyWater | Pass a range to ApplyWater; optional LOS ray. | PROPOSAL (G1 fire lane) |
 | R11 | Fire out has no number. The "poof" text shows 20% of the time; there is no "+1" or "FIRE OUT". | FireFxController | A rate-limited "OUT!" pop for the sprayer. | PROPOSAL |
@@ -93,7 +93,7 @@ lobby banner 35, toasts 40, lobby toast 45; Left: objectives 10, integrity 20, g
 
 | # | Issue | Where | Fix | Status |
 |---|---|---|---|---|
-| C1 | **G / Q meant two things while carrying:** InventoryController and RescueController both bind G / Q and both sink, so whichever bound last won. G could drop your axe instead of the person. | InventoryController onDrop / onThrow | With a person in your arms, G / Q always go to the person (inventory passes). | FIXED #B |
+| C1 | **G / Q meant two things while carrying:** InventoryController and RescueController both bind G / Q and both sink, so whichever bound last won. G could drop your axe instead of the person. | InventoryController onDrop / onThrow | With a person in your arms, G / Q always go to the person (inventory passes). | FIXED #251 |
 | C2 | A mouse click on a prompt sticker while the mouse is locked would steal the spray click. | PromptController | Clicks count only with a free mouse. | FIXED #250 |
 | C3 | Menus vs mouse lock: MenuMouseController frees the mouse while any `Menu=true` panel or HudLayout modal is up and Roblox restores the lock when it closes. Nothing opened without unlocking or closed without restoring. | MenuMouseController | Tag every new menu panel `Menu=true`. | OK |
 | C4 | The onboarding snaps the camera to the training fire and sets a shoulder offset. It is intentional, but it is the one surprise camera move outside the truck. | OnboardingController | Ease it in over 0.4 s instead of a cut. | PROPOSAL |
