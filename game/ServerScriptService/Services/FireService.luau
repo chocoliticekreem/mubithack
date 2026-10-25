@@ -9,8 +9,9 @@
 --   FireService:CountBurning(locationId: string?): number   -- locationId or v1.5 instanceId; nil = all
 --   FireService:ExtinguishAll(locationId: string?)          -- nil = every location/instance
 --   FireService:ClearInstance(instanceId: string)            -- v1.5, called by MissionService at mission end
---   FireService:SetLocationCap(locationId: string, cap: number?) -- this location's own MaxBurningPerLocation
---     (rookie calls: GameConfig.Rookie.FireCap); nil = back to the config cap. Forgotten with the location.
+--   FireService:SetAreaCap(area: Instance, cap: number?) -- at most `cap` burning parts inside `area` (a
+--     dispatch site: GameConfig.Rookie.FireCap); nil clears it. City sites are cells of the big "City"
+--     location (indexed at map build, the run's own index skips them), so a per-location cap can't do this.
 -- Indexes MapService.LocationBuilt (key = locationId) and v1.5 MapService.InstanceBuilt (key = instanceId).
 --   FireService:IndexLocation(model: Instance, locationId: string)  -- index a model built outside
 --     MapService (FirstFireService's training fire) as its own fire location; Destroying frees it
@@ -45,6 +46,7 @@ type Cell = {
 	neighbors: { Cell },
 	location: string,
 	cause: Player?, -- who lit it (for Blame)
+	area: Instance?, -- SetAreaCap: the capped area this part is in
 }
 
 type Location = {
@@ -53,7 +55,6 @@ type Location = {
 	burning: { [Cell]: true },
 	count: number,
 	capWarned: boolean,
-	cap: number?, -- SetLocationCap: overrides FireConfig.MaxBurningPerLocation for this location
 }
 
 local FireService = {}
@@ -68,6 +69,8 @@ local services: { [string]: any } = {}
 local cells: { [BasePart]: Cell } = {}
 local locations: { [string]: Location } = {}
 local totalBurning = 0
+type Area = { cap: number, count: number }
+local areas: { [Instance]: Area } = {} -- SetAreaCap
 
 local function loc(id: string): Location
 	local l = locations[id]
@@ -92,7 +95,11 @@ local function startBurning(c: Cell, cause: Player?): boolean
 		return false
 	end
 	local l = loc(c.location)
-	if not FireSim.canIgnite(l.count, l.cap or FireConfig.MaxBurningPerLocation, totalBurning, FireConfig.MaxBurning) then
+	local area = c.area and areas[c.area]
+	if area and area.count >= area.cap then
+		return false
+	end
+	if not FireSim.canIgnite(l.count, FireConfig.MaxBurningPerLocation, totalBurning, FireConfig.MaxBurning) then
 		if not l.capWarned then
 			l.capWarned = true
 			Telemetry.count("fire_cap_hit")
@@ -104,6 +111,9 @@ local function startBurning(c: Cell, cause: Player?): boolean
 	l.burning[c] = true
 	l.count += 1
 	totalBurning += 1
+	if area then
+		area.count += 1
+	end
 	CollectionService:AddTag(c.part, Names.Tag.Burning)
 	setLevel(c)
 	return true
@@ -118,6 +128,10 @@ local function stopBurning(c: Cell, charred: boolean)
 	l.count -= 1
 	l.capWarned = false
 	totalBurning -= 1
+	local area = c.area and areas[c.area]
+	if area then
+		area.count = math.max(0, area.count - 1)
+	end
 	if charred and c.part.Parent then
 		-- set Charred before removing the tag: clients use it to skip the "put out" steam puff
 		c.part:SetAttribute(Names.Attr.Charred, true)
@@ -391,11 +405,29 @@ function FireService:ClearInstance(instanceId: string)
 	forget(instanceId)
 end
 
-function FireService:SetLocationCap(locationId: string, cap: number?)
-	if type(locationId) ~= "string" then
+function FireService:SetAreaCap(area: Instance, cap: number?)
+	if typeof(area) ~= "Instance" then
 		return
 	end
-	loc(locationId).cap = if type(cap) == "number" and cap > 0 then math.floor(cap) else nil
+	local on = type(cap) == "number" and cap > 0
+	local count = 0
+	for _, d in area:GetDescendants() do
+		local c = d:IsA("BasePart") and cells[d] or nil
+		if c then
+			c.area = if on then area else nil
+			if c.state == FireSim.BURNING then
+				count += 1
+			end
+		end
+	end
+	if on then
+		areas[area] = { cap = math.floor(cap :: number), count = count }
+		area.Destroying:Once(function()
+			areas[area] = nil
+		end)
+	else
+		areas[area] = nil
+	end
 end
 
 function FireService:IndexLocation(model: Instance, locationId: string)
