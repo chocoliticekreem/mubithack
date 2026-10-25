@@ -619,8 +619,9 @@ local function scanRescues(from: Vector3?): (number, number, Vector3?)
 	local rescued, total = 0, 0
 	local best, bestD = nil :: Vector3?, math.huge
 	for _, m in rescuables() do
-		total += 1
 		local st = m:GetAttribute(Names.Attr.RescueState)
+		-- a twist's bonus rescue (TwistService cat) joins the total once saved, like MissionService counts it
+		total += if m:GetAttribute("Bonus") == true and st ~= "Rescued" then 0 else 1
 		if st == "Rescued" then
 			rescued += 1
 		elseif st == "Trapped" or st == "Downed" then

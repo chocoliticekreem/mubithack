@@ -67,6 +67,10 @@ Funnel.Events = table.freeze({
 	InviteAskShown = "InviteAskShown", -- value: 1; the results-screen "Bring your friends next time!" line
 	InvitePrompted = "InvitePrompted", -- value: 1; SocialService:PromptGameInvite opened
 	InviteSent = "InviteSent", -- value: number of friends invited (GameInvitePromptClosed recipients)
+	-- per-call twists + speed run (Services/TwistService; CustomField01 = twist id, Config/TwistConfig.Defs)
+	TwistRolled = "TwistRolled", -- value: 1; a call got a twist at dispatch
+	TwistCompleted = "TwistCompleted", -- value: 1; the twisted call ended ALL CLEAR (cat: and the cat was saved)
+	CallTime = "CallTime", -- value: seconds from dispatch to the results; field = twist id or "none"
 })
 
 export type Track = { last: number }
