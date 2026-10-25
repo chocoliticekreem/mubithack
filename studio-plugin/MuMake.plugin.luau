@@ -1,11 +1,11 @@
 -- MuMake: a guided playthrough notebook inside Studio.
 -- Audience: a first-time teenage creator checking what friends will experience.
 -- Domain: spawn, walk, try an item, finish a goal, explain a mistake, play again.
--- Palette: Studio graphite and paper, play green, edit blue, caution amber, error red.
+-- Palette: the MuHack dashboard's cream paper, ink text, leaf and peach pills, butter for live work.
 -- Signature: a visible "What we'll try" checklist that becomes evidence after playing.
 -- Replace tool tabs with a next step, raw reports with outcomes, IDs with action choices.
--- Intent: calm, readable, one choice at a time; native SourceSans, 8px rhythm,
--- inset fields, softly raised sections, color only for actions and outcomes.
+-- Intent: calm, readable, one choice at a time; Fredoka headings, Nunito body, 8px rhythm,
+-- borderless rounded cards on cream, color only for actions and outcomes.
 local Http = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local URL = "__MUBIT_SERVICE_URL__"
@@ -48,21 +48,23 @@ local widget = plugin:CreateDockWidgetPluginGuiAsync("MubitTesterNativeV1",
     DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right,true,false,Layout.defaultWidth,760,Layout.minWidth,400))
 widget.Title = "MuMake"
 widget.Enabled = true
-local function theme(name,fallback)
-    local ok,value = pcall(function() return settings().Studio.Theme:GetColor(Enum.StudioStyleGuideColor[name]) end)
-    return ok and value or fallback
+-- Same tokens as forge/dashboard.html :root, in every Studio theme, so the panel and the dashboard match.
+local hex=Color3.fromHex
+local palette={canvas=hex("FBF4E4"),surface=hex("FFFDF8"),field=hex("F7EFDD"),text=hex("4B3B2F"),
+    secondary=hex("8A7766"),border=hex("ECDFC6"),edge=hex("E4D4B4"),
+    blue=hex("7FB069"),onAccent=hex("FFFFFF"),accentText=hex("5F9E4A"),
+    tint=hex("FDF0C4"),selected=hex("F2E6CC"),peach=hex("F4A685"),butter=hex("F9D56E"),sky=hex("84C5E3"),
+    green=hex("5F9E4A"),amber=hex("B8693F"),red=hex("D9534F"),dash=hex("EFDCA0")}
+local fonts
+local fontsOk=pcall(function()
+    local nunito=Font.fromEnum(Enum.Font.Nunito).Family
+    fonts={body=Font.new(nunito,Enum.FontWeight.SemiBold),medium=Font.new(nunito,Enum.FontWeight.Bold),
+        bold=Font.fromEnum(Enum.Font.FredokaOne)}
+end)
+if not fontsOk then
+    fonts={body=Font.fromEnum(Enum.Font.BuilderSans),medium=Font.fromEnum(Enum.Font.BuilderSansMedium),
+        bold=Font.fromEnum(Enum.Font.BuilderSansBold)}
 end
-local studioBackground=theme("MainBackground",Color3.fromRGB(35,35,35))
-local dark=(studioBackground.R+studioBackground.G+studioBackground.B)<1.5
-local function shade(light,darkColor) return Color3.fromHex(dark and darkColor or light) end
-local palette={canvas=shade("F6F7FC","191D29"),surface=shade("FFFFFF","252B3B"),
-    field=shade("ECEFF8","141924"),text=shade("252B42","F2F4FF"),
-    secondary=shade("586078","BCC6DC"),border=shade("D9DEEE","414C66"),
-    blue=shade("6545CF","B7A5FF"),onAccent=shade("FFFFFF","242039"),
-    tint=shade("EEE8FF","35304C"),mint=shade("DDF6E9","253D37"),
-    green=shade("246B4A","8ADCB3"),amber=shade("86591B","F0C47C"),red=shade("A23D4D","FAA1AA")}
-local fonts={body=Enum.Font.SourceSans,medium=Enum.Font.SourceSansSemibold,bold=Enum.Font.SourceSansBold}
-pcall(function() fonts.body=Enum.Font.BuilderSans fonts.medium=Enum.Font.BuilderSansMedium fonts.bold=Enum.Font.BuilderSansBold end)
 local function round(el,radius)
     local corner=Instance.new("UICorner") corner.CornerRadius=UDim.new(0,radius or 10) corner.Parent=el
 end
@@ -70,6 +72,15 @@ local function outline(el,color,width)
     local stroke=Instance.new("UIStroke") stroke.Color=color or palette.border stroke.Thickness=width or 1 stroke.Parent=el
     stroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
     return stroke
+end
+-- Dashboard cards: filled, borderless, 18-22px corners, 14-18px padding.
+local function card(el,color,radius,padding)
+    el.BackgroundTransparency=0 el.BackgroundColor3=color or palette.surface el.BorderSizePixel=0
+    round(el,radius or 22)
+    local inset=Instance.new("UIPadding") inset.Name="CardPadding"
+    for _,side in {"PaddingTop","PaddingBottom","PaddingLeft","PaddingRight"} do inset[side]=UDim.new(0,padding or 16) end
+    inset.Parent=el
+    return el
 end
 local root = Instance.new("Frame")
 root.BackgroundColor3=palette.canvas root.BorderSizePixel=0 root.Size=UDim2.fromScale(1,1) root.Parent=widget
@@ -89,8 +100,8 @@ local function text(parent,value,kind)
     el.Size=UDim2.new(1,-4,0,0) el.AutomaticSize=Enum.AutomaticSize.Y
     el.BackgroundTransparency=1 el.TextWrapped=true
     el.TextXAlignment=Enum.TextXAlignment.Left el.TextYAlignment=Enum.TextYAlignment.Top
-    el.Font=kind=="heading" and fonts.bold or fonts.body
-    el.TextSize=kind=="heading" and 26 or (kind=="small" and 14 or 16)
+    el.FontFace=kind=="heading" and fonts.bold or fonts.body
+    el.TextSize=kind=="heading" and 24 or (kind=="small" and 14 or 16)
     if kind=="muted" or kind=="small" then el.TextColor3=palette.secondary else el.TextColor3=palette.text end
     el.Text=value el.Parent=parent
     return el
@@ -106,11 +117,12 @@ local function button(parent,label,fn,options)
     el.Name=options.name or label el.Size=UDim2.new(1,-4,0,options.primary and 44 or 36)
     el.AutomaticSize=Enum.AutomaticSize.Y
     el.BackgroundColor3=options.primary and palette.blue or palette.surface
-    el.BorderSizePixel=0 el.Font=fonts.medium el.TextSize=15
+    el.BorderSizePixel=0 el.FontFace=fonts.medium el.TextSize=15
     el.TextColor3=options.primary and palette.onAccent or palette.text
     el.TextWrapped=true el.Text=label el.Parent=parent
-    round(el,8)
-    if not options.primary then outline(el) end
+    -- Pills, as on the dashboard; the soft edge stands in for its 0 2px 0 #e4d4b4 shadow.
+    round(el,options.primary and 23 or 18)
+    if not options.primary then outline(el,palette.edge) end
     el.Activated:Connect(function()
         if not el.Active then return end
         if options.action then
@@ -130,17 +142,17 @@ local fieldShells={}
 local function field(parent,placeholder,height)
     local shell=Instance.new("Frame") shell.Name="InputFrame"
     shell.Size=UDim2.new(1,-4,0,height or 88) shell.BackgroundColor3=palette.field
-    shell.BorderSizePixel=0 shell.Parent=parent round(shell,10)
+    shell.BorderSizePixel=0 shell.Parent=parent round(shell,14)
     local stroke=outline(shell)
     local el=Instance.new("TextBox")
     el.Size=UDim2.fromScale(1,1) el.BackgroundTransparency=1 el.BorderSizePixel=0
-    el.TextColor3=palette.text el.PlaceholderColor3=palette.secondary el.Font=fonts.body
+    el.TextColor3=palette.text el.PlaceholderColor3=palette.secondary el.FontFace=fonts.body
     el.TextStrokeTransparency=1 el.RichText=false
     el.TextSize=16 el.TextXAlignment=Enum.TextXAlignment.Left el.TextYAlignment=Enum.TextYAlignment.Top
     el.TextWrapped=true el.MultiLine=true el.ClearTextOnFocus=false el.Text="" el.PlaceholderText=placeholder el.Parent=shell
     local padding=Instance.new("UIPadding") padding.PaddingLeft=UDim.new(0,8) padding.PaddingRight=UDim.new(0,8)
     padding.PaddingTop=UDim.new(0,8) padding.PaddingBottom=UDim.new(0,8) padding.Parent=el
-    el.Focused:Connect(function() stroke.Color=palette.blue stroke.Thickness=2 end)
+    el.Focused:Connect(function() stroke.Color=palette.peach stroke.Thickness=2 end)
     el.FocusLost:Connect(function() stroke.Color=palette.border stroke.Thickness=1 end)
     fieldShells[el]=shell
     return el
@@ -172,12 +184,12 @@ end
 local header=Instance.new("Frame") header.Name="Header" header.BackgroundTransparency=1
 header.Position=UDim2.fromOffset(20,16) header.Size=UDim2.new(1,-40,0,60) header.Parent=root
 local brandMark=Instance.new("Frame") brandMark.Size=UDim2.fromOffset(32,32)
-brandMark.BackgroundColor3=palette.blue brandMark.BorderSizePixel=0 brandMark.Parent=header round(brandMark,10)
+brandMark.BackgroundColor3=palette.peach brandMark.BorderSizePixel=0 brandMark.Parent=header round(brandMark,10)
 local brandLetter=text(brandMark,"M") brandLetter.AutomaticSize=Enum.AutomaticSize.None
 brandLetter.Size=UDim2.fromScale(1,1) brandLetter.TextXAlignment=Enum.TextXAlignment.Center
-brandLetter.TextYAlignment=Enum.TextYAlignment.Center brandLetter.Font=fonts.bold brandLetter.TextSize=22 brandLetter.TextColor3=palette.onAccent
+brandLetter.TextYAlignment=Enum.TextYAlignment.Center brandLetter.FontFace=fonts.bold brandLetter.TextSize=22 brandLetter.TextColor3=palette.onAccent
 local brandTitle=text(header,"MuMake","heading") brandTitle.Position=UDim2.fromOffset(42,2)
-brandTitle.Size=UDim2.new(1,-176,0,30) brandTitle.TextSize=22
+brandTitle.Size=UDim2.new(1,-176,0,30) brandTitle.TextSize=26
 local status=text(header,"Connecting to your game…","small") status.Position=UDim2.fromOffset(0,42)
 local guideLink=button(header,"Guide",function() show("Guide") end)
 guideLink.Position=UDim2.new(1,-116,0,0) guideLink.Size=UDim2.fromOffset(50,32) guideLink.TextSize=13
@@ -212,6 +224,7 @@ feedback.Size=UDim2.new(1,-4,0,0)
 local stopButton=button(footer,"Stop MuMake",function()
     request("POST","/cancel",{}) say("Stopping MuMake…")
 end)
+stopButton.BackgroundColor3=palette.peach
 local pages={}
 for _,name in {"Welcome","Guide","Make game","Check game","Results","Settings"} do
     pages[name]=section(body,name) pages[name].Visible=name==tab
@@ -238,8 +251,8 @@ show=function(name,replace)
     tab=name
     for key,page in pages do page.Visible=key==name end
     for key,b in navButtons do
-        b.BackgroundColor3=key==name and palette.tint or palette.canvas
-        b.TextColor3=key==name and palette.blue or palette.secondary
+        b.BackgroundColor3=key==name and palette.tint or palette.surface
+        b.TextColor3=key==name and palette.text or palette.secondary
     end
     layoutSurface() body.CanvasPosition=Vector2.zero
     if name=="Welcome" and refreshWelcome then refreshWelcome() end
@@ -257,11 +270,12 @@ end
 -- Onboarding is a presentation preference. Never attach it to a request payload.
 local welcome=pages.Welcome
 local welcomeArt=Instance.new("Frame") welcomeArt.Name="BuildIllustration" welcomeArt.BackgroundColor3=palette.tint
-welcomeArt.Size=UDim2.new(1,-4,0,72) welcomeArt.BorderSizePixel=0 welcomeArt.Parent=welcome round(welcomeArt,16)
+welcomeArt.Size=UDim2.new(1,-4,0,72) welcomeArt.BorderSizePixel=0 welcomeArt.Parent=welcome round(welcomeArt,22)
 for index=1,5 do
     local tile=Instance.new("Frame") tile.Name="BuildingBlock" tile.Size=UDim2.fromOffset(42,24)
     tile.Position=UDim2.new(.12+(index-1)*.15,-8,0,48-(index-1)*8)
-    tile.Rotation=-12 tile.BorderSizePixel=0 tile.BackgroundColor3=index%2==0 and palette.blue or palette.green
+    tile.Rotation=-12 tile.BorderSizePixel=0
+    tile.BackgroundColor3=({palette.peach,palette.butter,palette.blue,palette.sky,palette.peach})[index]
     tile.Parent=welcomeArt round(tile,5)
     local top=Instance.new("Frame") top.BackgroundTransparency=.65 top.BackgroundColor3=Color3.new(1,1,1)
     top.BorderSizePixel=0 top.Size=UDim2.new(1,-8,0,4) top.Position=UDim2.fromOffset(4,4) top.Parent=tile round(top,2)
@@ -273,7 +287,8 @@ local choiceButtons={}
 local function choice(parent,title,description,onChoose)
     local row=button(parent,"",onChoose)
     row.Size=UDim2.new(1,-4,0,76) row.Text="" row.AutoButtonColor=false
-    local heading=text(row,title) heading.Font=fonts.medium heading.Position=UDim2.fromOffset(16,12)
+    row:FindFirstChildOfClass("UICorner").CornerRadius=UDim.new(0,18)
+    local heading=text(row,title) heading.FontFace=fonts.medium heading.Position=UDim2.fromOffset(16,12)
     heading.Size=UDim2.new(1,-64,0,24)
     local descriptionText=text(row,description,"small") descriptionText.Position=UDim2.fromOffset(16,38)
     descriptionText.Size=UDim2.new(1,-56,0,36)
@@ -314,8 +329,8 @@ refreshWelcome=function()
             selectPreference(isAge and "audience" or "level",option.id)
         end)
         local chosen=option.id==selected
-        row.row.BackgroundColor3=chosen and palette.tint or palette.surface
-        row.stroke.Color=chosen and palette.blue or palette.border row.stroke.Thickness=chosen and 2 or 1
+        row.row.BackgroundColor3=chosen and palette.selected or palette.surface
+        row.stroke.Color=chosen and palette.peach or palette.edge row.stroke.Thickness=chosen and 2 or 1
         row.dot.BackgroundColor3=chosen and palette.blue or palette.surface
         choiceButtons[option.id]=row
     end
@@ -350,7 +365,7 @@ local makeTitle=text(makePage,"What do you want to make?","heading")
 local makeIntro=text(makePage,"Tell MuMake your idea. Start small; you can try the first version in Studio.","muted")
 local makePath=section(makePage,"YourNextSteps")
 local pathText=text(makePath,"Your idea   /   First draft   /   Try it in Studio","small")
-pathText.TextColor3=palette.blue
+pathText.TextColor3=palette.accentText
 local idea=field(makePage,"Example: an obby where players collect coins and avoid rising lava.",136)
 local starters=section(makePage,"IdeaStarters")
 text(starters,"Pick a starting point, or write your own.","small")
@@ -360,7 +375,7 @@ for _,example in {"An obby with coins and checkpoints","A race through a disappe
         idea.CursorPosition=#idea.Text+1 idea.SelectionStart=-1
     end)
 end
-local extraBuild=section(makePage,"DraftControls")
+local extraBuild=card(section(makePage,"DraftControls"))
 text(extraBuild,"Shape your first draft","heading")
 text(extraBuild,"What should it include? (optional)","small")
 local mustHave=field(extraBuild,"Example: coins, three checkpoints, and a finish line.",72)
@@ -382,24 +397,24 @@ buildAccess.Parent=makeActionBar makeButton.Parent=makeActionBar
 makeActionBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutSurface)
 local buildExplanation=text(makePage,"MuMake plans the game, writes its code, and checks the draft for code errors. Then you can add it to this Studio window.","muted")
 text(makePage,"Creating a game uses paid AI calls. MuMake adds it to this Studio window, so use an empty local game.","small")
-local savedLibrary=section(makePage,"SavedGames") savedLibrary.LayoutOrder=80
+local savedLibrary=card(section(makePage,"SavedGames")) savedLibrary.LayoutOrder=80
 text(savedLibrary,"Your saved games","heading")
 text(savedLibrary,"Reopen a draft made here or with the agent tool. Opening it does not change Studio or use AI.","small")
 local savedGameRows=section(savedLibrary,"Games")
 local checkPage=pages["Check game"]
 local checkTitle=text(checkPage,"Will it work for your friends?","heading")
 local checkIntro=text(checkPage,"Let MuMake try your game, then see what happened.","muted")
-local preparation=section(checkPage,"Preparation")
+local preparation=card(section(checkPage,"Preparation"),palette.tint,18)
 text(preparation,"First, prepare this game")
 text(preparation,"Add small helper scripts so MuMake can play and spot problems. You can undo this in Studio.","muted")
 button(preparation,"Prepare this game",function() start("install_harness") end,{action=true})
 local choose=Instance.new("Frame") choose.BackgroundTransparency=1 choose.Size=UDim2.new(1,-4,0,36) choose.Parent=checkPage
 local modePanel=section(checkPage,"Plan")
-local quick=section(modePanel,"Quick")
+local quick=card(section(modePanel,"Quick"))
 text(quick,"What we’ll try","heading")
 text(quick,"1. Join your game\n2. Walk to a new spot\n3. Look for game errors")
 text(quick,"A built-in check. No AI calls needed.","small")
-local goalPanel=section(modePanel,"Goal") goalPanel.Visible=false
+local goalPanel=card(section(modePanel,"Goal")) goalPanel.Visible=false
 text(goalPanel,"What should a player be able to do?","heading")
 local goal=field(goalPanel,"Example: pick up a hose and put out a fire.",96)
 text(goalPanel,"MuMake will join, choose actions to try your goal, and check what actually happened.","muted")
@@ -427,7 +442,7 @@ local function setMode(value)
     mode=value quick.Visible=value=="quick" goalPanel.Visible=value=="goal"
     for key,b in modeButtons do
         b.BackgroundColor3=key==value and palette.tint or palette.surface
-        b.TextColor3=key==value and palette.blue or palette.secondary
+        b.TextColor3=key==value and palette.text or palette.secondary
     end
     if go then go.Text=value=="quick" and "Check my game" or "Try my goal" end
     if snapshot then render(snapshot) end
@@ -445,7 +460,7 @@ go=button(checkPage,"Check my game",function()
     end
 end,{primary=true})
 text(checkPage,"MuMake plays with one character in this window, then stops. It does not change your game code.","small")
-local explanation=section(checkPage,"HowItWorks") explanation.Visible=false
+local explanation=card(section(checkPage,"HowItWorks")) explanation.Visible=false
 button(checkPage,"How does this work?",function() explanation.Visible=not explanation.Visible end)
 -- Keep the explanation below its toggle in layout order.
 explanation.LayoutOrder=100
@@ -454,35 +469,45 @@ text(explanation,"Quick check follows a ready-made checklist. Try a goal uses AI
 text(explanation,"Trying the same goal again gives another playthrough. It is not a newly generated, fixed test script.","small")
 local results=pages.Results
 text(results,"What happened?","heading")
-local resultSummary=section(results,"Summary")
+local resultSummary=card(section(results,"Summary"))
 local resultTitle=text(resultSummary,"Your first draft starts with an idea.")
 local resultStatus=text(resultSummary,"Make a game first, or check the game you already have. Your drafts and playthroughs will appear here.","muted")
 local resultDetail=text(resultSummary,"","muted")
 -- Live build view: built once and updated in place on every poll so it never flickers.
+-- Styled as the dashboard's progress card: big %, step, peach-to-butter bar, dashed rule, ✓/✗ feed.
 local buildProgress=section(results,"BuildProgress") buildProgress.Visible=false
-local barRow=Instance.new("Frame") barRow.Name="Bar" barRow.BackgroundTransparency=1 barRow.LayoutOrder=1
-barRow.Size=UDim2.new(1,-4,0,28) barRow.Parent=buildProgress
-local barTrack=Instance.new("Frame") barTrack.Name="Track" barTrack.BackgroundColor3=palette.field barTrack.BorderSizePixel=0
-barTrack.AnchorPoint=Vector2.new(0,0.5) barTrack.Position=UDim2.fromScale(0,0.5) barTrack.Size=UDim2.new(1,-68,0,12)
-barTrack.ClipsDescendants=true barTrack.Parent=barRow round(barTrack,6) outline(barTrack)
-local barFill=Instance.new("Frame") barFill.Name="Fill" barFill.BackgroundColor3=palette.blue barFill.BorderSizePixel=0
-barFill.Size=UDim2.fromScale(0,1) barFill.Parent=barTrack round(barFill,6)
-local barPercent=text(barRow,"0%") barPercent.AutomaticSize=Enum.AutomaticSize.None
-barPercent.Size=UDim2.new(0,60,1,0) barPercent.Position=UDim2.new(1,-60,0,0)
-barPercent.TextXAlignment=Enum.TextXAlignment.Right barPercent.TextYAlignment=Enum.TextYAlignment.Center
-barPercent.Font=fonts.bold barPercent.TextSize=20 barPercent.TextColor3=palette.blue
-local progressStep=text(buildProgress,"") progressStep.Font=fonts.medium progressStep.LayoutOrder=2
+card(buildProgress,palette.tint,18,16)
+buildProgress:FindFirstChildOfClass("UIListLayout").Padding=UDim.new(0,6)
+local barPercent=text(buildProgress,"0%") barPercent.LayoutOrder=1 barPercent.RichText=true
+barPercent.FontFace=fonts.bold barPercent.TextSize=52 barPercent.TextColor3=palette.text
+local progressStep=text(buildProgress,"") progressStep.FontFace=fonts.medium progressStep.TextSize=17 progressStep.LayoutOrder=2
 local progressItems=text(buildProgress,"","small") progressItems.LayoutOrder=3
 local progressEta=text(buildProgress,"","small") progressEta.LayoutOrder=4
-local happenedTitle=text(buildProgress,"What happened so far","small") happenedTitle.Font=fonts.medium happenedTitle.LayoutOrder=5
+local barRow=Instance.new("Frame") barRow.Name="Bar" barRow.BackgroundTransparency=1 barRow.LayoutOrder=5
+barRow.Size=UDim2.new(1,-4,0,26) barRow.Parent=buildProgress
+local barTrack=Instance.new("Frame") barTrack.Name="Track" barTrack.BackgroundColor3=palette.surface barTrack.BorderSizePixel=0
+barTrack.AnchorPoint=Vector2.new(0,0.5) barTrack.Position=UDim2.fromScale(0,0.5) barTrack.Size=UDim2.new(1,0,0,14)
+barTrack.ClipsDescendants=true barTrack.Parent=barRow round(barTrack,7) outline(barTrack,palette.border)
+local barFill=Instance.new("Frame") barFill.Name="Fill" barFill.BackgroundColor3=Color3.new(1,1,1) barFill.BorderSizePixel=0
+barFill.Size=UDim2.fromScale(0,1) barFill.Parent=barTrack round(barFill,7)
+local barGradient=Instance.new("UIGradient") barGradient.Color=ColorSequence.new(palette.peach,palette.butter) barGradient.Parent=barFill
+local divider=Instance.new("Frame") divider.Name="Dashes" divider.BackgroundTransparency=1 divider.LayoutOrder=6
+divider.Size=UDim2.new(1,-4,0,2) divider.ClipsDescendants=true divider.Parent=buildProgress
+local dashes=Instance.new("UIListLayout") dashes.FillDirection=Enum.FillDirection.Horizontal dashes.Padding=UDim.new(0,4) dashes.Parent=divider
+for _=1,90 do
+    local dash=Instance.new("Frame") dash.BackgroundColor3=palette.dash dash.BorderSizePixel=0
+    dash.Size=UDim2.fromOffset(6,2) dash.Parent=divider
+end
+local happenedTitle=text(buildProgress,"What happened so far","small") happenedTitle.FontFace=fonts.medium happenedTitle.LayoutOrder=7
 local happenedRows={}
 for index=1,6 do
-    local row=text(buildProgress,"","muted") row.LayoutOrder=5+index row.Visible=false happenedRows[index]=row
+    local row=text(buildProgress,"","muted") row.LayoutOrder=7+index row.Visible=false row.RichText=true
+    row.FontFace=fonts.medium row.TextSize=14 happenedRows[index]=row
 end
 local checkRows=section(results,"CheckedThings")
 local issueRows=section(results,"PossibleProblems")
 local reportActions=section(results,"NextSteps")
-local draftEditor=section(results,"DraftChanges") draftEditor.Visible=false
+local draftEditor=card(section(results,"DraftChanges")) draftEditor.Visible=false
 text(draftEditor,"What should be different?","heading")
 text(draftEditor,"Change one chosen script in a separate saved revision. Your current draft and Studio stay as they are until you add the revision.","small")
 local draftScript=text(draftEditor,"Choose a game script","small")
@@ -497,7 +522,7 @@ button(draftEditor,"Read this script",function()
     start("read_game_file",{source_job=selectedDraftJob,path=selectedDraftPath})
 end,{action=true})
 local actionRows=section(results,"PlaythroughActions")
-local correction=section(results,"Feedback") correction.Visible=false
+local correction=card(section(results,"Feedback")) correction.Visible=false
 text(correction,"What should MuMake have done?","heading")
 local correctionContext=text(correction,"","muted")
 local correctionNote=field(correction,"Example: use the door beside you instead of walking into the wall.",88)
@@ -515,7 +540,7 @@ beginReport=function(job)
     clear(checkRows) clear(issueRows) clear(reportActions) clear(actionRows)
     correction.Visible=false technical.Visible=false draftEditor.Visible=false
     resultTitle.Text=job.operation=="playtest" and job.args.goal or (draftOperations[job.operation] and "Opening your next draft" or "Your next step")
-    resultStatus.Text="Getting ready…" resultStatus.TextColor3=palette.blue
+    resultStatus.Text="Getting ready…" resultStatus.TextColor3=palette.accentText
     resultDetail.Text="MuMake is finding your game. You can press Stop at any time."
 end
 local settingsPage=pages.Settings
@@ -554,7 +579,7 @@ button(advanced,"Read the game that is playing now",function() start("inspect") 
 button(advanced,"Ask AI to look for problems",function() start("explore",{steps=stepBudget}) end,{action=true,ai=true,needsReady=true})
 local selectedCheck=text(advanced,"Selected: Quick check","small")
 button(advanced,"Run selected check",function() start("scenario",{scenario=selectedScenario}) end,{action=true,needsReady=true})
-local controlDock=section(makePage,"WorkspaceTools")
+local controlDock=card(section(makePage,"WorkspaceTools"))
 controlDock.LayoutOrder=90
 text(controlDock,"Tools at hand","heading")
 button(controlDock,"See my drafts and results",function() show("Results") end)
@@ -562,9 +587,7 @@ button(controlDock,"Check the character and game errors",function() show("Check 
 button(controlDock,"Look for problems with AI",function() start("explore",{steps=stepBudget}) end,{action=true,ai=true,needsReady=true})
 applyExperience=function()
     local config=Experience.config(experience)
-    palette.blue=experience.audience=="adult" and shade("345BC4","A9C0FF") or (experience.audience=="younger" and shade("7042C6","C6AEFF") or shade("6545CF","B7A5FF"))
-    palette.tint=experience.audience=="adult" and shade("E8EDFB","2B3449") or (experience.audience=="younger" and shade("EFE5FF","3A2F4F") or shade("EEE8FF","35304C"))
-    brandMark.BackgroundColor3=palette.blue
+    brandMark.BackgroundColor3=palette.peach
     welcomeArt.BackgroundColor3=palette.tint
     welcomeContinue.BackgroundColor3=palette.blue guideTry.BackgroundColor3=palette.blue
     layoutLabel.Text=experience.level=="guided" and "Guided workspace" or (experience.level=="balanced" and "Your workspace" or "Creator workspace")
@@ -574,7 +597,7 @@ applyExperience=function()
     makeIntro.Visible=config.hints
     makePath.Visible=config.stepByStep or config.playful
     pathText.Text=config.playful and "Your idea    /    Make it real    /    Play & improve" or "Your idea    /    First draft    /    Try it in Studio"
-    pathText.TextColor3=palette.blue
+    pathText.TextColor3=palette.accentText
     setFieldHeight(idea,config.playful and 148 or (config.focused and 112 or 136))
     starters.Visible=config.hints
     extraBuild.Visible=config.controls controlDock.Visible=config.controls
@@ -632,17 +655,17 @@ local function readable(value,depth)
     for _,key in keys do table.insert(out,string.rep("  ",depth)..tostring(key)..": "..readable(value[key],depth+1)) end
     return table.concat(out,"\n")
 end
-local function updateButton(el,enabled,primary)
+local function updateButton(el,enabled,primary,fill)
     el.Active=enabled el.AutoButtonColor=enabled
     el.TextColor3=enabled and (primary and palette.onAccent or palette.text) or palette.secondary
-    el.BackgroundColor3=enabled and primary and palette.blue or palette.surface
+    el.BackgroundColor3=enabled and (fill or (primary and palette.blue)) or palette.surface
 end
 local function eligibleAI()
     return bound and snapshot and snapshot.has_mubit_key and not snapshot.busy
 end
 local function showTechnical(value)
     technical.Visible=true details.Text=readable(value)
-    local size=game:GetService("TextService"):GetTextSize(details.Text,16,details.Font,Vector2.new(math.max(220,details.AbsoluteSize.X-20),100000))
+    local size=game:GetService("TextService"):GetTextSize(details.Text,16,Enum.Font.Nunito,Vector2.new(math.max(220,details.AbsoluteSize.X-20),100000))
     setFieldHeight(details,math.clamp(size.Y+24,160,16000))
 end
 displayReport=function(job)
@@ -737,14 +760,20 @@ local function renderBuild(job)
     if job.id~=shownBuild then
         shownBuild,shownPercent=job.id,-1 barFill.Size=UDim2.fromScale(0,1)
     end
-    barRow.Visible=type(progress.pct)=="number"
+    barRow.Visible=type(progress.pct)=="number" barPercent.Visible=barRow.Visible
     if barRow.Visible then
-        local percent=math.clamp(math.floor(progress.pct),0,100)
+        -- Show the companion's pct exactly as sent: it is the number the dashboard shows.
+        local percent=progress.pct
         if percent~=shownPercent then
-            shownPercent=percent barPercent.Text=percent.."%"
-            game:GetService("TweenService"):Create(barFill,TweenInfo.new(0.6,Enum.EasingStyle.Quad),{Size=UDim2.fromScale(percent/100,1)}):Play()
+            shownPercent=percent
+            barPercent.Text=tostring(percent)..'<font size="26" color="#8A7766">%</font>'
+            game:GetService("TweenService"):Create(barFill,TweenInfo.new(0.6,Enum.EasingStyle.Quad),{Size=UDim2.fromScale(math.clamp(percent/100,0,1),1)}):Play()
         end
     end
+    local finished=progress.phase=="done" or progress.phase=="failed" or progress.stalled==true
+    buildProgress.BackgroundColor3=finished and palette.field or palette.tint
+    barGradient.Enabled=not finished
+    barFill.BackgroundColor3=progress.phase=="done" and palette.blue or (progress.phase=="failed" and palette.red or hex("C9BBA3"))
     progressStep.Text=type(progress.step)=="string" and progress.step or ""
     progressStep.Visible=progressStep.Text~=""
     local items=progress.items
@@ -759,7 +788,9 @@ local function renderBuild(job)
         local event=events[#events-index+1]
         row.Visible=event~=nil
         if event then
-            row.Text=tostring(event.message)
+            local message=tostring(event.message):gsub("&","&amp;"):gsub("<","&lt;"):gsub(">","&gt;")
+            local mark=event.ok==false and "✗" or (event.ok==true and '<font color="#5F9E4A">✓</font>' or "·")
+            row.Text=mark.."  "..message
             row.TextColor3=event.ok==false and palette.red or (index==1 and palette.text or palette.secondary)
             row.TextTransparency=(index-1)*0.12
         end
@@ -783,7 +814,7 @@ render=function(data)
     elseif data.busy then goReason.Text="A check is already running. You can stop it below."
     elseif mode=="goal" and not aiReady then goReason.Text="AI play needs setup. Switch to Quick check to begin now."
     else goReason.Text=mode=="quick" and "Ready. Let’s try the basics." or "Ready. MuMake will try the goal you wrote." end
-    updateButton(stopButton,data.active~=nil,false)
+    updateButton(stopButton,data.active~=nil,false,palette.peach)
     local liveButtons={}
     for _,item in actionButtons do
         if item.el.Parent then
@@ -806,13 +837,13 @@ render=function(data)
         elseif message:find("Scenario finished") then message="Checking what happened…" end
         local progress=active.operation=="make_game" and type(active.progress)=="table" and active.progress or nil
         if progress and active.state~="cancelling" and type(progress.pct)=="number" and type(progress.step)=="string" then
-            message=math.floor(progress.pct).."% · "..progress.step
+            message=tostring(progress.pct).."% · "..progress.step
         end
         say(message)
         if selectedJob==active.id then
             resultTitle.Text=(active.presentation or {}).title or "Checking your game"
             resultStatus.Text=active.state=="cancelling" and "Stopping…" or (active.operation=="make_game" and "Making your game…" or "Working on your game…")
-            resultStatus.TextColor3=palette.blue
+            resultStatus.TextColor3=palette.accentText
             resultDetail.Text=active.operation=="make_game" and active.state~="cancelling" and "This takes a few minutes. You can press Stop at any time." or message
         end
         renderBuild(active)
@@ -862,7 +893,7 @@ render=function(data)
     end
 end
 modeButtons.quick.BackgroundColor3=palette.tint
-modeButtons.quick.TextColor3=palette.blue
+modeButtons.quick.TextColor3=palette.text
 if transferred then
     local fields=transferred.fields or {}
     for key,el in {idea=idea,mustHave=mustHave,avoid=avoid,goal=goal,correctionNote=correctionNote,changeNote=changeNote} do
@@ -950,7 +981,7 @@ command.OnInvoke=function(operation,args)
                 if stroke then item.stroke={stroke.Color.R,stroke.Color.G,stroke.Color.B,stroke.Thickness} end
                 if el:IsA("TextLabel") or el:IsA("TextButton") or el:IsA("TextBox") then
                     item.text=el:IsA("TextBox") and el.Text=="" and el.PlaceholderText or el.Text
-                    item.size=el.TextSize item.font=el.Font.Name item.color={el.TextColor3.R,el.TextColor3.G,el.TextColor3.B}
+                    item.size=el.TextSize item.font=el.FontFace.Family:match("([^/]+)%.json$") or el.Font.Name item.color={el.TextColor3.R,el.TextColor3.G,el.TextColor3.B}
                     item.align=el.TextXAlignment.Name item.valign=el.TextYAlignment.Name item.text_h=el.TextBounds.Y
                 end
                 local parent=el.Parent
