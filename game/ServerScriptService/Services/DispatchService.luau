@@ -21,10 +21,11 @@
 --   DispatchService:GoHome(player): boolean      -- BACK TO STATION (MissionService's Lobby/BackToStation too)
 --   DispatchService:IsFree(player): boolean
 -- Remotes (Dispatch/*): Offer (S->C: Payload? = nil clears the card), Calls (S->C: { Payload }),
---   Open (C->S: ask for the list), Accept (C->S: id), Decline (C->S: id), Home (C->S)
+--   Open (C->S: ask for the list), Accept (C->S: id), Decline (C->S: id), Home (C->S),
+--   Next (C->S: NEXT CALL! on the results screen: leave the results, take a fresh call at once)
 --   Payload = { id, kind = "call"|"mini", call, address, distText, busy, seconds }
 -- Player attr DispatchOffer (string id, "" = none) mirrors the card for tests.
--- Counters: dispatch_offers, dispatch_accepted, dispatch_declined, dispatch_expired, dispatch_taken,
+-- Counters: dispatch_next, dispatch_offers, dispatch_accepted, dispatch_declined, dispatch_expired, dispatch_taken,
 --   dispatch_lists, dispatch_mini_started, dispatch_mini_done, dispatch_home
 -- Test hooks (DevHook only): _offer(player, kind?) -> id?, _accept(player, id), _decline(player, id),
 --   _list(player) -> JSON, _state(player) -> JSON, _selftest()
@@ -42,6 +43,8 @@ local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: Mo
 local ConfigDir = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigDir:WaitForChild("DispatchConfig") :: ModuleScript) :: any
 local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: ModuleScript) :: { any }
+local GameConfig = require(ConfigDir:WaitForChild("GameConfig") :: ModuleScript) :: any
+local FirstFireConfig = require(ConfigDir:WaitForChild("FirstFireConfig") :: ModuleScript) :: any
 local Lib = ServerScriptService:WaitForChild("Lib")
 local DispatchLogic = require(Lib:WaitForChild("Dispatch"):WaitForChild("DispatchLogic") :: ModuleScript)
 local RoamFire = require(Lib:WaitForChild("Dispatch"):WaitForChild("RoamFire") :: ModuleScript)
@@ -620,6 +623,55 @@ local function accept(p: Player, id: any): boolean
 	return true
 end
 
+-- NEXT CALL! (the results screen): straight into a fresh call from where you are. Steps you out of the
+-- finished run's results (MissionService:LeaveResults), picks a real call (never a bin fire) and accepts
+-- it for you: one tap from MISSION COMPLETE to driving again. Nothing free: the DISPATCH list instead.
+local function nextCall(p: Player): boolean
+	local okLeave, left = call("MissionService", "LeaveResults", p)
+	if okLeave and left == false then
+		Net.notify(p, "Finish your current call first!", "bad")
+		return false
+	end
+	if not isFree(p) then
+		return false
+	end
+	local st = state(p)
+	clearOffer(p, st, false)
+	local o: Offer? = nil
+	-- still a rookie (GameConfig.Rookie.Calls): the plain house fire again, not a gas leak or a dam
+	local rookieCfg = GameConfig.Rookie
+	local okProfile, profile = call("DataService", "GetProfile", p)
+	local played = if okProfile and type(profile) == "table" then (tonumber(profile.missionsPlayed) or 0) else 0
+	if type(rookieCfg) == "table" and played < (tonumber(rookieCfg.Calls) or 0) then
+		local origin = posOf(p)
+		local plain = {}
+		for _, def in MissionCatalog do
+			if def.id == FirstFireConfig.FirstCall then
+				table.insert(plain, def)
+			end
+		end
+		local c = if origin and #plain > 0
+			then DispatchLogic.offer(freeSites(), plain :: any, origin, opts(), MissionFlow.siteSupports, roll)
+			else nil
+		if c and origin then
+			o = offerOf(c, origin, Cfg.OfferSeconds)
+		end
+	end
+	o = o or makeOffer(p, "call")
+	if not o then
+		Net.notify(p, "Quiet right now... here's what's open:", "info")
+		sendList(p)
+		return false
+	end
+	st.offer = o
+	st.lastAccept = 0 -- the tap IS the accept
+	count("dispatch_next")
+	if accept(p, o.id) then
+		return true
+	end
+	return false
+end
+
 local function decline(p: Player, id: any)
 	local st = state(p)
 	if st.offer and st.offer.id == id then
@@ -722,6 +774,11 @@ function DispatchService:Start()
 	end)
 	Net.onServer(Net.event("Dispatch", "Decline"), { rate = 2, burst = 2 }, function(p: Player, id: any)
 		decline(p, id)
+	end)
+	Net.onServer(Net.event("Dispatch", "Next"), { rate = 0.5, burst = 1 }, function(p: Player)
+		if Cfg.Enabled then
+			nextCall(p)
+		end
 	end)
 	Net.onServer(Net.event("Dispatch", "Home"), { rate = 0.5, burst = 1 }, function(p: Player)
 		DispatchService:GoHome(p)

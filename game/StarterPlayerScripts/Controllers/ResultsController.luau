@@ -239,7 +239,8 @@ end
 local function show(payload: Types.ResultsPayload)
 	hide()
 	local token = showToken
-	local screen = UiKit.screen("Results", 10, true)
+	-- above the phone thumb buttons (ThumbButtons 20: THROW sat on BACK TO STATION) and the HUD cards
+	local screen = UiKit.screen("Results", 35, true)
 	gui = screen
 	setBusy(true)
 	screen.Destroying:Connect(function()
@@ -497,7 +498,48 @@ local function show(payload: Types.ResultsPayload)
 		table.insert(cards, { holder, face })
 	end
 
-	local back = UiKit.button(root, "BackButton", "BACK TO STATION", UDim2.fromOffset(340, 64), UDim2.new(0.5, 0, 0, 650), Palette.UiRed)
+	-- session hook: the next unlock as a goal ("NEXT UNLOCK: Gas Mask at Level 2!"), then NEXT CALL! (one tap
+	-- straight into a fresh call, DispatchService Dispatch/Next) beside BACK TO STATION
+	local teaser: TextLabel? = nil
+	do
+		local okP, Progression = pcall(function()
+			return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
+		end)
+		local okD, ItemDefs = pcall(function()
+			return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript) :: any
+		end)
+		local level = tonumber(me:GetAttribute("Level")) or 1
+		if okP and type(Progression) == "table" and type(Progression.nextUnlock) == "function" then
+			local id, at = Progression.nextUnlock(level)
+			if id and at then
+				local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
+				local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
+				local t = UiKit.label(root, "Teaser", `NEXT UNLOCK: {string.upper(name)} AT LEVEL {at}!`, UDim2.fromOffset(760, 30), UDim2.new(0.5, -380, 0, 590), {
+					font = UiKit.Header,
+					textSize = 26,
+					color = Palette.UiCream,
+					stroke = true,
+					strokeThickness = 2,
+				})
+				t.Visible = false
+				teaser = t
+			end
+		end
+	end
+	local nextBtn = UiKit.button(root, "NextCallButton", "NEXT CALL!", UDim2.fromOffset(340, 72), UDim2.new(0.5, -180, 0, 650), Palette.UiGood)
+	nextBtn.TextSize = 36
+	nextBtn.Visible = false
+	nextBtn.Activated:Connect(function()
+		sfx("Click", 0.6)
+		local net = ReplicatedStorage:FindFirstChild("Net")
+		local remote = net and net:FindFirstChild("Dispatch") and (net :: any).Dispatch:FindFirstChild("Next")
+		if remote and remote:IsA("RemoteEvent") then
+			remote:FireServer()
+		end
+		hide()
+	end)
+	local back = UiKit.button(root, "BackButton", "BACK TO STATION", UDim2.fromOffset(300, 60), UDim2.new(0.5, 180, 0, 650), Palette.UiRed)
+	back.TextSize = 26
 	back.Visible = false
 	back.Activated:Connect(function()
 		sfx("Click", 0.6)
@@ -529,6 +571,12 @@ local function show(payload: Types.ResultsPayload)
 		end
 		back.Visible = true
 		UiKit.pop(back, 0.3)
+		nextBtn.Visible = true
+		UiKit.pop(nextBtn, 0.3)
+		if teaser then
+			teaser.Visible = true
+			UiKit.pop(teaser, 0.3)
+		end
 	end)
 end
 
