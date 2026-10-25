@@ -1,338 +1,245 @@
-# Forge
+# MuMake
 
-Give it a game idea. Forge builds a Roblox game, playtests it in Roblox Studio, finds what is broken
-or badly balanced, fixes it, checks the fix worked, and gets better at all of it every run.
+**From an idea to a playable Roblox game in under 20 minutes. Refine it with a few more runs.**
 
-Every LLM call goes through [Mubit](https://mubit.ai). Each of Forge's roles has one fixed system
-prompt, so Mubit sees each role as a recurring **task** and trains a model for it. Every correction,
-whether from Studio errors, the critic, the auditor, the verifier, a tester or you, is sent back as a
-new call in the same task. That is how a correction turns into a model update.
+MuMake helps you make, test and optimise Roblox games through either a **native Roblox Studio
+plugin** or an **AI assistant plugin connected to Studio through MCP**. Describe what you want
+to make, watch the game take shape, try it, and keep improving it through feedback and repeat runs.
+All game-production AI goes through [Mubit](https://mubit.ai).
 
-## Quick start (Claude Code plugin)
+The under-20-minute goal is for a small playable prototype on an already configured setup. Extra
+runs focus on bugs, gameplay, balance and polish. Larger games need more time; a playable first
+version is the starting point for iteration, not a guarantee that every feature is finished.
 
+**MuMake is the product name.** `forge`, `forge-plugin` and `mubit-tester` are the existing tool,
+package and integration identifiers you will see in this checkout and its install commands.
+They are not the product brand; the commands below use their current names so installation works.
+
+## Two ways to create
+
+| | Native Studio plugin | AI assistant plugin |
+|---|---|---|
+| Where you work | A MuMake panel inside Roblox Studio | Your connected AI coding assistant, currently packaged for Claude Code |
+| How you start | Describe your idea in **Make game** | Ask for a game in plain language |
+| How you improve | Build/review rounds, goal checks, feedback and saved revisions | Build, playtest, inspect evidence, add features, fix and verify |
+| How much detail | Guided steps or more controls, chosen locally | Conversational help plus direct access to the MCP tools |
+| What they share | The existing game builder, tester and Mubit-backed AI tasks | The same game builder, tester and Mubit-backed AI tasks |
+
+The agent workflow has the broader automatic fix/verification and multiplayer toolset. The native
+panel keeps creation and testing close to the game. The [native plugin guide](docs/STUDIO_PLUGIN.md)
+covers installation and layout settings. The current automatic build/install/review loop is
+implemented in [the native builder](mubit-tester/mubit_tester/studio_builder.py).
+
+## A workspace that fits the creator
+
+MuMake is designed for younger creators, adult beginners and experienced Roblox developers.
+You should not need to know how to write a test case before you can check your game.
+
+The native plugin offers optional age and experience choices. Age changes the visual treatment;
+experience changes the amount of guidance and detail. The current age choices are 13–15, 16–17
+and 18+, alongside starting out, made a few things, and confident.
+
+- **Starting out:** examples, clear next steps and a replayable guide, with the real tools available.
+- **Some experience:** a compact workspace with useful hints.
+- **Experienced:** more direct controls and fewer explanations.
+
+Age never locks a feature. Change the layout, show more controls or go back whenever you want.
+The panel also adapts to its dock width. These layout choices stay local, are remembered only if
+you opt in, and are not sent to Mubit, attached to game context or collected as analytics. Ideas
+and feedback you deliberately submit still follow the normal AI workflow. The assistant plugin
+uses its host's chat interface rather than the native panel's layouts.
+
+## Make, play, improve
+
+1. **Describe the game.** For example: “an obby where you collect coins, buy a jump upgrade and
+   escape rising lava.” Start with a clear, small player experience.
+2. **Build a first version.** The AI plans the systems, reuses available modules, generates the
+   scripts and level data, checks compilation and repairs errors.
+3. **Try it in Studio.** The native creation flow installs into the connected local place and
+   runs build/review rounds. The agent workflow can run Studio playtests and inspect their results.
+4. **Check what players can do.** Use saved checks or ask the AI player to attempt a goal, such as
+   buying an upgrade. It can manipulate the character and interact with the game, with coverage
+   depending on the game's instrumentation and available tools. Report what was actually checked.
+5. **Run it again with feedback.** Fix blockers first, then improve mechanics, pacing, content and
+   presentation. The agent repair workflow replays changes and keeps verified fixes or rolls them back.
+
+The native loop aims to hand over a game for review around the 20-minute mark. It stops earlier
+when its current review standard is met, and can report **Ready for review** while issues remain.
+This is a soft handoff target: an in-flight build, model request or test can take longer. Its
+current standard uses a playtest, no game errors and a critic score of at least 7/10. This is
+separate from the broader `done` evidence bar and the requirements of a published game.
+
+More runs are useful when they improve something the player will notice: a broken shop, an
+unreachable level, confusing goals, repetitive content or an unfair progression curve. The shared
+[game production guide](docs/GAME_PRODUCTION_GUIDE.md) defines priorities for 16 game families,
+architecture foundations, feature/level contracts, testing and model evaluation.
+
+## Development comparison: the same 100-stage obby
+
+Use [Sunbeam Park Obby](games/sunbeam-park-obby/README.md) as the example: a playable amusement-park
+obby with **100 stages across 10 zones**, checkpoints and respawns, coins, a costume shop, music,
+a HUD and a decorated park. MuMake made it from **“i want a 100 stage obby”**.
+
+**The manual and plain-MCP times below are illustrative estimates for making a similar first
+playable version, not measured benchmarks.** They assume someone familiar with Studio, a configured
+workspace and access to reusable assets/components. They exclude learning Studio, making original
+art and preparing a full release. MuMake's reusable kits and harness already exist; their original
+development time is not included in its per-game build time.
+
+| | Vanilla development | Plain MCP-driven development | MuMake-driven development |
+|---|---|---|---|
+| First playable obby | **8–20 working hours estimated** | **1–4 hours estimated** | **Under 20 minutes reported**; this demo's build was about **6 minutes** |
+| Building | Manually lay out the course, connect systems and build the UI | An AI agent creates and edits through Studio tools; its workflow and integration depend on the session | Parallel level generation, reusable game systems and automatic installation into Studio |
+| Testing | Play through, inspect errors and organise checks yourself | The agent can move characters, inspect state and run tests when its workflow calls for them | QA bots, scripted journeys, checks and recorded outcomes are integrated into the workflow |
+| Initial refinement | Further manual debugging, balancing and polish; time varies | Further agent runs and review; time varies | **Allow another 10–15 minutes**, an estimated budget for extra testing, fixes and polish |
+| Adding a feature later | Plan the change, integrate it and retest | Give the agent context, then review integration and tests | Reuse the game spec, existing systems and saved lessons; check the new behaviour and its impact on the game |
+| Learning from previous work | Your experience and notes | Whatever context or memory the agent retains | Lessons and rejected attempts carry forward; corrections go back through the same Mubit tasks |
+
+For MuMake, budget **under 20 minutes to get playing, then another 10–15 minutes to refine**.
+Further features can also be quicker to add because the next run can reuse systems, apply saved
+lessons and avoid previously rejected approaches. This is an expected workflow benefit rather
+than a measured feature-addition speedup.
+
+Plain MCP already supports building and playtesting. MuMake packages the production workflow,
+reusable systems, game context and learning records around those tools, so creators do not have
+to assemble that workflow themselves.
+
+### What the Sunbeam run actually showed
+
+The [demo reflection](docs/research/2026-10-25-mumake-reflection.md) reports about **six minutes to
+the playable build**, with level design running in parallel. MuMake installed it into the existing
+Studio window, then ran playtest, critic and fixer rounds, with six QA bots and a scripted Studio
+journey. The journey exercised a ride gate, the next zone entrance and the stage-100 finish trigger;
+this was not proof of a complete player traversal of all 100 stages.
+
+Four completed rounds reported 0 game errors but stayed at 6/10. Acceptance counters not exercised
+fell from nine to five, then stopped moving: costume buying/equipping, gift readiness/claiming and
+achievements remained unexercised by those playtests. The run was stopped during round five, and
+its dashboard “Ready for review” status was set manually. Later shop-journey fixes do not change
+that historical result. The extra **10–15 minutes** above is a refinement budget, not a measured
+time to clear every outstanding check or perfect the game.
+
+| After round 1 | After round 4 |
+|---|---|
+| ![Sunbeam Park Obby lobby after the first round](games/sunbeam-park-obby/screenshots/round-1.png) | ![Sunbeam Park Obby lobby after the fourth round](games/sunbeam-park-obby/screenshots/round-4.png) |
+
+## Why Mubit is part of the loop
+
+MuMake sends game-production AI requests through Mubit: planning, coding, level design, AI players,
+critics, auditors, fixers and verifiers. It does not fall back to a direct provider when the Mubit
+route fails. Compilers, scripted checks and Studio controls run as ordinary deterministic tools.
+
+Each AI role uses stable instructions so repeated work can be grouped into a recurring task.
+Verified mistakes and creator feedback can be sent back as corrections for the relevant task.
+Lessons also preserve useful context for future builds. The aim is fewer repeated mistakes and
+less time spent retrying the same work as the system gains useful experience.
+
+A recorded correction is not an instant model update. Training depends on accepted examples and
+workspace settings; a trained adapter needs evaluation and a verified serving path before claiming
+it improves the live workflow. See [Mubit's adapter guide](https://docs.mubit.ai/guides/first-adapter)
+and our [production guide](docs/GAME_PRODUCTION_GUIDE.md#12-model-learning-and-evaluation).
+These build timings do not isolate a speed benefit from Mubit learning; that needs a controlled
+comparison.
+
+The host chat model is configured separately: installing an MCP plugin does not reroute the
+assistant's own inference. Use the Mubit-backed tools for game-production tasks; if the host's
+inference is also in scope, configure its Mubit connection separately.
+
+## Install the native Studio plugin
+
+The current distribution is a local plugin installed from this checkout, with a Python 3.11+
+companion. Keep the checkout and its environment available while using it.
+
+```bash
+git clone https://github.com/chocoliticekreem/mubithack.git
+cd mubithack
+uv venv
+uv pip install -e ".[dev]"
+cp .env.example .env
+brew install luau
 ```
+
+Set `MUBIT_API_KEY` in `.env` and choose a model your Mubit workspace can serve. Open your intended
+local place in Studio, then enable **Assistant → ⋯ → Manage MCP Servers → Enable Studio as MCP server**.
+From the checkout:
+
+```bash
+.venv/bin/python scripts/install-studio-plugin.py --load-existing
+```
+
+The installer loads MuMake into an already open Studio window and writes
+`~/Documents/Roblox/Plugins/MuMake.lua`. It never opens or restarts Studio. If several windows are
+connected, select one with `--studio-id <exact-id>`. Open **Plugins → MuMake** and start with
+**Make game**. Allow the plugin's local connection when Studio asks.
+
+These dependency commands are for macOS; use your platform's Luau installation method and plugin
+directory elsewhere. See [native setup, layout privacy and troubleshooting](docs/STUDIO_PLUGIN.md)
+for companion details. Use an unpublished local place: installing a game does not publish it.
+
+## Install the AI assistant plugin
+
+The current Claude Code marketplace identifiers still use `forge` and `mubit-tester`:
+
+```text
 /plugin marketplace add chocoliticekreem/mubithack
 /plugin install forge@mubithack
+/plugin install mubit-tester@mubithack
 ```
 
-Start a new Claude Code session and say **"set up Forge"**. Claude calls the `setup` tool, which
-checks each requirement and fixes it or tells you the next step:
+Start a new session and ask:
 
-1. **Mubit key:** paste it; `setup` checks it against Mubit and saves it.
-2. **Model:** it must be one Mubit's starter credit serves.
-3. **`luau-compile`:** installed for you with Homebrew.
-4. **Roblox Studio:** installed and signed in.
-5. **Studio connected:** it opens a Forge place and shows you the MCP toggle (Assistant → ⋯ →
-   Manage MCP Servers → Enable Studio as MCP server).
+> Set up MuMake using the installed forge and mubit-tester tools. Connect to my existing Studio
+> window, then make a small lava obby with checkpoints and a coin shop. Playtest the core loop,
+> fix the important problems and show me what passed and what still needs work.
 
-When it says **ready**, ask for a game: *"make a co-op lava escape and keep improving it until it's
-solid"*. Add `/plugin install mubit-tester@mubithack` too, to play and inspect the game in Studio.
+Setup checks the Mubit connection, available model, Luau compiler and Studio connection. Choose
+the intended Studio explicitly; do not open another instance when one is already in use.
 
-On first launch the plugin finds a mubithack checkout (its *mubithack checkout* option, the current
-project, or the marketplace's own copy) and creates the Python environment with `uv`.
-
-## How it works
-
-Agents should start with the [game production guide](docs/GAME_PRODUCTION_GUIDE.md): Mubit-only AI routing, game-family priorities, Roblox foundations, feature and level contracts, testing, readiness, and separate evaluation of game quality and model learning. It applies to both chat/MCP and native Studio workflows, and distinguishes required practice from capabilities already enforced by the software.
-
-```
-BUILD    idea → designer → spec → coder → Luau → compile check → fixer
-              → sync into Studio → playtest → critic → fixer → reflector (lessons) → next iteration
-
-IMPROVE  game → AI playtest rounds → auditor (anomalies across rounds) + tester reports (triage)
-              → fixer rewrites the file behind each anomaly → resync → replay
-              → verifier: fixed → keep, otherwise → roll back
-              → repeat until nothing high or medium is left
-
-LEARN    every call above is an example in its role's Mubit task; corrections (missed anomalies,
-         human fixes, rejected fixes) are re-sent in the same task, so the models improve too
-```
-
-| Role (Mubit task) | Job |
+| Task | Current MCP tools |
 |---|---|
-| designer, coder | Idea to spec, spec to Luau, one module per call |
-| fixer | Repairs a file: compile errors, critic issues, anomalies, human corrections |
-| critic, reflector | Scores each playtest; keeps the cross-game lessons |
-| auditor | Finds anomalies across rounds: economy, balance, broken links between systems, conflicts |
-| verifier | Before/after evidence: `fixed`, `not_fixed`, `regression` or `inconclusive` |
-| triage | Turns a human tester's words into anomalies backed by telemetry |
-| player, judge, explorer | mubit-tester's AI playtesters and their judge |
+| Check setup | `setup`, `doctor` |
+| Build and extend | `build_game`, `iterate`, `correct`, `feature` |
+| Improve and assess readiness | `improve_game`, `done`, `tester_report`, `tester_reports` |
+| Play and inspect | The `mubit-tester` plugin's scenarios, AI players, judge and `test_feature` |
+| Keep or restore versions | `versions`, `rollback` |
+| Follow work | `job`, `jobs`, `cancel_job`, `dashboard` |
 
-### UI kit
+Long operations run as background jobs. Follow `job(id, wait_seconds=300)` until completion and
+read the actual evidence before calling a game ready. Avoid concurrent jobs changing the same
+game or Studio session.
 
-Agent-built UI follows a house style: chunky stroked text, one palette, glossy gradient buttons with
-press squish, Back-eased pops, ticking currency counters, toasts and reward popups. The rules and 10
-paste-in Luau snippets live in `forge/ui_library/` (sources in its README). For UI work (client HUD,
-shop, popup, BillboardGui) `forge/ui_kit.py` adds a `## UI kit` block with the rules and the 2 to 4
-matching snippets to the coder, fixer or patcher **user message**, under a size budget. Server data
-modules get nothing. Add a snippet: drop the `.luau` in, add it to `index.json`, run
-`.venv/bin/python -m pytest -q tests/test_ui_kit.py`.
+## Developer tools and documentation
 
-### Kit modules and obbies
-
-Prebuilt, tested Luau modules a game gets by genre or keyword: `forge/kit/modules/<Name>.luau` plus one
-entry in `forge/kit/modules/index.json` (`name, path_in_game, genres, keywords, describe, api`). The
-designer is told they exist, the spec lists them as prebuilt, the art pass copies them into the game and
-every coder call lists their API; the fixer never edits them. Add a module by adding its file and entry.
-
-**ObbyKit** (obby games): checkpoints with a saved `Stage`, respawn, kill parts, falls back to the
-checkpoint, ten obstacle kinds on one Heartbeat loop, and `LevelBuilder`, which builds stages from level data.
-The data comes from the `level_designer` Mubit task:
+The CLI remains available under its current `forge` identifier:
 
 ```bash
-forge levels <slug> --zones 1-10 --stages-per-zone 20   # one call per zone; resumable
-```
-
-`forge/obby.py` checks every jump against the default character (walk 16, jump height 7.2: 10 studs flat,
-7.4 when rising 6, calibrated against a live runner). Broken stages go back to the same Mubit task as a
-correction with the exact errors (up to 2 times), and the zone lands as `ReplicatedStorage/Levels/ZoneNN.luau`.
-The obby checks (`forge/genre_checks/obby/`) are copied into `runs/<slug>/checks/` for `forge checks --run`.
-
-## Using it from Claude Code
-
-The `forge` plugin's tools:
-
-| Group | Tools |
-|---|---|
-| Setup | `setup`, `doctor` |
-| Build | `build_game`, `iterate`, `correct`, `feature` |
-| Improve | `improve_game`, `done`, `fault_drill`, `tester_report`, `tester_reports` |
-| Versions | `versions`, `rollback` |
-| Watch | `dashboard` |
-| Jobs | `job`, `jobs`, `cancel_job` |
-| Read | `games`, `game`, `read_file`, `scores`, `playbook`, `lessons`, `calls` |
-| Ship | `seed`, `promote`, `sync` |
-
-Building and improving take minutes, so they run as a background job (log in `runs/jobs/`).
-`build_game` and `improve_game` follow the job for a few minutes, streaming progress, and return a
-summary first; `job(id, wait_seconds=300)` keeps following it. A typical session:
-
-1. `setup` until it says ready.
-2. `build_game("lava obby with checkpoints", iterations=2)`, then `job(id, wait_seconds=300)` until finished.
-3. `game(slug)` and `read_file(slug, path)` to see what it made.
-4. `improve_game(slug)`: playtest, find anomalies, fix, verify; repeat until `done(slug)` says READY.
-5. `correct(slug, "ServerScriptService/Round.server.luau", "rounds never end")`: a human correction,
-   recorded in the fixer's Mubit task. The job log ends with the request id to rate Good.
-6. `tester_report(slug, "the hose feels useless")` after real people play, then `improve_game(slug)` again.
-7. `scores(slug)` and `calls(slug)` for the numbers and the Mubit request ids.
-
-Other servers that work alongside it:
-
-| Server | What it does |
-|---|---|
-| `mubit-tester` (plugin) | Plays and inspects the game in Studio: every player, scenarios, AI playtests, `playtest_correct` (`docs/TESTER.md`). |
-| `Roblox_Studio` | Studio's own MCP: `execute_luau`, play/stop, console, screenshots. |
-
-## Adding a feature to an existing game
-
-Ask in plain words; the Mubit agent does the rest:
-
-```bash
-forge feature flame-and-blame-feat "game passes, like a battle pass" --iterations 2 --polish 3
-```
-
-(MCP tool: `feature(slug, request, iterations, polish)`.) What happens:
-
-1. **Rollback point.** The game is saved as a version first (`before feature: ...`); the command prints
-   the exact `forge rollback` to undo everything.
-2. **Plan** (Mubit task `planner`). The planner reads the game's spec and a map of every file (first
-   comment line each), and returns:
-   - up to 5 **new modules** for the feature (agent-owned files, following the game's own architecture,
-     e.g. a new `*Service` in an auto-discovered folder);
-   - a few **hook-in edits** to existing files, only where the feature cannot work otherwise;
-   - the **telemetry counters** the feature must bump (e.g. `battlepass_xp_awarded`);
-   - **acceptance checks** a tester can observe.
-
-   Unsafe parts are dropped: paths outside the Roblox roots, `..`, a "new" file that already exists, or
-   an edit to a file that doesn't exist.
-3. **Build.** The coder writes each new module. The patcher makes each hook-in edit (exact edits for
-   big files, so nothing gets shortened); the destructive guard rejects rewrites. Then a compile check,
-   the fixer on errors, and a version `feature: ...`. The new modules and acceptance checks join the
-   game's spec, so every later run knows about them.
-4. **Iterate** (`--iterations N`). Playtest, critic, fixer and reflector, with auto-rollback on a score
-   drop. When the spec has `"playtest": {"start_round": true}`, each playtest starts a round first, so
-   the feature runs in play instead of the lobby.
-5. **Polish end to end** (`--polish N`). AI testers play inside a round. The auditor judges the whole game
-   against its acceptance list (the feature's checks included), not one symptom at a time, so missing
-   pieces like a UI that never shows or XP that is never awarded become anomalies. Then the loop runs
-   investigate, fix or patch, and verify, keeping or rolling back each fix, cycle after cycle, until
-   nothing high or medium is open.
-6. **Verified** when every planned counter shows up above zero in a playtest. The result is logged in
-   `runs/<slug>/features.jsonl`, and all calls are traced.
-
-Proof from night 1: `flame-and-blame-feat` got **FlareUpService** (one new 135-line file, no human file
-touched). In a mission playtest it ran **8 flare-ups with 0 server errors**, and the critic's score went
-5, 5, then 7 over its iterations (`evidence/flame-and-blame-feat/`).
-
-## Watching the runs
-
-`forge dashboard --open` (tool: `dashboard`) serves a live page at http://127.0.0.1:8765. It
-refreshes every 3 seconds and reads `runs/`. Pick a game at the top. It shows:
-- **The team:** one builder per Mubit role (Planner, Designer, Coder, Tester, Critic, Inspector,
-  Investigator, Bug Fixer, Patcher, Checker, Coach). While a run is building the game, the role in
-  its latest log line hammers away, with what it is doing in plain words.
-- **Chest + pop-up:** every new version is a finished mission. A chest drops, opens, and says what
-  improved ("Fixed cube drop rate", "Added game passes"), worded from the version message, kept
-  fixes and the critic's issues (no LLM call). "Replay the build" plays the whole story.
-- **Goal track:** critic score toward 10/10 and rounds done toward the run's target.
-- **Mission control:** one swimlane per agent (designer, coder #1..#N, fixers, each tester in the
-  swarm, critic, verifier, ...) with its current step, its thought in one line, the latency of its
-  latest call and a strip of every call on the run's timeline, so parallel work is visible.
-- **What the testers see:** the newest step screenshots per tester with each step's assertions
-  (pass/fail); tap one to enlarge, arrow keys step through. Critic playtest shots per round too.
-- **Mubit learning:** per role (Mubit task) calls toward the 25 a task trains on, corrections fed
-  and kept examples, the latest "correction -> model update" moments, and a link to the console.
-- **Version timeline + speed:** critic and fun score per version with the change and diff size;
-  wall clock per stage against one-call-at-a-time, and the overall speed-up.
-- **Final report:** when nothing is building the game, "Your game is ready" with what changed.
-- **Treasure map:** one chest per version. Tap one for its message, changed files and kept fixes,
-  and "Go back to vN". A rollback runs `forge rollback --no-sync` (saved as a new version, nothing
-  is lost); it only works from 127.0.0.1 and not while a run is building that game. `forge watch`
-  syncs the restored files into Studio.
-- **Nerd view:** everything the old page had. Running jobs and logs with tails, AI playtests,
-  Mubit calls per role against the 25 a task needs to train, iterations, fix cycles with every
-  verdict, versions, features and tester reports.
-
-`--host 0.0.0.0` shares it on your network, for example on a teammate's screen or a projector.
-
-## The self-improving loop
-
-**`forge fix <slug>`** (tool: `fix`) improves the real game:
-
-1. Play a few rounds with mubit-tester's AI players.
-2. The **auditor** reads a compact digest of each round (counters, events, errors, the judge's bugs;
-   never the code) and lists anomalies. With `--reports`, anomalies from tester reports filed since
-   the last cycle are added.
-3. For each high or medium anomaly, Forge finds the most likely file and the **fixer** rewrites it.
-4. The file is compile-checked, Studio is resynced and a round is replayed.
-5. The **verifier** compares before and after: `fixed` keeps the change; anything else rolls it back
-   and resyncs.
-6. Repeat until no high or medium anomaly is left (the quality bar) or `--cycles` run out.
-
-Human-owned files (a seeded game's `base_files`) are never edited: the fixer's patch is saved to
-`runs/<slug>/improve/patches/` for a person to review.
-
-**`forge improve <slug>`** (tool: `improve`) measures how good the auditor is. It plants known faults
-from `forge/faults/<slug>.json` through the ForgeTest harness (for example a hose tank that empties
-in one spray), plays rounds, and scores the auditor against them. Every fault it missed is re-sent
-to the auditor as a verified outcome (a correction in its Mubit task) and becomes a lesson in
-`runs/<slug>/improve/playbook.md`, which the next audit reads. Detected faults are restored and the
-verifier checks them. `--fix` also fixes the real anomalies afterwards, on a clean baseline round.
-
-**`forge report <slug> "<text>"`** (tool: `tester_report`) is for real testers. The **triage** role
-turns their words into anomalies backed by the round telemetry (`--run <playtest id>` names the
-rounds). Anything the auditor had not flagged is re-sent to the auditor as a correction, so real
-players teach the auditor.
-
-### Versions and rollback
-
-Every game folder (`runs/<slug>/game`) is its own git repo with versions `v1`, `v2`, .... A new
-version is saved:
-- when a game is seeded;
-- for each iteration's tested code (with its critic score);
-- before each fix cycle;
-- for every kept fix (with the anomaly and the verifier's request id).
-
-The agent rolls back by itself in two places:
-- **Build loop:** an iteration that scores at least 1 point below the best version is restored to
-  that version. Its fixes are skipped and the reflector is told why.
-- **Fix loop:** a fix the verifier rejects is retried once with the verifier's evidence (a
-  correction in the fixer's Mubit task). If that fails too, the file is restored and Studio
-  resynced.
-
-You can roll back by hand: `forge versions <slug>` and `forge rollback <slug> v3` (tools:
-`versions`, `rollback`). A rollback is saved as a new version, so it can be undone too.
-
-### Make an existing game playable (with a fallback)
-
-```bash
-forge seed flame-and-blame                       # copy game/ into runs/flame-and-blame/game (version v1)
-forge fix flame-and-blame --edit-human-files --cycles 5 --studio Forge.rbxlx
-forge versions flame-and-blame                   # what changed, version by version
-forge rollback flame-and-blame v1                # back to the seeded game, resynced into Studio
-forge promote flame-and-blame <path>             # copy a fixed file back into game/ for a PR
-```
-
-`--edit-human-files` lets the fixer change the team's files, but only in the run copy. `game/`
-changes only when you promote a file and merge the PR.
-
-`forge scores <slug>` shows, per cycle: faults planted, detected and missed, fixes verified, open
-anomalies, and code fixes kept out of tried.
-
-Faults only work when the game's services read those config keys at use time, and when the
-ForgeTest harness (`game/ServerScriptService/ForgeTest.server.luau`) is in the place.
-
-## Using it from the shell
-
-```bash
-forge new "co-op lava floor escape where you carry friends" --iterations 3
-forge run lava-escape --iterations 2         # more iterations
-forge correct lava-escape ServerScriptService/Round.server.luau "rounds never end when everyone dies"
-forge fix lava-escape --cycles 5 --reports   # find anomalies, fix, verify, until clean
-forge feature lava-escape "a double-jump power-up" --iterations 2 --polish 3   # add a feature
-forge report lava-escape "the hose feels useless" --by sam
-forge improve flame-and-blame --cycles 3     # planted-fault benchmark; --only <fault id>, --fix
-forge scores lava-escape                     # per-cycle numbers; forge reports <slug>
-forge versions lava-escape                   # saved versions; forge rollback lava-escape v3
-forge dashboard --open                       # live view of all runs at http://127.0.0.1:8765
-forge status                                 # every game: iterations, scores, calls per role
-forge new "..." --no-studio                  # compile-only, no Studio needed
-forge place --open                           # build place/Forge.rbxlx and open it in Studio
-forge watch --studio Forge.rbxlx             # auto-sync game/ into Studio on every save
-forge play "<goal>"                          # AI playtest (mubit-tester); play-correct, play-list
-forge server                                 # the forge MCP server over stdio
-```
-
-## Developer setup (working on Forge itself)
-
-```bash
-uv venv && uv pip install -e ".[dev]"
-cp .env.example .env        # put your mbt_ key in MUBIT_API_KEY
-brew install luau           # luau-compile for syntax checks
-.venv/bin/forge doctor      # every line should be ✓
+.venv/bin/forge doctor
+.venv/bin/forge new "a short lava obby with checkpoints" --iterations 2
+.venv/bin/forge fix <slug> --cycles 3 --reports
+.venv/bin/forge done <slug> --json
+.venv/bin/forge versions <slug>
+.venv/bin/forge dashboard --open
 .venv/bin/python -m pytest -q
 ```
 
-Inside this repo both plugins are enabled by `.claude/settings.json`.
+Commands that build, review or improve games make paid Mubit calls. Set `FORGE_STUDIO` to the
+intended Studio ID before building; commands that expose `--studio` can also select it explicitly.
+Keep role prompts frozen; put changing game context and guidance in the user message.
 
-- **Model:** the default is `claude-sonnet-5-5`. Mubit's starter credit only serves
-  `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-4-5`; anything else fails with
-  `400 starter_credit_model`. Keep the same model across the team: the model is part of a Mubit
-  task's identity, so different models split the training examples.
-- **Studio:** the MCP toggle is per window and resets when the window closes. Forge starts Studio's
-  built-in `StudioMCP` itself. The first `list_roblox_studios` after a restart is often empty;
-  retry.
-- **Two Studio windows:** give Forge its own place so it never touches yours:
-  `python3 game/tools/make_place.py --root place/empty --out place/Forge-ai.rbxlx`, open it, enable
-  MCP, and run Forge with `FORGE_STUDIO=Forge-ai FORGE_SYNC_PORT=34874`. `--studio`/`FORGE_STUDIO`
-  takes a name part or an exact studio id (`forge doctor` lists them).
-- **Prompts are frozen:** never edit `forge/prompts/*.md` or `mubit-tester/prompts/*.md` once calls
-  have been made. Mubit groups calls into tasks by the exact system prompt; an edit starts a new
-  task at zero examples.
+| Resource | What it covers |
+|---|---|
+| [Game production guide](docs/GAME_PRODUCTION_GUIDE.md) | Genre priorities, architecture, levels, features, tests, improvement and evaluation |
+| [Native Studio plugin](docs/STUDIO_PLUGIN.md) | Installation, adaptive UI, local preferences and testing controls |
+| [Tester guide](docs/TESTER.md) | Harness, scenarios, character controls and AI testing |
+| [Architecture](docs/ARCHITECTURE.md) | Tool and runtime contracts |
+| [Benchmarks](docs/BENCH.md) | Reproducible timing and quality measurements |
+| [Mubit loop](docs/MUBIT_LOOP.md) | Learning-loop design and integration history |
+| [Team workflow](docs/TEAM.md) | Branches, ownership and shared-place workflow |
 
-## Mubit console
-
-[app.mubit.ai/console](https://app.mubit.ai/console/):
-- **Tasks:** each role collecting examples and training. A task first trains at 25 kept examples,
-  and an admin must switch training on in Settings.
-- **Requests:** rate calls Good or Bad (`calls(slug)` lists the request ids).
-- **Try models:** compares an adapter with the base model side by side.
-
-## Layout
-
-- `forge/`: the agent (Python). Contracts are in `docs/ARCHITECTURE.md`.
-  - `prompts/`: one fixed system prompt per role.
-  - `improve.py`, `faults/`: the self-improving loop. `mcp_server.py`: the `forge` MCP server.
-- `forge-plugin/`: the Claude Code plugin (manifest, MCP launcher, `forge` skill).
-- `mubit-tester/`: the game tester plugin (MCP server, ForgeTest harness, AI players, judge, explorer).
-- `game/`: the human-built Flame and Blame game plus the Forge runtime (ForgeProbe,
-  ForgeTelemetry, sync tools). `forge new` copies only the runtime; `forge seed` copies everything.
-- `runs/<game>/`: generated games, specs, iterations, improve cycles and call logs (gitignored).
-  `runs/jobs/`: background job logs.
-- `docs/MUBIT_LOOP.md`: the self-improving loop design. `docs/research/`: Mubit and Studio MCP facts.
-- `docs/TEAM.md`: how the team works in parallel (lanes, branches, PRs). The repo's Stop hook
-  (`scripts/git-sync.sh`) pushes local commits on your current branch after every Claude turn, so
-  keep work on branches.
+Source layout: `studio-plugin/` contains the native UI; `forge/` contains the existing Python
+build/improve tools; `forge-plugin/` exposes the assistant integration; `mubit-tester/` contains
+the tester and native companion. Generated games, evidence and call logs live under ignored
+`runs/`. `game/` contains the Flame and Blame demo game and shared runtime helpers.
 
 ## Hall of fame!!!
 
