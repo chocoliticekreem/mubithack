@@ -11,6 +11,12 @@ The under-20-minute goal is for a small playable prototype on an already configu
 runs focus on bugs, gameplay, balance and polish. Larger games need more time; a playable first
 version is the starting point for iteration, not a guarantee that every feature is finished.
 
+**Why we built it.** During the hackathon we made a co-op firefighting game, *Flame and Blame*,
+and published it on Roblox as [Firefighter Mubit](https://www.roblox.com/games/130153199199668).
+By 25 Oct it had over 250 players, and one of them paid. The game was the proof; MuMake is the
+system that makes games like it from one idea, battle-tests them with AI players and learns from
+every run.
+
 **MuMake is the product name.** `forge`, `forge-plugin` and `mubit-tester` are the existing tool,
 package and integration identifiers you will see in this checkout and its install commands.
 They are not the product brand; the commands below use their current names so installation works.
@@ -73,6 +79,24 @@ More runs are useful when they improve something the player will notice: a broke
 unreachable level, confusing goals, repetitive content or an unfair progression curve. The shared
 [game production guide](docs/GAME_PRODUCTION_GUIDE.md) defines priorities for 16 game families,
 architecture foundations, feature/level contracts, testing and model evaluation.
+
+## A team of agents that battle-tests the game
+
+Code that compiles is not a game that works. MuMake does not trust the code; it plays the game.
+Each job below is its own AI role with a fixed prompt (in [`forge/prompts/`](forge/prompts/), and
+the AI players in [`mubit-tester`](mubit-tester/mubit_tester/ai.py)), and each role is its own Mubit task.
+
+| Stage | Roles | What they do |
+|---|---|---|
+| Build | director, designer, coder, level designer | Expand the idea into systems, a module plan, Luau files and level data |
+| Battle-test | scenarist, AI players, critic, fun critic | Write checks for every mechanic, play the game in Studio like real players, judge whether it works and is fun |
+| Find the cause | anomaly detector, auditor, reproducer, investigator | Spot what looks wrong across rounds, prove it with a failing check, then run experiments inside the live game to find the root cause |
+| Fix | fixer, patcher, planner, architect | Change the code, add features, consolidate duplicate systems |
+| Decide and learn | verifier, check reviewer, reflector | Replay and compare before and after, keep the fix or roll it back, write lessons that go into every future build |
+
+A fix only stays when the replay proves it. If anything got worse, the game version is rolled back.
+The lessons file feeds every designer, coder and fixer call, so the next game starts from what the
+last one learned.
 
 ## Development comparison: the same 100-stage obby
 
@@ -140,6 +164,29 @@ it improves the live workflow. See [Mubit's adapter guide](https://docs.mubit.ai
 and our [production guide](docs/GAME_PRODUCTION_GUIDE.md#12-model-learning-and-evaluation).
 These build timings do not isolate a speed benefit from Mubit learning; that needs a controlled
 comparison.
+
+### What Mubit has learned so far (25 Oct 2026)
+
+Mubit captured 2,691 investigator calls across 12 sessions. Its reviewer rated 170 of them good
+and 230 bad, and those ratings trained **Investigator for Roblox game v2**: a LoRA adapter on
+Qwen3-4B-Instruct-2507, served on Mubit Cloud and promoted to **partial rollout** at 05:55 UTC.
+
+| Investigator, Mubit's held-out exam (24 cases) | Score |
+|---|---|
+| Untrained base (4B) | 33.3% |
+| Our adapter (4B) | **75.0%** (95% range 55.1–88.0%) |
+| Frontier model | 100% |
+
+On 16 real investigator steps from our games, the adapter returned valid action JSON 16 of 16
+times and chose the same action as Claude Sonnet 5.5 16 of 16 times (same action and same file
+7 of 16). Its median response was 1.14 s against Claude's 1.78 s.
+
+Seven adapters are trained in total; the investigator is the only one serving. The others are
+still below Mubit's readiness bar: automated playtester v2 matches 65% (needs 70%), patcher 50%,
+fix verifier, AI game tester and playtest judge 25%, step judge 0%. Training was frozen until
+04:18 on 25 Oct because retraining waited for 2,500 new examples; lowering that threshold to 25
+produced the v2 adapters within 20 minutes. The adapters learned from one night of calls, and
+every game MuMake tests adds more rated calls to the same tasks.
 
 The host chat model is configured separately: installing an MCP plugin does not reroute the
 assistant's own inference. Use the Mubit-backed tools for game-production tasks; if the host's
