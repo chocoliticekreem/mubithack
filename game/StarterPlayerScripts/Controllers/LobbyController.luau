@@ -543,7 +543,12 @@ local function onCountdown(padId: number, seconds: number, title: string)
 	end
 	-- calm: the squad strip already names the pad and the call
 	local locked = seconds <= (LobbyConfig.LockSeconds or 0)
-	if locked then
+	-- a newbie's auto-queued first call: the onboarding YOUR FIRST CALL / LOCKED IN card already counts
+	-- down; a second banner + toast stacked over it was unreadable on a phone
+	local firstCall = player:GetAttribute("FirstFire") == "queued"
+	if firstCall then
+		ui.banner.Visible = false
+	elseif locked then
 		ui.banner.Text = `{LobbyConfig.LockText}  ROLLING OUT IN {seconds}`
 		ui.banner.TextColor3 = C.Hot
 		if not lockShown then
@@ -555,7 +560,7 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		ui.banner.TextColor3 = C.Yellow
 		ui.banner.Text = if Calm.on() then `ROLLING OUT IN {seconds}` else `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
 	end
-	ui.banner.Visible = true
+	ui.banner.Visible = not firstCall
 	if seconds <= LobbyConfig.BigCountdownFrom then
 		local hot = seconds <= LobbyConfig.AlarmFromSeconds
 		pop(tostring(seconds), if hot then C.Hot else C.Cream, 1.9)

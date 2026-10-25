@@ -373,8 +373,21 @@ local function onSwap(n: string, state: Enum.UserInputState, _i: InputObject): E
 	return Enum.ContextActionResult.Sink
 end
 
+-- Fewer buttons when they can't matter (phones: "too many buttons" on the first screens): no DROP /
+-- THROW / SWAP while you sit in a truck (the truck's own OUT / SIREN / HONK are what you need) or during
+-- the training fire (just SPRAY).
+local function quietSlots(): boolean
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum and hum.SeatPart ~= nil then
+		return true
+	end
+	return LocalPlayer:GetAttribute("FirstFire") == "burning"
+end
+
 function rebind()
-	local wantItem = hasItem()
+	local quiet = quietSlots()
+	local wantItem = hasItem() and not quiet
 	if wantItem and not boundItem then
 		ContextActionService:BindAction("InvDrop", onDrop, true, Enum.KeyCode.G, Enum.KeyCode.ButtonB)
 		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
@@ -392,7 +405,7 @@ function rebind()
 		boundItem = false
 		chargeStart = nil
 	end
-	local wantSwap = attr("InvHand") ~= "" or attr("InvBack") ~= ""
+	local wantSwap = (attr("InvHand") ~= "" or attr("InvBack") ~= "") and not quiet
 	if wantSwap and not boundSwap then
 		ContextActionService:BindAction("InvSwap", onSwap, true, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.DPadUp)
 		ContextActionService:SetTitle("InvSwap", "SWAP")
@@ -614,6 +627,18 @@ function InventoryController:Start()
 	for _, name in { "Foam", "FoamBack", "FoamSize", "OxygenAir", "Pass_UnlimitedFoam" } do
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(refreshHud)
 	end
+	LocalPlayer:GetAttributeChangedSignal("FirstFire"):Connect(rebind)
+	local function watchSeat(char: Model)
+		local hum = char:WaitForChild("Humanoid", 10)
+		if hum and hum:IsA("Humanoid") then
+			hum:GetPropertyChangedSignal("SeatPart"):Connect(rebind)
+			rebind()
+		end
+	end
+	if LocalPlayer.Character then
+		task.spawn(watchSeat, LocalPlayer.Character)
+	end
+	LocalPlayer.CharacterAdded:Connect(watchSeat)
 	rebind()
 	relabelReels()
 	CollectionService:GetInstanceAddedSignal(Names.Tag.TruckRefill):Connect(function()
