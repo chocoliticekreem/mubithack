@@ -80,4 +80,23 @@ Spec.test("low frame rates: dt clamp, servo gain and rate cap keep one frame fro
 	Spec.near(D.capRate(-3, 0.5, 0.12), -0.24)
 end)
 
+Spec.test("anti-tunnel: lifted rays still see a road the chassis sank into; sink depth and speed caps", function()
+	-- at rest: centre 2.6 above the road; the ray from 2 studs higher hits after 4.6
+	Spec.near(D.cornerDist(4.6, 2), 2.6)
+	Spec.truthy(D.sinkDepth(D.cornerDist(4.6, 2), 0.6) < 0) -- not sunk
+	-- centre 0.3 BELOW the road top (an unlifted ray would start inside the road and miss it)
+	Spec.near(D.cornerDist(1.7, 2), -0.3)
+	Spec.near(D.sinkDepth(-0.3, 0.6), 0.9) -- bottom 0.9 under the surface: lift it out
+	local x, y, z = D.capVelocity(10, -300, 0, 120, 150)
+	Spec.eq(x, 10)
+	Spec.eq(y, -120)
+	Spec.eq(z, 0)
+	x, y, z = D.capVelocity(300, 0, 0, 120, 150)
+	Spec.near(x, 150)
+	x, y, z = D.capVelocity(40, -5, 30, 120, 150)
+	Spec.eq(x, 40)
+	Spec.eq(y, -5)
+	Spec.eq(z, 30)
+end)
+
 return Spec.finish()

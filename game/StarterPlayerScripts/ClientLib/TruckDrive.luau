@@ -16,6 +16,9 @@
 --   TruckDrive.stepDt(dt, maxDt): number                 -- frame dt clamped for impulses/accels (low FPS)
 --   TruckDrive.servoGain(gain, dt, maxFraction): number  -- P gain that can't overshoot within one frame
 --   TruckDrive.capRate(rate, dt, maxAnglePerFrame): number -- angular rate limited to an angle per frame
+--   TruckDrive.cornerDist(rayDist, lift): number         -- lifted suspension ray -> distance from the centre plane
+--   TruckDrive.sinkDepth(cornerDist, halfHeight): number -- > 0 = chassis bottom under the surface (sunk)
+--   TruckDrive.capVelocity(x, y, z, maxFall, maxSpeed): (x, y, z) -- fall + fling speed caps (anti-tunnel)
 local TruckDrive = {}
 
 -- Spring-damper on one suspension ray. hitDist = nil means the wheel is in the air.
@@ -143,6 +146,31 @@ function TruckDrive.capRate(rate: number, dt: number, maxAngle: number): number
 	end
 	local cap = maxAngle / dt
 	return math.clamp(rate, -cap, cap)
+end
+
+-- Anti-tunnel. Suspension rays start `lift` studs above each corner (a ray never hits a part it starts
+-- inside), so a corner that sank into the road still measures it: rayDist = distance from the lifted
+-- origin. Returns the corner's distance to the surface measured from the chassis centre plane (can be
+-- negative: the surface is above the centre).
+function TruckDrive.cornerDist(rayDist: number, lift: number): number
+	return rayDist - lift
+end
+
+-- How far the chassis bottom (halfHeight below the centre) sits under the surface at cornerDist; > 0 = sunk.
+function TruckDrive.sinkDepth(cornerDist: number, halfHeight: number): number
+	return halfHeight - cornerDist
+end
+
+-- Speed caps: never fall faster than maxFall (a box moving more than its thickness a physics step
+-- tunnels through thin parts), never move faster than maxSpeed overall (crash flings). Returns x, y, z.
+function TruckDrive.capVelocity(x: number, y: number, z: number, maxFall: number, maxSpeed: number): (number, number, number)
+	y = math.max(y, -maxFall)
+	local m = math.sqrt(x * x + y * y + z * z)
+	if m > maxSpeed and m > 0 then
+		local k = maxSpeed / m
+		return x * k, y * k, z * k
+	end
+	return x, y, z
 end
 
 return TruckDrive

@@ -179,12 +179,21 @@ local function step(truck: Model, dt: number)
 	squashT += dt
 	local springK = VehicleConfig.Spring * TruckDrive.squashSpring(squashT, VehicleConfig.SquashSeconds, squashSoft)
 
+	-- Rays start RayLift above each corner: a ray never hits a part it starts inside, so with rays from the
+	-- chassis centre a chassis that sank into a thin road top (hard landing, a fling) lost its springs
+	-- and fell on through, under the map. Lifted, they still see that top and push the truck back out.
+	local lift = tonumber((VehicleConfig :: any).RayLift) or 2
 	local hits = 0
 	local frontComp = 0
+	local deepest = 0 -- studs the chassis bottom sits below the surface it stands on (sunk)
+	local bottom = chassis.Size.Y / 2
 	for i, c in CORNERS do
 		local origin = cf:PointToWorldSpace(c)
-		local res = workspace:Raycast(origin, -up * rest, params)
-		local dist = if res then res.Distance else nil
+		local res = workspace:Raycast(origin + up * lift, -up * (rest + lift), params)
+		local dist = if res then TruckDrive.cornerDist(res.Distance, lift) else nil
+		if res and dist and res.Instance.Anchored and res.Instance.CanCollide then
+			deepest = math.max(deepest, TruckDrive.sinkDepth(dist, bottom))
+		end
 		if dist then
 			hits += 1
 			if i <= 2 then
@@ -199,6 +208,27 @@ local function step(truck: Model, dt: number)
 	end
 	local grounded = hits >= 2
 	local ctrl = if grounded then 1 else VehicleConfig.AirControl
+
+	-- Sunk into the ground anyway (a fling, a hard landing on a thin part): lift it back on top right now
+	-- and kill the downward speed, before the solver can push it the rest of the way through.
+	local cfgAny = VehicleConfig :: any
+	if deepest > (tonumber(cfgAny.SinkLift) or 0.25) and up.Y > 0.3 then
+		chassis.CFrame = chassis.CFrame + Vector3.new(0, deepest + 0.1, 0)
+		local vy = chassis.AssemblyLinearVelocity
+		chassis.AssemblyLinearVelocity = Vector3.new(vy.X, math.max(vy.Y, 0), vy.Z)
+		cf = chassis.CFrame
+	end
+	-- Speed caps: a box falling faster than ~2 studs a physics step tunnels through thin road tops,
+	-- and a crash fling (traffic, lamps, props) can spike the speed far past anything driving does.
+	do
+		local vc = chassis.AssemblyLinearVelocity
+		local fall = tonumber(cfgAny.MaxFallSpeed) or 120
+		local fling = tonumber(cfgAny.MaxFlingSpeed) or 150
+		if vc.Y < -fall or vc.Magnitude > fling then
+			local x, y, z = TruckDrive.capVelocity(vc.X, vc.Y, vc.Z, fall, fling)
+			chassis.AssemblyLinearVelocity = Vector3.new(x, y, z)
+		end
+	end
 
 	local v = chassis.AssemblyLinearVelocity
 	-- hard landing -> cartoon squash + BOING
