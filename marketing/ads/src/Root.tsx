@@ -5,6 +5,8 @@ import { Ad10, Ad11, Ad12, Ad13, Ad14, Ad15, Ad16, Ad17, Ad18, Ad19, Ad20, Ad21,
 import { Ad24, Ad25, Ad26, Ad27, Ad28, Ad29, Ad30, Ad31, Ad32, Ad33 } from "./Ads3";
 import { Thumb01, Thumb02, Thumb03, Thumb04, Thumb05 } from "./Thumbs";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
+import { UpdateBanner } from "./Update";
+import { GBeFirefighter, GDriveTruck, GFireSquad, GPutOut, GSaveKids, GSavePanda } from "./GeminiAds";
 import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
 import { IconFace, IconNight, IconRescue, IconSpray, IconTruck, IconWord } from "./Icons3";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
@@ -14,6 +16,13 @@ const A = { width: 1920, height: 1080 };
 
 export const Root: React.FC = () => (
   <>
+    <Still id="update-2026-10-24" component={UpdateBanner} {...A} />
+    <Still id="g-ad-01-be-a-firefighter" component={GBeFirefighter} {...A} />
+    <Still id="g-ad-02-save-the-kids" component={GSaveKids} {...A} />
+    <Still id="g-ad-03-drive-the-fire-truck" component={GDriveTruck} {...A} />
+    <Still id="g-ad-04-fire-squad" component={GFireSquad} {...A} />
+    <Still id="g-ad-05-save-the-panda" component={GSavePanda} {...A} />
+    <Still id="g-ad-06-put-out-the-fire" component={GPutOut} {...A} />
     <Still id="pass-unlimited-foam" component={PassFoam} {...I} />
     <Still id="pass-premium" component={PassPremium} {...I} />
     <Still id="donate-10" component={Donate10} {...I} />
