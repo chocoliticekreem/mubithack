@@ -1,0 +1,77 @@
+-- Zone 1: Sunbeam Gate Plaza (stages 1-10). Level data written by `forge levels` (Mubit level_designer), built by ObbyKit. Data, not code.
+return {
+	zone = 1,
+	name = "Sunbeam Gate Plaza",
+	theme = "The park's front gate and plaza: ticket booths, balloons and striped awnings, with round discs, logs, ramps and the first jump pads",
+	theme_id = "entrance",
+	palette = { "#FFC23D", "#E63946", "#3A86FF" },
+	material = "SmoothPlastic",
+	stages = {
+		{ stage = 1, name = "Ticket Booth Trot", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 6, 6 }, shape = "cylinder" },
+			{ kind = "platform", gap = 4, rise = 2, side = 0, coins = 1, size = { 8, 2, 8 }, shape = "wedge-ramp" },
+			{ kind = "disappearing", gap = 4, rise = -2, side = 0, coins = 0, size = { 6, 1, 6 }, count = 3, spacing = 2, on = 4, off = 1, stagger = 1 },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 2, name = "Balloon Bounce", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "jumppad", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, power = 70, forward = 20 },
+			{ kind = "platform", gap = 5, rise = 6, side = 0, coins = 2, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "checkpoint", gap = 5, rise = -6, side = 0, coins = 0 },
+		} },
+		{ stage = 3, name = "Awning Hop", pieces = {
+			{ kind = "platform", gap = 4, rise = 2, side = 0, coins = 0, size = { 8, 2, 8 }, shape = "wedge-ramp" },
+			{ kind = "moving", gap = 4, rise = -2, side = 0, coins = 0, size = { 8, 1, 8 }, move = { 0, 0, 5 }, period = 6, phase = 0 },
+			{ kind = "platform", gap = 7, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 10, 6, 6 }, shape = "cylinder" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 4, name = "Big Top Boost", turn = -90, pieces = {
+			{ kind = "jumppad", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, power = 90, forward = 20 },
+			{ kind = "checkpoint", gap = 6, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 5, name = "Popcorn Stroll", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = -3, coins = 0, size = { 10, 6, 6 }, shape = "cylinder" },
+			{ kind = "platform", gap = 4, rise = 0, side = 3, coins = 2, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, count = 2, spacing = 2, on = 4, off = 1, stagger = 1 },
+			{ kind = "platform", gap = 4, rise = 2, side = -3, coins = 1, size = { 8, 2, 8 }, shape = "wedge-ramp" },
+			{ kind = "checkpoint", gap = 4, rise = -2, side = 0, coins = 0 },
+		} },
+		{ stage = 6, name = "Streamer Zigzag", pieces = {
+			{ kind = "platform", gap = 6, rise = 0, side = -3, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "moving", gap = 6, rise = 0, side = 3, coins = 0, size = { 7, 1, 7 }, move = { 0, 0, 5 }, period = 5, phase = 0 },
+			{ kind = "jumppad", gap = 7, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, power = 75, forward = 20 },
+			{ kind = "platform", gap = 5, rise = 4, side = -3, coins = 2, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "checkpoint", gap = 6, rise = -4, side = 0, coins = 0 },
+		} },
+		{ stage = 7, name = "Lift Lobby", turn = -90, pieces = {
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 16, 0 }, period = 6, phase = 0 },
+			{ kind = "checkpoint", gap = 3, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 8, name = "Lemonade Lava", turn = -90, pieces = {
+			{ kind = "platform", gap = 5, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "lava", gap = 2, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "platform", gap = 2, rise = 3, side = 0, coins = 0, size = { 8, 3, 8 }, shape = "wedge-ramp" },
+			{ kind = "platform", gap = 5, rise = -3, side = 0, coins = 1, size = { 10, 6, 6 }, shape = "cylinder" },
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, shape = "block" },
+			{ kind = "lava", gap = 2, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "checkpoint", gap = 2, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 9, name = "Turnstile Twist", pieces = {
+			{ kind = "platform", gap = 5, rise = 3, side = 0, coins = 0, size = { 8, 3, 8 }, shape = "wedge-ramp" },
+			{ kind = "disappearing", gap = 5, rise = -3, side = 3, coins = 0, size = { 4, 1, 4 }, count = 3, spacing = 3, on = 3, off = 1.5, stagger = 0.8 },
+			{ kind = "jumppad", gap = 5, rise = 0, side = -2, coins = 0, size = { 6, 1, 6 }, power = 80, forward = 20 },
+			{ kind = "platform", gap = 5, rise = 5, side = -3, coins = 2, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 6, rise = -5, side = 0, coins = 0 },
+		} },
+		{ stage = 10, name = "Grand Gate Finale", pieces = {
+			{ kind = "platform", gap = 5, rise = 0, side = 0, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "moving", gap = 5, rise = 0, side = 3, coins = 0, size = { 6, 1, 6 }, move = { 0, 0, 5 }, period = 4, phase = 0 },
+			{ kind = "platform", gap = 7, rise = 4, side = -2, coins = 0, size = { 8, 4, 8 }, shape = "wedge-ramp" },
+			{ kind = "jumppad", gap = 4, rise = -4, side = 2, coins = 0, size = { 6, 1, 6 }, power = 80, forward = 20 },
+			{ kind = "platform", gap = 5, rise = 5, side = -2, coins = 3, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "checkpoint", gap = 5, rise = -5, side = 0, coins = 0 },
+		} },
+	},
+}

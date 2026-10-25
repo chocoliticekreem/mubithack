@@ -1,0 +1,75 @@
+-- Zone 4: Teacup Twirl (stages 31-40). Level data written by `forge levels` (Mubit level_designer), built by ObbyKit. Data, not code.
+return {
+	zone = 4,
+	name = "Teacup Twirl",
+	theme = "Giant spinning teacups and saucers on a turning floor, with spinner bars to hop and turntables to ride",
+	theme_id = "teacups",
+	palette = { "#C09CFF", "#5ED6B4", "#FF8EC2" },
+	material = "SmoothPlastic",
+	stages = {
+		{ stage = 31, name = "Sugar Cube Start", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 12, 1, 12 }, shape = "block" },
+			{ kind = "lava", gap = 1, rise = 0, side = 0, size = { 10, 1, 4 } },
+			{ kind = "platform", gap = 1, rise = 0, side = 2, coins = 1, size = { 8, 1, 8 }, shape = "block" },
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 0, 6 }, period = 6, phase = 0 },
+			{ kind = "checkpoint", gap = 8, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 32, name = "Spin Cycle", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "round" },
+			{ kind = "spinner", gap = 4, rise = 0, side = 3, coins = 0, size = { 14, 1, 14 }, speed = 45, bar_height = 1.5 },
+			{ kind = "platform", gap = 4, rise = 0, side = -3, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "spinner", gap = 4, rise = 0, side = 2, coins = 0, size = { 14, 1, 14 }, speed = 55, bar_height = 1.5 },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 33, name = "Saucer Slide", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "turntable", gap = 4, rise = 0, side = 2, coins = 0, size = { 12, 1, 12 }, speed = 25 },
+			{ kind = "platform", gap = 4, rise = 1, side = -2, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "turntable", gap = 4, rise = 0, side = 3, coins = 0, size = { 12, 1, 12 }, speed = 35 },
+			{ kind = "checkpoint", gap = 4, rise = -1, side = 0, coins = 0 },
+		} },
+		{ stage = 34, name = "Cup Lid Launch", turn = -90, pieces = {
+			{ kind = "jumppad", gap = 4, rise = 0, side = 0, coins = 0, size = { 6, 1, 6 }, power = 90, forward = 20 },
+			{ kind = "checkpoint", gap = 6, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 35, name = "Tea Break", turn = -90, pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 2, size = { 12, 1, 12 }, shape = "round" },
+			{ kind = "disappearing", gap = 4, rise = 0, side = 2, coins = 0, size = { 6, 1, 6 }, count = 3, spacing = 2, on = 4, off = 1.5, stagger = 0.6 },
+			{ kind = "platform", gap = 4, rise = 0, side = -2, coins = 2, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 36, name = "Biscuit Belt", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "conveyor", gap = 3, rise = 0, side = 1, coins = 0, size = { 6, 1, 16 }, speed = 6, dir = "forward" },
+			{ kind = "platform", gap = 4, rise = 0, side = -2, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "lava", gap = 1, rise = 0, side = 0, size = { 8, 1, 4 } },
+			{ kind = "conveyor", gap = 1, rise = 0, side = 0, coins = 0, size = { 8, 1, 12 }, speed = 8, dir = "forward" },
+			{ kind = "checkpoint", gap = 4, rise = 0, side = 0, coins = 0 },
+		} },
+		{ stage = 37, name = "Spoon Lift", turn = -90, pieces = {
+			{ kind = "moving", gap = 3, rise = 0, side = 0, coins = 0, size = { 7, 1, 7 }, move = { 0, 16, 0 }, period = 6, phase = 0 },
+			{ kind = "checkpoint", gap = 3, rise = 16, side = 0, coins = 0 },
+		} },
+		{ stage = 38, name = "Stir Crazy", turn = -90, pieces = {
+			{ kind = "spinner", gap = 4, rise = 0, side = 0, coins = 0, size = { 14, 1, 14 }, speed = 60, bar_height = 2 },
+			{ kind = "turntable", gap = 4, rise = 0, side = 3, coins = 0, size = { 12, 1, 12 }, speed = 40 },
+			{ kind = "platform", gap = 4, rise = 1, side = -2, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "disappearing", gap = 4, rise = 0, side = 0, coins = 0, size = { 5, 1, 5 }, count = 2, spacing = 3, on = 3, off = 1.5, stagger = 0.6 },
+			{ kind = "checkpoint", gap = 4, rise = -1, side = 0, coins = 0 },
+		} },
+		{ stage = 39, name = "Steam Elevator", pieces = {
+			{ kind = "platform", gap = 4, rise = 0, side = 0, coins = 1, size = { 10, 1, 10 }, shape = "block" },
+			{ kind = "moving", gap = 4, rise = 0, side = 2, coins = 0, size = { 8, 1, 8 }, move = { 0, 4, 0 }, period = 6, phase = 0 },
+			{ kind = "platform", gap = 5, rise = 2, side = -2, coins = 1, size = { 8, 1, 8 }, shape = "round" },
+			{ kind = "spinner", gap = 4, rise = 0, side = 2, coins = 0, size = { 14, 1, 14 }, speed = 70, bar_height = 2 },
+			{ kind = "checkpoint", gap = 4, rise = -2, side = 0, coins = 0 },
+		} },
+		{ stage = 40, name = "Grand Teapot", pieces = {
+			{ kind = "spinner", gap = 4, rise = 0, side = 0, coins = 0, size = { 12, 1, 12 }, speed = 90, bar_height = 2 },
+			{ kind = "turntable", gap = 7, rise = 3, side = 3, coins = 0, size = { 10, 1, 10 }, speed = 70 },
+			{ kind = "moving", gap = 3, rise = 1, side = 0, coins = 0, size = { 6, 1, 6 }, move = { 0, 0, 5 }, period = 4, phase = 0 },
+			{ kind = "disappearing", gap = 7, rise = 1, side = -3, coins = 0, size = { 5, 1, 5 }, count = 2, spacing = 3, on = 2.5, off = 1.5, stagger = 0.6 },
+			{ kind = "checkpoint", gap = 6, rise = -4, side = 0, coins = 0 },
+		} },
+	},
+}

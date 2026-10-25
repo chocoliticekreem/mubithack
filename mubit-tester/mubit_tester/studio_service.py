@@ -181,6 +181,70 @@ return HS:JSONEncode(out)
 """
 
 
+QA_COINS = r"""
+-- Studio QA journey, coin step: walk the player over the lobby coins (touch pickups) so the shop is affordable.
+local HS = game:GetService("HttpService")
+local p = game:GetService("Players"):GetPlayers()[1]
+local char = p and p.Character
+if not char then return HS:JSONEncode({skipped = "no character"}) end
+local before = p:GetAttribute("Coins") or (p:FindFirstChild("leaderstats") and p.leaderstats:FindFirstChild("Coins") and p.leaderstats.Coins.Value)
+local coins = {}
+local holder = workspace:FindFirstChild("LobbyCoins")
+for _, d in (holder and holder:GetDescendants()) or {} do
+	if d:IsA("BasePart") then table.insert(coins, d) end
+end
+local touched = 0
+for i, c in coins do
+	if i > 30 then break end
+	if c.Parent then
+		char:PivotTo(c.CFrame)
+		touched += 1
+		task.wait(0.25)
+	end
+end
+task.wait(0.5)
+local after = p:GetAttribute("Coins") or (p:FindFirstChild("leaderstats") and p.leaderstats:FindFirstChild("Coins") and p.leaderstats.Coins.Value)
+return HS:JSONEncode({coins_touched = touched, before = before, after = after})
+"""
+
+QA_SHOP = r"""
+-- Studio QA journey, client part: buy and wear the cheapest affordable costume through the shop's own remote
+-- (the call its Buy and Wear buttons make), after the server part collected lobby coins.
+local RS = game:GetService("ReplicatedStorage")
+local HS = game:GetService("HttpService")
+local folder = RS:FindFirstChild("CosmeticsRemotes")
+local R = folder and folder:FindFirstChild("Request")
+if not R then return HS:JSONEncode({skipped = "no costume shop in this game"}) end
+local function state()
+	local res = R:InvokeServer("state")
+	return type(res) == "table" and (res.state or res) or {}
+end
+local st = state()
+if st.loading then
+	task.wait(1)
+	st = state()
+end
+local owned = {}
+for _, id in (st and st.owned) or {} do owned[id] = true end
+local pick
+for _, c in (st and st.costumes) or {} do
+	if not owned[c.id] and not c.reward and type(c.price) == "number" and c.price > 0 and c.price <= (st.balance or 0)
+		and (not pick or c.price < pick.price) then
+		pick = c
+	end
+end
+if not pick then
+	return HS:JSONEncode({skipped = "no affordable costume", balance = st and st.balance})
+end
+task.wait(0.2)
+local bought = R:InvokeServer("buy", pick.id)
+task.wait(0.2)
+local worn = R:InvokeServer("equip", pick.id)
+return HS:JSONEncode({costume = pick.id, price = pick.price, bought = bought and bought.ok, worn = worn and worn.ok,
+	err = (bought and bought.err) or (worn and worn.err)})
+"""
+
+
 QA_BOTS = 6  # bots that play at once, each from the first stage of a different zone
 QA_FRAMES = 3  # screenshots per bot: two mid-run, one when its run ends
 QA_TIMEOUT = 14  # seconds one bot gets to reach the next checkpoint, per attempt
@@ -289,12 +353,23 @@ async def qa_swarm(studio, store, round_n):
             "started": started, "ended": time.time(), "goal_met": reached, "summary": verdict}, indent=1))
         summary.append({"zone": q["zone"], "stage": q["stage"], "reached": reached,
                         "detail": verdict if res else "no verdict (the run did not finish in time)"})
-    # the player's own journey: zone 1's ride gate, the next zone's entrance, the finish line. They are touch pads,
-    # and the headless playtest fires no touches, so only Studio can show those counters firing.
+    # the player's own journey, real play in Studio: pick up the lobby coins, buy and wear a costume through the
+    # shop's own remote (what its Buy and Wear buttons call), then zone 1's ride gate, the next zone's entrance and
+    # the finish line. Coins and pads are touch pickups and the headless playtest fires no touches.
+    shop: dict = {}
+    try:
+        shop["coins"] = extract_json(await studio.execute_luau(QA_COINS, "Server")) or {}
+        shop["costume"] = extract_json(await studio.execute_luau(QA_SHOP, "Client")) or {}
+    except Exception as error:  # noqa: BLE001 - no shop step: the gates and finish still run
+        shop["error"] = str(error)[:200]
     try:
         journey = extract_json(await studio.execute_luau(QA_JOURNEY, "Server")) or {}
     except Exception as error:  # noqa: BLE001 - no journey: the bots' verdicts still go out
         journey = {"error": str(error)[:200]}
+    costume = shop.get("costume") or {}
+    if costume.get("costume"):
+        journey.setdefault("steps", []).insert(0, {"what": f"bought and wore {costume['costume']}",
+                                                   "ok": bool(costume.get("bought") and costume.get("worn"))})
     # the next round's critic reads this (forge/rounds.py guide_block, loop.studio_counters): real play in Studio
     (store.dir / "qa_latest.json").write_text(json.dumps({"round": round_n, "attempts": QA_ATTEMPTS,
                                                          "bots": summary, "journey": journey.get("steps") or [],
