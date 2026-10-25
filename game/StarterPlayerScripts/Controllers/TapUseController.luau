@@ -37,6 +37,8 @@ local WorldPopup = require(ClientLib:WaitForChild("WorldPopup") :: ModuleScript)
 local TapUseController = {}
 TapUseController.Priority = 140
 
+local TRUCK_GEAR_TAP = 7 -- studs from the tap point to a truck reel / locker prompt that counts as tapping it
+
 local player = Players.LocalPlayer
 local SNAP = 6 -- studs: a tap this close to a prompt's part counts as a tap on it
 local REACH_SLACK = 2 -- studs past a prompt's MaxActivationDistance that still count (the server re-checks)
@@ -170,7 +172,10 @@ local function promptTarget(prompt: ProximityPrompt): Target?
 	if not part or not usable(prompt) then
 		return nil
 	end
-	return { kind = "prompt", prompt = prompt, part = part, verb = verbOf(prompt), rank = rankOf(prompt) }
+	-- the truck's own reel / lockers / foam rank level with getting IN (2), so whichever is closer wins:
+	-- standing at the hose reel shows GRAB, standing at the cab shows IN (the reel used to lose to IN)
+	local rank = if truckOf(prompt) then math.min(rankOf(prompt), 2) else rankOf(prompt)
+	return { kind = "prompt", prompt = prompt, part = part, verb = verbOf(prompt), rank = rank }
 end
 
 local function truckTarget(truck: Model): Target?
@@ -441,11 +446,13 @@ local function tapAt(screen: Vector2, viewport: boolean?): string
 			end
 		end
 	end
-	-- on a truck, getting in wins unless the tap landed ON a locker / reel / intake that you can reach
+	-- on a truck: a tap NEAR its reel / lockers (within TRUCK_GEAR_TAP studs) uses that, anywhere else on
+	-- the truck gets you in. Before, only a tap exactly on the reel part counted, so grabbing a hose on a
+	-- phone kept putting kids in the driver's seat.
 	local truck = truckOf(hit)
 	if truck then
-		local onIt = best ~= nil and (hit == best.part or hit:IsDescendantOf(best.part) or best.part:IsDescendantOf(hit))
-		if not (onIt and best and inReach(best)) then
+		local nearGear = best ~= nil and bestD <= TRUCK_GEAR_TAP and inReach(best :: Target)
+		if not nearGear then
 			best = truckTarget(truck)
 		end
 	end
