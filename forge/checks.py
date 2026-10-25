@@ -494,13 +494,14 @@ def verdict(res: dict) -> str:
 
 
 def run_check_offline(game_dir: Path, check: Check, timeout: float = CHECK_TIMEOUT, *,
-                      clients: bool = True) -> dict:
+                      clients: bool = True, wall: float = HEADLESS_TIMEOUT) -> dict:
     """Run one check against a freshly booted headless server (one simulated client) -> run_check's shape
     + where="offline", verdict, boot_errors, needs_studio/misses (what the engine could not model while
-    the check ran; a check that hit needs_studio is not ok, whatever it returned)."""
+    the check ran; a check that hit needs_studio is not ok, whatever it returned). timeout is simulated
+    seconds inside the engine; wall is the luau process's real-time limit (run_headless)."""
     t0 = time.time()
     out = run_headless(game_dir, {"mode": "exec", "code": wrap(check.body), "dm": "Server", "timeout": timeout,
-                                  "clients": clients})
+                                  "clients": clients}, timeout=wall)
     if "error" in out:
         res: dict = {"ok": False, "error": out["error"]}
     else:
