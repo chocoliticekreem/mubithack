@@ -20,14 +20,16 @@ OBBYKIT = director.KIT_MODULES_DIR / "ObbyKit.luau"
 FUNFAIR_LENGTHS = [1659, 1382, 2156, 1887, 1978, 1946, 2008, 2152, 2277, 1890]
 
 
-def _run(tmp_path: Path, body: str, files: dict[str, str] | None = None, timeout: float = 120) -> dict:
+def _run(tmp_path: Path, body: str, files: dict[str, str] | None = None, timeout: float = 120,
+         wall: float = checks.HEADLESS_TIMEOUT) -> dict:
     root = tmp_path / "game"
     (root / "ReplicatedStorage/Kit").mkdir(parents=True)
     shutil.copy(WORLDKIT, root / "ReplicatedStorage/Kit/WorldKit.luau")
     for rel, text in (files or {}).items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text, encoding="utf-8")
-    res = checks.run_check_offline(root, checks.Check(id="worldkit", title="worldkit", covers="", body=body), timeout=timeout)
+    res = checks.run_check_offline(root, checks.Check(id="worldkit", title="worldkit", covers="", body=body), timeout=timeout,
+                                   wall=wall)
     assert res.get("ok"), res
     return json.loads(res["detail"])
 
@@ -256,7 +258,10 @@ def test_park_keeps_the_contract_the_courses_rely_on(tmp_path):
 def test_long_courses_carry_the_park_to_their_ends(tmp_path):
     # the overnight game's zones are 1,382-2,277 studs of straight course: the park goes all the way with them,
     # and the ground runs at least 1,500 studs past the farthest of them
-    got = _run(tmp_path, PARK.replace("__LENGTHS__", "{ " + ", ".join(map(str, FUNFAIR_LENGTHS)) + " }"), timeout=240)
+    # ten 1,400-2,300 stud courses take ~13 s of luau on a laptop and past the default 30 s wall limit on a busy
+    # CI runner ("headless run timed out after 30s"); timeout= is simulated seconds and never raised that limit
+    got = _run(tmp_path, PARK.replace("__LENGTHS__", "{ " + ", ".join(map(str, FUNFAIR_LENGTHS)) + " }"), timeout=240,
+               wall=180)
     assert got["problems"] == []
     assert got["lengths"] == FUNFAIR_LENGTHS
     assert got["samples"] >= 480 and got["bare"] == 0
