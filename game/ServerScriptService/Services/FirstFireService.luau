@@ -210,6 +210,7 @@ local function spawnPanda(spot: Spot)
 		local m = pandaModel(spot)
 		if m then
 			m:SetAttribute("FirstFirePanda", true)
+			pcall(NpcBuilder.shout, m, if spot.out then "Over here! Get me out!" else (ColdCfg.Help or "HELP! HELP!"))
 		end
 	end
 end

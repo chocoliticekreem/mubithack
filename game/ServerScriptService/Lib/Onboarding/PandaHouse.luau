@@ -127,19 +127,20 @@ function PandaHouse.build(index: number, cf: CFrame, truckCf: CFrame?): Model
 	solid(shell, "WallBack", L(0, H / 2, D - 0.5), Vector3.new(W * 2, H, 1), WALL)
 	solid(shell, "WallL", L(-W + 0.5, H / 2, D / 2), Vector3.new(1, H, D), WALL)
 	solid(shell, "WallR", L(W - 0.5, H / 2, D / 2), Vector3.new(1, H, D), WALL)
-	-- front wall (z = 0): open door at x -8..-4, the panda window at x 0..6, y 3..8
-	solid(shell, "FrontA", L(-9.5, H / 2, 0.5), Vector3.new(3, H, 1), WALL) -- -11..-8
-	solid(shell, "DoorTop", L(-6, 8.5, 0.5), Vector3.new(4, 3, 1), WALL) -- over the door (7..10)
-	solid(shell, "FrontB", L(-2, H / 2, 0.5), Vector3.new(4, H, 1), WALL) -- -4..0
+	-- front wall (z = 0): a wide open doorway at x -8.5..-3.5 (no door to fumble with), the panda window at
+	-- x 0..6, y 3..9
+	solid(shell, "FrontA", L(-9.75, H / 2, 0.5), Vector3.new(2.5, H, 1), WALL) -- -11..-8.5
+	solid(shell, "DoorTop", L(-6, 8.5, 0.5), Vector3.new(5, 3, 1), WALL) -- over the door (7..10)
+	solid(shell, "FrontB", L(-1.75, H / 2, 0.5), Vector3.new(3.5, H, 1), WALL) -- -3.5..0
 	solid(shell, "Sill", L(3, 1.5, 0.5), Vector3.new(6, 3, 1), WALL) -- under the window
-	solid(shell, "WinTop", L(3, 9, 0.5), Vector3.new(6, 2, 1), WALL) -- over the window
+	solid(shell, "WinTop", L(3, 9.5, 0.5), Vector3.new(6, 1, 1), WALL) -- over the window
 	solid(shell, "FrontC", L(8.5, H / 2, 0.5), Vector3.new(5, H, 1), WALL) -- 6..11
 	-- white trim round the window and the door
 	solid(shell, "SillTrim", L(3, 3.1, -0.2), Vector3.new(7, 0.4, 0.8), TRIM)
-	solid(shell, "WinTrimTop", L(3, 8.1, -0.1), Vector3.new(7, 0.4, 0.4), TRIM)
-	solid(shell, "WinTrimL", L(-0.1, 5.5, -0.1), Vector3.new(0.4, 5.4, 0.4), TRIM)
-	solid(shell, "WinTrimR", L(6.1, 5.5, -0.1), Vector3.new(0.4, 5.4, 0.4), TRIM)
-	solid(shell, "DoorTrim", L(-6, 7.1, -0.1), Vector3.new(4.8, 0.4, 0.4), TRIM)
+	solid(shell, "WinTrimTop", L(3, 9.1, -0.1), Vector3.new(7, 0.4, 0.4), TRIM)
+	solid(shell, "WinTrimL", L(-0.1, 6, -0.1), Vector3.new(0.4, 6.4, 0.4), TRIM)
+	solid(shell, "WinTrimR", L(6.1, 6, -0.1), Vector3.new(0.4, 6.4, 0.4), TRIM)
+	solid(shell, "DoorTrim", L(-6, 7.1, -0.1), Vector3.new(5.8, 0.4, 0.4), TRIM)
 
 	-- gable roof: ridge along X over the middle of the house
 	local pitch = math.rad(32)
@@ -155,8 +156,10 @@ function PandaHouse.build(index: number, cf: CFrame, truckCf: CFrame?): Model
 	end
 	solid(shell, "Chimney", L(-6, H + rise + 1, D / 2 + 2), Vector3.new(2.4, 5, 2.4), Color3.fromRGB(120, 60, 50), Enum.Material.Brick)
 
-	-- inside: a toy chest under the window (the panda sits on it, head in the window), a rug
-	solid(shell, "ToyChest", L(3, 1.3, 2.6), Vector3.new(5, 2, 3), Color3.fromRGB(231, 111, 81))
+	-- inside: a tall toy chest under the window (the panda sits on it, head in the window). Its top is 2.6
+	-- above the floor, more than RescueConfig.StepDown (2.2), so the panicking panda stays up there in
+	-- the window instead of waddling off into the house
+	solid(shell, "ToyChest", L(3, 1.6, 2.4), Vector3.new(5.6, 2.6, 3.6), Color3.fromRGB(231, 111, 81))
 	solid(shell, "Rug", L(0, 0.35, 9), Vector3.new(10, 0.1, 7), Color3.fromRGB(205, 180, 219), Enum.Material.Fabric)
 	-- a mailbox and a little picket fence bit, so it reads as a home from the street
 	solid(shell, "MailPost", L(9, 1.6, -5), Vector3.new(0.4, 3.2, 0.4), CRATE, Enum.Material.Wood)
@@ -174,16 +177,17 @@ function PandaHouse.build(index: number, cf: CFrame, truckCf: CFrame?): Model
 	bin.CFrame = L(14, 1.4, 4) * CFrame.Angles(0, 0, math.rad(90)) -- a cylinder's axis is X: stand it up
 
 	-- markers
-	local panda = marker(m, "PandaSpot", L(3, 2.3 + 1, 2.6)) -- feet on the toy chest, facing out (-Z)
+	local panda = marker(m, "PandaSpot", L(3, 2.9 + 1, 2.4)) -- feet on the toy chest, facing out (-Z)
 	panda:SetAttribute(Names.Attr.Kind, "Panda")
 	panda:SetAttribute("Pose", "sitting")
 	marker(m, "SafeSpot", L(-2, 1, -12))
 	marker(m, "LookHouse", L(0, 6, 4))
-	marker(m, "LookPanda", L(3, 6.2, 2.6))
+	marker(m, "LookPanda", L(3, 6.8, 2.4))
 	marker(m, "CamHouse", L(-22, 13, -30))
-	marker(m, "CamPanda", L(4.5, 6.8, -9))
+	marker(m, "CamPanda", L(4.5, 7.2, -9))
 	if truckCf then
-		marker(m, "CamTruck", L(22, 4, -14))
+		-- beside the road the truck comes in on, ahead of where it parks: it drives up past the camera
+		marker(m, "CamTruck", truckCf * CFrame.new(-24, 5, 14))
 		truck(m, truckCf)
 	end
 	return m

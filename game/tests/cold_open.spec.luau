@@ -69,6 +69,9 @@ Spec.test("nothing over the cold open, then one piece at a time", function()
 		Spec.eq(ColdOpen.hudVisible(k, f({ phase = "burning", cutscene = true, xp = true })), false)
 		Spec.eq(ColdOpen.hudVisible(k, f({ phase = "burning" })), false) -- spraying: minimal UI
 	end
+	-- pieces the schedule doesn't list (the hotbar) only hide under the cutscene
+	Spec.eq(ColdOpen.hudVisible("hotbar", f({ phase = "burning", cutscene = true })), false)
+	Spec.eq(ColdOpen.hudVisible("hotbar", f({ phase = "burning" })), true)
 	-- the first XP shows the XP bar, nothing else
 	Spec.eq(ColdOpen.hudVisible("xp", f({ phase = "panda", xp = true })), true)
 	Spec.eq(ColdOpen.hudVisible("help", f({ phase = "panda", xp = true })), false)

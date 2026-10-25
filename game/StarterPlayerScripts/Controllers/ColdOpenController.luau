@@ -195,11 +195,28 @@ local function truckOf(set: Model): TruckAnim?
 	return { model = t, parked = parked, from = from, lights = lights }
 end
 
--- the panda's arm waving (its limbs hang on Motor6Ds named "Flail", RescueNpcBuilder)
-local function pandaArms(): { Motor6D }
+local function pandaModel(): Instance?
 	local id = player:GetAttribute(FireCfg.PandaAttr)
 	local r = workspace:FindFirstChild("Rescuables")
-	local m = r and type(id) == "string" and r:FindFirstChild(id)
+	return r and type(id) == "string" and r:FindFirstChild(id) or nil
+end
+
+-- the panda's speech bubble (RescueNpcBuilder "Shout" on its Root): HELP! for the whole cutscene, locally
+local function pandaShout(): TextLabel?
+	local m = pandaModel()
+	local root = m and m:IsA("Model") and m.PrimaryPart
+	local gui = root and root:FindFirstChild("Shout")
+	local label = gui and gui:FindFirstChild("Text")
+	if gui and gui:IsA("BillboardGui") and label and label:IsA("TextLabel") then
+		gui.Enabled = true
+		return label
+	end
+	return nil
+end
+
+-- the panda's arm waving (its limbs hang on Motor6Ds named "Flail", RescueNpcBuilder)
+local function pandaArms(): { Motor6D }
+	local m = pandaModel()
 	local out = {}
 	if m then
 		for _, d in m:GetDescendants() do
@@ -256,6 +273,7 @@ function ColdOpenController:Play()
 		truck.model:PivotTo(truck.from)
 	end
 	local arms = pandaArms()
+	local shout = pandaShout()
 	local crackle = sound(Cold.Crackle, 0.7, true)
 	local siren = sound(Cold.Siren, 0, true)
 	local camHouse = pos(s, "CamHouse", s:GetPivot().Position + Vector3.new(-20, 12, -30))
@@ -327,6 +345,9 @@ function ColdOpenController:Play()
 			for i, l in truck.lights do
 				l.Transparency = if (i % 2 == 0) == on then 0 else 0.7
 			end
+		end
+		if shout and shout.Parent then
+			shout.Text = Cold.Help or "HELP! HELP!"
 		end
 		for i, m in arms do
 			m.Transform = CFrame.Angles(0, 0, (if i % 2 == 0 then 1 else -1) * (0.9 + 0.6 * math.sin(t * 9)))

@@ -39,7 +39,7 @@ local controllers: { [string]: any } = {}
 type Target = { key: string, gui: string, child: string? }
 local TARGETS: { Target } = {
 	{ key = "xp", gui = "TopBox" }, -- the whole top-bar box (level / XP first)
-	{ key = "pass", gui = "TopBox", child = "Pass" }, -- its sections, once the box shows
+	{ key = "pass", gui = "TopBox", child = "PassPip" }, -- its sections, once the box shows (BattlePassController renames "Pass")
 	{ key = "store", gui = "TopBox", child = "Store" },
 	{ key = "dispatch", gui = "TopBox", child = "Dispatch" },
 	{ key = "pass", gui = "BattlePassGui" }, -- PASS chip, the pass panel, pass XP pops
@@ -49,6 +49,9 @@ local TARGETS: { Target } = {
 	{ key = "offer", gui = "OfferGui" },
 	{ key = "minimap", gui = "NavMinimap" },
 	{ key = "dpad", gui = "GamepadLegend" },
+	-- keys the schedule doesn't list (ColdOpen.hudVisible: shown, except over the cold open)
+	{ key = "hotbar", gui = "InventoryHud" },
+	{ key = "carry", gui = "Carry" },
 }
 
 type Held = { inst: Instance, prop: string, key: string, wanted: boolean, setting: boolean, shown: boolean }
