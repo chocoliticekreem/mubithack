@@ -9,7 +9,7 @@
 --     (lobby emotes live on Z / X / C in SquadController, so 1 / 2 are inventory-only)
 --   * the hotbar hides while you're seated (the truck key-hint bar takes the bottom centre)
 --   * draws every prompt with attr InvPrompt (Style Custom) as a chunky "[E] Grab Axe" sticker plus a
---     yellow Highlight on the item; relabels the truck reel prompt locally (Grab / Stow Hose, Refill Foam)
+--     yellow Highlight on the item; relabels the truck reel prompt locally (Grab / Stow Hose)
 --   * Inventory/Fx world pops: GRAB!, BONK!, Butterfingers!, YEET!
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
@@ -521,7 +521,7 @@ end
 -- Truck reels keep their builder's default prompt; only the text changes, locally, with what you hold.
 local function relabelReels()
 	local hand = attr("InvHand")
-	local text = if hand == "Hose" then "Stow Hose" elseif hand == "Extinguisher" then "Refill Foam" else "Grab Hose"
+	local text = if hand == "Hose" then "Stow Hose" else "Grab Hose" -- holding the extinguisher: swaps it for the hose
 	local function set(p: Instance?)
 		if p and p:IsA("ProximityPrompt") and p:GetAttribute("InvReel") then
 			p.ActionText = text
