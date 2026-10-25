@@ -675,7 +675,7 @@ class Actions:
         note = str(ev.get("error") or ev.get("note") or "").strip() or f"{script} is broken; check the Output errors"
         if not slug:
             self._finish(message=f"fix request for {script} is waiting in studio_events: "
-                                 f"Forge's status names no game (slug) to correct")
+                                 f"MuMake's status names no game (slug) to correct")
             return
         from forge.config import load_settings
         from forge.memory import RunStore

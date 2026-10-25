@@ -788,7 +788,7 @@ function renderMap(g) {
 
 function renderMain() {
   const g = game();
-  if (!g) { put("main", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); put("team", ""); put("mapBox", ""); return; }
+  if (!g) { put("main", `<div class="card empty">No games yet. Make one in Studio: open MuMake and type your idea.</div>`); put("team", ""); put("mapBox", ""); return; }
   const status = g.live ? `<span class="chip live"><i class="dot"></i>live</span>` : g.missions.length ? `<span class="chip done">ready</span>` : "";
   put("main", `<div class="grid2">
     <div class="card"><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
@@ -858,7 +858,7 @@ function renderNow() {
   const slugs = [...new Set(A.map(a => a.slug).filter(Boolean))];
   const results = slugs.map(s => DATA.games.find(g => g.slug === s)).filter(Boolean).map(g => resultBlock(g, true)).join("");
   put("nowHead", `<div class="sec-head"><h2>Running now</h2><span class="sub">${A.length ? `${A.length} at work` : ""}</span></div>`);
-  put("nowRows", `${rows || (A.length ? "" : `<div class="empty small">Nothing is running. Start one with <code>forge autopilot &lt;slug&gt;</code> or <code>forge new "idea"</code>.</div>`)}
+  put("nowRows", `${rows || (A.length ? "" : `<div class="empty small">Nothing is running. Start a build from MuMake in Studio.</div>`)}
     ${results ? `<div class="results">${results}</div>` : ""}`);
 }
 
@@ -870,7 +870,7 @@ function resultBlock(g, titled) {
 }
 
 function renderGame(g) {
-  if (!g) { put("gameBox", `<div class="card empty">No games yet. Make one with: forge new "your idea"</div>`); return; }
+  if (!g) { put("gameBox", `<div class="card empty">No games yet. Make one in Studio: open MuMake and type your idea.</div>`); return; }
   const live = g.live || (g.autopilot?.alive ? {role: "autopilot"} : null);
   const status = live ? `<span class="chip live"><i class="dot"></i>live</span>` : `<span class="chip">idle · ${esc(ago(g.updated))}</span>`;
   put("gameBox", `<div class="card gamecard"><div><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
@@ -1160,7 +1160,7 @@ function renderSpeed(g) {
 
 function renderAutopilot(g) {
   const A = g.autopilot;
-  if (!A) return `<div class="empty">No autopilot run on this game. Start one with <code>forge autopilot ${esc(g.slug)}</code>.</div>`;
+  if (!A) return `<div class="empty">No autopilot run on this game yet.</div>`;
   const b = A.budget || {};
   const tiles = `<div class="tiles">
     <div class="tile ${A.state === "running" ? "hot" : ""}"><div class="k">Rounds</div><div class="v">${A.rounds.length}<small> ${esc(A.state || "")}${A.phase && A.state === "running" ? ` · ${esc(A.phase)}` : ""}</small></div></div>
@@ -1376,7 +1376,7 @@ const nopen = new Set();
 document.addEventListener("toggle", e => { const id = e.target.dataset?.key; if (id) e.target.open ? nopen.add(id) : nopen.delete(id); }, true);
 const det = (key, summary, body) => `<details data-key="${esc(key)}" ${nopen.has(key) ? "open" : ""}><summary>${summary}</summary>${body}</details>`;
 function renderRunning(list) {
-  if (!list.length) return `<div class="empty">Nothing running. Start one with forge fix, forge new or the forge MCP tools.</div>`;
+  if (!list.length) return `<div class="empty">Nothing running. Start a build from MuMake in Studio.</div>`;
   return list.map(r => `<div class="card"><div class="row"><div class="grow ttl">${esc(r.name)}</div>${pill(r.status)}</div>
     <div class="muted small">${esc(r.command)} · ${ago(r.updated)}</div>
     ${det("run:" + r.name, `<span class="small">log (${r.tail.length} lines)</span>`, `<pre>${esc(r.tail.join("\n"))}</pre>`)}</div>`).join("");

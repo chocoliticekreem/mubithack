@@ -95,7 +95,7 @@ function Activity.rows(feed)
         end
     end
     if #rows == 0 then
-        return {{kind="note", text="no Forge runs yet"}}
+        return {{kind="note", text="no MuMake runs yet"}}
     end
     return rows
 end
