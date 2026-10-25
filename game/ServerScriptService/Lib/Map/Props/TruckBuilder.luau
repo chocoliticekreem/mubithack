@@ -5,7 +5,8 @@
 --   Static, fully anchored model (VehicleService makes it drivable later). PrimaryPart = "Chassis".
 --   Tags: model -> Names.Tag.Truck; "Reel" (hose reel, ProximityPrompt "Grab Hose") -> TruckRefill;
 --   "RescueDropoff" (invisible, non-collide box around the whole truck) -> RescueDropoff.
---   Named parts for VehicleService/VehicleController: Chassis, Wheel_<axle>_<L|R>, LightRed, LightBlue,
+--   Named parts for VehicleService/VehicleController: Chassis, Wheel_<axle>_<L|R> (+ Hub_, HubCap_,
+--   HubBolt_<axle>_<s>_<n>, WheelSkin_: VehicleService puts each wheel on a steer/spin Motor6D), LightRed, LightBlue,
 --   LightWhite, Siren, Headlight_L/R, TailLight_L/R, Bench_L/R (crew seats), Deck.
 -- v2 mount points (docs/game/08 "Vehicles" / "Inventory"):
 --   "Locker_<L|R><1..3>" tagged TruckCompartment, attr Item (TruckBuilder.CompartmentItems) -> InventoryService
@@ -138,6 +139,9 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 			P(`Wheel_{axleName}_{s}`, Vector3.new(side * 4.25, 1.8, z), Vector3.new(1.6, 3.6, 3.6), Tyre, { shape = Enum.PartType.Cylinder })
 			P(`Hub_{axleName}_{s}`, Vector3.new(side * 4.45, 1.8, z), Vector3.new(1.4, 1.9, 1.9), Steel, { shape = Enum.PartType.Cylinder, collide = false })
 			P(`HubCap_{axleName}_{s}`, Vector3.new(side * 5.1, 1.8, z), Vector3.new(0.2, 0.8, 0.8), Chrome, { shape = Enum.PartType.Cylinder, collide = false })
+			-- dark cross over the hub, so a spinning wheel reads as spinning (a plain cylinder doesn't)
+			P(`HubBolt_{axleName}_{s}_1`, Vector3.new(side * 5.17, 1.8, z), Vector3.new(0.1, 1.6, 0.26), Ink, deco)
+			P(`HubBolt_{axleName}_{s}_2`, Vector3.new(side * 5.17, 1.8, z), Vector3.new(0.1, 0.26, 1.6), Ink, deco)
 		end
 	end
 	local wheelSpec = MeshSkin.spec("TruckWheel")
@@ -148,7 +152,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 				local skin = MeshSkin.make(wheelSpec, `WheelSkin_{axleName}_{s}`, cf * CFrame.new(side * 4.2, 1.8, z), s)
 				if skin then
 					skin.Parent = m
-					MeshSkin.hide({ m:FindFirstChild(`Wheel_{axleName}_{s}`) :: any, m:FindFirstChild(`Hub_{axleName}_{s}`) :: any, m:FindFirstChild(`HubCap_{axleName}_{s}`) :: any })
+					MeshSkin.hide({ m:FindFirstChild(`Wheel_{axleName}_{s}`) :: any, m:FindFirstChild(`Hub_{axleName}_{s}`) :: any, m:FindFirstChild(`HubCap_{axleName}_{s}`) :: any, m:FindFirstChild(`HubBolt_{axleName}_{s}_1`) :: any, m:FindFirstChild(`HubBolt_{axleName}_{s}_2`) :: any })
 				end
 			end
 		end

@@ -15,6 +15,8 @@
 --     A "RESPAWN TRUCK" button (and R) also shows on foot when your truck is flipped or far away.
 --   * Steering wheels turn with each truck's DriveSeat.SteerFloat and the dash bobblehead wobbles
 --     (Motor6D "SteeringMotor" / "BobbleMotor", nearby trucks only).
+--   * Road wheels: the front pair steer with SteerFloat and every wheel rolls with the chassis'
+--     forward speed (Motor6D "WheelMotor" under each "WheelPivot_<axle>_<s>", VehicleConfig.Wheel*).
 --   * Everyone: light bars flash and sirens wail (pitch climbs with speed) on trucks with attr SirenOn;
 --     "HONK!" pop over a truck on Vehicle/Honked; "SLAM!" / "BONK!" pops on Vehicle/Pop.
 -- Local visuals only; gameplay effects (run over, prop hits, blame) are decided by VehicleService.
@@ -938,19 +940,76 @@ end
 -- Steering wheels follow SteerFloat; bobbleheads wobble from the truck's sway. Nearby trucks only.
 local wheelAngle: { [Model]: number } = {}
 local bobble: { [Model]: { x: number, z: number, vx: number, vz: number, last: Vector3? } } = {}
+type WheelRig = { motor: Motor6D, front: boolean, radius: number, angle: number }
+type WheelState = { wheels: { WheelRig }, steer: number, retryAt: number }
+local roadWheels: { [Model]: WheelState } = {}
+local function wheelsOf(m: Model): WheelState?
+	local st = roadWheels[m]
+	if st then
+		if #st.wheels > 0 and st.wheels[1].motor.Parent then
+			return st
+		elseif os.clock() < st.retryAt then
+			return nil
+		end
+	end
+	local list: { WheelRig } = {}
+	for _, c in m:GetChildren() do
+		if c:IsA("BasePart") and string.sub(c.Name, 1, 11) == "WheelPivot_" then
+			local motor = c:FindFirstChild("WheelMotor")
+			local key = string.sub(c.Name, 12)
+			local tyre = m:FindFirstChild(`Wheel_{key}`)
+			if motor and motor:IsA("Motor6D") then
+				local r = if tyre and tyre:IsA("BasePart") then tyre.Size.Y / 2 else 1.8
+				table.insert(list, { motor = motor, front = string.sub(key, 1, 6) == "Front_", radius = math.max(r, 0.5), angle = 0 })
+			end
+		end
+	end
+	-- none = not rigged (static truck) or not streamed in yet: look again in a second
+	st = { wheels = list, steer = if st then st.steer else 0, retryAt = os.clock() + 1 }
+	roadWheels[m] = st
+	return if #list > 0 then st else nil
+end
+
+-- Front wheels yaw with the stick (SteerFloat +1 = right = negative yaw, the truck faces -Z); every
+-- wheel rolls about its axle (X) by speed / radius, negative angle = top rolling forward.
+local function animateWheels(m: Model, chassis: BasePart, seat: VehicleSeat?, dt: number)
+	local st = wheelsOf(m)
+	if not st then
+		return
+	end
+	local fwd = chassis.CFrame.LookVector:Dot(chassis.AssemblyLinearVelocity)
+	local maxSteer = math.rad(tonumber(VehicleConfig.WheelSteerAngle) or 30)
+	local want = if seat then -seat.SteerFloat * maxSteer else 0
+	st.steer += (want - st.steer) * math.min(1, dt * (tonumber(VehicleConfig.WheelSteerRate) or 10))
+	for _, w in st.wheels do
+		w.angle = (w.angle - fwd * dt / w.radius) % (2 * math.pi)
+		local roll = CFrame.Angles(w.angle, 0, 0)
+		w.motor.Transform = if w.front then CFrame.Angles(0, st.steer, 0) * roll else roll
+	end
+end
+
 local function animateCabs(dt: number)
 	local cam = workspace.CurrentCamera
 	if not cam then
 		return
 	end
 	local camPosNow = cam.CFrame.Position
+	local wheelRange = tonumber(VehicleConfig.WheelAnimRange) or 250
 	for _, truck in CollectionService:GetTagged(Names.Tag.Truck) do
 		local chassis = truck:IsA("Model") and truck.PrimaryPart
-		if not chassis or (chassis.Position - camPosNow).Magnitude > 90 then
+		if not chassis then
+			continue
+		end
+		local dist = (chassis.Position - camPosNow).Magnitude
+		if dist > wheelRange then
 			continue
 		end
 		local m = truck :: Model
 		local seat = m:FindFirstChild("DriveSeat") :: VehicleSeat?
+		animateWheels(m, chassis, seat, dt)
+		if dist > 90 then
+			continue
+		end
 		local wheel = m:FindFirstChild("SteeringWheel")
 		local column = wheel and wheel:FindFirstChild("SteeringColumn")
 		local motor = column and column:FindFirstChild("SteeringMotor") :: Motor6D?
@@ -982,6 +1041,11 @@ local function animateCabs(dt: number)
 		if not m.Parent then
 			wheelAngle[m] = nil
 			bobble[m] = nil
+		end
+	end
+	for m in roadWheels do
+		if not m.Parent then
+			roadWheels[m] = nil
 		end
 	end
 end

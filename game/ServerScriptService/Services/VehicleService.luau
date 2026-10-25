@@ -117,7 +117,10 @@ local GROUND_TO_PIVOT = CFrame.new(0, 2, 0)
 -- (covers the round trip until the driver's client has its body in the seat).
 local SEAT_SETTLE = 0.4
 -- Parts that only look like wheels: the suspension rays carry the truck, so these never touch the road.
-local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "Fender_", "CabStep_", "SideSkirt_" }
+local NO_COLLIDE_PREFIX = { "Wheel_", "Hub_", "HubCap_", "HubBolt_", "WheelSkin_", "Fender_", "CabStep_", "SideSkirt_" }
+-- Per-wheel visual parts (<prefix>_<axle>_<L|R>[_n]): rig() hangs each wheel off its own Motor6D so
+-- VehicleController can steer the front pair and spin them all, locally.
+local WHEEL_PARTS = { Wheel = true, Hub = true, HubCap = true, HubBolt = true, WheelSkin = true }
 
 local services: { [string]: any } = {}
 local byModel: { [Model]: Truck } = {}
@@ -995,8 +998,58 @@ local function rigDoor(t: Truck, side: string)
 	setDoor(t, d, false)
 end
 
+-- Wheels: an invisible "WheelPivot_<axle>_<s>" at each axle centre (chassis-aligned), on Motor6D
+-- "WheelMotor" from the chassis; the wheel's parts are welded to the pivot and marked Jointed so rig()
+-- leaves them alone. Visual only: they never collide, and the suspension rays carry the truck.
+local function rigWheels(m: Model, root: BasePart)
+	local groups: { [string]: { BasePart } } = {}
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			local prefix, key = string.match(d.Name, "^(%a+)_(%a+_[LR])_?%d*$")
+			if prefix and key and WHEEL_PARTS[prefix] then
+				local g = groups[key] or {}
+				groups[key] = g
+				table.insert(g, d)
+			end
+		end
+	end
+	for key, parts in groups do
+		local axle = m:FindFirstChild(`Wheel_{key}`)
+		if not (axle and axle:IsA("BasePart")) or m:FindFirstChild(`WheelPivot_{key}`) then
+			continue
+		end
+		local pivotCF = root.CFrame * CFrame.new(root.CFrame:PointToObjectSpace(axle.Position))
+		local pivot = Instance.new("Part")
+		pivot.Name = `WheelPivot_{key}`
+		pivot.Size = Vector3.new(0.2, 0.2, 0.2)
+		pivot.Transparency = 1
+		pivot.CanCollide = false
+		pivot.CanQuery = false
+		pivot.CanTouch = false
+		pivot.CastShadow = false
+		pivot.Anchored = true
+		pivot.CFrame = pivotCF
+		pivot:SetAttribute("Jointed", true)
+		pivot.Parent = m
+		for _, part in parts do
+			part:SetAttribute("Jointed", true)
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = pivot
+			w.Part1 = part
+			w.Parent = part
+		end
+		local motor = Instance.new("Motor6D")
+		motor.Name = "WheelMotor"
+		motor.Part0 = root
+		motor.Part1 = pivot
+		motor.C0 = root.CFrame:ToObjectSpace(pivotCF)
+		motor.C1 = CFrame.identity
+		motor.Parent = pivot
+	end
+end
+
 -- Weld every part to the chassis (one physics assembly) except Jointed ones (doors, steering wheel,
--- bobblehead); hinged doors; seats + their prompts.
+-- bobblehead, wheels on their WheelMotor); hinged doors; seats + their prompts.
 local function rig(t: Truck)
 	local m, root = t.model, t.chassis
 	-- seats are TruckBuilder mount points; older builds may lack them
@@ -1011,11 +1064,17 @@ local function rig(t: Truck)
 		seat.CFrame = root.CFrame * CFrame.new(-2.4, 2.1, -7.0)
 		seat.Parent = m
 	end
+	rigWheels(m, root)
 	for _, d in m:GetDescendants() do
 		if d:IsA("BasePart") and d ~= root then
 			d.Anchored = false
 			local anc = d:FindFirstAncestorWhichIsA("Model")
 			local isDoor = anc ~= nil and anc ~= m and string.sub(anc.Name, 1, 5) == "Door_"
+			for _, prefix in NO_COLLIDE_PREFIX do
+				if string.sub(d.Name, 1, #prefix) == prefix then
+					d.CanCollide = false
+				end
+			end
 			if d:GetAttribute("Jointed") == true then
 				if isDoor then
 					d.Massless = false
@@ -1033,11 +1092,6 @@ local function rig(t: Truck)
 			w.Parent = d
 			d.Massless = true
 			d.CollisionGroup = BODY_GROUP
-			for _, prefix in NO_COLLIDE_PREFIX do
-				if string.sub(d.Name, 1, #prefix) == prefix then
-					d.CanCollide = false
-				end
-			end
 		end
 	end
 	root.Anchored = true
