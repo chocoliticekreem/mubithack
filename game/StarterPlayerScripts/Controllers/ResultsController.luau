@@ -6,6 +6,9 @@
 --   a team stats strip whose numbers count up, then one award card per award flipping in 0.6 s apart; blame cards
 --   get a red "BLAME!" rubber stamp that slams down (scale 3 -> 1, card shake). The scapegoat card is last and bigger.
 -- Sounds come from BlameConfig.Sounds (ids default "", so silent until someone verifies an asset).
+-- Pass offer: OfferService may send one Monetization/Offer (moment "results") for this screen; it is drawn
+-- (ClientLib/OfferCard) bottom-left, only after NEXT CALL / BACK TO STATION are up, and never covers or
+-- delays them. NEXT CALL stays the biggest button.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -17,6 +20,7 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BlameConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
+local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("OfferCard") :: ModuleScript) :: any
 
 local ResultsController = {}
 ResultsController.Priority = 60
@@ -25,6 +29,28 @@ local CARD_W, CARD_H = 190, 250
 local gui: ScreenGui? = nil
 local showToken = 0
 local runXp = 0 -- profile XP (Data/XpGained) since this run started; the pass's own is attr PassRunXp
+-- the pass offer for the screen on show (OfferService): drawn once the buttons are up
+local offerRoot: Frame? = nil -- this screen's design frame, set once its buttons are visible
+local offerToken = -1 -- showToken that offerRoot belongs to
+local queuedOffer: { [string]: any }? = nil
+local queuedToken = -1
+
+local function tryOffer()
+	local o, root = queuedOffer, offerRoot
+	if not o or not root or queuedToken ~= showToken or offerToken ~= showToken or not root.Parent then
+		return
+	end
+	queuedOffer = nil
+	-- bottom-left of the 1280x720 frame: left of NEXT CALL (x 290..630), under the award cards, clear of
+	-- the phone jump button (bottom-right, Roblox core UI)
+	local ok, err = pcall(function()
+		local card = OfferCard.build(root, o, { position = UDim2.fromOffset(12, 592) })
+		UiKit.pop(card, 0.3)
+	end)
+	if not ok then
+		warn(`[ResultsController] offer card: {err}`)
+	end
+end
 
 local function sfx(name: string, volume: number?, pitch: number?)
 	local sounds = BlameConfig.Sounds
@@ -39,6 +65,8 @@ end
 
 local function hide()
 	showToken += 1
+	offerRoot = nil
+	queuedOffer = nil
 	setBusy(false)
 	if gui then
 		local g = gui
@@ -514,7 +542,7 @@ local function show(payload: Types.ResultsPayload)
 			if id and at then
 				local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
 				local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
-				local t = UiKit.label(root, "Teaser", `NEXT UNLOCK: {string.upper(name)} AT LEVEL {at}!`, UDim2.fromOffset(760, 30), UDim2.new(0.5, -380, 0, 590), {
+				local t = UiKit.label(root, "Teaser", `NEXT UNLOCK: {string.upper(name)} AT LEVEL {at}!`, UDim2.fromOffset(700, 30), UDim2.new(0.5, -350, 0, 590), {
 					font = UiKit.Header,
 					textSize = 26,
 					color = Palette.UiCream,
@@ -577,6 +605,14 @@ local function show(payload: Types.ResultsPayload)
 			teaser.Visible = true
 			UiKit.pop(teaser, 0.3)
 		end
+		-- the pass offer (if one came) only after the buttons, a beat later
+		task.wait(0.8)
+		if token ~= showToken then
+			return
+		end
+		offerRoot = root
+		offerToken = token
+		tryOffer()
 	end)
 end
 
@@ -624,6 +660,18 @@ function ResultsController:Start()
 			hide()
 		end
 	end)
+	-- OfferService's pass offer for this screen (it arrives a few seconds after the results)
+	task.spawn(function()
+		local remote = Net.event("Monetization", "Offer")
+		remote.OnClientEvent:Connect(function(offer: any)
+			if type(offer) ~= "table" or offer.moment ~= "results" or gui == nil then
+				return
+			end
+			queuedOffer = offer
+			queuedToken = showToken
+			tryOffer()
+		end)
+	end)
 	-- XP earned per run (the results screen's XP EARNED line)
 	Net.event("Data", "XpGained").OnClientEvent:Connect(function(amount: any)
 		if type(amount) == "number" and amount > 0 then
@@ -650,6 +698,13 @@ end
 -- controllers / a DevHook client harness can).
 function ResultsController:_show(payload: Types.ResultsPayload)
 	show(payload)
+end
+
+-- Test hook: draw an offer card on the open results screen (same path as Monetization/Offer).
+function ResultsController:_offer(offer: { [string]: any })
+	queuedOffer = offer
+	queuedToken = showToken
+	tryOffer()
 end
 
 return ResultsController

@@ -6,6 +6,8 @@
 -- server's Player attr Pass_<Key>. Purchases go through Monetization/Buy (the server validates and
 -- prompts). The Donation Board's prompt fires Monetization/Open ("donate") to open it here.
 -- The panel has attribute Menu = true, so MenuMouseController frees the mouse while it is open.
+-- Back at the station after a call, the STORE chip pulses once (a gentle grow + gold flash; only while
+-- there is still a pass you don't own). No sound, no repeat.
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,6 +31,7 @@ type Card = { key: string, id: number, button: TextButton, price: TextLabel, ico
 local gui: ScreenGui? = nil
 local panel: Frame? = nil
 local chip: GuiObject? = nil -- the Store section of the top-bar box
+local chipButton: TextButton? = nil
 local donateRow: Frame? = nil
 local donatedLabel: TextLabel? = nil
 local cards: { Card } = {}
@@ -123,6 +126,38 @@ local function setOpen(open: boolean, section: string?)
 	else
 		p.Visible = false
 	end
+end
+
+-- one gentle pulse of the STORE chip (after a call): grow + gold, then back
+local function pulseChip()
+	local b = chipButton
+	if not b or not b.Visible then
+		return
+	end
+	local anyToBuy = false
+	for _, def in Cfg.Passes do
+		if passId(def.key) > 0 and player:GetAttribute(Cfg.Attr.PassPrefix .. def.key) ~= true then
+			anyToBuy = true
+		end
+	end
+	if not anyToBuy then
+		return
+	end
+	local base = b.BackgroundColor3
+	local scale = b:FindFirstChild("PulseScale") :: UIScale?
+	if not scale then
+		local s = Instance.new("UIScale")
+		s.Name = "PulseScale"
+		s.Parent = b
+		scale = s
+	end
+	local sc = scale :: UIScale
+	UiKit.tween(b, 0.25, { BackgroundColor3 = Palette.UiWarn })
+	UiKit.tween(sc, 0.25, { Scale = 1.22 }, Enum.EasingStyle.Back)
+	task.delay(0.45, function()
+		UiKit.tween(sc, 0.3, { Scale = 1 })
+		UiKit.tween(b, 0.6, { BackgroundColor3 = base })
+	end)
 end
 
 local function toggle()
@@ -246,6 +281,7 @@ local function build()
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
 	UiKit.onTap(b, toggle) -- a 44 px touch pad around the small chip on phones
+	chipButton = b
 	chip = slot -- syncChip shows / hides the whole section (lobby only)
 
 	-- panel
@@ -351,11 +387,16 @@ function StoreController:Start()
 	end
 	player:GetAttributeChangedSignal(Cfg.Attr.Donated):Connect(paintAll)
 
+	local wasOut = not inLobby()
 	local function syncChip()
 		local c = chip
 		if c then
 			c.Visible = inLobby()
 		end
+		if inLobby() and wasOut then
+			task.delay(2.5, pulseChip) -- back from a call: one pulse once the lobby HUD is up
+		end
+		wasOut = not inLobby()
 		if not inLobby() and panel then
 			setOpen(false)
 		end
@@ -380,6 +421,10 @@ end
 
 function StoreController:_close()
 	setOpen(false)
+end
+
+function StoreController:_pulse()
+	pulseChip()
 end
 
 return StoreController
