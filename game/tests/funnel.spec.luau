@@ -40,7 +40,7 @@ end)
 Spec.test("event names are constant identifiers", function()
 	for k, v in Funnel.Events do
 		Spec.eq(k, v)
-		Spec.eq(string.match(v, "^[%a]+$") ~= nil, true)
+		Spec.eq(string.match(v, "^%a%w*$") ~= nil, true)
 	end
 end)
 
@@ -50,6 +50,51 @@ Spec.test("minutes rounds and clamps", function()
 	Spec.eq(Funnel.minutes(31), 1)
 	Spec.eq(Funnel.minutes(600), 10)
 	Spec.eq(Funnel.minutes(-5), 0)
+end)
+
+Spec.test("onboarding v3 funnel: its own name, 17 constant steps, legacy funnel untouched", function()
+	Spec.eq(Funnel.V3FunnelName, "OnboardingV3")
+	Spec.eq(#Funnel.OnboardingV3, 17)
+	Spec.eq(Funnel.OnboardingV3[3], "Cutscene Shown")
+	Spec.eq(Funnel.OnboardingV3[9], "Panda Saved")
+	Spec.eq(Funnel.OnboardingV3[10], "HUD Revealed")
+	Spec.eq(Funnel.OnboardingV3[17], "Back In Lobby")
+	Spec.eq(#Funnel.Onboarding, 12) -- the legacy funnel keeps its numbers
+	local seen = {}
+	for _, n in Funnel.OnboardingV3 do
+		Spec.eq(seen[n], nil)
+		seen[n] = true
+		Spec.eq(string.match(n, "^[%a ]+$") ~= nil, true)
+	end
+	local t = Funnel.new()
+	Spec.eq(Funnel.reach(t, Funnel.OnboardingV3, "Cutscene Ended"), 4)
+	Spec.eq(Funnel.reach(t, Funnel.OnboardingV3, "Cutscene Shown"), nil)
+	Spec.eq(Funnel.reach(t, Funnel.OnboardingV3, "Auto Queued"), nil) -- a legacy-only step
+end)
+
+Spec.test("device: phone / tablet / PC / console", function()
+	local function d(o: any): string
+		return Funnel.device({
+			touch = o.touch == true,
+			keyboard = o.keyboard == true,
+			mouse = o.mouse == true,
+			gamepad = o.gamepad == true,
+			tenFoot = o.tenFoot == true,
+			viewportX = o.x or 1280,
+			viewportY = o.y or 720,
+		})
+	end
+	Spec.eq(d({ touch = true, x = 844, y = 390 }), "Phone")
+	Spec.eq(d({ touch = true, x = 1180, y = 820 }), "Tablet")
+	Spec.eq(d({ keyboard = true, mouse = true }), "PC")
+	Spec.eq(d({ keyboard = true, mouse = true, gamepad = true }), "PC") -- a pad plugged into a PC
+	Spec.eq(d({ touch = true, keyboard = true, mouse = true }), "PC") -- touch-screen laptop
+	Spec.eq(d({ gamepad = true, tenFoot = true }), "Console")
+	Spec.eq(d({ gamepad = true }), "Console")
+	Spec.eq(Funnel.isDevice("Phone"), true)
+	Spec.eq(Funnel.isDevice("Unknown"), true)
+	Spec.eq(Funnel.isDevice("Toaster"), false)
+	Spec.eq(Funnel.isDevice(nil), false)
 end)
 
 return Spec.finish()

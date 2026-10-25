@@ -464,6 +464,9 @@ local function blocked(): boolean
 	if player:GetAttribute("Onboarded") == nil then
 		return true -- don't know yet if you're new
 	end
+	if player:GetAttribute("FirstCallDone") ~= true then
+		return true -- Onboarding v3: a newbie's first call comes first (FirstFireService)
+	end
 	local iid = player:GetAttribute("InstanceId")
 	if type(iid) == "string" and iid ~= "" then
 		return true -- on a call

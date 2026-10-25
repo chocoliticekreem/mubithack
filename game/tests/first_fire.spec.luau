@@ -61,6 +61,20 @@ Spec.test("cards: fire while burning, reward pop for a few seconds after", funct
 	Spec.eq(FirstFire.card("launched", 5, 3), nil)
 	Spec.eq(FirstFire.card(nil, 0, 3), nil)
 	Spec.eq(FirstFire.card("skipped", 0, 3), nil)
+	Spec.eq(FirstFire.card("panda", 0, 3), "panda") -- v3: fire out, now the panda
+end)
+
+Spec.test("panda house spot: share a burning one, else a free one, never a blocked one", function()
+	local free = { burning = false, busy = false, blocked = false }
+	local burning = { burning = true, busy = true, blocked = false }
+	local busy = { burning = false, busy = true, blocked = false }
+	local blocked = { burning = false, busy = false, blocked = true }
+	Spec.eq(FirstFire.pickSpot({ free, free }), 1)
+	Spec.eq(FirstFire.pickSpot({ busy, burning }), 2) -- join the house that's still burning
+	Spec.eq(FirstFire.pickSpot({ busy, free }), 2) -- the panda is already out next door: a fresh house
+	Spec.eq(FirstFire.pickSpot({ blocked, free }), 2)
+	Spec.eq(FirstFire.pickSpot({ busy, busy }), nil)
+	Spec.eq(FirstFire.pickSpot({}), nil)
 end)
 
 return Spec.finish()

@@ -16,9 +16,12 @@
 --   * Help (H): a scrollable cheat sheet (attr Menu, so the mouse frees in first person): the 3 slots
 --     drawn like the hotbar, grab / swap / drop / throw, carry + rescue, water, ladders, truck. Keys
 --     come from InventoryConfig / GearConfig / VehicleConfig / MissionGuides.
---   * First fire (brand-new players, Services/FirstFireService + Config/FirstFireConfig): while Player attr
---     FirstFire is "burning", a PUT OUT THE FIRE! card + arrow on the training fire (the camera turns to
---     face it once); then a FIRE OUT! +XP card until the auto-queued first call lands.
+--   * First fire, Onboarding v3 (brand-new players, Services/FirstFireService + Config/FirstFireConfig): the
+--     cold open (Controllers/ColdOpenController) plays first and nothing of ours shows over it (no STATION 67
+--     title for a newbie: the cutscene is the title). Then one mechanic at a time: FirstFire "burning" =
+--     SPRAY THE FIRE! + arrow on the panda house (the camera turns to face it once the cutscene is over);
+--     "panda" = NOW SAVE THE PANDA! (arrow + highlight on the panda), then CARRY IT OUTSIDE! (arrow on the
+--     lawn) while you hold it; "done" = PANDA SAVED! +XP until the auto-queued first call lands.
 --     On the pad for the auto-queued first call: YOUR FIRST CALL card with GO NOW (Lobby/Launch) and
 --     NOT YET (Onboarding/SkipCall: off the pad, the board -> pad tutorial at your own pace).
 --   * After the first call, still out at the scene (dispatch doesn't teleport you home): GREAT JOB card
@@ -53,6 +56,9 @@ local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChil
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local HudGate = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudGate") :: ModuleScript)
+local Funnel = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("Funnel") :: ModuleScript)
+local GuiService = game:GetService("GuiService")
 
 local OnboardingController = {}
 OnboardingController.Priority = 120
@@ -74,7 +80,19 @@ local RED = Palette.UiRed
 type Guide = { kind: string, part: BasePart?, model: Instance?, head: string, sub: string, chip: string, subTouch: string?, subPad: string? }
 
 -- cards that belong to the tutorial (SKIP TUTORIAL shows under them)
-local SKIPPABLE = { firstfire = true, firstfiredone = true, gear = true, board = true, pad = true, wait = true }
+local SKIPPABLE = { firstfire = true, firstpanda = true, firstcarry = true, firstfiredone = true, gear = true, board = true, pad = true, wait = true }
+
+local controllers: { [string]: any } = {}
+
+-- the cold open is on screen (Controllers/ColdOpenController): nothing of ours over it
+local function coldOpenPlaying(): boolean
+	local co = controllers.ColdOpenController
+	if co and type(co.IsPlaying) == "function" then
+		local ok, on = pcall(co.IsPlaying, co)
+		return ok and on == true
+	end
+	return false
+end
 
 local state = {
 	flow = Flow.new(),
@@ -876,6 +894,34 @@ local function firstFireGuide(): Guide?
 			subPad = FireCfg.FireCard.subPad,
 			chip = "FIRE!",
 		}
+	elseif card == "panda" then
+		local m = trainingFire()
+		local id = player:GetAttribute(FireCfg.PandaAttr)
+		local r = workspace:FindFirstChild("Rescuables")
+		local panda = r and type(id) == "string" and r:FindFirstChild(id)
+		local carrying = type(id) == "string" and id ~= "" and player:GetAttribute(Attr.Carrying) == id
+		if carrying then
+			local safe = m and m:FindFirstChild("SafeSpot")
+			return {
+				kind = "firstcarry",
+				part = if safe and safe:IsA("BasePart") then safe else nil,
+				model = nil,
+				head = FireCfg.CarryCard.head,
+				sub = FireCfg.CarryCard.sub,
+				chip = "GO!",
+			}
+		end
+		local pp = panda and (panda :: Instance):IsA("Model") and ((panda :: Model).PrimaryPart or panda:FindFirstChildWhichIsA("BasePart", true))
+		return {
+			kind = "firstpanda",
+			part = if pp and pp:IsA("BasePart") then pp else nil,
+			model = panda or nil,
+			head = FireCfg.PandaCard.head,
+			sub = FireCfg.PandaCard.sub,
+			subTouch = FireCfg.PandaCard.subTouch,
+			subPad = FireCfg.PandaCard.subPad,
+			chip = "PANDA!",
+		}
 	elseif card == "call" then
 		local secs = if state.callEndsAt > 0 then math.max(0, math.ceil(state.callEndsAt - os.clock())) else 0
 		local title = if state.callTitle ~= "" then string.upper(state.callTitle) else "A REAL FIRE"
@@ -928,6 +974,11 @@ end
 
 -- Turn the camera to the training fire once, as soon as FirstFireService has put you at the door.
 local function faceFirstFire()
+	-- the cold open owns the camera first; turn to the fire once it hands back
+	local w0 = os.clock()
+	while coldOpenPlaying() and os.clock() - w0 < 20 do
+		task.wait(0.1)
+	end
 	setShoulder(true)
 	local t0 = os.clock()
 	while os.clock() - t0 < 6 do
@@ -1331,7 +1382,10 @@ local function onLobbyReady()
 		task.wait(0.1)
 	end
 	local returning = player:GetAttribute(Cfg.DoneAttr) == true
-	showTitle(returning)
+	local coldOpen = not returning and ((FireCfg.ColdOpen or {}).Enabled ~= false) and FireCfg.Enabled ~= false
+	if not coldOpen then
+		showTitle(returning) -- a newbie's title is the cold open's SAVE THE PANDA!
+	end
 	if not returning then
 		task.delay((Cfg.TitleSeconds or 3) + 0.4, function()
 			if not inMission() and not state.flow.done then
@@ -1341,7 +1395,9 @@ local function onLobbyReady()
 	end
 end
 
-function OnboardingController:Init(_all: { [string]: any }) end
+function OnboardingController:Init(all: { [string]: any })
+	controllers = all
+end
 
 function OnboardingController:Start()
 	if Cfg.Enabled == false then
@@ -1480,7 +1536,22 @@ function OnboardingController:Start()
 		end
 		local r = remote("Ready")
 		if r then
-			r:FireServer()
+			local cam = workspace.CurrentCamera
+			local vp = if cam then cam.ViewportSize else Vector2.new(1280, 720)
+			local tenFoot = false
+			pcall(function()
+				tenFoot = GuiService:IsTenFootInterface()
+			end)
+			-- Phone / Tablet / PC / Console for the funnel's device split (Lib/Onboarding/Funnel.device)
+			r:FireServer(Funnel.device({
+				touch = UserInputService.TouchEnabled,
+				keyboard = UserInputService.KeyboardEnabled,
+				mouse = UserInputService.MouseEnabled,
+				gamepad = UserInputService.GamepadEnabled,
+				tenFoot = tenFoot,
+				viewportX = vp.X,
+				viewportY = vp.Y,
+			}))
 		end
 	end)
 
@@ -1498,11 +1569,12 @@ function OnboardingController:Start()
 		t += dt
 		updateBoardLook(dt)
 		-- nothing over the title card, the Help panel or the mission picker
-		local busy = (ui.title and ui.title.gui.Enabled) or state.helpOpen or pickerOpen()
+		local busy = (ui.title and ui.title.gui.Enabled) or state.helpOpen or pickerOpen() or coldOpenPlaying()
 		local g = if busy then nil else currentGuide()
 		showCard(g)
 		placeArrow(g, t)
-		ui.helpChip.Visible = not inMission() and not state.helpOpen
+		-- HELP waits for the panda (Onboarding v3 HUD reveal, ClientLib/HudGate)
+		ui.helpChip.Visible = not inMission() and not state.helpOpen and HudGate.allows("help")
 	end)
 end
 

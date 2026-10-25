@@ -91,6 +91,11 @@ local function happy(player: Player, s: State, why: string)
 	if not AskRules.canAsk(s) or player:GetAttribute(ATTR_READY) == true then
 		return
 	end
+	-- Onboarding v3: never before a newbie's first call is complete (the panda's level up doesn't count;
+	-- FirstFireService sets FirstCallDone, true for returning players)
+	if player:GetAttribute("FirstCallDone") ~= true and why ~= "test" then
+		return
+	end
 	player:SetAttribute(ATTR_READY, true)
 	count("like_ask_ready")
 	print(`[SocialAsk] {player.Name} ready ({why})`)
