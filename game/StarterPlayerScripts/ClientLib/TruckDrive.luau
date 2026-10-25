@@ -19,6 +19,15 @@
 --   TruckDrive.cornerDist(rayDist, lift): number         -- lifted suspension ray -> distance from the centre plane
 --   TruckDrive.sinkDepth(cornerDist, halfHeight): number -- > 0 = chassis bottom under the surface (sunk)
 --   TruckDrive.capVelocity(x, y, z, maxFall, maxSpeed): (x, y, z) -- fall + fling speed caps (anti-tunnel)
+-- Arcade handling (v3, "grips like a Jailbreak car"):
+--   TruckDrive.arcadeDrive(throttle, fwdSpeed, maxSpeed, accel, brake, coast): number -- forward accel;
+--       |throttle| sets the target speed (half stick = half speed), letting go brakes to a stop
+--   TruckDrive.arcadeYaw(steer, fwdSpeed, maxSpeed, rLow, rHigh, maxYaw): number -- yaw rate (rad/s):
+--       tight turning circle when slow, wide when fast, 0 when standing, flips in reverse
+--   TruckDrive.approach(cur, want, dt, rise, fall): number -- rate-limited input smoothing
+--   TruckDrive.touchStick(x, y, fwdSpeed, deadzone, expo, cruise): (steer, throttle) -- kid-proof touch stick
+--   TruckDrive.alignAngle(fx, fz, rx, rz): number -- signed angle (rad, + = road is to the right) from
+--       the truck's heading to a road direction (either way along the road, whichever is closer)
 local TruckDrive = {}
 
 -- Spring-damper on one suspension ray. hitDist = nil means the wheel is in the air.
@@ -171,6 +180,92 @@ function TruckDrive.capVelocity(x: number, y: number, z: number, maxFall: number
 		return x * k, y * k, z * k
 	end
 	return x, y, z
+end
+
+-- Arcade throttle. |throttle| picks the target speed (a half-pushed touch stick cruises at half speed);
+-- pushing against the motion brakes; no throttle = strong coast-down braking to a stop. The caller
+-- clamps the result so one frame never pushes the speed past zero.
+function TruckDrive.arcadeDrive(
+	throttle: number,
+	fwdSpeed: number,
+	maxSpeed: number,
+	accel: number,
+	brake: number,
+	coast: number
+): number
+	if math.abs(throttle) < 0.02 then
+		if math.abs(fwdSpeed) < 0.05 then
+			return 0
+		end
+		return -math.sign(fwdSpeed) * coast
+	end
+	if fwdSpeed * throttle < -0.5 then
+		return throttle * brake
+	end
+	local cap = (if throttle > 0 then maxSpeed else maxSpeed * 0.5) * math.min(1, math.abs(throttle))
+	local speed = math.abs(fwdSpeed)
+	local dir = if throttle > 0 then 1 else -1
+	if speed > cap then
+		-- eased off the stick: slow down gently to the new target speed
+		return -dir * math.min(coast, (speed - cap) * 2)
+	end
+	-- full pull until the last ~8 studs/s, then ease into the target (no lurch at top speed)
+	return dir * accel * math.clamp((cap - speed) / 8, 0, 1)
+end
+
+-- Arcade steering: yaw rate = speed / turning radius. The radius grows with speed (rLow standing,
+-- rHigh at maxSpeed), so the truck turns tight in a car park and gently on the avenue; standing
+-- still it can't spin; capped at maxYaw; reversing flips it like a real car.
+function TruckDrive.arcadeYaw(steer: number, fwdSpeed: number, maxSpeed: number, rLow: number, rHigh: number, maxYaw: number): number
+	local speed = math.abs(fwdSpeed)
+	local k = math.clamp(speed / math.max(maxSpeed, 1), 0, 1)
+	local radius = rLow + (rHigh - rLow) * k * k
+	local rate = math.min(speed / math.max(radius, 1), maxYaw)
+	local dir = if fwdSpeed < -0.5 then -1 else 1
+	return -steer * rate * dir
+end
+
+-- Move cur toward want by at most rise/s (growing in magnitude) or fall/s (shrinking / reversing).
+function TruckDrive.approach(cur: number, want: number, dt: number, rise: number, fall: number): number
+	local growing = math.abs(want) > math.abs(cur) and want * cur >= 0
+	local rate = if growing then rise else fall
+	local d = want - cur
+	local maxStep = rate * dt
+	if math.abs(d) <= maxStep then
+		return want
+	end
+	return cur + math.sign(d) * maxStep
+end
+
+-- Touch stick -> (steer, throttle). Dead zone on both, expo curve on the steering so a wobbly thumb
+-- doesn't jerk the wheel; pushing the stick SIDEWAYS (not pulled back) still drives forward at
+-- `cruise` x the sideways push (a sensible cornering speed), so a kid who only steers neither rolls
+-- to a stop mid-corner nor takes it flat out; pulling back brakes / reverses.
+function TruckDrive.touchStick(x: number, y: number, fwdSpeed: number, deadzone: number, expo: number, cruise: number): (number, number)
+	local function shape(v: number, e: number): number
+		local a = math.abs(v)
+		if a <= deadzone then
+			return 0
+		end
+		local u = math.clamp((a - deadzone) / (1 - deadzone), 0, 1)
+		return math.sign(v) * u ^ e
+	end
+	local steer = shape(x, expo) -- expo: fine steering near the centre
+	local throttle = shape(y, 1) -- linear: half a push = half speed
+	if throttle > -0.3 and fwdSpeed > -2 then
+		throttle = math.max(throttle, cruise * math.abs(steer))
+	end
+	return steer, throttle
+end
+
+function TruckDrive.alignAngle(fx: number, fz: number, rx: number, rz: number): number
+	if fx * rx + fz * rz < 0 then
+		rx, rz = -rx, -rz
+	end
+	-- right of the heading (fx, fz) is (-fz, fx)
+	local side = rx * -fz + rz * fx
+	local ahead = rx * fx + rz * fz
+	return math.atan2(side, ahead)
 end
 
 return TruckDrive
