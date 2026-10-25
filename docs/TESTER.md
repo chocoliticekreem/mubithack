@@ -279,7 +279,7 @@ screenshot at every step.
    and `playtest_correct` work on it.
 
 ```bash
-.venv/bin/forge qa [focus] --root games/tiny-tycoon/game --studio Forge-agents-22 --steps 10
+.venv/bin/forge qa [focus] --root games/sunbeam-park-obby/game --studio Forge-agents-22 --steps 10
 .venv/bin/forge play-correct <run_id> <step> "note"   # step 0 = plan, n = step n's judge, -1 = visual review
 ```
 Images go through Mubit's Anthropic-compatible endpoint as image blocks (OpenAI shape for

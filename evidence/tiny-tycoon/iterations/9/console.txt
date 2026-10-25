@@ -1,5 +1,0 @@
-DataService: using in-memory store
-[Forge] no method found for: init/start/setup
-[ForgeTest] ready: ServerStorage.ForgeTest, ReplicatedStorage.ForgeTestRemote
-[Forge] no method found for: onPlotClaimed
-[Forge] no method found for: onPlotClaimed/onClaimed
