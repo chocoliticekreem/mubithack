@@ -991,7 +991,11 @@ local function onStock(player: Player, part: BasePart, prompt: ProximityPrompt, 
 		return
 	end
 	local id = ItemDefs.rackItem(part:GetAttribute("Item") :: string?, part:GetAttribute(Names.Attr.Slot) :: number?)
-	if not id or not Net.near(player, part.Position, Cfg.GrabDistance + 6) then
+	if not id then
+		return
+	end
+	if not Net.near(player, part.Position, Cfg.GrabDistance + 6) then
+		say(player, stateOf(player), "Too far! Get closer", "hint")
 		return
 	end
 	local ok = giveHeld(player, { id = id, data = fresh(id) })
@@ -1141,7 +1145,11 @@ local function onReel(player: Player, reel: BasePart)
 	local ps = stateOf(player)
 	syncHeld(player, ps)
 	local _, _, hum = charOf(player)
-	if (hum and hum.SeatPart) or not nearSource(player, reel) then
+	if hum and hum.SeatPart then
+		return
+	end
+	if not nearSource(player, reel) then
+		say(player, ps, "Too far! Get closer to the hose", "hint")
 		return
 	end
 	local hydrant = isHydrantSource(reel)

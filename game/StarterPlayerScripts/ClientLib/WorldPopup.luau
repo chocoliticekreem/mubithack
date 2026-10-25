@@ -12,7 +12,7 @@
 -- API (every client pop goes through this; servers use Shared/Popup.show):
 --   WorldPopup.show(subject: Instance | Vector3, text: string, opts: Opts?): boolean
 --     subject = Player, character / NPC / prop Model, BasePart, Attachment or a world position.
---     opts = { kind = "info"|"good"|"bad"|"blame"?, color: Color3?, big: boolean?, mine: boolean?,
+--     opts = { kind = "info"|"good"|"bad"|"blame"|"hint"? (hint: why your own action failed, never muted), color: Color3?, big: boolean?, mine: boolean?,
 --              seconds: number?, height: number? (studs above the subject's top, overrides HeadOffset),
 --              flavour: boolean? (pure juice: skipped when ClientLib/Calm is on) }
 --   Calm (phones / EFFECTS: CALM): at most CalmCap on screen, CalmTextSize px, others' pops only within
@@ -54,6 +54,7 @@ local KIND_COLORS: { [string]: Color3 } = {
 	good = Color3.fromRGB(165, 236, 150),
 	bad = Color3.fromRGB(255, 154, 134),
 	blame = Color3.fromRGB(255, 214, 112),
+	hint = Color3.fromRGB(246, 239, 224), -- "Too far!", "Need the axe!": your own failed action
 }
 
 local state: PopupLogic.State? = nil
@@ -206,7 +207,9 @@ function WorldPopup.show(subject: any, text: string, opts: Opts?): boolean
 	if calm and subjectAt[key] and now - subjectAt[key] < 0.6 then
 		return false
 	end
-	local d = PopupLogic.admit(logic(), os.clock(), key, text, WorldPopup.getMode(), isMe or o.mine == true)
+	-- kind "hint" (why YOUR action did nothing) shows even with POP-UPS: OFF: silence there is a bug
+	local mode = if o.kind == "hint" and about then "Normal" else WorldPopup.getMode()
+	local d = PopupLogic.admit(logic(), os.clock(), key, text, mode, about)
 	if not d.show then
 		return false
 	end

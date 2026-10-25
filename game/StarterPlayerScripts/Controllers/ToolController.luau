@@ -73,6 +73,7 @@ local fovKick = 0
 local fovWritten: number? = nil
 local fovApplied = 0
 local sprayStartedAt = 0
+local emptySaidAt = 0 -- last "Empty!" hint (spraying an empty extinguisher)
 local overlay: ScreenGui? = nil
 
 local FOAM_COLOR = Color3.fromRGB(245, 248, 250)
@@ -1010,6 +1011,10 @@ function ToolController:Start()
 				local p = pressureOf(LocalPlayer, kind)
 				local ramp = math.clamp((os.clock() - sprayStartedAt) / 0.4, 0.4, 1)
 				shake(ToolMath.shake(p, ToolConfig.SprayShakeBase, ToolConfig.SprayShakeExtra) * 0.45 * ramp, 0.18)
+			elseif os.clock() - emptySaidAt > 2.5 then
+				-- spraying an empty tank used to do nothing at all: say why, and what to do
+				emptySaidAt = os.clock()
+				WorldPopup.show(LocalPlayer.Character, "Empty! Grab the hose at the truck", { kind = "hint", mine = true })
 			end
 		end
 	end

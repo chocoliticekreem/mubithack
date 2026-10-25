@@ -865,7 +865,7 @@ local function onDoorPrompt(player: Player, door: BasePart)
 			hitDoor(player, door)
 		end
 	else
-		Popup.show(door, "Locked! Use the axe", "info", player)
+		Popup.show(door, "Locked! Use the axe or kick it", "hint", player)
 	end
 end
 

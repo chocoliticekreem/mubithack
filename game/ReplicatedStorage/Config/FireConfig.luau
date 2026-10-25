@@ -16,7 +16,7 @@ return Config.define({
 	DefaultFuel = 150, -- seconds a part burns before it is Charred
 	CharredColor = Color3.fromRGB(35, 30, 28),
 	CharredMaterial = Enum.Material.Slate,
-	HoseRange = 30,
+	HoseRange = 42, -- = where the visible stream lands (ToolConfig StreamSpeed x StreamMaxTime, ~45): if the water reaches it, it counts
 	HoseConeCos = 0.86, -- ~30 degree cone, measured to the NEAREST point of the burning part
 	HoseNearRadius = 9, -- studs: anything burning this close and roughly in front gets hit (point-blank spraying)
 	HoseNearFrontDot = -0.1, -- "roughly in front": flat direction dot >= this

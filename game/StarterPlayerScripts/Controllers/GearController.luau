@@ -339,7 +339,7 @@ end
 local PANEL_W, PANEL_H = 1180, 640
 local LEFT_W = 250
 local CARD = 160
-local GREEN = Color3.fromHex("#2E9E44")
+local GREEN = Color3.fromHex("#2E9E44") -- a darker UiGood: readable as text on the cream locker panel
 
 local lockerConns: { RBXScriptConnection } = {}
 local lockerToast: TextLabel? = nil
@@ -513,7 +513,7 @@ local function openLocker()
 	t.ZIndex = 30
 	lockerToast = t
 
-	local close = UiKit.button(panel, "Close", "CLOSE", UDim2.fromOffset(210, 72), UDim2.new(1, -130, 0, 50), Palette.UiRed)
+	local close = UiKit.button(panel, "Close", "CLOSE", UDim2.fromOffset(210, 72), UDim2.new(1, -130, 0, 50), Palette.UiPanelDark) -- red = danger only
 	close.TextSize = 38
 	close.Modal = true -- frees the mouse even in first person
 	UiKit.onTap(close, closeLocker)
@@ -858,6 +858,9 @@ function GearController:Start()
 		if ok and unlocked then
 			unlocked.OnClientEvent:Connect(function(lvl: any, ids: any)
 				if type(lvl) == "number" and type(ids) == "table" then
+					if #ids == 0 then
+						return -- no new gear: ProfileController's LEVEL N! card already says it (one card per level-up)
+					end
 					-- centre cards take turns and wait for the results screen to close (ClientLib/HudLayout)
 					local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 					HudLayout.celebrate(function()
