@@ -1247,7 +1247,7 @@ local function hookReel(inst: Instance)
 	local prompt = reel:FindFirstChildOfClass("ProximityPrompt")
 	if not prompt then
 		prompt = Instance.new("ProximityPrompt")
-		prompt.HoldDuration = 0.2
+		prompt.HoldDuration = 0
 		prompt.MaxActivationDistance = 10
 		prompt.RequiresLineOfSight = false
 		prompt.ObjectText = "Hose reel"
@@ -1310,7 +1310,7 @@ local function hookHydrant(inst: Instance)
 	p.KeyboardKeyCode = Cfg.TruckHoseKey or Enum.KeyCode.T
 	p.GamepadKeyCode = Enum.KeyCode.ButtonY
 	p.HoldDuration = 0
-	p.MaxActivationDistance = Cfg.HydrantHoseReach or 8
+	p.MaxActivationDistance = Cfg.HydrantHoseReach or 10
 	p.RequiresLineOfSight = false
 	p.Style = Enum.ProximityPromptStyle.Custom
 	p:SetAttribute(ATTR_PROMPT, true)

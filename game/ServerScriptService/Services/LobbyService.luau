@@ -967,7 +967,7 @@ local function setupPole(station: Model)
 	prompt.ActionText = "Slide the pole"
 	prompt.ObjectText = "Fire pole"
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 8
+	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = mat
 	local p0 = pole :: BasePart

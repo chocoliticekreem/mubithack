@@ -6,8 +6,8 @@ local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild(
 
 return Config.define({
 	-- prompts
-	GrabDistance = 9, -- ProximityPrompt MaxActivationDistance on items, racks and compartments
-	PropGrabDistance = 8,
+	GrabDistance = 10, -- PromptConfig.Reach -- ProximityPrompt MaxActivationDistance on items, racks and compartments
+	PropGrabDistance = 10, -- PromptConfig.Reach
 	RestockSeconds = 0.3, -- station racks: unlimited, the slot refills right after someone grabs from it
 	TruckRestockSeconds = 30, -- truck compartments: an item grows back on the truck after this long
 
@@ -42,7 +42,7 @@ return Config.define({
 	HosesPerTruck = 2, -- nozzles one truck reel can have out at once (held or lying), anyone's truck
 	TruckHoseReach = 7, -- [T] Grab / Stow Hose works this far out from any side of the truck
 	TruckHoseKey = Enum.KeyCode.T, -- its own key, so it never hides the [E] locker and door prompts
-	HydrantHoseReach = 8, -- [T] Grab / Stow Hose at a street hydrant (same hose, endless water)
+	HydrantHoseReach = 10, -- [T] Grab / Stow Hose at a street hydrant (same hose, endless water)
 
 	-- thrown axes (and the other long tools) tomahawk end over end
 	ThrowSpinItems = { "Axe", "FireAxe", "GoldenAxe", "Halligan", "Sledgehammer", "Crowbar" },

@@ -585,8 +585,8 @@ local function pullStation(parent: Instance, x: number, z: number, face: number,
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Pull alarm"
 	prompt.ObjectText = "Fire alarm"
-	prompt.HoldDuration = 0.3
-	prompt.MaxActivationDistance = 8
+	prompt.HoldDuration = 0 -- PromptConfig: using is instant
+	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = st
 	-- alarm bell above

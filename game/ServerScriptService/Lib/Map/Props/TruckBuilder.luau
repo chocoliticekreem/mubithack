@@ -527,7 +527,7 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Grab Hose"
 	prompt.ObjectText = "Fire Truck 67"
-	prompt.HoldDuration = 0.5
+	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = reel

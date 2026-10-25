@@ -480,8 +480,9 @@ local function styleFor(prompt: ProximityPrompt)
 			prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 		end
 	elseif origStyle[prompt] then
+		-- back on keyboard / gamepad: Exclusivity only. Style stays Custom, because PromptController draws
+		-- the same sticker for every prompt on every input (Roblox's grey card never comes back)
 		local o = origStyle[prompt]
-		prompt.Style = o.style
 		prompt.Exclusivity = o.excl
 		origStyle[prompt] = nil
 	end

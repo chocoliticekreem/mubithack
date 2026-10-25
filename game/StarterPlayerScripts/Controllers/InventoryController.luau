@@ -8,12 +8,11 @@
 --       1 / 2 swap hand <-> back (Inventory/Swap). Gamepad: B drop, L1 throw, DPadUp swap.
 --     (lobby emotes live on Z / X / C in SquadController, so 1 / 2 are inventory-only)
 --   * the hotbar hides while you're seated (the truck key-hint bar takes the bottom centre)
---   * draws every prompt with attr InvPrompt (Style Custom) as a chunky "[E] Grab Axe" sticker plus a
---     yellow Highlight on the item; relabels the truck reel prompt locally (Grab / Stow Hose)
+--   * relabels the truck reel prompt locally (Grab / Stow Hose); every prompt's "[E] Grab Axe" sticker
+--     and yellow outline are PromptController's
 --   * Inventory/Fx world pops: GRAB!, BONK!, Butterfingers!, YEET!
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
@@ -45,7 +44,6 @@ local chargeFill: Frame? = nil
 local chargeStart: number? = nil
 local boundItem = false
 local boundSwap = false
-local shown: { [ProximityPrompt]: { gui: BillboardGui, hl: Highlight? } } = {}
 
 local function attr(name: string): string
 	local v = LocalPlayer:GetAttribute(name)
@@ -418,131 +416,13 @@ function rebind()
 	end
 end
 
--- prompts --------------------------------------------------------------------------------------------
-local function promptTarget(prompt: ProximityPrompt): Instance?
-	local parent = prompt.Parent
-	if not parent then
-		return nil
-	end
-	local display = parent:FindFirstChild("InvDisplay")
-	if display then
-		return display
-	end
-	local model = parent.Parent
-	if model and model:IsA("Model") and model:HasTag("InventoryItem") then
-		return model
-	end
-	if model and model:IsA("Model") and model.PrimaryPart == parent then
-		return model
-	end
-	return parent
-end
-
-local function keyText(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInputType): string
-	if inputType == Enum.ProximityPromptInputType.Gamepad then
-		return string.gsub(prompt.GamepadKeyCode.Name, "Button", "")
-	elseif inputType == Enum.ProximityPromptInputType.Touch then
-		return "TAP"
-	end
-	return prompt.KeyboardKeyCode.Name
-end
-
-local function showPrompt(prompt: ProximityPrompt, inputType: Enum.ProximityPromptInputType)
-	if not prompt:GetAttribute("InvPrompt") or shown[prompt] then
-		return
-	end
-	if InputHints.isTouch() then
-		return -- touch: TapUseController's one small bubble + tap-the-item instead of this sticker
-	end
-	local adornee = prompt.Parent
-	if not adornee or not adornee:IsA("BasePart") then
-		return
-	end
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "InvPromptGui"
-	gui.Adornee = adornee
-	gui.AlwaysOnTop = true
-	-- compact: a key cap + two words, not a banner over the item
-	gui.Size = UDim2.fromOffset(196, 42)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 2.4, 0)
-	gui.MaxDistance = 40
-	gui.ResetOnSpawn = false
-	local panel = UiKit.panel(gui, "Panel", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
-	panel.BackgroundColor3 = Palette.UiCream
-	local key = UiKit.label(panel, "Key", keyText(prompt, inputType), UDim2.fromOffset(32, 30), UDim2.fromOffset(6, 6), {
-		font = UiKit.Header,
-		textSize = 18,
-		color = Palette.UiCream,
-	})
-	key.BackgroundTransparency = 0
-	key.BackgroundColor3 = Palette.UiInk
-	UiKit.corner(key, 8)
-	local action = UiKit.label(panel, "Action", prompt.ActionText, UDim2.new(1, -50, 1, 0), UDim2.fromOffset(44, 0), {
-		font = UiKit.Header,
-		textSize = 17,
-		align = Enum.TextXAlignment.Left,
-	})
-	-- long ones shrink to fit instead of running off the sticker
-	action.TextScaled = true
-	local cap = Instance.new("UITextSizeConstraint")
-	cap.MaxTextSize = 17
-	cap.MinTextSize = 11
-	cap.Parent = action
-	if inputType == Enum.ProximityPromptInputType.Touch then
-		local tap = Instance.new("TextButton")
-		tap.Name = "Tap"
-		tap.BackgroundTransparency = 1
-		tap.Text = ""
-		tap.Size = UDim2.fromScale(1, 1)
-		tap.ZIndex = 5
-		tap.Parent = panel
-		gui.Active = true
-		tap.Activated:Connect(function()
-			prompt:InputHoldBegin()
-			task.defer(function()
-				prompt:InputHoldEnd()
-			end)
-		end)
-	end
-	gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-	UiKit.pop(panel, 0.2)
-	local hl: Highlight? = nil
-	local target = promptTarget(prompt)
-	if target and (target:IsA("Model") or target:IsA("BasePart")) then
-		local h = Instance.new("Highlight")
-		h.Name = "InvHighlight"
-		h.Adornee = target
-		h.FillColor = Cfg.HighlightColor
-		h.FillTransparency = 0.7
-		h.OutlineColor = Cfg.HighlightColor
-		h.OutlineTransparency = 0
-		h.DepthMode = Enum.HighlightDepthMode.Occluded
-		h.Parent = gui
-		hl = h
-	end
-	shown[prompt] = { gui = gui, hl = hl }
-end
-
-local function hidePrompt(prompt: ProximityPrompt)
-	local s = shown[prompt]
-	if s then
-		shown[prompt] = nil
-		s.gui:Destroy()
-	end
-end
-
 -- Truck reels keep their builder's default prompt; only the text changes, locally, with what you hold.
 local function relabelReels()
 	local hand = attr("InvHand")
 	local text = if hand == "Hose" then "Stow Hose" else "Grab Hose" -- holding the extinguisher: swaps it for the hose
 	local function set(p: Instance?)
 		if p and p:IsA("ProximityPrompt") and p:GetAttribute("InvReel") then
-			p.ActionText = text
-			local s = shown[p] -- already on screen: the sticker flips at once (Grab -> Stow Hose)
-			local label = s and s.gui:FindFirstChild("Action", true)
-			if label and label:IsA("TextLabel") then
-				label.Text = text
-			end
+			p.ActionText = text -- an open sticker follows (PromptController)
 		end
 	end
 	for _, reel in CollectionService:GetTagged(Names.Tag.TruckRefill) do
@@ -643,24 +523,6 @@ function InventoryController:Start()
 	relabelReels()
 	CollectionService:GetInstanceAddedSignal(Names.Tag.TruckRefill):Connect(function()
 		task.delay(2.5, relabelReels) -- after InventoryService adds the chassis [T] prompt
-	end)
-
-	ProximityPromptService.PromptShown:Connect(showPrompt)
-	ProximityPromptService.PromptHidden:Connect(hidePrompt)
-	-- switching to touch mid-game (an iPad's keyboard comes off): the stickers go, TapUseController's bubble takes over
-	InputHints.onChanged(function()
-		if InputHints.isTouch() then
-			for prompt in shown do
-				hidePrompt(prompt)
-			end
-		end
-	end)
-	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
-		local s = shown[prompt]
-		local panel = s and s.gui:FindFirstChild("Panel")
-		if panel and panel:IsA("Frame") then
-			UiKit.punch(panel, 0.3)
-		end
 	end)
 
 	RunService.RenderStepped:Connect(function()

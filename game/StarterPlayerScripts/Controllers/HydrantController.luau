@@ -5,7 +5,7 @@
 --   * Relabels each nearby hydrant prompt: "Stow Hose" when the hose in your hand comes off THAT hydrant
 --     (HoseLine's "HoseLineSource_<UserId>" attachment sits on its Body), else "Grab Hose" (the server
 --     swaps an extinguisher or another source's hose for this one). InventoryController's open sticker
---     flips with it; TapUseController's bubble reads ActionText (HOSE / STOW).
+--     flips with it (PromptController); TapUseController's bubble reads ActionText (HOSE / STOW).
 --   * Hides hydrant prompts while you sit in a seat (no [T] stickers flashing by as you drive the city).
 --   * A small "HOSE" beacon over the nearest hydrant when a fire burns near it and you are not already
 --     holding a hose, so kids notice they can hose from there. It goes away once you are in the
@@ -50,23 +50,10 @@ local function textFor(body: BasePart): string
 	return "Grab Hose"
 end
 
--- the open "[T] Grab Hose" sticker (InventoryController's InvPromptGui) flips with the prompt
-local function setText(prompt: ProximityPrompt, body: BasePart, text: string)
-	if prompt.ActionText == text then
-		return
-	end
-	prompt.ActionText = text
-	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not pg then
-		return
-	end
-	for _, g in pg:GetChildren() do
-		if g.Name == "InvPromptGui" and g:IsA("BillboardGui") and g.Adornee == body then
-			local label = g:FindFirstChild("Action", true)
-			if label and label:IsA("TextLabel") then
-				label.Text = text
-			end
-		end
+-- the open "[T] Grab Hose" sticker (PromptController) follows ActionText by itself
+local function setText(prompt: ProximityPrompt, _body: BasePart, text: string)
+	if prompt.ActionText ~= text then
+		prompt.ActionText = text
 	end
 end
 

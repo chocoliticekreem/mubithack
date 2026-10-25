@@ -104,7 +104,7 @@ local function makePrompt(ctx: any, parent: BasePart, action: string, object: st
 	p.ActionText = action
 	p.ObjectText = object
 	p.HoldDuration = hold
-	p.MaxActivationDistance = dist or 9
+	p.MaxActivationDistance = math.max(dist or 10, 10) -- PromptConfig.Reach: never shorter than any other prompt
 	p.RequiresLineOfSight = false
 	p.Parent = parent
 	ctx.prompt(p)
