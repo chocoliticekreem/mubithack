@@ -44,7 +44,8 @@
 --   (true = handled; otherwise this service ragdolls players itself). Loose props are launched here only
 --   when PhysicsFxService is absent (it ploughs its own registered props in front of moving trucks).
 -- Telemetry: trucks_built, truck_drives, truck_distance, truck_honks, truck_run_over, truck_prop_hits, truck_respawns,
---   truck_door_bonks, truck_doors_lost, truck_door_rehinged, truck_rescued (fished out from under the map)
+--   truck_door_bonks, truck_doors_lost, truck_door_rehinged, truck_rescued (lifted back onto the road:
+--   + truck_rescued_<below|noground|sunk|stuck|settle|recall> says why; pops "Truck reset!")
 --   truck_claims (someone drove another player's truck), truck_spare_given, truck_spawn_retries
 -- Test hooks (DevHook only): _selftest(), _seat(player, truck?), _owners()
 local CollectionService = game:GetService("CollectionService")
@@ -279,11 +280,80 @@ local function place(t: Truck, cf: CFrame)
 	end
 end
 
--- Snap a truck upright onto the ground under it (keep yaw).
+-- groundParams, but non-colliding parts (glass, trigger volumes, lines) never count as ground
+local function solidParams(): RaycastParams
+	local p = groundParams()
+	p.RespectCanCollide = true
+	return p
+end
+
+-- Sunk: the top of an anchored, solid surface straight over the chassis centre stands above the chassis
+-- bottom (the truck slid into or under the road). A ray cast down from ABOVE the chassis finds that top
+-- even when the chassis centre is already inside / under it (a ray never hits a part it starts inside).
+local function sunk(c: BasePart): boolean
+	local pos = c.Position
+	local hit = workspace:Raycast(pos + Vector3.new(0, 6, 0), Vector3.new(0, -6.6, 0), solidParams())
+	if not hit or not hit.Instance.Anchored or hit.Normal.Y < 0.7 then
+		return false
+	end
+	local depth = tonumber((VehicleConfig :: any).RescueSinkDepth) or 0.35
+	return hit.Position.Y > pos.Y - c.Size.Y / 2 + depth
+end
+
+-- The drivable surface under a chassis at `pos` (from just above it, so a sunk chassis still finds the
+-- surface it went into); nil when there is none close below (under the map, or in mid-air).
+local function surfaceUnder(pos: Vector3): RaycastResult?
+	local hit = workspace:Raycast(pos + Vector3.new(0, 6, 0), Vector3.new(0, -24, 0), solidParams())
+	if hit and hit.Normal.Y > 0.6 and hit.Instance.Anchored then
+		return hit
+	end
+	return nil
+end
+
+local function facing(p: Vector3, fwd: Vector3): CFrame
+	local flat = Vector3.new(fwd.X, 0, fwd.Z)
+	if flat.Magnitude < 0.1 then
+		flat = Vector3.new(0, 0, -1)
+	end
+	return CFrame.lookAt(p, p + flat.Unit)
+end
+
+local nearestRoadCF: (pos: Vector3) -> CFrame? -- forward (road graph, below)
+local blocker: (cf: CFrame, except: Truck?) -> Truck? -- forward (parking, below)
+local homeCF: (t: Truck) -> CFrame -- forward (parking, below)
+
+-- A safe ground cframe to lift a truck at `pos` back onto: the nearest road node (within RescueRoadRange),
+-- nudged sideways off any truck already standing there; else its own parking spot.
+local function rescueCF(t: Truck, pos: Vector3): CFrame
+	local range = tonumber((VehicleConfig :: any).RescueRoadRange) or 160
+	local road = nearestRoadCF(pos)
+	if road and Vector3.new(road.X - pos.X, 0, road.Z - pos.Z).Magnitude <= range then
+		for _, dx in { 0, 14, -14, 28, -28 } do
+			local cf = road * CFrame.new(dx, 0, 0)
+			local hit = surfaceUnder(cf.Position + Vector3.new(0, 2, 0))
+			if hit and not blocker(cf, t) then
+				return facing(hit.Position, road.LookVector)
+			end
+		end
+	end
+	return homeCF(t)
+end
+
+-- Snap a truck upright onto the ground under it (keep yaw). A truck that is under / inside the ground
+-- (or over nothing) is never parked there: it goes onto the road nearby instead (#fix: trucks that
+-- dropped under the map were anchored down there when the driver hopped out, and stayed stuck).
 local function settle(t: Truck)
 	local c = t.chassis
-	if c.Parent then
-		place(t, groundCF(c.Position, c.CFrame.LookVector))
+	if not c.Parent then
+		return
+	end
+	local hit = surfaceUnder(c.Position)
+	if hit and not sunk(c) and c.Position.Y > VehicleConfig.RescueBelowY then
+		place(t, facing(hit.Position, c.CFrame.LookVector))
+	else
+		count("truck_rescued")
+		count("truck_rescued_settle")
+		place(t, rescueCF(t, c.Position))
 	end
 end
 
@@ -370,12 +440,12 @@ local function spotCF(k: number): CFrame
 	return groundCF(spot.Position, a.LookVector)
 end
 
-local function homeCF(t: Truck): CFrame
+function homeCF(t: Truck): CFrame
 	return spotCF(math.max(t.spot, 1))
 end
 
 -- another truck physically standing on ground cframe `cf` (trucks never spawn / park inside each other)
-local function blocker(cf: CFrame, except: Truck?): Truck?
+function blocker(cf: CFrame, except: Truck?): Truck?
 	for _, o in byModel do
 		if o ~= except and o.chassis.Parent then
 			local d = o.chassis.Position - cf.Position
@@ -1475,7 +1545,7 @@ local function roadNodes(): ({ Vector3 }, { Vector3 })
 end
 
 -- Ground cframe on the road node nearest `pos` (XZ), facing along the road; nil without a road graph.
-local function nearestRoadCF(pos: Vector3): CFrame?
+function nearestRoadCF(pos: Vector3): CFrame?
 	local nodes, heads = roadNodes()
 	local best, bestD = 0, math.huge
 	for i, p in nodes do
@@ -1491,25 +1561,55 @@ local function nearestRoadCF(pos: Vector3): CFrame?
 	return groundCF(Vector3.new(p.X, p.Y + 4, p.Z), heads[best]) -- ray starts under any tunnel roof
 end
 
--- Under the map: below RescueBelowY, or nothing under the chassis for RescueNoGroundSeconds.
+-- Needs a rescue? Returns why ("below" | "noground" | "sunk" | "stuck") or nil:
+--   below    chassis under RescueBelowY (the kill height)
+--   noground nothing under the chassis for RescueNoGroundSeconds (fell through the map)
+--   sunk     the chassis sits inside / under the anchored ground under it for RescueSinkSeconds
+--   stuck    the driver holds the throttle and it moved < RescueStuckStuds in RescueStuckSeconds
+-- A parked (anchored) truck is checked for below / sunk only (it was anchored where it fell).
 local noGroundSince: { [Truck]: number } = {}
-local function underMap(t: Truck, now: number): boolean
+local sunkSince: { [Truck]: number } = {}
+local stuckFrom: { [Truck]: { at: number, pos: Vector3 } } = {}
+local function needsRescue(t: Truck, now: number): string?
 	local c = t.chassis
+	local cfg = VehicleConfig :: any
+	if c.Position.Y < VehicleConfig.RescueBelowY then
+		return "below"
+	end
+	if sunk(c) then
+		local since = sunkSince[t] or now
+		sunkSince[t] = since
+		if c.Anchored or now - since >= (tonumber(cfg.RescueSinkSeconds) or 0.5) then
+			return "sunk"
+		end
+	else
+		sunkSince[t] = nil
+	end
 	if c.Anchored then
 		noGroundSince[t] = nil
-		return false
-	end
-	if c.Position.Y < VehicleConfig.RescueBelowY then
-		return true
+		stuckFrom[t] = nil
+		return nil
 	end
 	local hit = workspace:Raycast(c.Position, Vector3.new(0, -VehicleConfig.RescueRayDepth, 0), groundParams())
 	if hit then
 		noGroundSince[t] = nil
-		return false
+	else
+		local since = noGroundSince[t] or now
+		noGroundSince[t] = since
+		if now - since >= VehicleConfig.RescueNoGroundSeconds then
+			return "noground"
+		end
 	end
-	local since = noGroundSince[t] or now
-	noGroundSince[t] = since
-	return now - since >= VehicleConfig.RescueNoGroundSeconds
+	local seat = t.seat
+	local throttle = if seat and t.driver then seat.ThrottleFloat else 0
+	local s = stuckFrom[t]
+	local flat = Vector3.new(c.Position.X, 0, c.Position.Z)
+	if math.abs(throttle) < 0.5 or not s or (flat - s.pos).Magnitude > (tonumber(cfg.RescueStuckStuds) or 3) then
+		stuckFrom[t] = { at = now, pos = flat }
+	elseif now - s.at >= (tonumber(cfg.RescueStuckSeconds) or 5) then
+		return "stuck"
+	end
+	return nil
 end
 
 -- Safety net, 4 Hz. A truck under the map is put back upright on the nearest road node with whoever
@@ -1562,21 +1662,32 @@ local function lostTick()
 				count("truck_unstranded")
 				continue
 			end
-			if underMap(t, now) then
-				noGroundSince[t] = nil
+			local why = needsRescue(t, now)
+			if why then
+				noGroundSince[t], sunkSince[t], stuckFrom[t] = nil, nil, nil
 				count("truck_rescued")
-				local cf = if occupied(t) then nearestRoadCF(c.Position) else nil
-				local ok = if cf then pcall(place, t, cf) else pcall(sendHome, t)
+				count(`truck_rescued_{why}`)
+				local from = c.Position
+				-- someone in it: back onto the road right here (riders stay seated); empty: home to its spot
+				local ok = if occupied(t) then pcall(function()
+					place(t, rescueCF(t, from))
+				end) else pcall(sendHome, t)
 				if not ok or c.Position.Y < VehicleConfig.LostBelowY then
 					table.insert(rebuild, t)
-				elseif t.driver then
-					Popup.show(t.driver, "Truck fished out from under the road!", "info", t.driver)
+				else
+					popAt(c, "Truck reset!", "bonk")
+					if t.driver then
+						Popup.show(t.driver, "Truck reset!", "info", t.driver)
+					end
+					print(`[VehicleService] truck #{t.spot} rescued ({why}) from {math.floor(from.X)},{math.floor(from.Y * 10) / 10},{math.floor(from.Z)}`)
 				end
 			end
 		end
-		for t in noGroundSince do
-			if not t.chassis.Parent then
-				noGroundSince[t] = nil
+		for _, map in { noGroundSince, sunkSince, stuckFrom } :: { { [Truck]: any } } do
+			for t in map do
+				if not t.chassis.Parent then
+					map[t] = nil
+				end
 			end
 		end
 		for _, t in rebuild do
@@ -1795,9 +1906,16 @@ function VehicleService:RespawnTruck(player: Player): boolean
 	local near = root ~= nil and (root.Position - tr.chassis.Position).Magnitude <= VehicleConfig.UnflipRange
 	if near then
 		-- flip it back on its wheels right here (a little drop for the boing)
+		-- (never onto whatever lies BELOW a truck that sank under the road: that's the road nearby)
 		local c = tr.chassis
-		local g = groundCF(c.Position, c.CFrame.LookVector)
-		place(tr, g + Vector3.new(0, 3, 0))
+		local hit = surfaceUnder(c.Position)
+		if hit and not sunk(c) and c.Position.Y > VehicleConfig.RescueBelowY then
+			place(tr, facing(hit.Position, c.CFrame.LookVector) + Vector3.new(0, 3, 0))
+		else
+			count("truck_rescued")
+			count("truck_rescued_recall")
+			place(tr, rescueCF(tr, c.Position))
+		end
 	else
 		for seat in tr.occupants do
 			unseat(seat)

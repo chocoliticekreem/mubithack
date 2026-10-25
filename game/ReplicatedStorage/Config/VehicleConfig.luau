@@ -43,6 +43,23 @@ return Config.define({
 	RescueBelowY = -20,
 	RescueNoGroundSeconds = 1.5,
 	RescueRayDepth = 150, -- studs: "no ground" = nothing this far below the chassis
+	-- ...or SUNK: the top of an anchored, solid surface right over the chassis centre stands above the
+	-- chassis bottom by RescueSinkDepth (the truck slid into / under the road), for RescueSinkSeconds;
+	-- ...or STUCK: the driver holds the throttle and the truck moves under RescueStuckStuds in
+	-- RescueStuckSeconds. All three: lifted onto a drivable surface nearby, upright, speed cleared
+	-- ("Truck reset!" pop, telemetry truck_rescued + truck_rescued_<why>).
+	RescueSinkDepth = 0.35,
+	RescueSinkSeconds = 0.5,
+	RescueStuckSeconds = 5,
+	RescueStuckStuds = 3,
+	RescueRoadRange = 160, -- studs: a rescued truck goes to the nearest road node within this, else its spot
+	-- Driver's client (anti-tunnel): suspension rays start this far above the chassis centre, so a chassis
+	-- that sank into a thin road top still finds the surface and springs out instead of falling through;
+	-- if it sank deeper than SinkLift studs it is lifted back on top in the same frame.
+	RayLift = 2,
+	SinkLift = 0.25,
+	MaxFallSpeed = 120, -- studs/s: downward speed cap (a faster box tunnels through thin parts)
+	MaxFlingSpeed = 150, -- studs/s: total speed cap after a crash / fling
 
 	-- Mass. The body parts are Massless, so the chassis carries the whole truck. Heavy enough that a
 	-- character (~14 mass) standing, landing or jumping on it barely moves it; the driving code works
