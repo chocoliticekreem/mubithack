@@ -68,27 +68,39 @@ return Config.define({
 	DoorHingeSnap = 1.5, -- studs: a door pulled further than this off its hinge is put back on it
 
 	-- Driving (client-simulated by the driver, who owns the truck's physics). Units: studs, seconds.
-	MaxSpeed = 70, -- studs/s forward; reverse is half
-	Accel = 42, -- studs/s^2 under throttle
-	Brake = 95, -- studs/s^2 when pressing against the motion
-	TurnSpeed = 2.2, -- rad/s at speed (turning circle ~40 studs at 70 studs/s, ~12 at 20: fits the 24-stud roads)
-	Grip = 5.5, -- 1/s; lower = more drifty
-	DriftGrip = 0.9, -- grip while the handbrake (Space) is held
-	DriftTurn = 1.7, -- yaw multiplier while drifting
-	HandbrakeDrag = 18, -- studs/s^2 the handbrake bleeds off
+	-- ARCADE handling (v3): grips the road like a Jailbreak / ER:LC car. See VehicleController.step.
+	MaxSpeed = 70, -- studs/s forward; reverse is half. A half-pushed stick cruises at half speed
+	Accel = 40, -- studs/s^2 under throttle (eases in over the last 8 studs/s, no lurch at the cap)
+	Brake = 90, -- studs/s^2 when pressing against the motion
+	CoastBrake = 40, -- studs/s^2 when you let go: rolls to a stop (~2 s / 60 studs from top speed)
+	HoldBelow = 2, -- studs/s: no throttle and slower than this = parked, holds still (even on slopes)
+	ThrottleRise = 4, -- 1/s: throttle input ramps (0 -> full in 0.25 s) ...
+	ThrottleFall = 8, -- ... and releases / reverses twice as fast
+	SteerRate = 7, -- 1/s: keyboard steer ramps (no instant full lock)
+	TurnRadiusLow = 16, -- studs: turning circle radius when slow (car park, bay doors)...
+	TurnRadiusHigh = 80, -- ...growing to this at MaxSpeed (gentle on the avenue, no spin-outs)
+	MaxYawRate = 1.5, -- rad/s cap
+	YawResponse = 10, -- 1/s: how fast the truck's yaw follows the wheel (and recovers after a bump)
+	Grip = 20, -- 1/s: sideways slide decay on the ground (higher = more planted; 5.5 was ice)
+	UprightStiffness = 10, -- 1/s: pitch / roll follow the ground under the truck (no bob, no wobble)
+	UprightAir = 3, -- 1/s: and level out in the air
+	MaxClimb = 10, -- studs/s upward cap on the ground (or 0.45 x speed on a ramp): kerbs don't launch it
+	AirDownforce = 60, -- studs/s^2 extra gravity once airborne (short hops, no gliding)
 	AirControl = 0.15, -- fraction of drive/steer while airborne
+	-- Touch (phones / iPads; InputHints.isTouch): kid-proof stick
+	TouchMaxSpeed = 56, -- studs/s (PC 70)
+	TouchDeadzone = 0.15, -- stick fraction ignored (a resting thumb doesn't steer)
+	TouchSteerExpo = 1.5, -- steer = push ^ expo: fine control near the centre, full lock at the edge (throttle is linear)
+	TouchCruise = 0.45, -- a sideways push (not pulled back) still drives, at this x the push (~25 studs/s: corners)
+	TouchSteerRate = 4, -- 1/s: steer ramp (smoother than keyboard)
+	TouchAlign = 1.2, -- rad/s per rad: stick let go = line up with the road you're on ...
+	TouchAlignMaxDeg = 22, -- ... when within this many degrees of it ...
+	TouchAlignRange = 30, -- ... and within this many studs of the road's centre line (lanes sit 7-16 off it)
 
-	-- Bouncy suspension: four raycasts from the chassis corners. Low damping = jelly truck.
+	-- Suspension: four raycasts from the chassis corners carry the weight (through the centre of mass).
 	RideRest = 3.4, -- ray length from chassis centre (chassis centre sits ~2.4 studs up at rest)
 	Spring = 240, -- accel per stud of compression (gravity is 196 -> ~0.8 stud sag)
-	Damping = 6, -- accel per stud/s of vertical speed (raise to calm the bounce)
-	BodyRoll = 0.16, -- radians of lean at full steer + speed
-	RollStiffness = 7, -- how fast the body leans into the target roll (1/s)
-	WheelieKick = 1.6, -- rad/s pitch-up when you floor it from a standstill
-	BumpKick = 0.05, -- rad/s pitch-up per stud/s of sudden front compression (wheelies on bumps)
-	BumpThreshold = 9, -- front compression speed (studs/s) that counts as a bump
-	SquashSeconds = 0.3, -- spring goes soft this long after a hard landing (cartoon squash + rebound)
-	SquashSoften = 0.55, -- spring multiplier at the bottom of the squash
+	Damping = 30, -- accel per stud/s of vertical speed (~critical: settles, no jelly bounce; was 6)
 	SelfRightAfter = 2.5, -- seconds upside-down before the truck pops back upright on its own
 	-- Low frame rates: the client sets velocities once per frame and they hold all frame long.
 	MaxStepDt = 1 / 30, -- kicks/accelerations never use a longer frame than this
@@ -135,6 +147,9 @@ return Config.define({
 	CamStiffness = 7, -- 1/s follow lerp
 	FovBase = 72,
 	FovAdd = 22, -- extra FOV at top speed
+	TouchCamDistance = 38, -- touch: further back ...
+	TouchCamHeight = 18, -- ... higher ...
+	TouchCamLookAhead = 28, -- ... and looking further down the road (phones)
 	CabEye = Vector3.new(0, 3.05, -0.8), -- cab view eye, relative to the DriveSeat: mid-windshield, wheel lower-centre
 	CabPitch = -0.08, -- rad; a touch down so the road ahead shows over the dash
 	CabFov = 80,
@@ -159,5 +174,4 @@ return Config.define({
 	HornSoundId = "rbxassetid://107056835646946",
 	SirenSoundId = "rbxassetid://530137633",
 	EngineSoundId = "rbxassetid://71482635231754", -- diesel idle loop
-	BoingSoundId = "rbxasset://sounds/action_jump.mp3", -- built-in, pitched for the landing squash
 })

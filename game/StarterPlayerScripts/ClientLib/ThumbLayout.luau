@@ -8,6 +8,8 @@
 --  [left] (  PRIMARY  ) (JUMP)  slot "primary" : SPRAY / CHOP / DRIFT (big, left of jump)
 --                               slot "left"    : THROW / SIREN       (small, left of the primary)
 --                               "upfar" / "leftfar": overflow
+--                               slot "jump"    : the jump button's own spot and size, for screens
+--                                                that hide Roblox's jump (driving: OUT sits there)
 --
 --   ThumbLayout.place(action, slot, handler)   after ContextActionService:BindAction(action, handler, ...)
 --   ThumbLayout.forget(action)                 before UnbindAction
@@ -21,7 +23,7 @@ local Players = game:GetService("Players")
 
 local ThumbLayout = {}
 
-export type Slot = "primary" | "above" | "upleft" | "left" | "upfar" | "leftfar"
+export type Slot = "primary" | "above" | "upleft" | "left" | "upfar" | "leftfar" | "jump"
 type Handler = (string, Enum.UserInputState, any) -> any
 
 local ORDER: { Slot } = { "primary", "above", "upleft", "left", "upfar", "leftfar" }
@@ -73,7 +75,9 @@ local function slotRect(slot: Slot): (Vector2, number)
 	local small = math.floor(j * 0.75)
 	local gap = math.max(8, math.floor(j * 0.15))
 	local primary = Vector2.new(jc.X - (j / 2 + gap + big / 2), jc.Y + j * 0.05)
-	if slot == "primary" then
+	if slot == "jump" then
+		return jc, j
+	elseif slot == "primary" then
 		return primary, big
 	elseif slot == "above" then
 		return Vector2.new(jc.X, jc.Y - (j / 2 + gap + small / 2)), small

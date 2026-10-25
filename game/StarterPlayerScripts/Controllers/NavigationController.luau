@@ -14,7 +14,8 @@
 -- maps, with turn hints ("TURN LEFT in 80 studs").
 -- M (or the minimap's M button) opens the big map; clicking it drops a personal pin that the GPS
 -- follows until the server sets a new waypoint (click near the pin again to clear it).
--- Public (for other controllers): NavigationController:GetTarget(): (Vector3?, string?)
+-- Public (for other controllers): NavigationController:GetTarget(): (Vector3?, string?),
+--   NavigationController:GetRoadDir(x, z, range?): (dx?, dz?)  -- nearest road's direction
 local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local HttpService = game:GetService("HttpService")
@@ -98,6 +99,33 @@ end
 
 function NavigationController:GetTarget(): (Vector3?, string?)
 	return target()
+end
+
+-- Direction (unit dx, dz) of the road nearest to (x, z), if its centre line is within `range` studs
+-- (VehicleController's touch steering assist lines a released truck up with it). Cached briefly.
+local roadDirCache: { x: number, z: number, at: number, dx: number?, dz: number? }? = nil
+function NavigationController:GetRoadDir(x: number, z: number, range: number?): (number?, number?)
+	local g = graph
+	if not g then
+		return nil, nil
+	end
+	local c = roadDirCache
+	local now = os.clock()
+	if c and now - c.at < 0.15 and math.abs(c.x - x) + math.abs(c.z - z) < 4 then
+		return c.dx, c.dz
+	end
+	local snap = Pathfind.nearestOnEdge(g, x, z)
+	local dx, dz = nil, nil
+	if snap and snap.dist <= (range or 20) and snap.a ~= snap.b then
+		local a, b = g.pos[snap.a], g.pos[snap.b]
+		local lx, lz = b.x - a.x, b.z - a.z
+		local len = math.sqrt(lx * lx + lz * lz)
+		if len > 1e-3 then
+			dx, dz = lx / len, lz / len
+		end
+	end
+	roadDirCache = { x = x, z = z, at = now, dx = dx, dz = dz }
+	return dx, dz
 end
 
 -- road graph -----------------------------------------------------------------------------------

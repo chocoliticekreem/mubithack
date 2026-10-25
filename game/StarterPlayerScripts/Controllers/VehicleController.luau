@@ -2,8 +2,15 @@
 -- VehicleController [owner: Vehicle agent]. Fire trucks on the client (docs/game/08 "Vehicles").
 --   * Driving: when the local player sits in a truck's "DriveSeat" (the server hands them network
 --     ownership) this runs the goofy driving every physics step (ClientLib/TruckDrive maths,
---     VehicleConfig numbers): jelly raycast suspension, body roll, wheelies on launch and bumps,
---     handbrake drift, cartoon squash + "BOING!" on hard landings, self-righting.
+--     VehicleConfig numbers), ARCADE handling: raycast springs carry the weight (damped, through the
+--     centre of mass), the tyres kill sideways sliding, pitch / roll follow the ground under the truck
+--     (no bobbing, wobble or flips; kerbs can't launch it), yaw = speed / turning radius (tight when
+--     slow, gentle when fast), the stick sets a target speed and letting go brakes to a stop (and it
+--     holds still on slopes). Self-rights after a crash.
+--   * Touch (InputHints.isTouch, or the Studio attr DevTouch): dead zone + expo on the stick, a
+--     sideways push still drives forward, lower top speed (TouchMaxSpeed), and a released stick
+--     lines the truck up with the road (NavigationController:GetRoadDir). Always the chase cam.
+--   * Studio test drives: player attr DevDrive = Vector2(steer, throttle) overrides the seat.
 --   * Camera while driving: chase cam (spring follow, right-drag to look around, FOV by speed) or the
 --     cab view through the windshield (V toggles; you start in it if you sat down in first person; for the local viewer only, the cab/door mesh skins,
 --     roof, visors, pillars and your own body go see-through - shotgun passengers in first person get
@@ -58,13 +65,10 @@ local driving: Model? = nil
 local handbrake = false
 local upsideDown = 0
 local airborne = 0
-local lastVelY = 0
-local prevThrottle = 0
-local prevFrontComp = 0
-local squashT = math.huge
-local squashSoft = 1
+local jumpHiddenOn: Humanoid? = nil -- touch driving hid Roblox's jump button on this humanoid
+local throttleS = 0 -- smoothed (rate-limited) throttle / steer actually driving the truck
+local steerS = 0
 local engine: Sound? = nil
-local boing: Sound? = nil
 
 -- chase camera state
 local camPos: Vector3? = nil
@@ -160,6 +164,40 @@ local function rehingeDoors(truck: Model, chassis: BasePart)
 	end
 end
 
+-- Studio only: scripted test drives. Player attr DevDrive = Vector2(steer, throttle) overrides the
+-- seat; DevTouch = true runs it through the touch stick shaping as if it came from a thumb.
+local function devInput(): Vector2?
+	if not RunService:IsStudio() then
+		return nil
+	end
+	local v = player:GetAttribute("DevDrive")
+	return if typeof(v) == "Vector2" then v else nil
+end
+
+local function touchDriving(): boolean
+	if RunService:IsStudio() and player:GetAttribute("DevTouch") == true then
+		return true
+	end
+	return InputHints.isTouch()
+end
+
+-- Touch only: the direction of the road under the truck (NavigationController's road graph), so a
+-- released stick lines the truck up with the street instead of drifting into the kerb.
+local function roadDir(pos: Vector3): (number?, number?)
+	local nav = controllers.NavigationController
+	if not nav or type(nav.GetRoadDir) ~= "function" then
+		return nil, nil
+	end
+	local ok, dx, dz = pcall(nav.GetRoadDir, nav, pos.X, pos.Z, tonumber((VehicleConfig :: any).TouchAlignRange) or 16)
+	if ok and type(dx) == "number" and type(dz) == "number" then
+		return dx, dz
+	end
+	return nil, nil
+end
+
+-- Arcade handling ("grips like a Jailbreak car"): the springs only carry the truck's weight, the
+-- tyres kill sideways sliding, pitch / roll follow the ground (never the springs or a kerb), yaw is
+-- speed / turning radius, the stick sets a target speed and letting go brakes to a stop.
 local function step(truck: Model, dt: number)
 	local seat = truck:FindFirstChild("DriveSeat") :: VehicleSeat?
 	local chassis = truck.PrimaryPart
@@ -167,53 +205,49 @@ local function step(truck: Model, dt: number)
 		return
 	end
 	rehingeDoors(truck, chassis)
+	local cfgAny = VehicleConfig :: any
 	-- velocities set here hold for the whole frame: at low fps use a clamped dt for kicks and cap the
 	-- per-frame turn (TruckDrive.stepDt / servoGain / capRate), or one slow frame flings the truck
-	local h = TruckDrive.stepDt(dt, tonumber((VehicleConfig :: any).MaxStepDt) or 1 / 30)
-	local tiltCap = tonumber((VehicleConfig :: any).MaxTiltPerFrame) or 0.12
+	local h = TruckDrive.stepDt(dt, tonumber(cfgAny.MaxStepDt) or 1 / 30)
+	local tiltCap = tonumber(cfgAny.MaxTiltPerFrame) or 0.12
 	local cf = chassis.CFrame
 	local up = cf.UpVector
 	local mass = chassis.AssemblyMass
 	local params = rayParams(truck)
 	local rest = VehicleConfig.RideRest
 
-	-- landing squash: the springs go soft for a beat, so the body slams down and rebounds
-	squashT += dt
-	local springK = VehicleConfig.Spring * TruckDrive.squashSpring(squashT, VehicleConfig.SquashSeconds, squashSoft)
-
-	-- Rays start RayLift above each corner: a ray never hits a part it starts inside, so with rays from the
-	-- chassis centre a chassis that sank into a thin road top (hard landing, a fling) lost its springs
-	-- and fell on through, under the map. Lifted, they still see that top and push the truck back out.
-	local lift = tonumber((VehicleConfig :: any).RayLift) or 2
+	-- Suspension: four rays, each a near-critically damped spring that only LIFTS the truck, through
+	-- the centre of mass (no rocking torque). Rays start RayLift above each corner: a ray never hits a
+	-- part it starts inside, so a chassis that sank into a thin road top (hard landing, a fling) still
+	-- sees that top and is pushed back out instead of falling on through, under the map.
+	local lift = tonumber(cfgAny.RayLift) or 2
 	local hits = 0
-	local frontComp = 0
 	local deepest = 0 -- studs the chassis bottom sits below the surface it stands on (sunk)
 	local bottom = chassis.Size.Y / 2
-	for i, c in CORNERS do
+	local normal = Vector3.zero
+	local lifted = 0
+	local vUp = chassis.AssemblyLinearVelocity:Dot(up)
+	for _, c in CORNERS do
 		local origin = cf:PointToWorldSpace(c)
 		local res = workspace:Raycast(origin + up * lift, -up * (rest + lift), params)
 		local dist = if res then TruckDrive.cornerDist(res.Distance, lift) else nil
 		if res and dist and res.Instance.Anchored and res.Instance.CanCollide then
 			deepest = math.max(deepest, TruckDrive.sinkDepth(dist, bottom))
 		end
-		if dist then
+		if res and dist and dist < rest then
 			hits += 1
-			if i <= 2 then
-				frontComp += (rest - dist) * 0.5
-			end
+			normal += res.Normal
 		end
-		local vel = chassis:GetVelocityAtPosition(origin):Dot(up)
-		local a = TruckDrive.spring(dist, rest, vel, springK, VehicleConfig.Damping)
-		if a > 0 then
-			chassis:ApplyImpulseAtPosition(up * a * mass * 0.25 * h, origin)
-		end
+		lifted += TruckDrive.spring(dist, rest, vUp, VehicleConfig.Spring, VehicleConfig.Damping) * 0.25
+	end
+	if lifted > 0 then
+		chassis:ApplyImpulse(up * lifted * mass * h)
 	end
 	local grounded = hits >= 2
 	local ctrl = if grounded then 1 else VehicleConfig.AirControl
 
 	-- Sunk into the ground anyway (a fling, a hard landing on a thin part): lift it back on top right now
 	-- and kill the downward speed, before the solver can push it the rest of the way through.
-	local cfgAny = VehicleConfig :: any
 	if deepest > (tonumber(cfgAny.SinkLift) or 0.25) and up.Y > 0.3 then
 		chassis.CFrame = chassis.CFrame + Vector3.new(0, deepest + 0.1, 0)
 		local vy = chassis.AssemblyLinearVelocity
@@ -233,22 +267,7 @@ local function step(truck: Model, dt: number)
 	end
 
 	local v = chassis.AssemblyLinearVelocity
-	-- hard landing -> cartoon squash + BOING
-	if grounded and airborne > 0 then
-		local amt = TruckDrive.squash(airborne, -lastVelY)
-		if amt > 0 then
-			squashT = 0
-			squashSoft = 1 - (1 - VehicleConfig.SquashSoften) * amt
-			camDip = math.max(camDip, 1.5 * amt)
-			if boing and boing.SoundId ~= "" then
-				boing.PlaybackSpeed = 0.8 + math.random() * 0.4
-				boing:Play()
-			end
-			pop(chassis, if amt > 0.7 then "BOI-OI-OING!" else "BOING!", Color3.fromRGB(120, 230, 255), Vector3.new(0, 9, 0))
-		end
-	end
 	airborne = if grounded then 0 else airborne + dt
-	lastVelY = v.Y
 
 	local look = cf.LookVector
 	local fwd = Vector3.new(look.X, 0, look.Z)
@@ -256,51 +275,110 @@ local function step(truck: Model, dt: number)
 	local right = Vector3.new(-fwd.Z, 0, fwd.X)
 	local fwdSpeed = v:Dot(fwd)
 	local lat = v:Dot(right)
-	local throttle = seat.ThrottleFloat
-	local steer = seat.SteerFloat
 
-	-- drive + grip (handbrake = drift)
-	local acc = TruckDrive.drive(throttle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.Accel, VehicleConfig.Brake)
-	local dv = fwd * acc * h * ctrl
-	if grounded then
-		local grip = if handbrake then VehicleConfig.DriftGrip else VehicleConfig.Grip
-		dv += right * TruckDrive.grip(lat, grip) * h
-		if handbrake and math.abs(fwdSpeed) > 1 then
-			dv -= fwd * math.sign(fwdSpeed) * math.min(math.abs(fwdSpeed), VehicleConfig.HandbrakeDrag * h)
-		end
+	-- input: keyboard / gamepad straight from the seat; a touch thumb goes through dead zone + expo, and
+	-- a sideways push still drives (TruckDrive.touchStick). Then rate-limited, so nothing lurches.
+	local rawThrottle, rawSteer = seat.ThrottleFloat, seat.SteerFloat
+	local dev = devInput()
+	if dev then
+		rawSteer, rawThrottle = dev.X, dev.Y
 	end
-	chassis.AssemblyLinearVelocity = v + dv
+	local touch = touchDriving()
+	local maxSpeed = VehicleConfig.MaxSpeed
+	if touch then
+		rawSteer, rawThrottle = TruckDrive.touchStick(
+			rawSteer,
+			rawThrottle,
+			fwdSpeed,
+			tonumber(cfgAny.TouchDeadzone) or 0.15,
+			tonumber(cfgAny.TouchSteerExpo) or 1.5,
+			tonumber(cfgAny.TouchCruise) or 0.45
+		)
+		maxSpeed = tonumber(cfgAny.TouchMaxSpeed) or maxSpeed
+	end
+	throttleS = TruckDrive.approach(throttleS, rawThrottle, h, tonumber(cfgAny.ThrottleRise) or 4, tonumber(cfgAny.ThrottleFall) or 8)
+	local steerRate = if touch then tonumber(cfgAny.TouchSteerRate) or 4 else tonumber(cfgAny.SteerRate) or 7
+	steerS = TruckDrive.approach(steerS, rawSteer, h, steerRate, steerRate * 1.6)
+	local throttle, steer = throttleS, steerS
+	if dev then
+		chassis:SetAttribute("DevDriveState", Vector3.new(throttle, steer, hits)) -- Studio test drives only
+	end
+
+	-- drive: target speed from the stick, brake against the motion, coast-down to a stop on release
+	local acc = TruckDrive.arcadeDrive(
+		throttle,
+		fwdSpeed,
+		maxSpeed,
+		VehicleConfig.Accel,
+		VehicleConfig.Brake,
+		tonumber(cfgAny.CoastBrake) or 30
+	)
+	local dFwd = acc * h * ctrl
+	-- braking / coasting stops the truck, it never throws it backwards (only those: a push away from
+	-- a near-standstill must not be clamped to a rounding-error residual speed)
+	local slowing = math.abs(throttle) < 0.02 or math.abs(fwdSpeed) > 0.5
+	if slowing and acc * fwdSpeed < 0 and math.abs(dFwd) > math.abs(fwdSpeed) then
+		dFwd = -fwdSpeed
+	end
+	local newV = v + fwd * dFwd
+	if grounded then
+		-- tyres grip: the sideways slide dies almost at once (no drifting, no ice skating)
+		local keep = math.exp(-(tonumber(cfgAny.Grip) or 20) * h)
+		newV -= right * lat * (1 - keep)
+		-- parked (no throttle, nearly stopped): hold still, even on a slope
+		local planar = Vector3.new(newV.X, 0, newV.Z).Magnitude
+		if math.abs(throttle) < 0.02 and planar < (tonumber(cfgAny.HoldBelow) or 2) then
+			newV = Vector3.new(0, newV.Y, 0)
+		end
+		-- kerbs / props / ramps never launch it: cap the climb rate to what a road's slope could give
+		local climb = math.max(tonumber(cfgAny.MaxClimb) or 10, planar * 0.45)
+		if newV.Y > climb then
+			newV = Vector3.new(newV.X, climb, newV.Z)
+		end
+	elseif airborne > 0.12 then
+		-- a cartoon truck, not a glider: extra gravity once it is really in the air
+		newV -= Vector3.new(0, (tonumber(cfgAny.AirDownforce) or 60) * h, 0)
+	end
+	chassis.AssemblyLinearVelocity = newV
 
 	-- rotation in truck axes: yaw (up), pitch (right, + = nose up), roll (look, + = right side down)
 	local U, R, L = cf.UpVector, cf.RightVector, cf.LookVector
-	local av = chassis.AssemblyAngularVelocity
-	local yaw, pitch, roll = av:Dot(U), av:Dot(R), av:Dot(L)
-
-	local yawTarget = TruckDrive.steerRate(steer, fwdSpeed, VehicleConfig.TurnSpeed, VehicleConfig.MaxSpeed) * ctrl
-	if handbrake and grounded then
-		yawTarget *= VehicleConfig.DriftTurn
+	local yaw = chassis.AssemblyAngularVelocity:Dot(U)
+	local yawTarget = TruckDrive.arcadeYaw(
+		steer,
+		fwdSpeed,
+		maxSpeed,
+		tonumber(cfgAny.TurnRadiusLow) or 16,
+		tonumber(cfgAny.TurnRadiusHigh) or 80,
+		tonumber(cfgAny.MaxYawRate) or 1.5
+	) * ctrl
+	-- touch, stick let go: line up with the road you're on (gently; only when already nearly straight)
+	if touch and grounded and math.abs(rawSteer) < 0.05 and fwdSpeed > 8 then
+		local rx, rz = roadDir(chassis.Position)
+		if rx and rz then
+			local ang = TruckDrive.alignAngle(fwd.X, fwd.Z, rx, rz)
+			if math.abs(ang) < math.rad(tonumber(cfgAny.TouchAlignMaxDeg) or 22) then
+				yawTarget -= ang * (tonumber(cfgAny.TouchAlign) or 1.2)
+			end
+		end
 	end
-	yaw += (yawTarget - yaw) * math.min(1, h * 6)
+	local yawGain = if grounded then tonumber(cfgAny.YawResponse) or 10 else 2
+	yaw += (yawTarget - yaw) * math.min(1, h * yawGain)
 
-	if grounded then
-		-- body roll: lean out of the turn
-		local rollNow = -R.Y
-		local want = TruckDrive.rollTarget(steer, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.BodyRoll)
-		local rollRate = (want - rollNow) * TruckDrive.servoGain(VehicleConfig.RollStiffness, dt, 0.5)
-		roll += (rollRate - roll) * math.min(1, h * 8)
-		-- wheelies: flooring it from a stop, and slamming the front wheels into a bump
-		pitch += TruckDrive.wheelie(throttle, prevThrottle, fwdSpeed, VehicleConfig.MaxSpeed, VehicleConfig.WheelieKick)
-		local compRate = (frontComp - prevFrontComp) / math.max(dt, 1e-3)
-		pitch += TruckDrive.bump(compRate, VehicleConfig.BumpThreshold, VehicleConfig.BumpKick) * math.min(1, math.abs(fwdSpeed) / 20)
-		pitch *= math.max(0, 1 - dt * 1.2)
+	-- pitch / roll: servo the truck's up toward the ground under it (the rays' normals), or level in the
+	-- air. This replaces whatever the springs / a kerb / a crash did: no bobbing, no wobble, no flips.
+	local wantUp = if hits > 0 then normal.Unit else Vector3.yAxis
+	if wantUp.Y < 0.5 then
+		wantUp = Vector3.yAxis -- a wall is not a floor
 	end
-	prevThrottle = throttle
-	prevFrontComp = frontComp
-	pitch = TruckDrive.capRate(pitch, dt, tiltCap)
-	roll = TruckDrive.capRate(roll, dt, tiltCap)
+	local axis = U:Cross(wantUp) -- rotation that takes U onto wantUp (|axis| = sin(angle))
+	local stiff = if grounded then tonumber(cfgAny.UprightStiffness) or 10 else tonumber(cfgAny.UprightAir) or 3
+	local k = TruckDrive.servoGain(stiff, dt, 0.5)
+	local pitch = TruckDrive.capRate(axis:Dot(R) * k, dt, tiltCap)
+	local roll = TruckDrive.capRate(axis:Dot(L) * k, dt, tiltCap)
 	chassis.AssemblyAngularVelocity = U * yaw + R * pitch + L * roll
 
-	-- flipped? pop back upright after a beat (goofy, keeps the round going)
+	-- flipped anyway (a big crash)? pop back upright after a beat
 	if up.Y < 0.2 then
 		upsideDown += dt
 		if upsideDown > VehicleConfig.SelfRightAfter then
@@ -353,11 +431,18 @@ local function camStep(dt: number)
 	fwd = if fwd.Magnitude > 0.05 then fwd.Unit else Vector3.new(0, 0, -1)
 	local speed = chassis.AssemblyLinearVelocity.Magnitude
 
+	-- touch: a bit further back and higher, looking further ahead (a phone screen is small and the
+	-- truck filled it; kids need to see the road and the turn coming)
+	local cfgAny = VehicleConfig :: any
+	local touch = touchDriving()
+	local camDist = if touch then tonumber(cfgAny.TouchCamDistance) or 38 else VehicleConfig.CamDistance
+	local camHeight = if touch then tonumber(cfgAny.TouchCamHeight) or 18 else VehicleConfig.CamHeight
+	local lookAhead = if touch then tonumber(cfgAny.TouchCamLookAhead) or 28 else VehicleConfig.CamLookAhead
 	local orbit = CFrame.Angles(0, camYaw, 0)
 	local back = orbit:VectorToWorldSpace(-fwd)
-	local height = VehicleConfig.CamHeight + camPitch * VehicleConfig.CamDistance - camDip
-	local desired = chassis.Position + back * VehicleConfig.CamDistance + Vector3.new(0, height, 0)
-	local target = chassis.Position + fwd * VehicleConfig.CamLookAhead + Vector3.new(0, 5, 0)
+	local height = camHeight + camPitch * camDist - camDip
+	local desired = chassis.Position + back * camDist + Vector3.new(0, height, 0)
+	local target = chassis.Position + fwd * lookAhead + Vector3.new(0, 5, 0)
 
 	local cur = camPos or desired
 	cur = cur:Lerp(desired, 1 - math.exp(-VehicleConfig.CamStiffness * dt))
@@ -604,8 +689,8 @@ end
 local function enterDrive(truck: Model)
 	driving = truck
 	handbrake = false
-	airborne, upsideDown, prevThrottle, prevFrontComp = 0, 0, 0, 0
-	squashT = math.huge
+	airborne, upsideDown = 0, 0
+	throttleS, steerS = 0, 0
 	camPos, camYaw, camPitch = nil, 0, 0
 	local FP = controllers.FirstPersonController
 	if FP and type(FP.SetEnabled) == "function" then
@@ -624,13 +709,21 @@ local function enterDrive(truck: Model)
 	ContextActionService:SetTitle("TruckHorn", "HONK")
 	ContextActionService:SetTitle("TruckSiren", "SIREN")
 	ContextActionService:SetTitle("TruckExit", "OUT")
-	-- touch: one cluster round the jump button (ClientLib/ThumbLayout) instead of Roblox's default
-	-- spots, which piled DRIFT / HONK / SIREN / OUT on top of each other on some phones
-	ThumbLayout.place("TruckExit", "primary", onAction) -- no drift: OUT is the big button
-	ThumbLayout.place("TruckHorn", "upleft", onAction)
+	-- touch: one cluster on the right round the jump spot (ClientLib/ThumbLayout); the stick is the
+	-- left half. Roblox's own jump button also throws you out of a seat, and the big button next to it
+	-- is where a kid's thumb rests: so while driving the jump button is hidden (Jumping state off), OUT
+	-- takes its place at its size, and the big button is the harmless HONK.
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum and touchDriving() and hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
+		hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+		jumpHiddenOn = hum
+	end
+	ThumbLayout.place("TruckExit", "jump", onAction)
+	ThumbLayout.place("TruckHorn", "primary", onAction)
 	ThumbLayout.place("TruckSiren", "left", onAction)
 	-- first-person players (zoomed all the way in) start in the cab view, everyone else in the chase cam
-	camMode = if VehicleConfig.DefaultCam == "cab" or onFootFirstPerson then "cab" else "chase"
+	-- (touch: always the chase cam: a phone screen through the windshield shows dashboard, not road)
+	camMode = if not touchDriving() and (VehicleConfig.DefaultCam == "cab" or onFootFirstPerson) then "cab" else "chase"
 	RunService:BindToRenderStep("TruckCam", Enum.RenderPriority.Camera.Value + 10, camStep)
 	local chassis = truck.PrimaryPart
 	if chassis and VehicleConfig.EngineSoundId ~= "" then
@@ -643,18 +736,16 @@ local function enterDrive(truck: Model)
 		s:Play()
 		engine = s
 	end
-	if chassis then
-		local b = Instance.new("Sound")
-		b.Name = "LocalBoing"
-		b.SoundId = VehicleConfig.BoingSoundId
-		b.Volume = 0.8
-		b.Parent = chassis
-		boing = b
-	end
 end
 
 local function exitDrive()
 	driving = nil
+	if jumpHiddenOn then
+		if jumpHiddenOn.Parent then
+			jumpHiddenOn:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+		end
+		jumpHiddenOn = nil
+	end
 	handbrake = false
 	-- a right-drag look in progress (or the mission ending mid-drag) must not leave the mouse held
 	if looking then
@@ -673,10 +764,6 @@ local function exitDrive()
 	if engine then
 		engine:Destroy()
 		engine = nil
-	end
-	if boing then
-		boing:Destroy()
-		boing = nil
 	end
 	local cam = workspace.CurrentCamera
 	if cam then
@@ -1120,7 +1207,7 @@ local function updateSeated()
 			-- touch: the buttons are the ContextAction titles bound above (OUT, SIREN, HONK, DRIFT)
 			hint.Text = InputHints.pick(
 				`SPACE: hop out   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
-				"Stick: drive + steer   ·   buttons: OUT  SIREN  HONK",
+				"Stick: push to drive, let go to stop   ·   OUT  SIREN  HONK",
 				"A: hop out   X: siren   Y: horn   R3: camera"
 			)
 		elseif truck then

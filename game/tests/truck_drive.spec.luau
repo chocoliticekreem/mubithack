@@ -99,4 +99,58 @@ Spec.test("anti-tunnel: lifted rays still see a road the chassis sank into; sink
 	Spec.eq(z, 30)
 end)
 
+
+Spec.test("arcade throttle: analog target speed, brakes against motion, coasts to a stop", function()
+	Spec.eq(D.arcadeDrive(1, 0, 70, 40, 90, 30), 40)
+	Spec.eq(D.arcadeDrive(1, 70, 70, 40, 90, 30), 0)
+	Spec.near(D.arcadeDrive(1, 66, 70, 40, 90, 30), 20) -- eases in near the cap
+	Spec.eq(D.arcadeDrive(0.5, 35, 70, 40, 90, 30), 0) -- half stick holds half speed
+	Spec.truthy(D.arcadeDrive(0.5, 60, 70, 40, 90, 30) < 0) -- eased off: slows to the new target
+	Spec.eq(D.arcadeDrive(-1, 20, 70, 40, 90, 30), -90)
+	Spec.eq(D.arcadeDrive(0, 20, 70, 40, 90, 30), -30)
+	Spec.eq(D.arcadeDrive(0, -20, 70, 40, 90, 30), 30)
+	Spec.eq(D.arcadeDrive(0, 0, 70, 40, 90, 30), 0)
+	Spec.eq(D.arcadeDrive(-1, -35, 70, 40, 90, 30), 0) -- reverse cap is half
+end)
+
+Spec.test("arcade steering: no spin standing, tight slow, gentle fast, flips in reverse", function()
+	Spec.eq(D.arcadeYaw(1, 0, 70, 16, 80, 1.5), 0)
+	Spec.near(D.arcadeYaw(1, 8, 70, 16, 80, 1.5), -8 / (16 + 64 * (8 / 70) ^ 2))
+	local fast = D.arcadeYaw(1, 70, 70, 16, 80, 1.5)
+	Spec.near(fast, -70 / 80)
+	-- turning radius (speed / yaw) grows with speed
+	Spec.truthy(10 / math.abs(D.arcadeYaw(1, 10, 70, 16, 80, 1.5)) < 70 / math.abs(fast))
+	Spec.truthy(math.abs(D.arcadeYaw(1, 40, 70, 4, 80, 1.5)) <= 1.5) -- capped
+	Spec.truthy(D.arcadeYaw(1, -10, 70, 16, 80, 1.5) > 0)
+end)
+
+Spec.test("approach: rate-limited both ways", function()
+	Spec.near(D.approach(0, 1, 0.1, 4, 8), 0.4)
+	Spec.near(D.approach(1, 0, 0.1, 4, 8), 0.2)
+	Spec.eq(D.approach(0.9, 1, 0.1, 4, 8), 1)
+end)
+
+Spec.test("touch stick: dead zone, expo, sideways push keeps driving, pull back brakes", function()
+	local s, t = D.touchStick(0.1, 0.05, 0, 0.15, 1.5, 0.8)
+	Spec.eq(s, 0)
+	Spec.eq(t, 0)
+	s, t = D.touchStick(1, 0, 20, 0.15, 1.5, 0.45)
+	Spec.near(s, 1)
+	Spec.near(t, 0.45) -- only steering: still rolling forward, at cornering speed
+	s, t = D.touchStick(0, 0.575, 20, 0.15, 1.5, 0.45)
+	Spec.near(t, 0.5) -- throttle is linear past the dead zone
+	s, t = D.touchStick(0.5, 1, 20, 0.15, 1.5, 0.8)
+	Spec.truthy(s > 0 and s < 0.5) -- expo: half push is gentler than half lock
+	Spec.near(t, 1)
+	s, t = D.touchStick(0.6, -1, 20, 0.15, 1.5, 0.8)
+	Spec.near(t, -1) -- pulled back = brake / reverse, even while steering
+end)
+
+Spec.test("alignAngle: signed, either way along the road", function()
+	Spec.near(D.alignAngle(0, -1, 0, -1), 0)
+	Spec.near(D.alignAngle(0, -1, 0, 1), 0) -- road runs both ways
+	Spec.truthy(D.alignAngle(0, -1, 0.2, -1) > 0) -- facing -Z, road bends toward +X = right
+	Spec.truthy(D.alignAngle(0, -1, -0.2, -1) < 0)
+end)
+
 return Spec.finish()
