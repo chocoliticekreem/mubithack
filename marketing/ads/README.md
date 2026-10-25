@@ -44,6 +44,44 @@ Roblox documents no 9:16 placement.
 uses an in-game shot of the gas station. New Studio captures of the gas tanker blast and the Sky Tower
 came out flat, with no visible fire and a marker beam in frame, so we left them out.
 
+## Wave 2: core-fantasy hooks (`out/`)
+Our first campaign got a 1% CTR. Wave 2 follows the Roblox ads playbook: sell the core fantasy at a
+3rd-grade reading level (verb + noun, "Be a ___", or an implied challenge), one big hook of 2–4 words,
+one focal action, fire in every frame, and our penguins. Layouts and colours vary so the rotation can find
+the winners. Each was checked at 400 px wide. Sources: `src/Ads2.tsx` and `src/Thumbs.tsx`.
+
+| File | Hook | Look |
+|---|---|---|
+| `ad-10-be-a-firefighter.jpg` | BE A FIREFIGHTER! | Cartoon, blue sky: penguin hosing a burning house |
+| `ad-11-put-out-the-fire.jpg` | PUT OUT THE FIRE! | Real house-fire shot, water jet into big flames |
+| `ad-12-save-the-kids.jpg` | SAVE THE KIDS! | Purple/orange: burning school, kid chicks in the windows |
+| `ad-13-drive-the-fire-truck.jpg` | DRIVE THE FIRE TRUCK! | Purple night, speed lines, penguin in the cab |
+| `ad-14-house-on-fire.jpg` | HOUSE ON FIRE! | Real truck-fire shot (blurred), giant cartoon house fire |
+| `ad-15-answer-the-call.jpg` | ANSWER THE CALL! | Teal: the dispatch radio buzzing, house fire behind |
+| `ad-16-save-the-panda.jpg` | SAVE THE PANDA! | Green zoo/bamboo: scared panda, penguin hosing the fire |
+| `ad-17-stop-the-fire.jpg` | STOP THE FIRE! | Split: wall of fire vs blue, water pushing it back |
+| `ad-18-fire-truck-race.jpg` | FIRE TRUCK RACE! | Yellow burst: two trucks racing to a fire |
+| `ad-19-spray-it.jpg` | SPRAY IT! | Blue: huge penguin face, huge jet into fire |
+| `ad-20-rescue-everyone.jpg` | RESCUE EVERYONE! | Real house-fire shot: panda, chick and cat led out |
+| `ad-21-can-you-save-them.jpg` | CAN YOU SAVE THEM? | Pink dusk: burning tower, faces in the windows |
+| `ad-22-giant-fire.jpg` | GIANT FIRE! | Scale: tiny penguin vs a wall of flame |
+| `ad-23-fire-squad.jpg` | FIRE SQUAD! | Real station shot: four penguin friends, fire below |
+
+"BIGGEST FIRE EVER" became **GIANT FIRE!** because Roblox's thumbnail rules ban superlative claims.
+"ANSWER 911" became **ANSWER THE CALL!** because the game calls it dispatch, not 911.
+
+### Experience-page thumbnails
+| File | Hook | Shows |
+|---|---|---|
+| `thumb-01-be-a-firefighter.jpg` | BE A FIREFIGHTER! | Real penguin close-up at the station, cartoon hero, fire |
+| `thumb-02-trucks-and-dispatch.jpg` | A TRUCK FOR EVERYONE! | Real station bays with four trucks, the radio and "NEW CALLS!" |
+| `thumb-03-school-rescue.jpg` | SCHOOL RESCUE! | The real furnished classroom, a chick and a hose |
+| `thumb-04-8-player-squad.jpg` | 8 PLAYER SQUAD! | Real squad lined up at Station 67 |
+| `thumb-05-new-map.jpg` | NEW MAP! | Four real map shots: SNOW, FOG, SUNSET, NIGHT |
+
+New in-game crops in `public/shots/`: `map-winter/fog/dusk/night.jpg` (the same street under different
+map variants) and `school-class*.jpg` (the furnished classroom), cut from Studio captures with the HUD removed.
+
 ## Re-render
 ```bash
 cd marketing/ads
