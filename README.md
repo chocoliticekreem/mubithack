@@ -74,57 +74,54 @@ unreachable level, confusing goals, repetitive content or an unfair progression 
 [game production guide](docs/GAME_PRODUCTION_GUIDE.md) defines priorities for 16 game families,
 architecture foundations, feature/level contracts, testing and model evaluation.
 
-## Vanilla development vs plain MCP vs MuMake
+## Development comparison: the same 100-stage obby
+
+Use [Sunbeam Park Obby](games/sunbeam-park-obby/README.md) as the example: a playable amusement-park
+obby with **100 stages across 10 zones**, checkpoints and respawns, coins, a costume shop, music,
+a HUD and a decorated park. MuMake made it from **“i want a 100 stage obby”**.
+
+**The manual and plain-MCP times below are illustrative estimates for making a similar first
+playable version, not measured benchmarks.** They assume someone familiar with Studio, a configured
+workspace and access to reusable assets/components. They exclude learning Studio, making original
+art and preparing a full release. MuMake's reusable kits and harness already exist; their original
+development time is not included in its per-game build time.
 
 | | Vanilla development | Plain MCP-driven development | MuMake-driven development |
 |---|---|---|---|
-| Building | You design, script and assemble the game | An AI agent edits the game through Studio tools | A production harness coordinates planning, reusable kits, level generation and installation |
-| Testing | You playtest and organise checks | The agent can control characters, inspect the game and run tests; the workflow depends on its instructions | Repeatable checks, QA bots, scripted player journeys and recorded outcomes are part of the workflow |
-| Improvement | You diagnose, change and retest | You and the agent decide what to change and how to verify it | Review/fix rounds use previous outcomes; the agent repair workflow verifies changes and can roll them back |
-| Learning between runs | Your experience and notes | Whatever context or memory the agent maintains | Saved lessons and failed attempts carry forward; corrections go back through the same Mubit tasks |
-| Time for a small first prototype | **2–6 hours estimated** | **30–90 minutes estimated** | **Under 20 minutes targeted**, then more runs to refine |
+| First playable obby | **8–20 working hours estimated** | **1–4 hours estimated** | **Under 20 minutes reported**; this demo's build was about **6 minutes** |
+| Building | Manually lay out the course, connect systems and build the UI | An AI agent creates and edits through Studio tools; its workflow and integration depend on the session | Parallel level generation, reusable game systems and automatic installation into Studio |
+| Testing | Play through, inspect errors and organise checks yourself | The agent can move characters, inspect state and run tests when its workflow calls for them | QA bots, scripted journeys, checks and recorded outcomes are integrated into the workflow |
+| Initial refinement | Further manual debugging, balancing and polish; time varies | Further agent runs and review; time varies | **Allow another 10–15 minutes**, an estimated budget for extra testing, fixes and polish |
+| Adding a feature later | Plan the change, integrate it and retest | Give the agent context, then review integration and tests | Reuse the game spec, existing systems and saved lessons; check the new behaviour and its impact on the game |
+| Learning from previous work | Your experience and notes | Whatever context or memory the agent retains | Lessons and rejected attempts carry forward; corrections go back through the same Mubit tasks |
 
-The manual and plain-MCP times are illustrative planning estimates for a small custom game with
-setup complete, not a measured comparison. MuMake's target is the first playable handoff; further
-refinement adds time. MCP already supports building and playtesting. MuMake packages the production
-workflow, reusable systems and evidence around those tools, so creators do not have to assemble
-that workflow themselves. These records do not provide a same-brief timing comparison across all three.
+For MuMake, budget **under 20 minutes to get playing, then another 10–15 minutes to refine**.
+Further features can also be quicker to add because the next run can reuse systems, apply saved
+lessons and avoid previously rejected approaches. This is an expected workflow benefit rather
+than a measured feature-addition speedup.
 
-### Example: Sunbeam Park Obby
+Plain MCP already supports building and playtesting. MuMake packages the production workflow,
+reusable systems, game context and learning records around those tools, so creators do not have
+to assemble that workflow themselves.
 
-Prompt: **“i want a 100 stage obby”**.
+### What the Sunbeam run actually showed
 
-The [committed game](games/sunbeam-park-obby/README.md) and
-[demo reflection](docs/research/2026-10-25-mumake-reflection.md) show what the MuMake harness adds:
+The [demo reflection](docs/research/2026-10-25-mumake-reflection.md) reports about **six minutes to
+the playable build**, with level design running in parallel. MuMake installed it into the existing
+Studio window, then ran playtest, critic and fixer rounds, with six QA bots and a scripted Studio
+journey. The journey exercised a ride gate, the next zone entrance and the stage-100 finish trigger;
+this was not proof of a complete player traversal of all 100 stages.
 
-- **About six minutes to the playable build**, as reported in the demo reflection. It generated
-  100 stages across 10 zones, reusing the park, obby, cosmetics and music kits. The level data was
-  designed in parallel; the game-specific scripts added gifts and extras.
-- **Automatic installation into the existing Studio window**, followed by repeated playtest,
-  critic and fixer rounds. The Studio phase ran six QA bots in parallel and a scripted journey.
-- **Evidence beyond generated code:** the recorded Studio journey exercised a ride gate, the next
-  zone entrance and the stage-100 finish trigger. This does not establish a complete 100-stage
-  traversal by a player.
-- **A visible testing gap:** four rounds reported 0 game errors but stayed at 6/10. Acceptance
-  counters not exercised fell from nine to five, then stopped moving. Costume buying/equipping,
-  gift readiness/claiming and achievements remained unexercised by that run's playtests.
-- **An explicit handoff:** the demo was stopped during round five, and its “Ready for review”
-  dashboard status was set manually. That status is not evidence of autonomous completion.
-
-The example demonstrates the integrated workflow and its remaining coverage gaps. It does not
-measure how long the same obby would take through plain MCP. Its Mubit integration records calls
-and corrections and carries lessons forward; the reflection does not show a game built using a
-Mubit-retrained adapter. The next runs need to prove the missing behaviour rather than just repeat
-changes until a score rises. The later shop-journey fix does not retroactively verify this snapshot.
+Four completed rounds reported 0 game errors but stayed at 6/10. Acceptance counters not exercised
+fell from nine to five, then stopped moving: costume buying/equipping, gift readiness/claiming and
+achievements remained unexercised by those playtests. The run was stopped during round five, and
+its dashboard “Ready for review” status was set manually. Later shop-journey fixes do not change
+that historical result. The extra **10–15 minutes** above is a refinement budget, not a measured
+time to clear every outstanding check or perfect the game.
 
 | After round 1 | After round 4 |
 |---|---|
 | ![Sunbeam Park Obby lobby after the first round](games/sunbeam-park-obby/screenshots/round-1.png) | ![Sunbeam Park Obby lobby after the fourth round](games/sunbeam-park-obby/screenshots/round-4.png) |
-
-For another timed example, the [tycoon benchmark](evidence/bench/20261024T040253Z.md) took
-**9.6 minutes**, including a real Studio playtest and **8/8 executable checks passing**, while
-passing only 5/9 readiness parts. [Benchmark methods and results](docs/BENCH.md) separate build
-speed, test coverage and readiness.
 
 ## Why Mubit is part of the loop
 
