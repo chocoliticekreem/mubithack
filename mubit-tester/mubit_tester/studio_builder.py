@@ -8,7 +8,7 @@ import shutil
 import time
 from pathlib import Path
 
-from forge import levels, sync
+from forge import levels, rounds, sync, testable
 from forge.loop import UI, new_game, run_game, correct
 from forge.memory import RunStore, unique_slug
 from forge.progress import Progress
@@ -28,9 +28,9 @@ POLL_S = 1.0
 # a make_game job's % : build 0-70, install 70-75, improvement rounds 75-99, ready 100
 BUILD_PCT, INSTALL_PCT, ROUNDS_PCT = 70, 75, 99
 STANDARD_SCORE = 7
+PROFILE_SCORE, PROFILE_ACCEPTANCE, PROFILE_QA = 6, 0.9, 0.5  # the profile route to ready (standard())
 MAX_ROUNDS = 12  # safety cap only: rounds run until the game is up to standard
 REVIEW_AFTER_S = 20 * 60  # from the start of the build: stop and hand the game over for review
-HARNESS = re.compile(r'Forge(Test|Probe|TestAgent|Telemetry)\b')
 ROUND_EXPECTED_S = 240.0
 
 
@@ -348,14 +348,24 @@ def _n(count, word):
 
 
 def standard(settings, slug, draft):
-    """Is the latest iteration up to standard: critic score >= STANDARD_SCORE, 0 errors, playtest actually ran?"""
-    its = RunStore(settings, slug).load_state().get('iterations') or []
+    """Is the latest iteration up to standard? A real playtest and 0 game errors, then the readiness profile
+    (GAME_PRODUCTION_GUIDE.md section 11): critic >= STANDARD_SCORE, or critic >= PROFILE_SCORE with
+    acceptance >= PROFILE_ACCEPTANCE of the testable counters and the Studio QA bots >= PROFILE_QA reaching
+    their next checkpoint. The critic's rubric caps a game at 6 while any acceptance counter reads 0, so one
+    critic number measured what the playtests could trigger, not the game."""
+    store = RunStore(settings, slug)
+    its = store.load_state().get('iterations') or []
     last = its[-1] if its else {}
-    # Forge's own test harness is not the game: its errors never block a game from being ready
-    errors = len([e for e in last.get('errors') or [] if not HARNESS.search(str(e))])
+    errors = testable.game_errors(last)
     score = last.get('score')
+    prof = testable.profile(store.load_spec() if store.spec_path.exists() else {}, last,
+                            rounds.read_qa(store.dir), errors)
     out = {'ready': False, 'score': score, 'errors': errors, 'fixes': int(last.get('fixes') or 0),
-           'round_line': last.get('round_line')}
+           'round_line': last.get('round_line'), 'acceptance': prof['acceptance'], 'qa': prof['qa'],
+           'profile': testable.profile_text(prof)}
+    acc, qa = prof['acceptance'], prof['qa']
+    by_profile = (acc['total'] and acc['met'] >= PROFILE_ACCEPTANCE * acc['total']
+                  and qa['total'] and qa['reached'] >= PROFILE_QA * qa['total'])
     if not draft.get('ready'):
         out['reason'] = (draft.get('errors') or ['the draft is incomplete'])[0]
     elif not last:
@@ -366,10 +376,15 @@ def standard(settings, slug, draft):
         out['reason'] = 'the critic did not score the last round'
     elif errors:
         out['reason'] = f'{_n(errors, "error")} in the last playtest'
-    elif score < STANDARD_SCORE:
-        out['reason'] = f'score {score:g}/10, needs {STANDARD_SCORE}'
-    else:
+    elif score >= STANDARD_SCORE:
         out.update(ready=True, reason=f'score {score:g}/10 with 0 errors')
+    elif score >= PROFILE_SCORE and by_profile:
+        out.update(ready=True, reason=out['profile'])
+    elif score >= PROFILE_SCORE:
+        out['reason'] = (f'score {score:g}/10, needs {STANDARD_SCORE}, or acceptance >= '
+                         f'{PROFILE_ACCEPTANCE:.0%} and QA >= {PROFILE_QA:.0%} (now {out["profile"]})')
+    else:
+        out['reason'] = f'score {score:g}/10, needs {STANDARD_SCORE}'
     return out
 
 
@@ -481,12 +496,13 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=
         done += 1
         draft = await describe_draft(settings, slug)
         status = standard(settings, slug, draft)
-        score = f"{status['score']:g}/10" if status['score'] is not None else 'not scored'
-        # forge.rounds.round_line: score and acceptance change, files fixed, what the fixer was taught
+        # the readiness profile, then forge.rounds.round_line's tail: files fixed, what the fixer was taught
+        tail = '; '.join(str(status['round_line'] or '').split('; ')[1:])
         if status['round_line']:
-            text = f"{prefix}: {status['round_line']}; {_n(status['errors'], 'error')}"[:300]
+            text = f"{prefix}: {status['profile']}" + (f"; {tail}" if tail else '')
         else:
-            text = f"{prefix}: score {score}, {_n(status['errors'], 'error')}, fixed {_n(status['fixes'], 'problem')}"
+            text = f"{prefix}: {status['profile']}, fixed {_n(status['fixes'], 'problem')}"
+        text = text[:300]
         say(text, True if status['ready'] else None)
         prog.item_done()
         prog.step(f'{prefix}: updating Studio')
@@ -512,5 +528,6 @@ async def _finish(settings, draft, emit, install, prog, feed, llm, rounds, show=
     result = dict(draft)
     result.update(in_studio=studio['in'], studio_current=studio['current'],
                   standard={'ready': ready, 'review': review, 'reason': reason, 'score': status['score'],
-                            'errors': status['errors'], 'rounds': done})
+                            'errors': status['errors'], 'rounds': done, 'acceptance': status['acceptance'],
+                            'qa': status['qa']})
     return result

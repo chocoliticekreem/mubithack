@@ -28,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from forge import rounds, testable
 from forge.config import Settings, load_settings
 from forge.memory import RunStore
 
@@ -301,6 +302,9 @@ def game_view(settings: Settings, slug: str, runs: list[dict] | None = None) -> 
         "live": live,
         "goal": {"rounds": len(iterations), "target": target, "score": scores[-1] if scores else None,
                  "best": max(scores) if scores else None, "max": 10},
+        # the readiness profile (mubit_tester.studio_builder.standard) from state.json and qa_latest.json
+        "profile": testable.profile(spec, iterations[-1], rounds.read_qa(store.dir),
+                                    testable.game_errors(iterations[-1])) if iterations else None,
         "missions": missions(store.game_dir, versions, iterations, cycles, seeded),
         "features": _features(store.dir / "features.jsonl"),
         "iterations": [{k: it.get(k) for k in ("n", "score", "version", "rolled_back_to", "fixes",

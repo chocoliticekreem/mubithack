@@ -506,6 +506,7 @@
   .btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #e4d4b4; }
   .chip { border: 0; border-radius: 999px; background: var(--panel2); color: var(--ink); letter-spacing: .04em; padding: 3px 10px; }
   .chip.live { background: var(--leaf); color: #fff; } .chip.done { background: var(--butter); }
+  .chip.prof { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); color: var(--muted); }
   .tile { border: 0; box-shadow: none; background: var(--panel2); border-radius: 16px; }
   .tile .v { color: var(--ink); }
   .tile.hot, .report, .moment { background: #fdf0c4; }
@@ -869,13 +870,23 @@ function resultBlock(g, titled) {
     <div class="verdict">${esc(r.verdict || "")}${r.why ? `<small>${esc(r.why)}</small>` : ""}${r.shot_label ? `<small>screenshot: ${esc(r.shot_label)}</small>` : ""}</div></div>`;
 }
 
+// the readiness profile beside the score: acceptance met / testable, Studio QA bots through, game errors
+function profileChip(p) {
+  if (!p) return "";
+  const parts = [];
+  if (p.acceptance.total) parts.push(`acceptance ${p.acceptance.met}/${p.acceptance.total}`);
+  if (p.qa.total) parts.push(`QA ${p.qa.reached}/${p.qa.total}`);
+  parts.push(`${p.errors} error${p.errors === 1 ? "" : "s"}`);
+  return `<span class="chip prof" title="Ready at 7/10 with 0 errors, or 6/10 with acceptance 90%+, QA 50%+ and 0 errors">${esc(parts.join(" · "))}</span>`;
+}
+
 function renderGame(g) {
   if (!g) { put("gameBox", `<div class="card empty">No games yet. Make one in Studio: open MuMake and type your idea.</div>`); return; }
   const live = g.live || (g.autopilot?.alive ? {role: "autopilot"} : null);
   const status = live ? `<span class="chip live"><i class="dot"></i>live</span>` : `<span class="chip">idle · ${esc(ago(g.updated))}</span>`;
   put("gameBox", `<div class="card gamecard"><div><div class="title-row"><h1 class="game-title">${esc(g.title)}</h1>${status}</div>
       <p class="pitch">${esc((g.pitch || "").slice(0, 160))}</p>
-      <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span><span class="chip">${g.goal.rounds} rounds</span>
+      <div class="actions" style="margin-top:10px"><span class="chip done">score ${g.goal.score ?? "–"}/10</span>${profileChip(g.profile)}<span class="chip">${g.goal.rounds} rounds</span>
         <span class="chip">${g.versions.length} versions</span><span class="chip">${(g.agents || []).length} agents</span></div></div>
     ${resultBlock(g, false)}</div>
     ${renderShots(g)}`);

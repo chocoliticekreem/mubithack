@@ -57,6 +57,9 @@ forge/                 Python package (uv), entry point `forge`
   memory.py            run state, lessons                               [owner: loop]
   loop.py              the orchestration above                          [owner: loop]
   rounds.py            round history: acceptance progress, critic/fixer history, round line [owner: loop]
+  testable.py          acceptance counter -> exerciser (headless smoke, Studio journey, Studio QA bots or none);
+                       restrict(spec) drops untested criteria into spec["acceptance_untested"]; profile(spec,
+                       iteration, qa, errors) = the readiness profile studio_builder.standard() and the dashboard read
   cli.py               `forge new|run|correct|status|doctor|play|mcp|seed|promote|assets|improve|scores`   [owner: loop]
   seed.py              seed(settings, slug, spec_path=None) -> RunStore; promote(settings, slug, rel) -> Path
   seeds/<slug>.json    Forge spec for a seeded run (flame-and-blame: FlareUpService)

@@ -9,7 +9,8 @@ All per-call text (idea, genre lessons, doc, scope) lives in user messages; the 
 
     genre_lessons(text) -> str                         curated forge/lessons_library/*.md that fit the idea
     direct(llm, idea, lessons, *, session_id) -> dict  the design doc (normalized)
-    design_from_doc(llm, idea, doc, lessons, *, session_id) -> dict   spec with spec["director"], ["first_60s"]
+    design_from_doc(llm, idea, doc, lessons, *, session_id) -> dict   spec with spec["director"], ["first_60s"],
+                                                       acceptance limited to testable counters (forge/testable.py)
     plan(llm, idea, lessons, *, session_id) -> dict    direct + design_from_doc
     coder_notes(spec, lessons) -> str                  style + juice block prepended to coder/fixer lessons
     install_kit(spec, game_dir) -> list[str]           writes the prebuilt kit files (GameAssets.luau + kit modules)
@@ -29,7 +30,7 @@ import json
 import re
 from pathlib import Path
 
-from forge import roles, ui_kit
+from forge import roles, testable, ui_kit
 from forge.llm import LLM, LLMError
 from forge.obby import LEVELS_DIR
 
@@ -316,6 +317,7 @@ def direct(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:
         f"{roles._lessons_block(lessons, 4000)}\n"
         f"{sound_table_block()}\n"
         f"{template_block(match_kit_modules(idea))}"
+        f"{testable.testable_block(match_kit_modules(idea))}"
         f"{ui_kit.designer_block()}\n"
         "Return only the design doc JSON object."
     )
@@ -412,7 +414,7 @@ def design_from_doc(llm: LLM, idea: str, doc: dict, lessons: str, *, session_id:
         f"{roles._truncate(idea.strip(), 2000, label='idea')}\n\n"
         "## Director's design doc (build this game, not a smaller one)\n"
         f"{doc_block(doc)}\n\n"
-        f"{template_block(kits)}{_scope_block(doc, kits)}\n"
+        f"{template_block(kits)}{testable.testable_block(kits)}{_scope_block(doc, kits)}\n"
         f"{roles._lessons_block(_merge_lessons(curated, lessons), 4000)}\n"
         f"{ui_kit.designer_block()}\n"
         "Return only the Spec JSON object."
@@ -436,7 +438,7 @@ def design_from_doc(llm: LLM, idea: str, doc: dict, lessons: str, *, session_id:
     taken = {m["path"] for m in prebuilt}
     spec["modules"] = prebuilt + [m for m in spec["modules"] if isinstance(m, dict) and m.get("path") not in taken]
     spec = roles._normalize_spec(spec)
-    return _attach(spec, doc)
+    return testable.restrict(_attach(spec, doc))
 
 
 def plan(llm: LLM, idea: str, lessons: str, *, session_id: str) -> dict:

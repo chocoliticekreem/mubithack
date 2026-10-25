@@ -211,7 +211,8 @@ async def test_a_failing_round_ends_the_rounds_with_its_reason(settings, monkeyp
     assert len(calls) == 1
     assert result['standard'] == {'ready': False, 'review': False,
                                   'reason': 'Round 1 could not finish: RuntimeError: Mubit is down',
-                                  'score': 4, 'errors': 0, 'rounds': 0}
+                                  'score': 4, 'errors': 0, 'rounds': 0, 'acceptance': {'met': 0, 'total': 0},
+                                  'qa': {'reached': 0, 'total': 0}}
 
 
 async def test_cancel_mid_round_marks_progress_stopped(settings, monkeypatch):
@@ -234,3 +235,73 @@ async def test_cancel_mid_round_marks_progress_stopped(settings, monkeypatch):
     progress = json.loads((store.dir / 'progress.json').read_text())
     assert progress['running'] is False and progress['phase'] == 'failed'
     assert 75 <= progress['pct'] < 100
+
+
+def profiled(settings, score, missing, reached, errors=(), bots=6):
+    """A park obby's last round (its kits in the spec) and the Studio QA bots of the last install."""
+    store = big_draft(settings, files=1, size=10)
+    spec = store.load_spec()
+    spec['modules'] += [{'path': f'ReplicatedStorage/Kit/{k}.luau', 'kit': k, 'prebuilt': True}
+                        for k in ('ObbyKit', 'Cosmetics', 'ParkObby')]
+    for m in spec['modules'][1:]:
+        (store.game_dir / m['path']).parent.mkdir(parents=True, exist_ok=True)
+        (store.game_dir / m['path']).write_text('return {}\n')
+    store.save_spec(spec)
+    state = store.load_state()
+    state['iterations'] = [iteration(score=score, errors=list(errors), acceptance={'met': MET, 'missing': missing})]
+    store.save_state(state)
+    (store.dir / 'qa_latest.json').write_text(json.dumps({'bots': [{'reached': k < reached} for k in range(bots)]}))
+    return store
+
+
+MET = ['stages_built', 'coin_collected', 'checkpoint_reached', 'jump_pad_used', 'trampoline_bounce', 'player_fell',
+       'player_died', 'zone_cleared', 'obby_finished', 'park_finished']
+
+
+@pytest.mark.parametrize('score,missing,reached,errors,ready,reason', [
+    # the Oct 25 park obby: 6/10 and 0 errors for 4 rounds; only gifts and achievements (untested) read 0
+    (6, ['gift_ready', 'gift_claimed', 'achievement_unlocked'], 5, (), True,
+     'score 6/10, acceptance 10/10, QA 5/6, 0 errors'),
+    (6, ['costume_buy'], 3, (), True, 'acceptance 10/11'),  # 91% of the testable checks, half the bots
+    (6, ['costume_buy', 'costume_equip'], 6, (), False, 'acceptance 10/12'),
+    (6, [], 2, (), False, 'QA >= 50% (now score 6/10, acceptance 10/10, QA 2/6'),
+    (6, [], 6, ('Stage 3: attempt to index nil',), False, '1 error in the last playtest'),
+    (5.5, [], 6, (), False, 'score 5.5/10, needs 7'),
+    (7, ['costume_buy', 'costume_equip', 'zone_cleared'], 0, (), True, 'score 7/10 with 0 errors'),  # the old route
+])
+def test_standard_reads_the_readiness_profile(settings, score, missing, reached, errors, ready, reason):
+    store = profiled(settings, score, missing, reached, errors)
+    out = standard(settings, store.slug, {'ready': True})
+    assert out['ready'] is ready and reason in out['reason'], out['reason']
+    assert out['qa'] == {'reached': reached, 'total': 6}
+
+
+def test_the_profile_route_needs_acceptance_and_qa_data(settings):
+    store = big_draft(settings, files=1, size=10)
+    state = store.load_state()
+    state['iterations'] = [iteration(score=6)]
+    store.save_state(state)
+    out = standard(settings, store.slug, {'ready': True})
+    assert out['ready'] is False and out['reason'].startswith('score 6/10, needs 7, or acceptance >= 90%')
+    assert out['acceptance'] == {'met': 0, 'total': 0} and out['qa'] == {'reached': 0, 'total': 0}
+
+
+async def test_a_round_reaching_the_profile_says_so_and_is_ready(settings, monkeypatch):
+    store = profiled(settings, 5, ['costume_buy', 'costume_equip'], 5)
+
+    async def round_(slug, iterations, use_studio, *, settings, llm=None, ui=None):
+        state = store.load_state()
+        state['iterations'].append(iteration(n=2, score=6, acceptance={'met': MET + ['costume_buy'],
+                                                                       'missing': ['gift_ready']},
+                                             round_line='score 5 -> 6, acceptance 10/12 -> 11/12; fixed: Shop'))
+        store.save_state(state)
+    monkeypatch.setattr(studio_builder, 'run_game', round_)
+
+    async def install(slug):
+        return {'files': 1, 'changed': 1}
+    events = []
+    draft = await studio_builder.describe_draft(settings, store.slug)
+    result = await finish_draft(settings, draft, lambda m, ok=None: events.append((m, ok)), install=install)
+    assert ('Round 1: score 6/10, acceptance 11/11, QA 5/6, 0 errors; fixed: Shop', True) in events
+    assert result['standard']['ready'] and result['standard']['acceptance'] == {'met': 11, 'total': 11}
+    assert result['standard']['qa'] == {'reached': 5, 'total': 6}
