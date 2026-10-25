@@ -23,6 +23,7 @@ local Types = require(Shared:WaitForChild("Types") :: ModuleScript)
 local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BlameConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("OfferCard") :: ModuleScript) :: any
+local BlameCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("BlameCard") :: ModuleScript) :: any
 
 local GamepadNav = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("GamepadNav") :: ModuleScript) :: any
 
@@ -633,6 +634,12 @@ local function show(payload: Types.ResultsPayload)
 		if teaser then
 			teaser.Visible = true
 			UiKit.pop(teaser, 0.3)
+		end
+		-- BLAME OF THE CALL sticker, top-right (ClientLib/BlameCard): clear of NEXT CALL!, offer and invite
+		local okB, blameCard = pcall(BlameCard.build, root, payload)
+		if okB and blameCard then
+			UiKit.pop(blameCard, 0.35)
+			sfx("Stamp", 0.6)
 		end
 		-- the pass offer (if one came) only after the buttons, a beat later
 		task.wait(0.8)

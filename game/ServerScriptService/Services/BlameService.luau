@@ -25,6 +25,11 @@
 --   HazardService.Zapped(victim, culprit)   -> victim.zapped; culprit.zappedOthers           (+ callout)
 --   HazardService.Flung(victim, "explosion")-> victim.explosions (was nearest)                (+ callout)
 --   Player attrs: Carrying ~= "" -> carrySeconds
+--   HazardService.Caused(culprit, "backdraft") -> culprit.backdraftsCaused
+--   RescueService.Thrown(player, id)        -> yeets
+--   HandsService.Slapped(slapper, victim)   -> pairs["slap:<victim>"]
+-- Per-pair tallies for the results' BLAME OF THE CALL card (StarterPlayerScripts/Lib/BlameOfCall): row.pairs =
+-- { ["hose:<victimUserId>"] = n, ["down:..."], ["zap:..."], ["slap:..."] } on the actor's row (sent in stats).
 -- Counters: blame_callouts, awards_built
 -- Test hooks (DevHook only): _bump(player, field, n), _callout(event, actor, victim?), _selftest()
 local Players = game:GetService("Players")
@@ -55,6 +60,8 @@ local EXTRAS = {
 	"explosions",
 	"revives",
 	"carrySeconds",
+	"backdraftsCaused",
+	"yeets",
 }
 
 local services: { [string]: any } = {}
@@ -112,6 +119,7 @@ local function entry(player: Player): { [string]: any }
 		for _, f in EXTRAS do
 			row[f] = 0
 		end
+		row.pairs = {}
 		ledger[player.UserId] = row
 		return row
 	end
@@ -132,6 +140,16 @@ local function bump(player: any, field: string, n: number?)
 		return
 	end
 	s[field] += (n or 1)
+end
+
+-- actor did `kind` to victim (one more time): BLAME OF THE CALL's "Bob sprayed Alice 3 times"
+local function pair(actor: any, kind: string, victim: any)
+	if not isPlayer(actor) or not isPlayer(victim) or actor == victim then
+		return
+	end
+	local row = entry(actor :: Player)
+	local key = `{kind}:{(victim :: Player).UserId}`
+	row.pairs[key] = (row.pairs[key] or 0) + 1
 end
 
 local function callout(event: string, actor: Player, victim: Player?)
@@ -226,6 +244,7 @@ function BlameService:Start()
 		lastHoseCount[key] = now
 		bump(sprayer, "teammateSprayed")
 		bump(victim, "hosedBy")
+		pair(sprayer, "hose", victim)
 		callout("hose", sprayer, victim)
 	end)
 
@@ -240,6 +259,9 @@ function BlameService:Start()
 			bump(player, "dogs")
 		end
 	end)
+	connect(Rescue, "Thrown", function(player: Player, _id: string)
+		bump(player, "yeets")
+	end)
 	connect(Rescue, "Dropped", function(player: Player, _id: string)
 		bump(player, "drops")
 		callout("drop", player, nil)
@@ -250,6 +272,7 @@ function BlameService:Start()
 		bump(victim, "timesDowned")
 		if culprit and culprit ~= victim and isPlayer(culprit) then
 			bump(culprit, "downedOthers")
+			pair(culprit, "down", victim)
 			callout("down", culprit, victim)
 		end
 	end)
@@ -264,8 +287,17 @@ function BlameService:Start()
 		bump(victim, "zapped")
 		if culprit and culprit ~= victim and isPlayer(culprit) then
 			bump(culprit, "zappedOthers")
+			pair(culprit, "zap", victim)
 			callout("zap", culprit, victim)
 		end
+	end)
+	connect(Hazard, "Caused", function(culprit: Player?, hazardId: string)
+		if hazardId == "backdraft" then
+			bump(culprit, "backdraftsCaused")
+		end
+	end)
+	connect(services.HandsService, "Slapped", function(slapper: Player, victim: Player?)
+		pair(slapper, "slap", victim)
 	end)
 	connect(Hazard, "Flung", function(victim: Player, hazardId: string)
 		if hazardId == "explosion" then
@@ -307,6 +339,7 @@ end
 
 function BlameService:GetStats(player: Player): Types.PlayerStats
 	local s = table.clone(entry(player))
+	s.pairs = table.clone(s.pairs or {})
 	s.helmet = helmetOf(player)
 	s.name = player.DisplayName
 	s.water = math.floor(s.water)
