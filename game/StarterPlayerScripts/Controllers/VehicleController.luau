@@ -190,9 +190,9 @@ local function step(truck: Model, dt: number)
 	for i, c in CORNERS do
 		local origin = cf:PointToWorldSpace(c)
 		local res = workspace:Raycast(origin + up * lift, -up * (rest + lift), params)
-		local dist = if res then res.Distance - lift else nil
+		local dist = if res then TruckDrive.cornerDist(res.Distance, lift) else nil
 		if res and dist and res.Instance.Anchored and res.Instance.CanCollide then
-			deepest = math.max(deepest, bottom - dist)
+			deepest = math.max(deepest, TruckDrive.sinkDepth(dist, bottom))
 		end
 		if dist then
 			hits += 1
@@ -225,11 +225,8 @@ local function step(truck: Model, dt: number)
 		local fall = tonumber(cfgAny.MaxFallSpeed) or 120
 		local fling = tonumber(cfgAny.MaxFlingSpeed) or 150
 		if vc.Y < -fall or vc.Magnitude > fling then
-			local capped = Vector3.new(vc.X, math.max(vc.Y, -fall), vc.Z)
-			if capped.Magnitude > fling then
-				capped = capped.Unit * fling
-			end
-			chassis.AssemblyLinearVelocity = capped
+			local x, y, z = TruckDrive.capVelocity(vc.X, vc.Y, vc.Z, fall, fling)
+			chassis.AssemblyLinearVelocity = Vector3.new(x, y, z)
 		end
 	end
 
