@@ -295,4 +295,20 @@ Spec.test("markUpdateSeen / markNotifyPrompted are once per version and repair j
 	Spec.eq(Schema.markUpdateSeen(p, "2026.11.01"), true, "missing table is recreated")
 end)
 
+Spec.test("updates.likeAsks: starts at 0, repairs junk, counts up", function()
+	Spec.eq(Schema.default(NOW).updates.likeAsks, 0)
+	local old = Schema.migrate({ version = 8, updates = { lastSeen = "2026.10.24", prompted = "" } }, NOW) :: any
+	Spec.eq(old.updates.likeAsks, 0, "a v8 save without it reads as 0")
+	Spec.eq(old.updates.lastSeen, "2026.10.24", "kept")
+	local bad = Schema.migrate({ version = 8, updates = { likeAsks = "lots" } }, NOW) :: any
+	Spec.eq(bad.updates.likeAsks, 0, "wrong type reset")
+	local neg = Schema.migrate({ version = 8, updates = { likeAsks = -4 } }, NOW) :: any
+	Spec.eq(neg.updates.likeAsks, 0, "negative clamped")
+	Spec.eq(Schema.markLikeAsked(old), 1)
+	Spec.eq(Schema.markLikeAsked(old), 2)
+	Spec.eq(Schema.reconcile(old, NOW).updates.likeAsks, 2, "survives a reconcile")
+	old.updates = nil
+	Spec.eq(Schema.markLikeAsked(old), 1, "missing table is recreated")
+end)
+
 return Spec.finish()

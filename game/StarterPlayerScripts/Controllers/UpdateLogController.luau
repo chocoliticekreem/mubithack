@@ -49,6 +49,7 @@ local autoShown = false -- popped up by itself this session
 local tappedNotify = false
 local canNotify = false
 local canFavorite = false
+local favPending = false -- our own favorite prompt is open (SocialAskController logs the like card's)
 local eventRemote: RemoteEvent? = nil
 local seenRemote: RemoteEvent? = nil
 
@@ -146,6 +147,7 @@ local function promptFavorite()
 		AvatarEditorService:PromptSetFavorite(game.PlaceId, Enum.AvatarItemType.Asset, true)
 	end)
 	if ok then
+		favPending = true
 		logEvent("FavoritePrompted")
 	end
 end
@@ -535,8 +537,12 @@ function UpdateLogController:Start()
 	end
 	pcall(function()
 		AvatarEditorService.PromptSetFavoriteCompleted:Connect(function(result: Enum.AvatarPromptResult)
+			local mine = favPending
+			favPending = false
 			if result == Enum.AvatarPromptResult.Success then
-				logEvent("FavoriteAccepted")
+				if mine then
+					logEvent("FavoriteAccepted")
+				end
 				canFavorite = false
 				layoutButtons()
 			end
