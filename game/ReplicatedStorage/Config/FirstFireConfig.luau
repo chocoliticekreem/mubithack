@@ -30,7 +30,7 @@ return Config.define({
 	AutoQueue = true,
 	AutoQueueDelay = 3, -- s after the fire is out (the reward pop owns the screen first)
 	FirstCall = "house_fire", -- the plain core loop (spray fires, carry people out): gas_leak's valves + tanker countdown was too much for a first call
-	QueueCountdown = 12, -- s on the pad before it rolls: time to read the card and pick GO NOW / NOT YET
+	QueueCountdown = 7, -- s on the pad before it rolls (was 12: a dead wait right after the tutorial fire, where 2 players quit); GO NOW still skips it
 	QueueRetries = 2, -- the first call's squad dissolved while you were still queued: queue you again this often
 	CelebrateSeconds = 3, -- the client's "FIRE OUT!" card
 	-- client copy
