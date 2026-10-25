@@ -19,7 +19,7 @@ return Config.define({
 	SlowRadius = 40, -- studs around the moment whose particles / sounds get stretched
 	CaptionTextSize = 96, -- px at 1280x720 (calm: CalmCaptionTextSize)
 	CalmCaptionTextSize = 60,
-	OoohSoundId = "rbxassetid://9116436574", -- crowd "ooooh" (calm: quieter)
+	OoohSoundId = "rbxassetid://129780458701452", -- sitcom crowd "ooooh", 2 s, Creator Store (loads in Studio)
 	OoohVolume = 0.7,
 	CalmOoohVolume = 0.35,
 

@@ -15,7 +15,7 @@
 -- driving fast, over a modal or the results screen; POP-UPS: OFF = none, MINIMAL = only ones you're in;
 -- EFFECTS: CALM (ClientLib/Calm, phones) = shorter, smaller caption, softer camera, no slow-mo / bars.
 -- Counters (ForgeTelemetry, client): moment_shown, moment_<kind>.
--- Studio test: Player attr MomentTest = true skips the cooldown.
+-- Studio test: Player attr MomentTest = true skips the cooldown; MomentHold = n keeps caption / bars n s longer.
 -- Test hook: MomentController:_play(kind, sub?) shows the beat now (no rules).
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
@@ -244,7 +244,7 @@ local function caption(gui: ScreenGui, word: string, sub: string?, size: number,
 	holder.Name = "Caption"
 	holder.BackgroundTransparency = 1
 	holder.AnchorPoint = Vector2.new(0.5, 0.5)
-	holder.Position = UDim2.fromScale(0.5, 0.3)
+	holder.Position = UDim2.fromScale(0.5, 0.4)
 	holder.Size = UDim2.fromOffset(1000, size + 50)
 	holder.Rotation = -5
 	holder.ZIndex = 5
@@ -286,7 +286,7 @@ local function caption(gui: ScreenGui, word: string, sub: string?, size: number,
 		if not holder.Parent then
 			return
 		end
-		UiKit.tween(holder, 0.3, { Position = UDim2.fromScale(0.5, 0.26) })
+		UiKit.tween(holder, 0.3, { Position = UDim2.fromScale(0.5, 0.36) })
 		UiKit.tween(word_, 0.3, { TextTransparency = 1 })
 		local s = word_:FindFirstChildOfClass("UIStroke")
 		if s then
@@ -313,13 +313,14 @@ local function play(kind: string, pos: Vector3?, sub: string?, calm: boolean)
 	playToken += 1
 	local token = playToken
 	local beat = MomentRules.beat(Cfg, calm)
+	local hold = if RunService:IsStudio() then tonumber(player:GetAttribute("MomentHold")) or 0 else 0
 	local gui = screenGui()
-	caption(gui, def.caption, sub, beat.captionSize, Calm.seconds(beat.seconds + 0.6, 1.1))
+	caption(gui, def.caption, sub, beat.captionSize, Calm.seconds(beat.seconds + 0.6, 1.1) + hold)
 	fovPunch(beat.fov, beat.seconds, token)
 	shake(beat.shake, beat.seconds * 0.6)
 	if beat.slow then
-		letterbox(gui, beat.seconds)
-		grade(beat.seconds)
+		letterbox(gui, beat.seconds + hold)
+		grade(beat.seconds + hold)
 		if pos then
 			slowNearby(pos, beat.seconds)
 		end
