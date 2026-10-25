@@ -266,7 +266,7 @@ local function renderPad(padId: number)
 		ready = LobbyQueue.readyText(#pad.members, cap),
 		count = if locked and secs then `{LobbyConfig.LockText} {secs}`
 			elseif secs then `ROLLING IN {secs}`
-			elseif #pad.members == 0 then "STEP ON TO JOIN"
+			elseif #pad.members == 0 then "STEP ON!"
 			else "",
 		names = table.concat(names, "  "),
 		color = if hot or locked then C.PadHot elseif #pad.members > 0 then C.PadForming else C.PadIdle,

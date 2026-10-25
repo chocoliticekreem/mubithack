@@ -15,7 +15,7 @@ return Config.define({
 	AlarmFromSeconds = 3, -- station alarm lamps flash + siren at 3..2..1
 	BigCountdownFrom = 5, -- the client shows the big centre number from here down
 	ReturnSeconds = 20, -- safety net: after MissionEnded, bring home anyone MissionService didn't (its results take 15 s)
-	PadRadius = 7.5, -- studs (horizontal) from the pad centre that count as "on the pad" (14-stud pads)
+	PadRadius = 8.5, -- studs (horizontal) from the pad centre that count as "on the pad" (16-stud pads, LobbyProps.Layout)
 	PadHeight = 40, -- studs above the pad that still count: membership is really horizontal-only (kids jump
 	--                 constantly; the old 7 dropped anyone at the top of a jump off their squad)
 	PadGraceSeconds = 1.5, -- off the pad this briefly (a stumble, a knockback, a ragdoll) doesn't leave the squad
@@ -23,7 +23,7 @@ return Config.define({
 	-- invisible fence goes up and anyone outside LockRadius is pulled back in); at 0 everyone is put
 	-- straight into a seat of the squad's truck (leader drives) behind a quick fade, no running to a bay.
 	LockSeconds = 5,
-	LockRadius = 7, -- studs: a locked member's root further than this from the pad centre is pulled back (the fence stops walkers at ~6.3)
+	LockRadius = 8, -- studs: a locked member's root further than this from the pad centre is pulled back (the fence stops walkers at ~7.3)
 	LockText = "LOCKED IN!",
 	BoardIntoTruck = true, -- false = the old "run to your bay and get in" launch
 	BoardFadeSeconds = 0.25, -- client fade to black before the seat teleport (then it fades back in)

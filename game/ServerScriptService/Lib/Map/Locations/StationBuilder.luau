@@ -32,10 +32,12 @@
 --       interior window over the apparatus floor. The pole runs from the Mat to the upstairs floor
 --       ("Pole", LobbyService slides from its top) and on to the roof ("PoleTop").
 --   Roof: parapet, "67" medallion, rooftop siren horns (AlarmSpeaker, Bay 0), corner beacons.
---   Outside: apron with bay numbers, plaza for the lobby (LobbyProps puts the board + pads there; open,
---       no planters / benches), 8 "OutsideSpawn" points on the plaza (tag OutsideSpawn, attr Slot 1..8:
---       MapService spawns players here first), "STATION 67" facade sign, flagpole, a kerb lamp, trees,
---       bushes, hydrant (all west of the plaza or well off the driving area).
+--   Outside: apron with bay numbers; the front yard ("Plaza", X -104..-22, Z 30..64) is the lobby, one
+--       straight line from the door to the street: LOCKER door (x -53, big LOCKER sign over it) -> START
+--       row: 8 "OutsideSpawn" points (tag OutsideSpawn, attr Slot 1..8, Z 36.5, facing the pads; MapService
+--       spawns players here first) -> LobbyProps' 3 big squad pads (Z 50) -> the PICK A MISSION board at
+--       the street edge. Nothing else stands in the yard (no planters, benches, flagpole or trees);
+--       "STATION 67" facade sign, a kerb lamp, bushes along the wall, hydrant.
 --   Grounds (lot X -164..164, Z -164..68, all real ground): open paved plaza,
 --       memorial garden west (fountain, bronze statue, flags), parking lot east (empty open asphalt: overflow truck parking), training
 --       yard behind (drill tower, burn box), hedges on the property edge, rooftop "STATION 67" sign, and
@@ -542,7 +544,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	------------------------------------------------------------ ground, apron, street
 	span(ground, "Lawn", -164, 164, LAWN_Y - 1, LAWN_Y, -164, KERB_Z - 4, C.Lawn)
 	span(ground, "Apron", -22, 62, APRON_Y - 1, APRON_Y, 30, KERB_Z, C.Concrete)
-	span(ground, "Plaza", -60, -22, APRON_Y - 1, APRON_Y, 30, KERB_Z - 4, C.ConcreteDark)
+	span(ground, "Plaza", -104, -22, APRON_Y - 1, APRON_Y, 30, KERB_Z - 4, C.ConcreteDark) -- the lobby yard (LobbyProps)
 	span(ground, "YardBack", 20, 76, APRON_Y - 1, APRON_Y, -56, -40, C.Concrete) -- behind the hall, by the tower
 	span(ground, "WalkW", -164, -22, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
 	span(ground, "WalkE", 62, 164, WALK_Y - 1, WALK_Y, KERB_Z - 4, KERB_Z, C.Sidewalk)
@@ -1093,8 +1095,12 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	span(outside, "DoorL", -56.6, -56, FLOOR, FLOOR + 9, 30, 30.6, C.Trim)
 	span(outside, "DoorR", -50, -49.4, FLOOR, FLOOR + 9, 30, 30.6, C.Trim)
 	part(outside, "Awning", CFrame.new(-53, FLOOR + 10.4, 31.6) * CFrame.Angles(math.rad(12), 0, 0), V(10, 0.5, 3.4), C.TruckRed)
-	local entry = plate(outside, "EntrySign", -53, FLOOR + 10.4, 33.3, 0, 1, 10, 0.9, C.TruckRed)
-	label(entry, Enum.NormalId.Front, "WATCH DESK - PLEASE KNOCK", C.Trim, Enum.Font.FredokaOne)
+	-- the door to the locker room (through the watch room): a big LOCKER sign you can read from the pads
+	local entry = plate(outside, "EntrySign", -53, FLOOR + 12.2, 33.3, 0, 1, 12, 2.6, C.TruckRed)
+	label(entry, Enum.NormalId.Front, "LOCKER", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
+	-- and inside, over the watch room -> locker room door (x -52..-47), so the way on is obvious
+	local inner = plate(watch, "LockerDoorSign", -49.5, FLOOR + 10.2, 6.6, 0, 1, 6, 1.4, C.TruckRed)
+	label(inner, Enum.NormalId.Front, "LOCKER", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 
 	------------------------------------------------------------ kitchen
 	prop("counter", kitchen, facing(-38.6, FLOOR, 16, 1, 0), { length = 6, sink = true }, function()
@@ -1159,23 +1165,15 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 
 	------------------------------------------------------------ outside
 	-- (no bollards: trucks pull out of the bays at any angle)
-	-- flagpole (west lawn)
-	local flag = folder(outside, "Flagpole")
-	local fx, fz = -74, 56
-	box(flag, "Base", fx, LAWN_Y + 0.4, fz, 3, 0.8, 3, C.Concrete)
-	cyl(flag, "Pole", CFrame.new(fx, LAWN_Y + 0.8 + 16, fz), "y", 32, 0.6, C.Chrome)
-	ball(flag, "Finial", CFrame.new(fx, LAWN_Y + 33.4, fz), 1.2, C.Shield)
-	local cloth = box(flag, "Flag", fx + 0.3 + 3.6, LAWN_Y + 30.4, fz, 7.2, 4.4, 0.4, C.TruckRed, { collide = false })
-	label(cloth, Enum.NormalId.Back, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
-	label(cloth, Enum.NormalId.Front, "67", C.Trim, Enum.Font.LuckiestGuy, C.Ink)
-	-- (no lawn sign east of the apron: it sat right where trucks cut across to the parking lot)
+	-- (no flagpole in the front yard any more: it stood between the pads; the memorial garden has the
+	-- "67" flag. No lawn sign east of the apron: it sat right where trucks cut across to the parking lot)
 	-- bushes along the wing facade, trees around the lot
 	for _, b in { V(-58, 0, 32), V(-47, 0, 32), V(-37, 0, 32), V(-29, 0, 32), V(-63, 0, -30), V(-63, 0, -6), V(-63, 0, 20) } do
 		prop("bush", outside, facing(b.X, LAWN_Y, b.Z, 0, 1), nil, function()
 			ball(outside, "Bush", CFrame.new(b.X, LAWN_Y + 1, b.Z), 3.4, C.Foliage)
 		end)
 	end
-	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(80, 0, -50), V(80, 0, -10), V(-78, 0, 40) } do
+	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(80, 0, -50), V(80, 0, -10) } do
 		local jx = (rng:NextNumber() - 0.5) * 3
 		local jz = (rng:NextNumber() - 0.5) * 3
 		local cf = CFrame.new(t.X + jx, LAWN_Y, t.Z + jz) * CFrame.Angles(0, rng:NextNumber() * math.pi * 2, 0)
@@ -1231,10 +1229,10 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		label(cloth, Enum.NormalId.Back, text, C.Trim, Enum.Font.LuckiestGuy, C.Ink)
 	end
 
-	-- plaza paving: checker of warm pavers inside a brick border
-	local PX0, PX1, PZ0, PZ1 = -60, -22, 30, KERB_Z - 4
-	local cw, cd = (PX1 - PX0) / 6, (PZ1 - PZ0) / 5
-	for ix = 0, 5 do
+	-- front-yard paving (the lobby): checker of warm pavers inside a brick border
+	local PX0, PX1, PZ0, PZ1 = -104, -22, 30, KERB_Z - 4
+	local cw, cd = (PX1 - PX0) / 12, (PZ1 - PZ0) / 5
+	for ix = 0, 11 do
 		for iz = 0, 4 do
 			local x0, z0 = PX0 + ix * cw, PZ0 + iz * cd
 			span(grounds, "Paver", x0 + 0.15, x0 + cw - 0.15, APRON_Y, APRON_Y + 0.04, z0 + 0.15, z0 + cd - 0.15, if (ix + iz) % 2 == 0 then PAVE_A else PAVE_B, { collide = false })
@@ -1243,16 +1241,23 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	span(grounds, "BorderW", PX0, PX0 + 1.2, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
 	span(grounds, "BorderE", PX1 - 1.2, PX1, APRON_Y, APRON_Y + 0.06, PZ0, PZ1, BRICK_PAVE, { collide = false })
 	span(grounds, "BorderS", PX0, PX1, APRON_Y, APRON_Y + 0.06, PZ1 - 1.2, PZ1, BRICK_PAVE, { collide = false })
-	-- (no planters / benches on the plaza: it's open space where players spawn and trucks swing through)
-	-- Outside spawn points (tag OutsideSpawn, attr Slot 1..8) on the plaza, clear of LobbyProps' squad pads
-	-- (z 51, radius 7.7), Mission Board (X -46..-34, Z 37-39) and the bushes along the wing (Z 32): five
-	-- between the pads and the sidewalk, three in the gaps between the bushes. MapService:GetSpawnCFrame
-	-- uses them first, the locker-room pads only when all are blocked.
+	-- (no planters / benches / flagpoles in the yard: it's open space where players spawn and walk to a pad)
+	-- START row: the outside spawn points (tag OutsideSpawn, attr Slot 1..8) in one line along the wing,
+	-- between the bushes (Z 32) and LobbyProps' squad pads (Z 50, radius 8; their GO arrows at Z 37..40),
+	-- all FACING the pads, so the first thing you see is three glowing pads and the PICK A MISSION board.
+	-- MapService:GetSpawnCFrame uses them first, the locker-room pads only when all are blocked.
+	local START_Z = 36.5 -- LobbyProps.Layout.StartZ
+	local startMat = box(grounds, "StartMat", -61, APRON_Y + 0.03, START_Z, 46, 0.06, 5, C.Line, { transparency = 1, collide = false })
+	startMat.CanQuery = false
+	label(startMat, Enum.NormalId.Top, "START", C.TruckRed, Enum.Font.LuckiestGuy, C.Trim, 10)
 	local spawnsOut = folder(grounds, "OutsideSpawns")
-	local SPAWN_XZ = { { -56, 62.5 }, { -49, 62.5 }, { -42, 62.5 }, { -35, 62.5 }, { -28, 62.5 }, { -52, 34.5 }, { -42, 34.5 }, { -33, 34.5 } }
+	local SPAWN_XZ = {}
+	for k = 1, 8 do
+		SPAWN_XZ[k] = { -82 + (k - 1) * 6, START_Z }
+	end
 	for k, xz in SPAWN_XZ do
 		local x, z = xz[1], xz[2]
-		local sp = part(spawnsOut, `OutsideSpawn{k}`, facing(x, APRON_Y + 0.1, z, 1, 0), V(4, 0.2, 4), C.Line, { transparency = 1, collide = false })
+		local sp = part(spawnsOut, `OutsideSpawn{k}`, facing(x, APRON_Y + 0.1, z, 0, 1), V(4, 0.2, 4), C.Line, { transparency = 1, collide = false })
 		sp.CanQuery = false
 		sp.CanTouch = false
 		CollectionService:AddTag(sp, "OutsideSpawn")
@@ -1268,8 +1273,8 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 
 	-- memorial garden (west): fountain, bronze statue, flags, benches, trees
 	local GX, GZ = -122, 4
-	span(grounds, "GardenPath", -96, -60, APRON_Y - 1, APRON_Y, 46, 52, PAVE_B)
-	span(grounds, "GardenPathLink", GX - 3, -96, APRON_Y - 1, APRON_Y, 46, 52, PAVE_B)
+	-- the path from the garden ends at the front yard (X -104), it no longer runs across it
+	span(grounds, "GardenPathLink", GX - 3, -104, APRON_Y - 1, APRON_Y, 46, 52, PAVE_B)
 	span(grounds, "GardenPathX", -152, -92, APRON_Y - 1, APRON_Y, GZ - 3, GZ + 3, PAVE_B)
 	span(grounds, "GardenPathZ", GX - 3, GX + 3, APRON_Y - 1, APRON_Y, -50, 52, PAVE_B)
 	cyl(grounds, "FountainRing", CFrame.new(GX, APRON_Y - 0.45, GZ), "y", 1, 36, BRICK_PAVE)
