@@ -15,9 +15,9 @@ return Config.define({
 	-- Key hints ("press E") are rewritten for touch / gamepad by ClientLib/InputHints; subTouch / subPad
 	-- replace a line whole where that rewrite isn't enough.
 	Steps = {
-		gear = { head = "GRAB YOUR GEAR", sub = "The big red LOCKER in the locker room. Walk up and press E.", subTouch = "The big red LOCKER in the locker room. Walk up and tap it!" },
-		board = { head = "CHECK THE MISSION BOARD", sub = "Out front by the bays. Press E to pick a call." },
-		pad = { head = "STEP ON A GLOWING PAD", sub = "Bring friends! Everyone on the pad rolls out together." },
+		gear = { head = "GRAB YOUR GEAR", sub = "In the LOCKER door, then the big red locker. Walk up and press E.", subTouch = "In the LOCKER door, then the big red locker. Walk up and tap it!" },
+		board = { head = "PICK A MISSION", sub = "The big board out front, past the pads. Press E to pick a call.", subTouch = "The big board out front, past the pads. Tap it to pick a call!" },
+		pad = { head = "STEP ON A GLOWING PAD", sub = "Out front, right by the door. Everyone on the pad rolls out together!" },
 		wait = { head = "ROLLING OUT SOON", sub = "Stay on the pad: at 0 you start IN your fire truck. Leader can hit GO NOW." },
 	},
 	Hints = {

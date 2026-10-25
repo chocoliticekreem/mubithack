@@ -100,6 +100,16 @@ function OnboardingService:SpawnCFrame(who: any): CFrame?
 	if OnboardingConfig.SpawnFaceBays == false then
 		return base
 	end
+	-- the front yard's START row (tag OutsideSpawn) already faces the squad pads: keep that facing; only
+	-- the locker-room pads (the fallback) get turned toward the bays
+	for _, sp in CollectionService:GetTagged("OutsideSpawn") do
+		if sp:IsA("BasePart") then
+			local d = sp.Position - base.Position
+			if d.X * d.X + d.Z * d.Z < 1 then
+				return base
+			end
+		end
+	end
 	local bay = bayFor(slot)
 	if not bay then
 		return base

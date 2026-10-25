@@ -933,6 +933,13 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		blocked = Highway.blocked(cfg),
 		lamps = { X = { red = {}, amber = {}, green = {} }, Z = { red = {}, amber = {}, green = {} } },
 	}
+	-- the station's front yard is the lobby (LobbyProps: START row, 3 squad pads, the mission board): no
+	-- verge trees / lamps on it (one tree used to grow out of pad 1). Station-local X -112..-18, Z 26..60 (clear() pads it by 4: the sidewalk lamps stay).
+	local so = CityConfig.StationOrigin
+	if typeof(so) == "CFrame" then
+		local a, b = so * V(-112, 0, 26), so * V(-18, 0, 60)
+		table.insert(ctx.blocked, { x0 = math.min(a.X, b.X), z0 = math.min(a.Z, b.Z), x1 = math.max(a.X, b.X), z1 = math.max(a.Z, b.Z) })
+	end
 	-- keep lamps / trees out of curb cuts, gates and spur mouths
 	for _, s in plan.sites do
 		if s.lot and s.truck then
