@@ -460,12 +460,32 @@ local function show(payload: Types.ResultsPayload)
 		font = UiKit.Header,
 		textSize = 17,
 	})
-	UiKit.label(timeChip, "Value", UiKit.clock(payload.seconds), UDim2.new(1, -10, 0, 48), UDim2.fromOffset(5, 30), {
+	local timeValue = UiKit.label(timeChip, "Value", UiKit.clock(payload.seconds), UDim2.new(1, -10, 0, 48), UDim2.fromOffset(5, 30), {
 		font = UiKit.Header,
 		textSize = 42,
 		color = Palette.UiWater,
 		stroke = true,
 	})
+	-- speed run (TwistService): this server's best all-clear at this site, one small line under the time
+	local bestSecs = tonumber((payload :: any).bestSeconds)
+	if bestSecs then
+		timeValue.Size, timeValue.Position, timeValue.TextSize = UDim2.new(1, -10, 0, 36), UDim2.fromOffset(5, 26), 36
+		local isNew = (payload :: any).newRecord == true
+		local bestLine = UiKit.label(timeChip, "Best", if isNew then "NEW RECORD!" else `BEST {UiKit.clock(bestSecs)}`, UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, 62), {
+			font = UiKit.Header,
+			textSize = 15,
+			color = if isNew then Palette.UiGood else Palette.UiInk,
+			stroke = isNew,
+		})
+		if isNew then
+			task.delay(1.2, function()
+				if token == showToken and bestLine.Parent then
+					UiKit.pop(bestLine, 0.35)
+					sfx("Star", 0.6, 1.4)
+				end
+			end)
+		end
+	end
 
 	-- XP earned this run: profile XP (+ battle pass XP for pass owners). Both arrive just after this screen
 	-- opens (DataService / BattlePassService handle MissionEnded after the results go out), so it ticks up.

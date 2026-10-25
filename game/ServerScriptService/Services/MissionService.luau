@@ -355,6 +355,8 @@ local function rescueCounts(run: Live): (number, number, number)
 			local state = m:GetAttribute(Names.Attr.RescueState)
 			if state == "Rescued" then
 				rescued += 1
+			elseif m:GetAttribute("Bonus") == true then
+				continue -- a twist's bonus rescue (TwistService cat): counts once saved, never holds the call
 			elseif state == "Toasted" then -- lost, not still trapped (but still part of the total)
 				lost += 1
 			else
@@ -977,6 +979,12 @@ local function onEnded(run: Live)
 	end)
 	local payload = buildPayload(run)
 	run.payload = payload
+	safe("twist results", function() -- speed run: bestSeconds / newRecord (TwistService)
+		local Twist = services.TwistService
+		if Twist and type(Twist.OnResults) == "function" then
+			Twist:OnResults(run.id, payload)
+		end
+	end)
 	if resultsRemote then
 		for _, p in run.players do
 			resultsRemote:FireClient(p, payload)
@@ -1872,6 +1880,7 @@ function MissionService:GetMission(instanceId: string): Types.MissionRun?
 		siteId = run.siteId,
 		roundState = state, -- raw: "Dispatched" while driving
 		mode = run.mode,
+		rookie = run.rookie == true, -- GameConfig.Rookie (TwistService: no twist on a rookie call)
 	} :: any
 end
 
