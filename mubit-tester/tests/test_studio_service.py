@@ -286,7 +286,7 @@ async def test_make_game_builds_installs_improves_and_says_ready(service, monkey
     result = job['result']
     assert result['in_studio'] and result['studio_current'] and result['ready']
     assert result['standard'] == {'ready': True, 'review': False, 'reason': 'score 7/10 with 0 errors', 'score': 7, 'errors': 0,
-                                  'rounds': 2}
+                                  'rounds': 2, 'acceptance': {'met': 0, 'total': 0}, 'qa': {'reached': 0, 'total': 0}}
     assert job['progress']['pct'] == 100
     assert seen[0] == 70 and seen == sorted(seen) and any(70 <= p <= 75 for p in seen[1:3])
     assert service.sessions['test-marker']['game_slug'] == result['slug']
@@ -319,7 +319,8 @@ async def test_round_event_says_what_the_round_changed_and_taught(service, monke
     job = submit(service, 'make_game', idea='an obby')
     await service.task
     messages = [e['message'] for e in job['events']]
-    assert f'Round 1: {line}; 0 errors' in messages
+    tail = 'fixed: StudioSelfTest; taught the fixer: StudioSelfTest left zone_cleared at 0 after 6 tries'
+    assert any(m.startswith(f'Round 1: score 6/10, 0 errors; {tail}') for m in messages), messages
 
 
 async def test_cancel_mid_round_stops_the_job(service, monkeypatch):
