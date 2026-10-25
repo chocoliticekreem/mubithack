@@ -950,8 +950,8 @@ local function onArrived(run: Live)
 	safe("flare-up", function()
 		local Fire = services.FireService
 		local rk = rookieCfg(run)
-		if rk and Fire and type(Fire.SetLocationCap) == "function" then
-			Fire:SetLocationCap(run.id, tonumber(rk.FireCap)) -- again: a site re-index may have reset it
+		if rk and Fire and type(Fire.SetAreaCap) == "function" then
+			Fire:SetAreaCap(run.model, tonumber(rk.FireCap)) -- again: the run's interior is furnished by now
 		end
 		local already = if Fire and type(Fire.CountBurning) == "function" then (Fire:CountBurning(run.id) or 0) else 0
 		local want = fireTarget(run)
@@ -1049,6 +1049,9 @@ local function onDoneDispatch(run: Live)
 		local Fire = services.FireService
 		if Fire and type(Fire.ClearInstance) == "function" then
 			Fire:ClearInstance(run.id)
+		end
+		if run.rookie and Fire and type(Fire.SetAreaCap) == "function" then
+			Fire:SetAreaCap(run.model, nil) -- the site's next call (maybe not a rookie's) burns normally
 		end
 	end)
 	local siteId = run.siteId
@@ -1665,8 +1668,8 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 		count("rookie_calls")
 		safe("rookie fire cap", function()
 			local Fire = services.FireService
-			if Fire and type(Fire.SetLocationCap) == "function" then
-				Fire:SetLocationCap(id, tonumber(rk.FireCap))
+			if Fire and type(Fire.SetAreaCap) == "function" then
+				Fire:SetAreaCap(model, tonumber(rk.FireCap))
 			end
 		end)
 	end

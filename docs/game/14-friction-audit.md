@@ -26,7 +26,7 @@ were timer-forced. The most common last step was "After Mission Complete" (3 pla
 | Measure | Before | After |
 |---|---|---|
 | First call distance | 1,035-1,229 studs (funnel: 40-65 s drive) | 245 studs, 20 s travel allowance (#237) |
-| Burning parts on a solo first call | climbed to the 120 cap within ~90 s ("FIRES LEFT 120") | 3 on arrival, held at 3-5, capped at 10 (#237) |
+| Burning parts on a solo first call | climbed to the 120 cap within ~90 s ("FIRES LEFT 120": every city call shares the one City fire location's cap) | 3 on arrival, held at 2-6, hard cap of 10 on the site (#237, #246) |
 | Rescues on the first call | 5 | 2 (#237) |
 | Arrival -> fire out when holding the extinguisher | GRAB THE HOSE could not be done: `[T]` refilled foam, the step waited 60 s | `[T]` hands over the hose; a stuck hose step moves to SPRAY THE FIRE after 20 s (#239) |
 | One overheat, solo | SQUAD WIPED, call over, 0 stars | 6 s nap, respawn at the truck, call goes on (#237) |
@@ -44,7 +44,7 @@ it, so it isn't touched here).
 
 | # | Friction | Where | Impact | Copy this | Status |
 |---|---|---|---|---|---|
-| 1 | **GRAB THE HOSE could not be done.** Everyone arrives holding the extinguisher from the training fire, and `[T]` at the truck refilled its foam instead of giving the hose. The first guide step blocked for 60 s while the fire spread, and the extinguisher holds only 5 s of foam. Matches the 42% Arrived -> Fire Out churn. | InventoryService.onReel | Critical | Jailbreak / ER:LC: one prompt on the vehicle hands you its tool, whatever you hold | FIXED #239 |
+| 1 | **GRAB THE HOSE could not be done.** Everyone arrives holding the extinguisher from the training fire, and `[T]` at the truck refilled its foam instead of giving the hose. The first guide step blocked for 60 s while the fire spread, and the extinguisher holds only 5 s of foam. Matches the 42% Arrived -> Fire Out churn. On phones it was worse: the whole truck is one tap target, so tapping near the reel sat you in the back seat instead (fixed in #240). | InventoryService.onReel, TapUseController | Critical | Jailbreak / ER:LC: one prompt on the vehicle hands you its tool, whatever you hold | FIXED #239 (+ #240 for the tap) |
 | 2 | **The first call is far away.** 1,000+ studs on a city route a kid can't read yet (funnel: 40-65 s, 29% lost on the drive). | MissionService.chooseSite (`MinDispatchStuds` 700) | Critical | Natural Disaster Survival: the action comes to you within seconds | FIXED #237 |
 | 3 | **The first call is too big.** 6 fires plus spread to the 120-part cap, 5 rescues, two escalation phases including a flashover, and a 0-star TIME'S UP if you don't finish. "FIRES LEFT" counted *up* to 120. | MissionService, FireService | Critical | Doors / Piggy chapter 1: the first room is easy, difficulty ramps later | FIXED #237 |
 | 4 | **No hook after a call.** The results screen offered only BACK TO STATION, then a 15 s wait and a drive home. | ResultsController | High | Tower Defense Simulator / Doors: a big PLAY AGAIN on the results | FIXED #241 |
