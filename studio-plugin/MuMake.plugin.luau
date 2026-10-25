@@ -1,7 +1,7 @@
 -- MuMake: a guided playthrough notebook inside Studio.
 -- Audience: a first-time teenage creator checking what friends will experience.
 -- Domain: spawn, walk, try an item, finish a goal, explain a mistake, play again.
--- Palette: the MuHack dashboard's cream paper, ink text, leaf and peach pills, butter for live work.
+-- Palette: the MuMake dashboard's cream paper, ink text, leaf and peach pills, butter for live work.
 -- Signature: a visible "What we'll try" checklist that becomes evidence after playing.
 -- Replace tool tabs with a next step, raw reports with outcomes, IDs with action choices.
 -- Intent: calm, readable, one choice at a time; Fredoka headings, Nunito body, 8px rhythm,
