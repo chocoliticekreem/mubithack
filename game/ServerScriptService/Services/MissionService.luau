@@ -18,6 +18,7 @@
 --   MissionService:EndMission(instanceId: string, reason: Types.EndReason)
 --   MissionService:GetMission(instanceId: string): Types.MissionRun?
 --   MissionService:GetMissions(): { Types.MissionRun }
+--   MissionService:LeaveResults(player): boolean  -- NEXT CALL!: leave a finished dispatch run's results now
 -- Signals: RoundStarted(locationId: string)                 -- a run went Active (ROLL OUT)
 --          RoundEnded(payload: Types.ResultsPayload)          -- every run's results (v1 listeners)
 --          MissionStarted(instanceId: string, missionId: string)
@@ -1909,6 +1910,36 @@ end
 
 function MissionService:GetState(): Types.RoundState
 	return (workspace:GetAttribute(Names.Attr.RoundState) :: any) or "Lobby"
+end
+
+-- NEXT CALL! on the results screen (DispatchService Dispatch/Next): step out of a finished dispatch run
+-- now instead of waiting out its results timer. Only while that run shows Results; the run itself still
+-- ends for everyone else on its own timer. true = the player is free of any run.
+function MissionService:LeaveResults(player: Player): boolean
+	local run = runOf(player)
+	if run == nil then
+		return true
+	end
+	if run.mode ~= "dispatch" or run.flow.state ~= "Results" then
+		return false
+	end
+	local i = table.find(run.players, player)
+	if i then
+		table.remove(run.players, i)
+	end
+	player:SetAttribute(Names.Attr.InstanceId, "")
+	safe("LeaveResults cleanup", function()
+		local Inv = services.InventoryService
+		if Inv and type(Inv.StowHose) == "function" then
+			Inv:StowHose(player)
+		end
+		local Nav = services.NavigationService
+		if Nav and type(Nav.ClearWaypoint) == "function" then
+			Nav:ClearWaypoint({ player })
+		end
+	end)
+	count("results_left_early")
+	return true
 end
 
 -- test hooks -----------------------------------------------------------------------------------------
