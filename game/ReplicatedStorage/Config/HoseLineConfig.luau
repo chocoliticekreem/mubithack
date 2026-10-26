@@ -15,13 +15,13 @@ return Config.define({
 	Thickness = 0.55, -- segment diameter (physics part)
 	Density = 0.35, -- light: the hose drapes, it doesn't anchor you
 	Friction = 0.8,
-	HandRopeLength = 1.5, -- rope from the last segment to the holder's hand
+	HandRopeLength = 1.5, -- normal slack between the chain's tip and the hand (no rope: nothing ties you to the hose)
 	-- dropped: the line stays lying from the source to the nozzle (HoseLine.release) until someone picks
 	-- it up, the truck drives off, the call ends or nobody touched it for LyingSeconds
 	LyingRopeLength = 2, -- the lying chain's tip is tied this close to the dropped nozzle
 	LyingSeconds = 120, -- a dropped nozzle (and its line) reels itself back in after this long
 	LyingStowSpeed = 6, -- studs/s: the source truck driving off reels its lying lines in
-	FollowForce = 2500, -- pull on the hose tip toward the hand (never on the holder)
+	FollowForce = 8000, -- pull on the hose tip toward the hand (never on the holder); 2500 stalled the tip ~100 studs out
 	FollowResponsiveness = 30,
 	OwnerSplit = 0.5, -- segments [1..N*split] stay server-owned, the rest are owned by the holder
 
@@ -31,6 +31,7 @@ return Config.define({
 	YankGap = 1e9, -- off: a chain dragging behind you while you walk is not taut (it yanked every step)
 	YankCooldown = 0.7,
 	SnapFactor = 1.9, -- straight distance > length * this (a teleport) => the hose detaches
+	SnapGap = 100, -- hand this far past the chain's tip for 0.25 s (teleport, Truck reset!, a snag) => you let go of the line (a walking tip lags up to ~50)
 
 	-- stepping on hoses
 	StandRadius = 1.4, -- feet within this of a segment = standing on it

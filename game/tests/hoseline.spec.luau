@@ -9,6 +9,7 @@ local cfg = {
 	TangleLoss = 0.15,
 	MinPressure = 0.1,
 	SnapFactor = 1.9,
+	SnapGap = 100,
 	YankGap = 3.5,
 	TripSpeed = 13,
 	StandRadius = 1.4,
@@ -107,6 +108,21 @@ Spec.test("stretchState: slack, end of the line, wrapped taut, snapped", functio
 	Spec.eq(HoseLine.stretchState(36, 35, 0, cfg), "yank")
 	Spec.eq(HoseLine.stretchState(10, 35, 5, cfg), "yank", "taut round a pole")
 	Spec.eq(HoseLine.stretchState(80, 35, 0, cfg), "snap")
+end)
+
+Spec.test("stretchState: the hand far past the tip lets go of the line (never pulls you back)", function()
+	-- regression: a RopeConstraint from the chain to the hand teleported/dragged the holder whenever
+	-- the hand ended up past it (teleport, Truck reset!). Now that case is a snap, inside the hose length.
+	Spec.eq(HoseLine.stretchState(150, 200, 160, cfg), "snap", "teleported 160 past the tip")
+	Spec.truthy(HoseLine.stretchState(150, 200, 60, cfg) ~= "snap", "a lagging tip is fine")
+	Spec.truthy(HoseLine.stretchState(150, 200, 160, { SnapFactor = 1.9, YankGap = 1e9 }) ~= "snap", "no SnapGap: off")
+end)
+
+Spec.test("canReach: never lay a line toward a hand the hose can't reach", function()
+	local size = P(2, 2, 2)
+	Spec.truthy(HoseLine.canReach(P(0, 0, 0), P(150, 0, 0), size, 200))
+	Spec.truthy(HoseLine.canReach(P(0, 0, 0), P(200.5, 0, 0), size, 200), "box radius counts")
+	Spec.eq(HoseLine.canReach(P(0, 0, 0), P(0, 0, 700), size, 200), false, "truck reset across the map")
 end)
 
 Spec.test("shouldTrip: running across trips, walking or far away doesn't", function()

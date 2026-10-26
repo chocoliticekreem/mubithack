@@ -17,8 +17,13 @@
 --   HoseLine.Kinked: Signal<Player, Player>         -- (hose owner, culprit). Fires when someone has
 --       stood on your hose for KinkDelay s, or when your line first tangles with another player's
 --       (then it fires both ways). The culprit can be the owner (you stood on your own hose).
---   HoseLine.Stranded: Signal<Player, string>       -- ("seat") the holder sat down: InventoryService drops
---       the nozzle (release) right away; if nobody did, the line is detached after the signal.
+--   HoseLine.Stranded: Signal<Player, string>       -- ("seat") the holder sat down, ("snap") the holder
+--       ended up way past the line (teleport, source jumped, snag): InventoryService drops the nozzle
+--       (release) right away; if nobody did, the line is detached after the signal.
+-- NEVER a physical link between the chain and the holder: the tip follows the hand with a one-way
+--   AlignPosition (force on the hose only), the "HandRope" only ties a LYING tip to its dropped nozzle
+--   (disabled while held). A rope to the hand used to drag/teleport the holder whenever the hand
+--   ended up more than the rope length from the tip (teleports, Truck reset!, a whipping chain).
 -- The holder's end: the Hose tool's handle, else the hose slung on the back (character model "InvBack"
 --   with attr Item = "Hose", its "HoseEnd" attachment), else the right hand. An ObjectValue "TipAtt" in
 --   the hose model points at the current end (hand, back or dropped nozzle) for HoseLineController.
@@ -131,14 +136,23 @@ function HoseLine.stepContact(t: number, touching: boolean, dt: number, delay: n
 	return nt, t < delay and nt >= delay
 end
 
--- "none" | "yank" (hit the end, or the chain is taut round something) | "snap" (way past: detach)
+-- "none" | "yank" (hit the end, or the chain is taut round something) | "snap" (way past, or the hand
+-- is suddenly far from the chain's tip: a teleport, a source that jumped, a snag): let go of the line.
+-- Nothing physical ties the holder to the chain, so a snap is the ONLY way the line ever "wins".
 function HoseLine.stretchState(dist: number, length: number, endGap: number, cfg: any): string
-	if dist > length * cfg.SnapFactor then
+	if dist > length * cfg.SnapFactor or endGap > (cfg.SnapGap or math.huge) then
 		return "snap"
 	elseif dist > length or endGap > cfg.YankGap then
 		return "yank"
 	end
 	return "none"
+end
+
+-- Can a line of `length` from a source part (centre, size) reach the hand? (box radius + length)
+function HoseLine.canReach(srcPos: any, handPos: any, srcSize: any, length: number): boolean
+	local dx, dy, dz = handPos.X - srcPos.X, handPos.Y - srcPos.Y, handPos.Z - srcPos.Z
+	local r = math.sqrt(srcSize.X * srcSize.X + srcSize.Y * srcSize.Y + srcSize.Z * srcSize.Z) / 2
+	return math.sqrt(dx * dx + dy * dy + dz * dz) <= length + r
 end
 
 function HoseLine.shouldTrip(speedH: number, feetDist: number, cfg: any): boolean
@@ -178,6 +192,7 @@ type Hose = {
 	anchor: BasePart?, -- lying: the dropped nozzle's handle
 	tip: Attachment?, -- lying: the attachment on that nozzle
 	lostSince: number?, -- held, but the holder has no live character since then
+	gapSince: number?, -- held, and the hand has been more than SnapGap past the tip since then
 	tipRef: ObjectValue,
 	inst: string, -- mission instance (Player attr InstanceId) for the per-instance cap
 	source: BasePart,
@@ -460,6 +475,9 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	local kind = if isHydrant(sourcePart) then "Hydrant" else "Truck"
 	local length = tonumber(sourcePart:GetAttribute("HoseLength"))
 		or (if kind == "Hydrant" then Cfg.LengthHydrant else Cfg.LengthTruck)
+	if not HoseLine.canReach(sourcePart.Position, endAtt.WorldPosition, sourcePart.Size, length) then
+		return false -- the source is further away than its hose (it drove off / was reset): no line
+	end
 	local n = HoseLine.segmentCount(length, Cfg.SegmentTarget, Cfg.MinSegments, Cfg.MaxSegments)
 	local segLen = length / n
 
@@ -531,12 +549,14 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 		prevEnd = sb
 	end
 
+	-- ties a LYING tip to its dropped nozzle only (release); while held it is off and unhooked: a rope
+	-- from the chain to the holder yanked/teleported them whenever the hand got past its length
 	local rope = Instance.new("RopeConstraint")
 	rope.Name = "HandRope"
 	rope.Attachment0 = ends[n]
-	rope.Attachment1 = endAtt
-	-- only a last-resort leash: a hose snagged on a wall or truck must never hold the holder in place
-	rope.Length = length
+	rope.Attachment1 = nil
+	rope.Enabled = false
+	rope.Length = Cfg.LyingRopeLength
 	rope.Visible = false
 	rope.Parent = segs[n]
 
@@ -649,9 +669,12 @@ function HoseLine.detach(player: Player)
 	end
 end
 
-local function setTip(h: Hose, att: Attachment, ropeLength: number)
-	h.rope.Attachment1 = att
-	h.rope.Length = ropeLength
+-- `tie`: rope the chain tip to `att` (a dropped nozzle). Never true for a holder's attachment.
+local function setTip(h: Hose, att: Attachment, tie: boolean)
+	h.rope.Enabled = false
+	h.rope.Attachment1 = if tie then att else nil
+	h.rope.Length = Cfg.LyingRopeLength
+	h.rope.Enabled = tie
 	h.follow.Position = att.WorldPosition
 	h.tipRef.Value = att
 end
@@ -677,7 +700,7 @@ function HoseLine.release(player: Player, anchor: BasePart, att: Attachment): bo
 		pcall(seg.SetNetworkOwner, seg, nil)
 		seg:SetAttribute("Kinked", false)
 	end
-	setTip(h, att, Cfg.LyingRopeLength)
+	setTip(h, att, true)
 	h.model.Name = "Hose_Lying"
 	h.model:SetAttribute("Owner", 0)
 	h.model:SetAttribute("Lying", true)
@@ -714,7 +737,7 @@ function HoseLine.adopt(player: Player, anchor: BasePart): boolean
 	h.inst = instanceOf(player)
 	h.born = os.clock()
 	h.lastYank = 0
-	setTip(h, endAtt, h.length)
+	setTip(h, endAtt, false)
 	h.model.Name = `Hose_{player.UserId}`
 	h.model:SetAttribute("Owner", player.UserId)
 	h.model:SetAttribute("Lying", nil)
@@ -813,9 +836,8 @@ tick = function(dt: number)
 			end
 			continue
 		end
-		if h.rope.Attachment1 ~= endAtt then
-			h.rope.Attachment1 = endAtt -- tool equipped/unequipped, hose slung on the back: re-hook
-			h.tipRef.Value = endAtt
+		if h.tipRef.Value ~= endAtt then
+			h.tipRef.Value = endAtt -- tool equipped/unequipped, hose slung on the back: follow that
 		end
 		h.follow.Position = endAtt.WorldPosition
 		local srcPos = h.sourceAtt.WorldPosition
@@ -823,10 +845,24 @@ tick = function(dt: number)
 		local dist = (endAtt.WorldPosition - srcPos).Magnitude
 		local endGap = (tip - endAtt.WorldPosition).Magnitude - Cfg.HandRopeLength
 		local state = HoseLine.stretchState(dist, h.length, endGap, Cfg)
+		if state == "snap" and dist <= h.length * Cfg.SnapFactor then
+			-- hand far from the tip: a real jump stays far, a chain whipping for a frame doesn't
+			h.gapSince = h.gapSince or now
+			if now - (h.gapSince :: number) < 0.25 then
+				state = "none"
+			end
+		else
+			h.gapSince = nil
+		end
 		if state == "snap" then
 			count("hose_snapped")
 			Popup.show(owner, "Hose popped off!", "bad", owner)
-			HoseLine.detach(owner)
+			-- let go (InventoryService drops the nozzle at the chain's tip, the line stays lying there);
+			-- the line never pulls the holder back to it
+			HoseLine.Stranded:Fire(owner, "snap")
+			if hoses[owner] == h then
+				HoseLine.detach(owner)
+			end
 			continue
 		elseif state == "yank" and now - h.born > 0.6 and now - h.lastYank > Cfg.YankCooldown then
 			h.lastYank = now
