@@ -68,6 +68,10 @@ return Config.define({
 	ArrivalBonusSeconds = 20, -- timer seconds added on a fast arrival
 	ArrivalRadius = 40, -- studs from TruckSpot/site centre when a site has no ArrivalZone part
 	ArrivalMargin = 4, -- studs of slack around the ArrivalZone box
+	-- ...and arrived anyway within this flat distance of the zone's centre: the GPS says "YOU'RE HERE!" at
+	-- NavigationConfig.ArriveRadius (45) and its road route ends on the road, which for some sites is 30+
+	-- studs from the zone (playtest: a truck parked where the GPS said YOU'RE HERE never started the call)
+	ArrivalGpsRadius = 50,
 	DispatchResultsSeconds = 15, -- results screen; keep below LobbyConfig.ReturnSeconds (its safety net teleports)
 	-- Sound ids are unverified, so they default to "" (silent). Set rbxassetid://... to enable.
 	Sounds = {

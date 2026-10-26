@@ -11,6 +11,10 @@
 --     sideways push still drives forward, lower top speed (TouchMaxSpeed), and a released stick
 --     lines the truck up with the road (NavigationController:GetRoadDir). Always the chase cam.
 --   * Studio test drives: player attr DevDrive = Vector2(steer, throttle) overrides the seat.
+--   * On a call (my run is Dispatched): on a straight stretch of road (DriveMath.straight, the road from
+--     NavigationController:GetRoadDir) the TOP SPEED eases up to x DriveConfig.StraightBoostRookie (rookie
+--     runs, run attr Rookie) or x StraightBoostCall, and back down into turns. Only the target speed changes:
+--     accel, braking, grip and the turning circle (arcadeYaw keeps the normal max) are PR #253's.
 --   * Camera while driving: chase cam (spring follow, right-drag to look around, FOV by speed) or the
 --     cab view through the windshield (V toggles; you start in it if you sat down in first person; for the local viewer only, the cab/door mesh skins,
 --     roof, visors, pillars and your own body go see-through - shotgun passengers in first person get
@@ -44,6 +48,8 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript)
 local TruckExit = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Vehicle"):WaitForChild("TruckExit") :: ModuleScript)
 local TruckDrive = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TruckDrive") :: ModuleScript)
+local DriveConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DriveConfig") :: ModuleScript) :: any
+local DriveMath = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Vehicle"):WaitForChild("DriveMath") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 
@@ -66,6 +72,7 @@ local handbrake = false
 local upsideDown = 0
 local airborne = 0
 local jumpHiddenOn: Humanoid? = nil -- touch driving hid Roblox's jump button on this humanoid
+local boostS = 1 -- smoothed straight-road top-speed multiplier (on a call)
 local throttleS = 0 -- smoothed (rate-limited) throttle / steer actually driving the truck
 local steerS = 0
 local engine: Sound? = nil
@@ -195,6 +202,36 @@ local function roadDir(pos: Vector3): (number?, number?)
 	return nil, nil
 end
 
+-- On a call (my run Dispatched): the straight-road top-speed multiplier for this run, else 1.
+local function callBoost(): number
+	if RunService:IsStudio() and player:GetAttribute("DevNoBoost") == true then
+		return 1 -- Studio A/B measurements only
+	end
+	local id = player:GetAttribute(Names.Attr.InstanceId)
+	if type(id) ~= "string" or id == "" then
+		return 1
+	end
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(id)
+	if not run or run:GetAttribute(Names.Attr.RoundState) ~= "Dispatched" then
+		return 1
+	end
+	local k = if run:GetAttribute("Rookie") == true then DriveConfig.StraightBoostRookie else DriveConfig.StraightBoostCall
+	return math.max(1, tonumber(k) or 1)
+end
+
+local function straightRoad(pos: Vector3, fwd: Vector3, steer: number): boolean
+	local nav = controllers.NavigationController
+	if not nav or type(nav.GetRoadDir) ~= "function" then
+		return false
+	end
+	local ok, dx, dz = pcall(nav.GetRoadDir, nav, pos.X, pos.Z, tonumber(DriveConfig.StraightRoadRange) or 26)
+	if not ok or type(dx) ~= "number" or type(dz) ~= "number" then
+		return false
+	end
+	return DriveMath.straight(fwd.X, fwd.Z, dx, dz, steer, tonumber(DriveConfig.StraightMaxDeg) or 12, tonumber(DriveConfig.StraightMaxSteer) or 0.25)
+end
+
 -- Arcade handling ("grips like a Jailbreak car"): the springs only carry the truck's weight, the
 -- tyres kill sideways sliding, pitch / roll follow the ground (never the springs or a kerb), yaw is
 -- speed / turning radius, the stick sets a target speed and letting go brakes to a stop.
@@ -304,11 +341,20 @@ local function step(truck: Model, dt: number)
 		chassis:SetAttribute("DevDriveState", Vector3.new(throttle, steer, hits)) -- Studio test drives only
 	end
 
+	-- on a call: a quicker top speed on straight roads (eases in, and back out before / in turns)
+	local boostWant = 1
+	if grounded then
+		local k = callBoost()
+		if k > 1 and straightRoad(chassis.Position, fwd, steer) then
+			boostWant = k
+		end
+	end
+	boostS = DriveMath.approach(boostS, boostWant, h, tonumber(DriveConfig.BoostRise) or 0.8, tonumber(DriveConfig.BoostFall) or 2.5)
 	-- drive: target speed from the stick, brake against the motion, coast-down to a stop on release
 	local acc = TruckDrive.arcadeDrive(
 		throttle,
 		fwdSpeed,
-		maxSpeed,
+		maxSpeed * boostS,
 		VehicleConfig.Accel,
 		VehicleConfig.Brake,
 		tonumber(cfgAny.CoastBrake) or 30
@@ -1203,7 +1249,8 @@ local function updateSeated()
 				Enum.KeyCode.ButtonB
 			)
 			ContextActionService:SetTitle("TruckExit", "OFF")
-			ThumbLayout.place("TruckExit", "primary", onAction)
+			-- the big primary spot is the rider's SPRAY (water cannon, DriveController); HONK / SIREN beside it
+			ThumbLayout.place("TruckExit", "above", onAction)
 		end
 	end
 	if truck ~= hintTruck then
@@ -1222,7 +1269,11 @@ local function updateSeated()
 				"R2 gas  L2 brake  stick steer   A: out   X: siren   Y: horn   R3: camera   D-PAD RIGHT: unflip"
 			)
 		elseif truck then
-			hint.Text = InputHints.pick("SPACE: hop off", "Tap OFF to hop off", "A: hop off")
+			hint.Text = InputHints.pick(
+				`CLICK: water cannon   {VehicleConfig.KeyHorn}: honk   {VehicleConfig.KeySiren}: siren   SPACE: hop off`,
+				"SPRAY the fires!   ·   HONK  SIREN  OFF",
+				"R2: water cannon   Y: honk   X: siren   A: hop off"
+			)
 		end
 	end
 end

@@ -70,6 +70,8 @@ return Config.define({
 
 	-- Emergency yield (fire truck with SirenOn, and moving)
 	YieldMinSpeed = 6, -- a parked siren truck is an obstacle to drive round, not a reason to pull over
+	SlowYieldBehind = 32, -- ...but a DRIVEN siren truck this close behind a car (any speed) makes it pull over
+	SlowYieldLateral = 7, -- (and within this far to the side: same lane)
 	YieldMax = 6, -- never sit pulled over longer than this
 	YieldImmune = 8, -- after giving up, ignore sirens this long
 	YieldRadius = 120, -- a siren truck within this, coming from behind -> pull over

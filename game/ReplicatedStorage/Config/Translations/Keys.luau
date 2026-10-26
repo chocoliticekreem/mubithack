@@ -1907,4 +1907,18 @@ return {
 	"NEW HELMET!",
 	"NEW HOSE!",
 	"TOMORROW: DAY {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	"ARRIVING IN {1}s",
+	"ARRIVING NOW!",
+	"WRONG WAY!",
+	"TURN AROUND",
+	"NOBODY'S DRIVING!",
+	"TAKE THE WHEEL!",
+	"Hop in the driver's seat and drive to the fire!",
+	"SPRAY!",
+	"PRACTICE FIRES  {1}/{2}",
+	"CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off",
+	"SPRAY the fires!   ·   HONK  SIREN  OFF",
+	"R2: water cannon   Y: honk   X: siren   A: hop off",
+	"PRACTICE FIRE OUT!",
 }

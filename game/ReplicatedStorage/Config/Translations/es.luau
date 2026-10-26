@@ -1904,4 +1904,18 @@ return {
 	["NEW HELMET!"] = "¡CASCO NUEVO!",
 	["NEW HOSE!"] = "¡MANGUERA NUEVA!",
 	["TOMORROW: DAY {1}"] = "MAÑANA: DÍA {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	["ARRIVING IN {1}s"] = "LLEGAS EN {1}s",
+	["ARRIVING NOW!"] = "¡LLEGANDO!",
+	["WRONG WAY!"] = "¡SENTIDO CONTRARIO!",
+	["TURN AROUND"] = "DA LA VUELTA",
+	["NOBODY'S DRIVING!"] = "¡NADIE ESTÁ MANEJANDO!",
+	["TAKE THE WHEEL!"] = "¡TOMA EL VOLANTE!",
+	["Hop in the driver's seat and drive to the fire!"] = "¡Pásate al asiento del conductor y maneja hasta el fuego!",
+	["SPRAY!"] = "¡ROCÍA!",
+	["PRACTICE FIRES  {1}/{2}"] = "FUEGOS DE PRÁCTICA  {1}/{2}",
+	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "CLIC: cañón de agua   {1}: bocina   {2}: sirena   SPACE: bajarte",
+	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "¡ROCIAR los fuegos!   ·   BOCINA  SIRENA  BAJAR",
+	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: cañón de agua   Y: bocina   X: sirena   A: bajarte",
+	["PRACTICE FIRE OUT!"] = "¡FUEGO DE PRÁCTICA APAGADO!",
 }

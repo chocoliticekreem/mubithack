@@ -25,13 +25,17 @@
 --   VehicleService:GetDriver(truck: Model?): Player?
 --   VehicleService:GetOwner(truck: Model?): Player?
 --   VehicleService:ResetTruck(player: Player?)             -- their trucks back to their spots (all when nil)
+--   VehicleService:TakeWheel(player: Player): boolean      -- a rider slides over into the empty driver seat
 -- Legacy (VehicleConfig.PerMissionTrucks = true only): GetTruck(instanceId: string) / ParkAt(instanceId)
 --   build a v1 truck inside that mission instance. With the flag off, string calls return nil/false.
 -- Signals: Entered(player, truck)  Exited(player, truck)  -- any seat (drive or crew)
 --          SirenChanged(truck, on)
 --          Driven(driver: Player, studs: number)          -- a driver got out (studs travelled)
 --          RanOver(driver: Player, victim: Player)        -- a player bowled over by a moving truck
--- Remotes: Vehicle/Horn (C->S), Vehicle/Siren (C->S toggle), Vehicle/Respawn (C->S),
+--          Rescued(truck: Model, why: string)              -- "Truck reset!": below | noground | sunk | stuck |
+--                                                             recall | manual (DriveService logs TruckReset)
+-- Remotes: Vehicle/Horn (C->S), Vehicle/Siren (C->S toggle; the driver or any rider: passengers HONK and
+--          SIREN too, DriveController), Vehicle/Respawn (C->S),
 --          Vehicle/Enter (C->S: truck: Model) one-tap entry (touch, Controllers/TapUseController): within
 --          VehicleConfig.TapEnterRange studs you sit straight in: the driver seat when it's free (any
 --          truck; driving it makes it yours), else the nearest free seat.
@@ -76,6 +80,7 @@ VehicleService.Exited = Signal.new() :: Signal.Signal<Player, Model>
 VehicleService.SirenChanged = Signal.new() :: Signal.Signal<Model, boolean>
 VehicleService.Driven = Signal.new() :: Signal.Signal<Player, number>
 VehicleService.RanOver = Signal.new() :: Signal.Signal<Player, Player>
+VehicleService.Rescued = Signal.new() :: Signal.Signal<Model, string>
 
 local TRUCK_BAY_TAG = "TruckBay"
 local BODY_GROUP = "TruckBody"
@@ -1400,8 +1405,24 @@ local function truckOf(player: Player): Truck?
 	return nil
 end
 
-local function honk(player: Player)
+-- the truck a player drives or rides in (passengers honk and work the siren too)
+local function truckIn(player: Player): Truck?
 	local t = truckOf(player)
+	if t then
+		return t
+	end
+	for _, tr in byModel do
+		for _, p in tr.occupants do
+			if p == player then
+				return tr
+			end
+		end
+	end
+	return nil
+end
+
+local function honk(player: Player)
+	local t = truckIn(player)
 	if not t then
 		return
 	end
@@ -1419,7 +1440,7 @@ local function honk(player: Player)
 end
 
 local function toggleSiren(player: Player)
-	local t = truckOf(player)
+	local t = truckIn(player)
 	if t then
 		setSiren(t, not (t.model:GetAttribute("SirenOn") == true))
 	end
@@ -1730,6 +1751,7 @@ local function lostTick()
 					table.insert(rebuild, t)
 				else
 					popAt(c, "Truck reset!", "bonk")
+					VehicleService.Rescued:Fire(t.model, why)
 					if t.driver then
 						Popup.show(t.driver, "Truck reset!", "info", t.driver)
 					end
@@ -1934,6 +1956,9 @@ function VehicleService:RespawnTruck(player: Player): boolean
 	lastRespawn[player] = now
 	count("truck_respawns")
 	local t: Truck? = ownedBy(player)[1]
+	if t then
+		VehicleService.Rescued:Fire(t.model, "manual") -- the R / RESPAWN TRUCK button (DriveService: TruckReset)
+	end
 	local doorLost = false
 	if t then
 		for _, d in t.doors do
@@ -1989,6 +2014,43 @@ function VehicleService:ResetTruck(player: Player?)
 			sendHome(t)
 		end
 	end
+end
+
+-- A rider moves over into the empty driver's seat of the truck they sit in (DriveController's TAKE THE
+-- WHEEL! button when nobody drives on a call). false = not a rider, or someone already drives.
+function VehicleService:TakeWheel(player: Player): boolean
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local from = hum and hum.SeatPart
+	if not hum or not from or hum.Health <= 0 then
+		return false
+	end
+	local t: Truck? = nil
+	for _, tr in byModel do
+		if from:IsDescendantOf(tr.model) then
+			t = tr
+			break
+		end
+	end
+	if not t or not t.seat or t.seat == from or t.seat.Occupant then
+		return false
+	end
+	if VehicleConfig.OwnerOnlyDrives and t.owner and player ~= t.owner then
+		return false
+	end
+	local seat = t.seat
+	unseat(from :: Seat)
+	for _ = 1, 10 do
+		if not hum.SeatPart then
+			break
+		end
+		task.wait()
+	end
+	if hum.SeatPart or seat.Occupant or not hum.Parent then
+		return false
+	end
+	sitIn(seat, hum)
+	return true
 end
 
 function VehicleService:_seat(player: Player, truck: Model?): boolean

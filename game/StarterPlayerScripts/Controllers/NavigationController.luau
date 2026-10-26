@@ -16,6 +16,9 @@
 -- follows until the server sets a new waypoint (click near the pin again to clear it).
 -- Public (for other controllers): NavigationController:GetTarget(): (Vector3?, string?),
 --   NavigationController:GetRoadDir(x, z, range?): (dx?, dz?)  -- nearest road's direction
+--   NavigationController:GetRouteInfo(): RouteInfo?  -- the live GPS route (DriveController's ARRIVING bar,
+--     big TURN arrow and WRONG WAY card): { total, left (studs of road), turn ("left"|"right"|"uturn"|nil),
+--     turnDist, dx, dz (route direction where you are), arrived }; nil = no target / no route
 local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local HttpService = game:GetService("HttpService")
@@ -383,7 +386,7 @@ local function updateBeacon(pos: Vector3, label: string, distance: number, t: nu
 	b.dist.Text = unit(distance)
 end
 
-type Chevron = { l: Part, r: Part }
+type Chevron = { l: Part, r: Part, line: Part? }
 local chevrons: { Chevron } = {}
 local chevronAlong: { number } = {}
 local heightCache: { [number]: number } = {}
@@ -394,9 +397,15 @@ local function chevron(i: number): Chevron
 		return c
 	end
 	local color: Color3 = NavigationConfig.ArrowColor or Palette.UiShock
-	local made = {
-		l = fxPart("RouteArrowL", Vector3.new(0.9, 0.2, 5), color, 1),
-		r = fxPart("RouteArrowR", Vector3.new(0.9, 0.2, 5), color, 1),
+	local arm = tonumber(NavigationConfig.ArrowArm) or 5
+	local w = tonumber(NavigationConfig.ArrowWidth) or 0.9
+	local ribbon = tonumber(NavigationConfig.RibbonWidth) or 0
+	local made: Chevron = {
+		l = fxPart("RouteArrowL", Vector3.new(w, 0.2, arm), color, 1),
+		r = fxPart("RouteArrowR", Vector3.new(w, 0.2, arm), color, 1),
+		line = if ribbon > 0
+			then fxPart("RouteRibbon", Vector3.new(ribbon, 0.1, tonumber(NavigationConfig.ArrowSpacing) or 14), color, 1)
+			else nil,
 	}
 	chevrons[i] = made
 	return made
@@ -424,11 +433,13 @@ local function hideChevrons(from: number)
 			c.l.Transparency = 1
 			c.r.Transparency = 1
 		end
+		if c.line and c.line.Transparency < 1 then
+			c.line.Transparency = 1
+		end
 		chevronAlong[i] = nil
 	end
 end
 
-local ARM = 5
 local function placeChevrons(fromAlong: number)
 	local poly = route
 	if not poly then
@@ -448,6 +459,7 @@ local function placeChevrons(fromAlong: number)
 	local spacing = tonumber(NavigationConfig.ArrowSpacing) or 14
 	local hover = tonumber(NavigationConfig.ArrowHover) or 0.35
 	local samples = Pathfind.samples(poly, fromAlong + 4, spacing, tonumber(NavigationConfig.MaxArrows) or 48)
+	local ARM = tonumber(NavigationConfig.ArrowArm) or 5
 	for i, s in samples do
 		local c = chevron(i)
 		local key = math.floor(s.along * 10 + 0.5)
@@ -458,6 +470,10 @@ local function placeChevrons(fromAlong: number)
 			local dir = base:VectorToWorldSpace(Vector3.new(side * 0.7071, 0, 0.7071))
 			local centre = tip + dir * (ARM / 2)
 			part.CFrame = CFrame.lookAt(centre, centre + dir)
+		end
+		if c.line then
+			-- the glowing line: one spacing-long strip per arrow, just under it (reads as one ribbon)
+			c.line.CFrame = base * CFrame.new(0, -0.12, spacing / 2)
 		end
 		chevronAlong[i] = s.along
 	end
@@ -477,6 +493,10 @@ local function animateChevrons(t: number)
 		local tr = 1 - (0.25 + 0.6 * (1 - k)) * fadeIn
 		c.l.Transparency = tr
 		c.r.Transparency = tr
+		if c.line then
+			local base = tonumber(NavigationConfig.RibbonTransparency) or 0.5
+			c.line.Transparency = 1 - (1 - base) * fadeIn * (0.8 + 0.2 * (1 - k))
+		end
 	end
 end
 
@@ -644,6 +664,52 @@ local function updateHint(from: Vector3, to: Vector3, label: string, along: numb
 	else
 		mm:setHint(Loc.t("STRAIGHT ON {1}", { unit(dist) }), sub, ICON.straight)
 	end
+end
+
+export type RouteInfo = {
+	total: number,
+	left: number,
+	turn: string?,
+	turnDist: number,
+	dx: number,
+	dz: number,
+	arrived: boolean,
+}
+local routeInfo: RouteInfo? = nil
+local routeTotal = 0 -- longest route length seen for this target (the ARRIVING bar's 0%)
+
+function NavigationController:GetRouteInfo(): RouteInfo?
+	return routeInfo
+end
+
+local function updateRouteInfo(from: Vector3, to: Vector3, along: number, arrived: boolean)
+	local poly = route
+	if arrived then
+		routeInfo = { total = math.max(routeTotal, 1), left = 0, turn = nil, turnDist = 0, dx = 0, dz = 0, arrived = true }
+		return
+	end
+	if not poly then
+		local direct = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
+		local d = direct.Magnitude
+		routeTotal = math.max(routeTotal, d)
+		local u = if d > 1e-3 then direct.Unit else Vector3.zero
+		routeInfo = { total = routeTotal, left = d, turn = nil, turnDist = 0, dx = u.X, dz = u.Z, arrived = false }
+		return
+	end
+	local len = Pathfind.length(poly)
+	local left = math.max(0, len - along)
+	routeTotal = math.max(routeTotal, left)
+	local kind, dist = Pathfind.nextTurn(poly, along, tonumber(NavigationConfig.TurnAngle) or 35)
+	local s = Pathfind.samples(poly, along + 2, 1, 1)[1]
+	routeInfo = {
+		total = routeTotal,
+		left = left,
+		turn = kind,
+		turnDist = if kind then dist else 0,
+		dx = if s then s.dx else 0,
+		dz = if s then s.dz else 0,
+		arrived = false,
+	}
 end
 
 -- markers ------------------------------------------------------------------------------------------
@@ -836,6 +902,7 @@ local function step(dt: number)
 		updateBeacon(tPos, label, distance, t)
 		updateEdge(tPos, distance)
 		updateHint(here, tPos, label, along)
+		updateRouteInfo(here, tPos, along, arrived)
 	else
 		if route or routeTarget then
 			route, routeTarget = nil, nil
@@ -845,6 +912,8 @@ local function step(dt: number)
 		hideBeacon()
 		updateEdge(nil, 0)
 		mm:setHint(nil)
+		routeInfo = nil
+		routeTotal = 0
 	end
 
 	mm:update({
@@ -884,6 +953,7 @@ function NavigationController:Start()
 	player:GetAttributeChangedSignal("WaypointPos"):Connect(function()
 		pin = nil
 		routeTarget = nil
+		routeTotal = 0
 	end)
 	task.spawn(watchGraph)
 	ContextActionService:BindAction("NavBigMap", function(_name: string, state: Enum.UserInputState): Enum.ContextActionResult
