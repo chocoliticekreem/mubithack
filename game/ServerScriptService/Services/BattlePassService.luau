@@ -1,11 +1,13 @@
 --!strict
--- BattlePassService [owner: BattlePass]. The season battle pass: 20 tiers, a free track for everyone and a
+-- BattlePassService [owner: BattlePass]. The season battle pass: 100 tiers (XP curve Cfg.XpCurve), a free track for everyone and a
 -- premium track for Premium Battle Pass owners (MonetizationConfig.GamePasses.PremiumPass; MonetizationService
 -- sets Player attr Pass_PremiumPass). Rules are pure in ReplicatedStorage/Lib/BattlePass/PassRules; rewards
 -- and tiers in Config/BattlePassConfig; world cosmetics in Lib/BattlePass/PassCosmetics.
 --
 -- Data: the player profile's `pass` (ProfileSchema v6, DataService: DataStore live, memory in Studio,
 --   session-locked). The old BattlePass_S1 store is imported once per player in live games.
+--   pass.curve = the XP curve the xp was earned under; a pass from an older curve (Cfg.CurveHistory) is
+--   moved onto Cfg.CurveVersion once, keeping its tier and fraction (claims are by tier and never move).
 -- XP: every TickSeconds of an Active run (workspace.Runs.<InstanceId>.RoundState), fires you put out
 --   (FireService.Extinguished), rescues you deliver (RescueService.Delivered), mission end + stars
 --   (MissionService.MissionEnded). Premium x PremiumXpMultiplier, claimed boosts add up to BoostCapPct %.
@@ -22,7 +24,7 @@
 -- Signals: TierUp(player, tier), XpGained(player, amount, reason)
 -- Remotes (BattlePass/*):
 --   State   (S->C owner: state table)          Gain (S->C owner: amount, reason, tier, tiersGained, rewardIds)
---   Claimed (S->C owner: { {tier, track, id} }) Fx (S->C all: "emote", userId, style)
+--   Claimed (S->C owner: { {tier, track, id} }) Fx (S->C all: "emote", userId, style, rewardId)
 --   Request (C->S: "claim", tier, track | "claimAll" | "equip", id | "unequip", slot | "emote" | "state"; 6/s)
 -- Writes: Player attrs BattlePassConfig.Attr.* (PassXp, PassTier, PassPremium, PassXpBoost, PassRunXp,
 --   PassTitle, PassTitleColor, PassHose, PassHoseStripe, PassNozzle, PassClaimable)
@@ -69,10 +71,20 @@ local function opts(): PassRules.Opts
 	return {
 		perTier = Cfg.XpPerTier,
 		maxTier = Cfg.MaxTier,
+		needs = Cfg.XpCurve,
 		tiers = Cfg.Tiers,
 		rewards = Cfg.Rewards,
 		boostCap = Cfg.BoostCapPct,
 	}
+end
+
+-- the curve a pass with pass.curve = v was earned under (nil = curve 1, the original 20 x 100 XP)
+local function curveOpts(v: number?): PassRules.Opts?
+	local h = Cfg.CurveHistory[v or 1]
+	if not h then
+		return nil
+	end
+	return { perTier = h.perTier, maxTier = h.maxTier, needs = h.needs, tiers = {}, rewards = {} }
 end
 
 local function data(): any
@@ -226,8 +238,9 @@ function BattlePassService:GetState(player: Player): { [string]: any }?
 		tier = tier,
 		into = into,
 		need = need,
-		perTier = o.perTier,
+		perTier = o.perTier, -- legacy (curve 1); the client draws from Cfg.XpCurve
 		maxTier = o.maxTier,
+		curve = Cfg.CurveVersion,
 		premium = prem,
 		free = table.clone(p.free),
 		premiumClaimed = table.clone(p.premium),
@@ -418,7 +431,7 @@ local function emote(player: Player)
 	lastEmote[player] = now
 	Telemetry.count("battlepass_emotes")
 	if fxRemote then
-		fxRemote:FireAllClients("emote", player.UserId, r.Style or "spin")
+		fxRemote:FireAllClients("emote", player.UserId, r.Style or "spin", p.equipped.emote)
 	end
 end
 
@@ -455,7 +468,7 @@ local function importLegacy(player: Player)
 		return -- try again next session (legacy stays false)
 	end
 	mutate(player, function(pass: Pass)
-		PassRules.mergeLegacy(pass, old, opts())
+		PassRules.mergeLegacy(pass, old, opts(), curveOpts(1)) -- the old store's xp is curve-1 xp
 	end)
 end
 
@@ -476,6 +489,17 @@ local function onProfile(player: Player)
 	else
 		fallback[player] = PassRules.blank(Cfg.SeasonId)
 	end
+	-- an older XP curve (20 tiers -> 100): same tier, same fraction, stamped so it runs once
+	mutate(player, function(pass: Pass)
+		local was = pass.curve
+		if was ~= Cfg.CurveVersion then
+			local before = pass.xp
+			PassRules.migrateCurve(pass, Cfg.CurveVersion, curveOpts(was), opts())
+			if before ~= pass.xp then
+				print(`[BattlePassService] {player.Name}: pass XP curve {was or 1} -> {Cfg.CurveVersion}: {before} -> {pass.xp}`)
+			end
+		end
+	end)
 	importLegacy(player)
 	-- free rewards for tiers reached earlier (e.g. the legacy import) are claimed now
 	mutate(player, function(pass: Pass)
@@ -674,7 +698,7 @@ end
 
 function BattlePassService:_setXp(player: Player, xp: number)
 	mutate(player, function(pass: Pass)
-		pass.xp = math.clamp(math.floor(xp), 0, Cfg.XpPerTier * Cfg.MaxTier)
+		pass.xp = math.clamp(math.floor(xp), 0, PassRules.xpAt(Cfg.MaxTier, opts()))
 	end)
 	push(player)
 end
@@ -699,6 +723,9 @@ function BattlePassService:_selftest(): (boolean, string)
 	local seen: { [string]: number } = {}
 	if #Cfg.Tiers ~= Cfg.MaxTier then
 		return false, `{#Cfg.Tiers} tiers but MaxTier {Cfg.MaxTier}`
+	end
+	if #Cfg.XpCurve ~= Cfg.MaxTier then
+		return false, `{#Cfg.XpCurve} curve steps but MaxTier {Cfg.MaxTier}`
 	end
 	for t, row in Cfg.Tiers do
 		for _, id in { row.Free, row.Premium } do

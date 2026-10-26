@@ -417,7 +417,7 @@ end
 local function chipButton(g: ScreenGui): TextButton
 	local b = Instance.new("TextButton")
 	b.Name = "AdminChip"
-	b.Position = UDim2.new(0, 13, 0.53, 48) -- left chip column, under STORE (StoreController: 0.53, 40 tall)
+	b.Position = UDim2.new(0, 13, 0.53, 48) -- left chip column, last (HudLayout stack "Chips" owns its Y)
 	b.Size = UDim2.fromOffset(118, 40)
 	b.BackgroundColor3 = Palette.UiPanelDark
 	b.Font = UiKit.Header
@@ -434,6 +434,8 @@ local function chipButton(g: ScreenGui): TextButton
 	ts.Color = Palette.UiInk
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
+	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.add("Chips", b, 5)
 	return b
 end
 

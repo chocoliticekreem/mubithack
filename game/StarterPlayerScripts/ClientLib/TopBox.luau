@@ -1,7 +1,7 @@
 --!strict
 -- TopBox [owner: G3]. ONE compact box up in the Roblox top-bar row, right after the menu buttons:
---   [ level badge | XP bar ]  [ pass tier | pass bar ]  [ STORE ]
--- ProfileController fills "Level", BattlePassController "Pass" (click: open the pass), StoreController
+--   [ level badge | XP bar ]  [ STORE ]
+-- ProfileController fills "Level" (the battle pass is the PASS chip in HudLayout's left "Chips" column), StoreController
 -- "Store" (a small button, lobby only). It is pixel-sized like Roblox's own top-bar buttons (no viewport
 -- UIScale), so it stays inside the top-bar row on a phone and on a monitor, and never reaches the
 -- top-centre stack under the bar (ClientLib/HudLayout).

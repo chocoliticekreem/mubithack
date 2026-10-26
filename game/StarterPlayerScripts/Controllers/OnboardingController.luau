@@ -708,17 +708,12 @@ local function buildHud()
 	ui.pointer = pointer
 	ui.edge = edge
 
-	-- help chip (bottom left)
+	-- help chip: the left chip column (HudLayout stack "Chips": PASS, NEWS, INVITE, HELP, ADMIN), which
+	-- keeps clear of a phone's thumbstick and the gamepad D-pad legend in the bottom-left corner
 	local help = Instance.new("TextButton")
 	help.Name = "HelpChip"
-	help.AnchorPoint = Vector2.new(0, 1)
-	help.Position = UDim2.new(0, 16, 1, -16)
-	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-		-- phones: the bottom-left corner is the touch thumbstick; sit on the left edge above it instead
-		help.AnchorPoint = Vector2.new(0, 0.5)
-		help.Position = UDim2.new(0, 16, 0.4, 0)
-	end
-	help.Size = UDim2.fromOffset(118, 36)
+	help.Position = UDim2.new(0, 13, 0.6, 0)
+	help.Size = UDim2.fromOffset(118, 40)
 	help.BackgroundColor3 = Palette.UiPanelDark
 	help.BackgroundTransparency = 0.15
 	help.Font = Enum.Font.LuckiestGuy
@@ -731,6 +726,7 @@ local function buildHud()
 	stroke(help, 2)
 	ui.helpChip = help
 	HudLayout.reserve(help)
+	HudLayout.add("Chips", help, 4)
 
 	-- help panel: a scrollable, skimmable cheat sheet (keys come from the configs, never hard-coded)
 	ui.help = buildHelp(gui)

@@ -341,11 +341,10 @@ local function build()
 end
 
 local function buildChip()
-	-- left chip column, in the free slot above ADMIN (AdminController: 0.53 + 48) and below the touch HELP
-	-- chip (OnboardingController: 0.4): the top-bar box already reaches the minimap on small screens
+	-- left chip column (HudLayout stack "Chips": PASS, NEWS, INVITE, HELP, ADMIN); the stack owns its Y
 	local b = Instance.new("TextButton")
 	b.Name = "NewsChip"
-	b.Position = UDim2.new(0, 13, 0.53, -14) -- 22 above ADMIN: room for both 44 px touch pads on phones
+	b.Position = UDim2.new(0, 13, 0.53, -14)
 	b.Size = UDim2.fromOffset(118, 40)
 	b.BackgroundColor3 = Palette.UiFlameMid
 	b.Font = UiKit.Header
@@ -362,6 +361,7 @@ local function buildChip()
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
 	HudLayout.reserve(b) -- edge arrows / world markers keep off it
+	HudLayout.add("Chips", b, 2)
 	local dot = Instance.new("Frame")
 	dot.Name = "Dot"
 	dot.AnchorPoint = Vector2.new(0.5, 0.5)
