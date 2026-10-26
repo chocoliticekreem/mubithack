@@ -108,11 +108,11 @@ return {
 	-- Roblox badge ids by achievement id. 0 / missing = no badge yet (awarding no-ops). The 10 badge
 	-- achievements; fill the ids from the Creator Dashboard (Monetization -> Badges).
 	BadgeIds = {
-		first_call = 0,
-		first_rescue = 0,
-		save_panda = 0,
-		fires_100 = 0,
-		cat_tree = 0,
+		first_call = 34249046836746,
+		first_rescue = 3993048265763442,
+		save_panda = 1110109702515702,
+		fires_100 = 1327085210458047,
+		cat_tree = 4098018697608399,
 		night_hero = 0,
 		speed_run = 0,
 		combo_master = 0,
