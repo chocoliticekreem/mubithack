@@ -60,7 +60,8 @@
 --   Backpack is destroyed on every apply; a Tool knocked into the Backpack (UnequipTools) comes back to
 --   the hand once you are not downed or carrying (hooked per character, the Backpack is new each spawn).
 -- Test hooks (DevHook only): _selftest(), _state(player), _give(player, id), _throw(player, charge?),
---   _fumble(player), _reel(player, reel?, from?: Vector3)  (reel may be a hydrant Body)
+--   _fumble(player), _reel(player, reel?, from?: Vector3)  (reel may be a hydrant Body),
+--   _grabLoose(player, model?) (the nearest loose item by default)
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -480,7 +481,11 @@ local function syncHoseLine(player: Player, ps: PState)
 		if from and hoseLine("adopt", player, from) then
 			return
 		end
-		if not hoseLine("attach", player, reel) then
+		local _, root = charOf(player)
+		local near = root ~= nil and (root.Position - reel.Position).Magnitude <= hoseLength(reel)
+		if not hoseLine("attach", player, reel) and near then
+			-- (far from its source, e.g. the truck drove off or was reset: no line, and never one
+			-- laid across the map toward you)
 			Popup.show(player, "Hose tangled, try again", "info", player)
 		end
 		return
@@ -1803,6 +1808,26 @@ end
 
 function InventoryService:_fumble(player: Player)
 	fumble(player)
+end
+
+-- Pick up a loose item (default: the nearest), as its [E] prompt would.
+function InventoryService:_grabLoose(player: Player, m: Model?): boolean
+	local _, root = charOf(player)
+	local pick = m
+	if not pick and root then
+		local best = math.huge
+		for lm in loose do
+			local h = lm.PrimaryPart
+			if h and (h.Position - root.Position).Magnitude < best then
+				best, pick = (h.Position - root.Position).Magnitude, lm
+			end
+		end
+	end
+	if not pick then
+		return false
+	end
+	grabLoose(player, pick)
+	return loose[pick] == nil
 end
 
 -- `from` (optional): stand there first (tests grab the hose from the side or the front of a truck).
