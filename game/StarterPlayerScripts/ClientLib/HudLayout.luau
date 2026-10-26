@@ -8,7 +8,9 @@
 --                Each one sits under the previous VISIBLE one.
 --   top-left     stack "Left": objectives -> building integrity -> mission guide card
 --   top-right    minimap (NavMinimap, in the top-bar row) -> its turn-hint slot -> squad strip
---   left edge    [P] PASS, [B] STORE chips (lobby); bottom-left [H] HELP / carry card
+--   left edge    stack "Chips" (lobby buttons, one column, in order): [P] PASS, NEWS, INVITE, [H] HELP,
+--                ADMIN. Centred on the left edge, its bottom kept clear of a phone's thumbstick and the
+--                gamepad's bottom-left D-pad legend; bottom-left: carry card
 --   bottom       hotbar (centre), carry slot above it, truck hints, heat gauge (right)
 --   centre       transient banners (heat warning, level-up / tier-up cards)
 --   modal        PASS / STORE / HELP / LOCKER / mission picker / big map: HudLayout.modal() dims
@@ -260,6 +262,15 @@ end)
 HudLayout.stack("Left", function(s, inset)
 	return inset + 10 * s
 end)
+-- the left chip column: 5 chips x 40 + 4 gaps x 10 = 240 design units, centred on the screen's left edge
+-- but never lower than 120 px above the bottom (touch thumbstick, D-pad legend) nor under the top bar
+HudLayout.ChipColumn = 240
+HudLayout.stack("Chips", function(s, inset)
+	local cam = workspace.CurrentCamera
+	local h = if cam then cam.ViewportSize.Y else 720
+	local col = HudLayout.ChipColumn * s
+	return math.max(inset + 60 * s, math.min(h * 0.5 - col * 0.5, h - 120 - col))
+end, 10)
 
 -- modals ---------------------------------------------------------------------------------------
 local openModals: { [GuiObject]: boolean } = {}

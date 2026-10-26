@@ -39,10 +39,9 @@ local controllers: { [string]: any } = {}
 type Target = { key: string, gui: string, child: string? }
 local TARGETS: { Target } = {
 	{ key = "xp", gui = "TopBox" }, -- the whole top-bar box (level / XP first)
-	{ key = "pass", gui = "TopBox", child = "PassPip" }, -- its sections, once the box shows (BattlePassController renames "Pass")
 	{ key = "store", gui = "TopBox", child = "Store" },
 	{ key = "dispatch", gui = "TopBox", child = "Dispatch" },
-	{ key = "pass", gui = "BattlePassGui" }, -- PASS chip, the pass panel, pass XP pops
+	{ key = "pass", gui = "BattlePassGui" }, -- PASS chip (left chip column), the pass panel, pass XP pops
 	{ key = "news", gui = "UpdateLog" }, -- NEWS chip + WHAT'S NEW panel
 	{ key = "admin", gui = "AdminGui" },
 	{ key = "invite", gui = "SocialAsk" }, -- INVITE chip + the like card

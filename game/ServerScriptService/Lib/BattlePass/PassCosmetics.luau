@@ -2,10 +2,12 @@
 -- PassCosmetics [owner: BattlePass]. Puts equipped battle pass rewards on the world, server side, so
 -- every player sees them. BattlePassService calls it; reward defs come from BattlePassConfig.Rewards.
 --   PassCosmetics.helmet(character, def?)   -- recolour the Costume helmet (HelmetDome/Brim/HelmetComb/Shield);
---                                           -- nil restores the original look. Chief adds a gold star + sparkles.
+--                                           -- nil restores the original look. Chief adds a gold star + sparkles,
+--                                           -- Glow a soft light in the helmet colour.
 --   PassCosmetics.title(character, def?)    -- BillboardGui "PassTitle" above the helmet number tag
 --   PassCosmetics.tool(tool, hoseDef?, nozzleDef?)   -- the Hose tool's Handle (hose colour) and Tip (nozzle)
---   PassCosmetics.truck(truck, def?)        -- neon underglow welded under the Chassis ("PassUnderglow")
+--   PassCosmetics.truck(truck, def?)        -- neon underglow welded under the Chassis ("PassUnderglow"); def.Paint
+--                                           -- also repaints the truck's red body panels (restored on change)
 -- Every part it adds is Massless, CanCollide/CanQuery/CanTouch false and welded, so physics, ragdoll
 -- and first-person transparency behave as with the rest of the costume.
 local TweenService = game:GetService("TweenService")
@@ -130,6 +132,15 @@ function PassCosmetics.helmet(character: Model, def: { [string]: any }?)
 		sp.SpreadAngle = Vector2.new(180, 180)
 		sp.Parent = dome
 	end
+	if dome and def.Glow then
+		local light = Instance.new("PointLight")
+		light.Name = "PassGlow"
+		light:SetAttribute("PassFx", true)
+		light.Color = main
+		light.Range = 7
+		light.Brightness = 0.9
+		light.Parent = dome
+	end
 	if dome and def.Chief then
 		-- a gold star on top of the Fire Chief's helmet
 		local star = Instance.new("Part")
@@ -236,6 +247,40 @@ end
 
 local pulses: { [Model]: Tween } = {}
 
+-- TruckBuilder's TruckRed / TruckRedDark: the body panels a paint job recolours
+local TRUCK_RED = Color3.fromRGB(200, 35, 43)
+local TRUCK_RED_DARK = Color3.fromRGB(150, 24, 30)
+
+local function near(a: Color3, b: Color3): boolean
+	return math.abs(a.R - b.R) + math.abs(a.G - b.G) + math.abs(a.B - b.B) < 0.06
+end
+
+local function paintTruck(truck: Model, def: { [string]: any }?)
+	local paintHex = def and def.Paint
+	local main = if type(paintHex) == "string" then hex(paintHex, TRUCK_RED) else nil
+	local mat = if def and def.PaintMetal then Enum.Material.Metal else Enum.Material.SmoothPlastic
+	for _, d in truck:GetDescendants() do
+		if not d:IsA("BasePart") or d:GetAttribute("MeshSkin") ~= nil or d.Name == "PassUnderglow" then
+			continue
+		end
+		local painted = d:GetAttribute("PassPaint")
+		if main then
+			local base = d:GetAttribute("PassBaseColor")
+			local orig = if typeof(base) == "Color3" then base else d.Color
+			if painted == "dark" or (painted == nil and near(orig, TRUCK_RED_DARK)) then
+				paint(d, main:Lerp(Color3.new(0, 0, 0), 0.3), mat)
+				d:SetAttribute("PassPaint", "dark")
+			elseif painted == "main" or (painted == nil and near(orig, TRUCK_RED)) then
+				paint(d, main, mat)
+				d:SetAttribute("PassPaint", "main")
+			end
+		elseif painted ~= nil then
+			restore(d)
+			d:SetAttribute("PassPaint", nil)
+		end
+	end
+end
+
 function PassCosmetics.truck(truck: Model, def: { [string]: any }?)
 	local old = truck:FindFirstChild("PassUnderglow")
 	if old then
@@ -246,6 +291,7 @@ function PassCosmetics.truck(truck: Model, def: { [string]: any }?)
 		tw:Cancel()
 		pulses[truck] = nil
 	end
+	pcall(paintTruck, truck, def)
 	local chassis = truck:FindFirstChild("Chassis") :: BasePart?
 	if not def or not chassis then
 		return

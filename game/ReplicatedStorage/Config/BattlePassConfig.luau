@@ -10,9 +10,21 @@
 --   truck   neon underglow under your fire truck (Color, optional Pulse)
 --   nozzle  the hose tool's tip (Color, Sparkle)
 --   emote   [K] in the lobby, or DANCE in the panel's locker (Style "spin" | "flex")
+--   truck   + Paint (hex): also repaints the truck's red body panels (PaintMetal = metal finish)
 --   boost   not equipped: every claimed boost adds Pct % to the pass XP you earn (capped)
 -- Colours are hex strings so the pure rules / specs never touch Color3.
+--
+-- 100 tiers. Tiers 1-20 are the original season-1 pass and must never change (players have claimed them:
+-- claims are stored by tier number). Tiers 21-100 mix hand-made rewards with palette variants:
+-- "helmet:mint:neon" = PassRules.variant (id "helmet_mint", name "Mint Helmet"), drawn from Palette below.
+-- Never reorder or edit a shipped tier row; append-only. Every reward name is a Translations key.
+--
+-- XP curve (XpCurve[t] = XP from tier t-1 to t): tiers 1-20 keep the original 100 XP each (so nobody's
+-- progress moves), then it ramps smoothly to 1500 XP at tier 100. Total 57,410 XP: about 170 average
+-- missions for a free player with no boosts. CurveVersion stamps each pass; a pass from an older curve is
+-- moved onto this one keeping its tier and fraction (PassRules.migrateCurve, BattlePassService.onProfile).
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
+local PassRules = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassRules") :: ModuleScript)
 
 local Rewards: { [string]: { [string]: any } } = {
 	-- titles
@@ -62,6 +74,111 @@ local Rewards: { [string]: { [string]: any } } = {
 	boost_5d = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
 	boost_10a = { Slot = "boost", Name = "+10% Pass XP", Pct = 10 },
 	boost_10b = { Slot = "boost", Name = "+10% Pass XP", Pct = 10 },
+
+	------------------------------------------------------------------ tiers 21-100 (hand-made)
+	-- milestones: 25 / 50 / 75 / 100
+	title_super = { Slot = "title", Name = "Super Firefighter", Color = "#FFC531", Shine = true },
+	helmet_golden = { Slot = "helmet", Name = "Golden Helmet", Color = "#FFC21F", Trim = "#FFF1A8", Metal = true, Sparkle = true, Glow = true },
+	paint_silver = { Slot = "truck", Name = "Silver Truck Paint", Paint = "#C9CED6", PaintMetal = true, Color = "#E8F0FF" },
+	paint_gold = { Slot = "truck", Name = "Gold Truck Paint", Paint = "#FFC21F", PaintMetal = true, Color = "#FFD84A", Pulse = "#FFFFFF" },
+	helmet_hero = { Slot = "helmet", Name = "Hero Helmet", Color = "#FFFFFF", Trim = "#D9372A", Sparkle = true },
+	helmet_diamond = { Slot = "helmet", Name = "Diamond Helmet", Color = "#BDF4FF", Trim = "#FFFFFF", Neon = true, Sparkle = true, Glow = true },
+	title_legendary = { Slot = "title", Name = "LEGEND", Color = "#FFD84A", Shine = true },
+	helmet_legend = { Slot = "helmet", Name = "Legend Helmet", Color = "#FFC21F", Trim = "#FF5A1F", Neon = true, Sparkle = true, Chief = true, Glow = true },
+	-- truck paints (premium 70 / 90)
+	paint_galaxy = { Slot = "truck", Name = "Galaxy Truck Paint", Paint = "#3B1E6B", Color = "#E07BFF", Pulse = "#2FA8FF" },
+	paint_inferno = { Slot = "truck", Name = "Inferno Truck Paint", Paint = "#1E1B24", Color = "#FF5A1F", Pulse = "#FFE45C" },
+	-- emotes: Style spin (Turns = full turns, classic 2) | flex (Hop = jump speed, classic 38); Shout = the text over your head; Fx = confetti colours
+	emote_hop = { Slot = "emote", Name = "Happy Hop", Style = "flex", Hop = 30, Shout = "HAPPY HOP!", Fx = { "#6BCB5A", "#FFE45C", "#7EC8F5" } },
+	emote_cheer = { Slot = "emote", Name = "Cheer Jump", Style = "flex", Hop = 44, Shout = "CHEER!", Fx = { "#FF7FC8", "#FFE45C", "#FFFFFF" } },
+	emote_twirl = { Slot = "emote", Name = "Splash Twirl", Style = "spin", Turns = 3, Shout = "SPLASH TWIRL!", Fx = { "#4FB3D9", "#BDF4FF", "#FFFFFF" } },
+	emote_firedance = { Slot = "emote", Name = "Fire Dance", Style = "spin", Turns = 2, Shout = "FIRE DANCE!", Fx = { "#FF4B12", "#FF8A1F", "#FFE45C" } },
+	emote_tornado = { Slot = "emote", Name = "Tornado Spin", Style = "spin", Turns = 4, Shout = "TORNADO!", Fx = { "#C9D3DE", "#7EC8F5", "#FFFFFF" } },
+	emote_superjump = { Slot = "emote", Name = "Super Jump", Style = "flex", Hop = 62, Shout = "SUPER JUMP!", Fx = { "#FFC21F", "#E07BFF", "#2FA8FF" } },
+	-- xp boosts (free 23 38 57 83, premium 34 54; all boosts together stop at BoostCapPct)
+	boost_5e = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	boost_5f = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	boost_5g = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	boost_5h = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	boost_5i = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	boost_5j = { Slot = "boost", Name = "+5% Pass XP", Pct = 5 },
+	-- titles
+	title_smokediver = { Slot = "title", Name = "Smoke Diver", Color = "#7FF5F0" },
+	title_bucketboss = { Slot = "title", Name = "Bucket Boss", Color = "#FFE45C" },
+	title_sirenstar = { Slot = "title", Name = "Siren Star", Color = "#FF8A1F" },
+	title_sparkstopper = { Slot = "title", Name = "Spark Stopper", Color = "#6BCB5A" },
+	title_ladderclimber = { Slot = "title", Name = "Ladder Climber", Color = "#4FB3D9" },
+	title_emberhunter = { Slot = "title", Name = "Ember Hunter", Color = "#FF7FC8" },
+	title_petprotector = { Slot = "title", Name = "Pet Protector", Color = "#E07BFF" },
+	title_pandapal = { Slot = "title", Name = "Panda Pal", Color = "#FFC531" },
+	title_hydranthero = { Slot = "title", Name = "Hydrant Hero", Color = "#7FF5F0" },
+	title_roadruler = { Slot = "title", Name = "Road Ruler", Color = "#FFE45C" },
+	title_foammaster = { Slot = "title", Name = "Foam Master", Color = "#FF8A1F" },
+	title_heatseeker = { Slot = "title", Name = "Heat Seeker", Color = "#6BCB5A" },
+	title_squadleader = { Slot = "title", Name = "Squad Leader", Color = "#4FB3D9" },
+	title_nightwatch = { Slot = "title", Name = "Night Watch", Color = "#FF7FC8" },
+	title_splashchamp = { Slot = "title", Name = "Splash Champ", Color = "#E07BFF" },
+	title_fearless = { Slot = "title", Name = "Fearless", Color = "#FFC531" },
+	title_firestorm = { Slot = "title", Name = "Firestorm", Color = "#7FF5F0" },
+	title_bravest = { Slot = "title", Name = "Bravest", Color = "#FFE45C" },
+	title_waterwizard = { Slot = "title", Name = "Water Wizard", Color = "#FF8A1F" },
+	title_hotshot = { Slot = "title", Name = "Hot Shot", Color = "#6BCB5A" },
+	title_lifesaver = { Slot = "title", Name = "Lifesaver", Color = "#4FB3D9" },
+	title_flametamer = { Slot = "title", Name = "Flame Tamer", Color = "#FF7FC8" },
+	title_blockguardian = { Slot = "title", Name = "Block Guardian", Color = "#E07BFF" },
+	title_stationhero = { Slot = "title", Name = "Station Hero", Color = "#FFC531" },
+}
+
+-- Colours for the generated variants (key -> { Name, Color, Trim }). Append-only: ids come from the keys.
+local Palette: { [string]: { [string]: any } } = {
+	mint = { Name = "Mint", Color = "#6FE3B4", Trim = "#1E7A5A" },
+	coral = { Name = "Coral", Color = "#FF7A6B", Trim = "#FFE0D2" },
+	grape = { Name = "Grape", Color = "#8A4FD8", Trim = "#E0C8FF" },
+	lemon = { Name = "Lemon", Color = "#FFE45C", Trim = "#B88A00" },
+	cocoa = { Name = "Cocoa", Color = "#7A4A2E", Trim = "#E8C9A0" },
+	berry = { Name = "Berry", Color = "#C2185B", Trim = "#FF9DC8" },
+	sky = { Name = "Sky", Color = "#7EC8F5", Trim = "#FFFFFF" },
+	forest = { Name = "Forest", Color = "#2E7D32", Trim = "#A6E39A" },
+	peach = { Name = "Peach", Color = "#FFB38A", Trim = "#FF7A4A" },
+	ruby = { Name = "Ruby", Color = "#D3123F", Trim = "#FFB3C1" },
+	emerald = { Name = "Emerald", Color = "#1FBF6A", Trim = "#D6FFE6" },
+	sapphire = { Name = "Sapphire", Color = "#1E4FD8", Trim = "#9EC1FF" },
+	amber = { Name = "Amber", Color = "#FFB000", Trim = "#7A4A00" },
+	pearl = { Name = "Pearl", Color = "#F3EEE6", Trim = "#C9B79C" },
+	slate = { Name = "Slate", Color = "#5E6B7A", Trim = "#C9D3DE" },
+	lilac = { Name = "Lilac", Color = "#C9A2F0", Trim = "#6B3FA0" },
+	tangerine = { Name = "Tangerine", Color = "#FF8C1A", Trim = "#FFE0B0" },
+	cobalt = { Name = "Cobalt", Color = "#0047AB", Trim = "#7FF5F0" },
+	jade = { Name = "Jade", Color = "#00A86B", Trim = "#E6FFF5" },
+	crimson = { Name = "Crimson", Color = "#B0102A", Trim = "#FFD84A" },
+	galaxy = { Name = "Galaxy", Color = "#3B1E6B", Trim = "#E07BFF" },
+	arctic = { Name = "Arctic", Color = "#CFF4FF", Trim = "#4FB3D9" },
+	sunset = { Name = "Sunset", Color = "#FF5E3A", Trim = "#FFC531" },
+	candy = { Name = "Candy", Color = "#FF6FB5", Trim = "#FFFFFF" },
+	olive = { Name = "Olive", Color = "#7A8B2A", Trim = "#E8F0B0" },
+	navy = { Name = "Navy", Color = "#1B2A5C", Trim = "#FFC21F" },
+	plum = { Name = "Plum", Color = "#6B2D5C", Trim = "#F0A8D8" },
+	copper = { Name = "Copper", Color = "#C46A2B", Trim = "#FFD0A8" },
+	bronze = { Name = "Bronze", Color = "#A97142", Trim = "#E8C9A0" },
+	silver = { Name = "Silver", Color = "#C9CED6", Trim = "#8A93A0" },
+	obsidian = { Name = "Obsidian", Color = "#1E1B24", Trim = "#FF5A1F" },
+	honey = { Name = "Honey", Color = "#F2A93B", Trim = "#FFF1A8" },
+	blossom = { Name = "Blossom", Color = "#FFB7D5", Trim = "#FF6FB5" },
+	aqua = { Name = "Aqua", Color = "#2FE0E0", Trim = "#E8FDFF" },
+	watermelon = { Name = "Watermelon", Color = "#FF4F6D", Trim = "#4CC26A" },
+	blueberry = { Name = "Blueberry", Color = "#4A5BE8", Trim = "#C8D0FF" },
+	pumpkin = { Name = "Pumpkin", Color = "#FF7518", Trim = "#2A1410" },
+	seafoam = { Name = "Seafoam", Color = "#8FE3C8", Trim = "#2F7BEA" },
+	charcoal = { Name = "Charcoal", Color = "#3A3A40", Trim = "#FF8A1F" },
+	sand = { Name = "Sand", Color = "#E8D3A2", Trim = "#A8843F" },
+	rust = { Name = "Rust", Color = "#A8431F", Trim = "#FFB38A" },
+	electric = { Name = "Electric", Color = "#3DF2FF", Trim = "#1E4FD8" },
+	firefly = { Name = "Firefly", Color = "#D4FF3A", Trim = "#3B5A00" },
+	marshmallow = { Name = "Marshmallow", Color = "#FFF6EE", Trim = "#FFB7D5" },
+	royal = { Name = "Royal", Color = "#5B2FD8", Trim = "#FFD84A" },
+	flamingo = { Name = "Flamingo", Color = "#FF8FB1", Trim = "#FFFFFF" },
+	storm = { Name = "Storm", Color = "#6E7F99", Trim = "#E8F0FF" },
+	volcano = { Name = "Volcano", Color = "#8B1A00", Trim = "#FF6A1A" },
 }
 
 -- Tiers[n] = the rewards unlocked at tier n (index = tier). Every id is used once.
@@ -85,15 +202,124 @@ local Tiers: { { Free: string, Premium: string } } = {
 	{ Free = "helmet_snow", Premium = "truck_gold" }, -- 17
 	{ Free = "title_captain", Premium = "hose_diamond" }, -- 18
 	{ Free = "boost_5d", Premium = "title_legend" }, -- 19
-	{ Free = "title_chief", Premium = "helmet_chief" }, -- 20: the Fire Chief
+	{ Free = "title_chief", Premium = "helmet_chief" }, -- 20: the Fire Chief (end of the original pass)
+	-- 21-100: "<slot>:<colour>[:<pattern>]" codes become palette variants below
+	{ Free = "helmet:mint:plain", Premium = "helmet:coral:neon" }, -- 21
+	{ Free = "title_smokediver", Premium = "truck:plum" }, -- 22
+	{ Free = "boost_5e", Premium = "hose:slate" }, -- 23
+	{ Free = "hose:pearl", Premium = "helmet:grape:sparkle" }, -- 24
+	{ Free = "title_super", Premium = "helmet_golden" }, -- 25
+	{ Free = "truck:copper", Premium = "nozzle:lemon:sparkle" }, -- 26
+	{ Free = "helmet:lemon:twotone", Premium = "truck:bronze" }, -- 27
+	{ Free = "title_bucketboss", Premium = "title_sirenstar" }, -- 28
+	{ Free = "hose:lilac", Premium = "hose:tangerine" }, -- 29
+	{ Free = "nozzle:forest", Premium = "emote_firedance" }, -- 30
+	{ Free = "truck:silver", Premium = "helmet:cocoa:metal" }, -- 31
+	{ Free = "helmet:berry:metal", Premium = "truck:obsidian:pulse" }, -- 32
+	{ Free = "title_sparkstopper", Premium = "hose:cobalt" }, -- 33
+	{ Free = "hose:jade", Premium = "boost_5i" }, -- 34
+	{ Free = "helmet:forest:plain", Premium = "helmet:sky:twotone" }, -- 35
+	{ Free = "title_ladderclimber", Premium = "truck:honey" }, -- 36
+	{ Free = "truck:blossom:pulse", Premium = "helmet:peach:neon" }, -- 37
+	{ Free = "boost_5f", Premium = "nozzle:sapphire:sparkle" }, -- 38
+	{ Free = "hose:crimson", Premium = "hose:galaxy" }, -- 39
+	{ Free = "helmet:ruby:twotone", Premium = "truck:aqua" }, -- 40
+	{ Free = "title_emberhunter", Premium = "helmet:emerald:sparkle" }, -- 41
+	{ Free = "hose:arctic", Premium = "title_petprotector" }, -- 42
+	{ Free = "truck:watermelon", Premium = "hose:sunset" }, -- 43
+	{ Free = "nozzle:lilac:sparkle", Premium = "helmet:sapphire:metal" }, -- 44
+	{ Free = "emote_hop", Premium = "truck:blueberry:pulse" }, -- 45
+	{ Free = "helmet:amber:metal", Premium = "helmet:pearl:twotone" }, -- 46
+	{ Free = "title_pandapal", Premium = "hose:olive" }, -- 47
+	{ Free = "hose:candy", Premium = "nozzle:crimson:sparkle" }, -- 48
+	{ Free = "helmet:slate:plain", Premium = "truck:pumpkin" }, -- 49
+	{ Free = "paint_silver", Premium = "paint_gold" }, -- 50
+	{ Free = "title_hydranthero", Premium = "helmet:lilac:neon" }, -- 51
+	{ Free = "truck:seafoam", Premium = "hose:plum" }, -- 52
+	{ Free = "hose:navy", Premium = "truck:charcoal" }, -- 53
+	{ Free = "helmet:tangerine:twotone", Premium = "boost_5j" }, -- 54
+	{ Free = "title_roadruler", Premium = "title_foammaster" }, -- 55
+	{ Free = "truck:sand:pulse", Premium = "helmet:cobalt:sparkle" }, -- 56
+	{ Free = "boost_5g", Premium = "hose:bronze" }, -- 57
+	{ Free = "hose:copper", Premium = "truck:rust:pulse" }, -- 58
+	{ Free = "helmet:jade:metal", Premium = "helmet:crimson:metal" }, -- 59
+	{ Free = "title_heatseeker", Premium = "emote_tornado" }, -- 60
+	{ Free = "nozzle:candy", Premium = "nozzle:copper:sparkle" }, -- 61
+	{ Free = "helmet:galaxy:plain", Premium = "helmet:arctic:twotone" }, -- 62
+	{ Free = "title_squadleader", Premium = "truck:electric" }, -- 63
+	{ Free = "hose:silver", Premium = "hose:obsidian" }, -- 64
+	{ Free = "emote_cheer", Premium = "helmet:sunset:neon" }, -- 65
+	{ Free = "truck:firefly", Premium = "truck:marshmallow" }, -- 66
+	{ Free = "helmet:candy:twotone", Premium = "title_splashchamp" }, -- 67
+	{ Free = "title_nightwatch", Premium = "hose:blossom" }, -- 68
+	{ Free = "hose:honey", Premium = "helmet:olive:sparkle" }, -- 69
+	{ Free = "truck:royal", Premium = "paint_galaxy" }, -- 70
+	{ Free = "helmet:navy:metal", Premium = "truck:flamingo:pulse" }, -- 71
+	{ Free = "title_fearless", Premium = "nozzle:honey:sparkle" }, -- 72
+	{ Free = "hose:aqua", Premium = "hose:watermelon" }, -- 73
+	{ Free = "helmet:plum:plain", Premium = "helmet:copper:metal" }, -- 74
+	{ Free = "helmet_hero", Premium = "helmet_diamond" }, -- 75
+	{ Free = "title_firestorm", Premium = "truck:storm" }, -- 76
+	{ Free = "nozzle:blueberry:sparkle", Premium = "helmet:bronze:twotone" }, -- 77
+	{ Free = "truck:volcano:pulse", Premium = "hose:blueberry" }, -- 78
+	{ Free = "hose:pumpkin", Premium = "truck:mint" }, -- 79
+	{ Free = "helmet:silver:twotone", Premium = "helmet:obsidian:neon" }, -- 80
+	{ Free = "title_bravest", Premium = "title_waterwizard" }, -- 81
+	{ Free = "hose:seafoam", Premium = "hose:charcoal" }, -- 82
+	{ Free = "boost_5h", Premium = "nozzle:sand:sparkle" }, -- 83
+	{ Free = "truck:coral", Premium = "helmet:blossom:sparkle" }, -- 84
+	{ Free = "helmet:honey:metal", Premium = "emote_superjump" }, -- 85
+	{ Free = "title_hotshot", Premium = "truck:grape:pulse" }, -- 86
+	{ Free = "hose:sand", Premium = "helmet:aqua:metal" }, -- 87
+	{ Free = "helmet:watermelon:plain", Premium = "hose:rust" }, -- 88
+	{ Free = "title_lifesaver", Premium = "truck:lemon" }, -- 89
+	{ Free = "truck:cocoa", Premium = "paint_inferno" }, -- 90
+	{ Free = "nozzle:marshmallow", Premium = "helmet:blueberry:twotone" }, -- 91
+	{ Free = "hose:firefly", Premium = "hose:electric" }, -- 92
+	{ Free = "helmet:pumpkin:twotone", Premium = "truck:berry" }, -- 93
+	{ Free = "title_blockguardian", Premium = "title_flametamer" }, -- 94
+	{ Free = "emote_twirl", Premium = "nozzle:volcano:sparkle" }, -- 95
+	{ Free = "truck:sky:pulse", Premium = "helmet:seafoam:neon" }, -- 96
+	{ Free = "hose:marshmallow", Premium = "hose:royal" }, -- 97
+	{ Free = "helmet:charcoal:metal", Premium = "truck:forest:pulse" }, -- 98
+	{ Free = "title_stationhero", Premium = "helmet:sand:sparkle" }, -- 99
+	{ Free = "title_legendary", Premium = "helmet_legend" }, -- 100
 }
+
+-- expand the variant codes into Rewards (ids like "helmet_mint")
+for _, row in Tiers do
+	for _, key in { "Free", "Premium" } do
+		local code = (row :: any)[key]
+		if string.find(code, ":", 1, true) then
+			local id, def = PassRules.variant(code, Palette)
+			assert(id and def, `BattlePassConfig: bad variant code {code}`)
+			assert(Rewards[id] == nil, `BattlePassConfig: {id} defined twice`)
+			Rewards[id] = def
+			;(row :: any)[key] = id
+		end
+	end
+end
+
+-- XP from tier t-1 to tier t: 100 for the original 20 tiers, then a smooth ramp to 1500 at tier 100
+local XpCurve: { number } = {}
+for t = 1, 100 do
+	XpCurve[t] = if t <= 20 then 100 else math.floor((100 + 1400 * ((t - 20) / 80) ^ 1.4) / 10 + 0.5) * 10
+end
 
 return Config.define({
 	SeasonId = "S1",
 	SeasonName = "SEASON 1: HOT START",
 	SeasonEndsAt = 1796083200, -- 2026-12-01 00:00 UTC (unix seconds); the panel counts down to it
-	MaxTier = 20,
-	XpPerTier = 100,
+	MaxTier = 100,
+	XpPerTier = 100, -- curve 1 (the original 20 x 100) and the fallback when XpCurve is missing
+	XpCurve = XpCurve,
+	CurveVersion = 2,
+	-- older curves by version, for PassRules.migrateCurve (a pass with no `curve` was earned under 1)
+	CurveHistory = {
+		[1] = { perTier = 100, maxTier = 20 },
+	},
+	Milestones = { 25, 50, 75, 100 }, -- the panel's gold columns + page markers
+	PageSize = 10, -- tiers per page in the REWARDS tab
 	PremiumXpMultiplier = 1.5, -- premium owners earn pass XP faster
 	BoostCapPct = 50, -- claimed XP boosts add up to at most this
 

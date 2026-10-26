@@ -1,17 +1,22 @@
 --!strict
 -- BattlePassController [owner: BattlePass]. Client side of BattlePassService, sticker style (UiKit):
---   * Opened from the "Pass" section of the top-bar box (ClientLib/TopBox) or [P]; the old left-edge
---     PASS chip is kept hidden. (Lobby only, everyone: free track for all; locked premium tiles
---     say UNLOCK and open the Premium Battle Pass purchase. Previously owners only; everyone else buys
---     the pass in the STORE) with a red badge counting rewards waiting for a Claim.
+--   * Opened from the [P] PASS chip in the left chip column (HudLayout stack "Chips", first: PASS, NEWS,
+--     INVITE, HELP, ADMIN) or [P]. Lobby only, everyone: free track for all; locked premium tiles say
+--     UNLOCK and open the Premium Battle Pass purchase. The chip shows your tier, the XP to the next one
+--     and a red badge counting rewards waiting for a Claim.
 --   * The panel (attr Menu = true, so MenuMouseController frees the mouse): season name + countdown, a big
 --     tier badge, XP bar, CLAIM ALL, and two tabs:
---       REWARDS  a horizontal tier track: big tier numbers on a progress rail, FREE and PREMIUM rows of
---                reward cards (preview icon, name, CLAIM / OWNED / LOCKED), scrolled to your tier.
---       LOCKER   every cosmetic by slot; owned ones equip / unequip on click (saved in your profile),
---                your XP boost and a DANCE button for the equipped emote.
---   * HUD pip = the top-bar box's Pass section: tier circle + mini XP bar + claim badge; pass
---     XP popups float up from it ("+25 PASS XP  Rescue").
+--       REWARDS  100 tiers in pages of Cfg.PageSize (page chips 1-10 ... 91-100 with a claim badge and a
+--                star on the milestone pages; ◄ ► or L1 / R1 on a gamepad). Each page is a horizontal
+--                track: big tier numbers on a progress rail, FREE and PREMIUM rows of reward cards (preview
+--                icon, name, CLAIM / OWNED / LOCKED); milestone tiers (25/50/75/100) are gold columns.
+--                Only one page of cards exists (they are re-filled on a page change), so 100 tiers cost the
+--                same as 10 on a phone. Opens on the page of your next tier, scrolled to it.
+--       LOCKER   every cosmetic by slot, one sideways-scrolling row per slot (built the first time the tab
+--                opens); owned ones equip / unequip on click (saved in your profile), your XP boost and a
+--                DANCE button for the equipped emote.
+--   * Pass XP popups ("+25 PASS XP  Rescue") float from the chip in the lobby and from the top-bar box
+--     (ClientLib/TopBox, the level / XP box) on a call, where the chip is hidden.
 --   * Tier-up celebration (popup, confetti, LevelUp stinger) and emote FX for everyone ([K] to dance).
 -- Renders only what the server sends (BattlePass/State, Gain, Claimed, Fx); intents go through
 -- BattlePass/Request. Rules for drawing come from ReplicatedStorage/Lib/BattlePass/PassRules.
@@ -43,19 +48,21 @@ local FREE_CARD = Color3.fromHex("#FFF1D6")
 local GREY = Color3.fromHex("#8C8A88")
 local DIM = Color3.fromHex("#3A3440")
 local PANEL_W, PANEL_H = 1080, 600
-local COL_W, CARD_W, CARD_H = 134, 122, 150
+local COL_W, CARD_W, CARD_H = 134, 122, 140
 local TRACK_TOP = 192
+local PAGE_BAR_H = 44 -- the page chips above the track
+local MILESTONE = Color3.fromHex("#FFD84A")
 
 local SLOT_LABEL = {
 	helmet = "HELMET",
 	title = "TITLE",
 	hose = "HOSE",
-	truck = "TRUCK GLOW",
+	truck = "TRUCK",
 	nozzle = "NOZZLE",
 	emote = "EMOTE",
 }
 
-type Card = { frame: Frame, button: TextButton, status: TextLabel, shade: Frame, glow: UIStroke, id: string, tier: number, track: string }
+type Card = { frame: Frame, button: TextButton, status: TextLabel, shade: Frame, glow: UIStroke, id: string, tier: number, track: string, icon: Frame? }
 type Tile = { frame: Frame, tag: TextLabel, stroke: UIStroke, id: string }
 
 local state: { [string]: any }? = nil
@@ -63,8 +70,11 @@ local requestRemote: RemoteEvent? = nil
 local ui: { [string]: any } = {}
 local cards: { Card } = {}
 local tiles: { Tile } = {}
-local columns: { [number]: { circle: Frame, num: TextLabel } } = {}
+local columns: { { frame: Frame, circle: Frame, num: TextLabel, star: TextLabel } } = {}
 local tab = "rewards"
+local page = 1 -- REWARDS page (tiers (page-1)*PageSize+1 .. page*PageSize)
+local chips: { TextButton } = {}
+local lockerBuilt = false
 
 ---------------------------------------------------------------------------------- helpers
 
@@ -91,6 +101,7 @@ local function opts(s: { [string]: any }?): PassRules.Opts
 	return {
 		perTier = if s then s.perTier else Cfg.XpPerTier,
 		maxTier = if s then s.maxTier else Cfg.MaxTier,
+		needs = Cfg.XpCurve,
 		tiers = Cfg.Tiers,
 		rewards = Cfg.Rewards,
 		boostCap = Cfg.BoostCapPct,
@@ -191,7 +202,7 @@ local function icon(parent: Instance, r: { [string]: any }, size: number): Frame
 		if r.Pulse then
 			g.Color = ColorSequence.new(c, hex(r.Pulse, c))
 		end
-		local body = frame(box, "Body", UDim2.fromOffset(66 * s, 30 * s), UDim2.fromOffset(7 * s, 22 * s), Palette.TruckRed, math.floor(6 * s))
+		local body = frame(box, "Body", UDim2.fromOffset(66 * s, 30 * s), UDim2.fromOffset(7 * s, 22 * s), hex(r.Paint, Palette.TruckRed), math.floor(6 * s))
 		UiKit.stroke(body, 2.5, Palette.UiInk)
 		frame(body, "Window", UDim2.fromOffset(16 * s, 12 * s), UDim2.fromOffset(44 * s, 4 * s), Color3.fromHex("#9EC1CC"), 3)
 		for i, x in { 14, 52 } do
@@ -209,6 +220,9 @@ local function icon(parent: Instance, r: { [string]: any }, size: number): Frame
 	elseif r.Slot == "emote" then
 		local bubble = frame(box, "Bubble", UDim2.fromOffset(66 * s, 50 * s), UDim2.fromOffset(7 * s, 12 * s), Palette.UiWater, math.floor(22 * s))
 		UiKit.stroke(bubble, 2.5, Palette.UiInk)
+		if type(r.Fx) == "table" and r.Fx[1] then
+			bubble.BackgroundColor3 = hex(r.Fx[1], Palette.UiWater)
+		end
 		local l = text(bubble, "Text", if r.Style == "spin" then "SPIN!" else "FLEX!", UDim2.new(1, -6, 1, 0), UDim2.fromOffset(3, 0), UiKit.Header, 16, Palette.UiCream, true)
 		l.TextScaled = true
 		local tail = frame(box, "Tail", UDim2.fromOffset(14 * s, 14 * s), UDim2.fromOffset(18 * s, 56 * s), Palette.UiWater, 2)
@@ -314,10 +328,27 @@ local pending = 0
 local pendingReason = ""
 local flushToken = 0
 
+-- where pass XP popups start: the PASS chip (lobby), else the top-bar level / XP box (on a call)
+local function popupAnchor(): GuiObject?
+	local chip = ui.chip :: GuiObject?
+	if chip and chip.Visible and (ui.gui :: ScreenGui).Enabled then
+		return chip
+	end
+	local pg = player:FindFirstChild("PlayerGui")
+	local top = pg and pg:FindFirstChild("TopBox")
+	if top and top:IsA("ScreenGui") and top.Enabled then
+		local box = top:FindFirstChildWhichIsA("GuiObject")
+		if box and box.Visible then
+			return box
+		end
+	end
+	return nil
+end
+
 local function xpPopup(amount: number, reason: string)
-	local pip = ui.pip :: Frame?
+	local pip = popupAnchor()
 	local layer = ui.fx :: Frame?
-	if not pip or not layer or not pip.Visible then
+	if not pip or not layer then
 		return
 	end
 	local scale = (ui.gui :: ScreenGui):FindFirstChildOfClass("UIScale")
@@ -336,7 +367,13 @@ local function xpPopup(amount: number, reason: string)
 		local below = (obCard.AbsolutePosition.Y + obCard.AbsoluteSize.Y - layer.AbsolutePosition.Y) / k + 56
 		y = math.max(y, below)
 	end
-	holder.Position = UDim2.fromOffset(abs.X / k + 4, y)
+	local x = abs.X / k + 4
+	if pip == ui.chip then
+		-- the chip is in the left column: pop out to its right, level with it
+		x = (abs.X + pip.AbsoluteSize.X) / k + 12
+		y = abs.Y / k - 4
+	end
+	holder.Position = UDim2.fromOffset(x, y)
 	holder.ZIndex = 20
 	holder.Parent = layer
 	local main = text(holder, "Main", Loc.t("+{1} PASS XP", { amount }), UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), UiKit.Header, 28, Palette.UiShock, true)
@@ -359,21 +396,25 @@ local function xpPopup(amount: number, reason: string)
 	task.delay(1.9, function()
 		holder:Destroy()
 	end)
-	UiKit.punch(pip, 0.12)
+	if pip == ui.chip then
+		UiKit.punch(pip, 0.12)
+	end
 end
 
 -- Calm (phones / EFFECTS: CALM): a small "+40 PASS" tick under the pip, no reason line, no punch
 local function xpTick(amount: number)
-	local pip = ui.pip :: Frame?
+	local pip = popupAnchor()
 	local layer = ui.fx :: Frame?
-	if not pip or not layer or not pip.Visible then
+	if not pip or not layer then
 		return
 	end
 	local scale = (ui.gui :: ScreenGui):FindFirstChildOfClass("UIScale")
 	local k = if scale then scale.Scale else 1
 	local abs = pip.AbsolutePosition - layer.AbsolutePosition
-	local l = text(layer, "PassTick", Loc.t("+{1} PASS", { amount }), UDim2.fromOffset(120, 22),
-		UDim2.fromOffset(abs.X / k + 4, (abs.Y + pip.AbsoluteSize.Y) / k + 4), UiKit.Body, 18, Palette.UiShock, true)
+	local pos = if pip == ui.chip
+		then UDim2.fromOffset((abs.X + pip.AbsoluteSize.X) / k + 12, abs.Y / k + 8)
+		else UDim2.fromOffset(abs.X / k + 4, (abs.Y + pip.AbsoluteSize.Y) / k + 4)
+	local l = text(layer, "PassTick", Loc.t("+{1} PASS", { amount }), UDim2.fromOffset(120, 22), pos, UiKit.Body, 18, Palette.UiShock, true)
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.ZIndex = 21
 	task.delay(0.9, function()
@@ -469,18 +510,18 @@ local function paintTiles(s: { [string]: any }, pass: PassRules.Pass)
 end
 
 local function paintPip(s: { [string]: any }?)
-	local pip = ui.pip :: Frame?
+	local pip = ui.pip :: GuiObject?
 	if not pip then
 		return
 	end
-	pip.Visible = s ~= nil -- everyone has the free track
+	-- everyone has the free track; the chip is a lobby button (missions: popups use the top-bar box)
+	pip.Visible = s ~= nil and inLobby()
 	if not s then
 		return
 	end
 	;(ui.pipTier :: TextLabel).Text = tostring(s.tier)
 	local frac = if s.need > 0 then s.into / s.need else 1
 	UiKit.tween(ui.pipFill :: Frame, 0.3, { Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1) })
-	;(ui.pipText :: TextLabel).Text = if s.need > 0 then `{s.into}/{s.need}` else "MAX"
 	local badge = ui.pipBadge :: Frame
 	badge.Visible = s.claimable > 0
 	;(badge:FindFirstChild("N") :: TextLabel).Text = tostring(s.claimable)
@@ -489,11 +530,6 @@ end
 local function paint()
 	local s = state
 	paintPip(s)
-	local chipBadge = ui.chipBadge :: Frame?
-	if chipBadge and s then
-		chipBadge.Visible = s.claimable > 0
-		;(chipBadge:FindFirstChild("N") :: TextLabel).Text = tostring(s.claimable)
-	end
 	if not s or not ui.panel then
 		return
 	end
@@ -509,7 +545,18 @@ local function paint()
 		local pr = Cfg.Rewards[nextRow.Premium]
 		nextText.Text = Loc.t("NEXT  TIER {1}:  {2}  +  {3}", { s.tier + 1, fr and fr.Name or "?", pr and pr.Name or "?" })
 	else
-		nextText.Text = "ALL 20 TIERS DONE. YOU ARE THE FIRE CHIEF!"
+		nextText.Text = Loc.t("ALL {1} TIERS DONE. YOU ARE A LEGEND!", { Cfg.MaxTier })
+	end
+	local ms = ui.milestone :: TextLabel?
+	if ms then
+		local nextMs = nil
+		for _, m in Cfg.Milestones do
+			if m > s.tier then
+				nextMs = m
+				break
+			end
+		end
+		ms.Text = if nextMs then Loc.t("NEXT MILESTONE: TIER {1}", { nextMs }) else ""
 	end
 	;(ui.boostSmall :: TextLabel).Text = `XP boost +{s.boost or 0}%` .. (if s.premium then `  |  Premium x{Cfg.PremiumXpMultiplier}` else "")
 	local all = ui.claimAll :: TextButton
@@ -522,32 +569,80 @@ local function paint()
 		all.BackgroundColor3 = GREY
 		all.AutoButtonColor = false
 	end
-	-- rail fill + tier circles
+	-- rail fill (this page's part of it) + tier circles
+	local first = (page - 1) * Cfg.PageSize
 	local rail = ui.railFill :: Frame
-	rail.Size = UDim2.new(0, math.max(0, (s.tier - 0.5 + frac) * COL_W), 1, 0)
-	for t, col in columns do
+	local railW = #columns * COL_W
+	rail.Size = UDim2.new(0, math.clamp((s.tier - first - 0.5 + frac) * COL_W, 0, railW), 1, 0)
+	for i, col in columns do
+		local t = first + i
+		col.frame.Visible = t <= Cfg.MaxTier
 		local reached = t <= s.tier
-		col.circle.BackgroundColor3 = if t == s.tier + 1 then Palette.UiWarn elseif reached then Palette.UiFlameMid else DIM
-		col.num.TextColor3 = if reached or t == s.tier + 1 then Palette.UiCream else GREY
+		local big = table.find(Cfg.Milestones, t) ~= nil
+		col.num.Text = tostring(t)
+		col.num.TextSize = if t >= 100 then 24 else 32
+		col.star.Visible = big
+		col.frame.BackgroundTransparency = if big then 0.55 else 1
+		col.circle.BackgroundColor3 = if t == s.tier + 1 then Palette.UiWarn elseif reached then Palette.UiFlameMid elseif big then MILESTONE:Lerp(DIM, 0.35) else DIM
+		col.num.TextColor3 = if reached or t == s.tier + 1 or big then Palette.UiCream else GREY
 	end
 	for _, c in cards do
-		paintCard(c, s, pass)
+		if c.tier <= Cfg.MaxTier then
+			paintCard(c, s, pass)
+		end
+	end
+	-- page chips: current page lit, your page outlined, red badge = rewards waiting there
+	local o = opts(s)
+	for n, chip in chips do
+		local waiting = 0
+		for t = (n - 1) * Cfg.PageSize + 1, math.min(n * Cfg.PageSize, s.tier) do
+			if PassRules.canClaim(pass, t, "free", s.premium, o) then
+				waiting += 1
+			end
+			if PassRules.canClaim(pass, t, "premium", s.premium, o) then
+				waiting += 1
+			end
+		end
+		local lo = (n - 1) * Cfg.PageSize + 1
+		local hi = n * Cfg.PageSize
+		local mine = s.tier + 1 >= lo and s.tier + 1 <= hi or (s.tier >= Cfg.MaxTier and n == #chips)
+		chip.BackgroundColor3 = if n == page then Palette.UiWarn elseif hi <= s.tier then Palette.UiFlameMid else Palette.UiPanelDark
+		local st = chip:FindFirstChild("Mine") :: UIStroke?
+		if st then
+			st.Enabled = mine and n ~= page
+		end
+		local b = chip:FindFirstChild("Badge") :: Frame?
+		if b then
+			b.Visible = waiting > 0
+			;(b:FindFirstChild("N") :: TextLabel).Text = tostring(waiting)
+		end
 	end
 	paintTiles(s, pass)
 end
 
 ---------------------------------------------------------------------------------- building
 
-local function buildCard(parent: Instance, tier: number, track: string, id: string, y: number): Card
+-- (re)fill a card for another tier (page change): new icon + name, same frame and button
+local function setCard(c: Card, tier: number, id: string)
+	c.tier = tier
+	c.id = id
 	local r = Cfg.Rewards[id] or { Slot = "boost", Name = id }
-	local f = frame(parent, `{track}{tier}`, UDim2.fromOffset(CARD_W, CARD_H), UDim2.fromOffset((COL_W - CARD_W) / 2, y), if track == "premium" then GOLD_CARD else FREE_CARD, 14)
+	if c.icon then
+		c.icon:Destroy()
+	end
+	local ic = icon(c.frame, r, 70)
+	ic.Position = UDim2.fromOffset((CARD_W - 70) / 2, 5)
+	c.icon = ic
+	c.status.Text = tostring(r.Name)
+end
+
+local function buildCard(parent: Instance, track: string, y: number): Card
+	local f = frame(parent, track, UDim2.fromOffset(CARD_W, CARD_H), UDim2.fromOffset((COL_W - 4 - CARD_W) / 2, y), if track == "premium" then GOLD_CARD else FREE_CARD, 14)
 	f.ZIndex = 2
 	local glow = UiKit.stroke(f, 4, Palette.UiGood)
 	glow.Enabled = false
 	UiKit.stroke(f, 3, Palette.UiInk)
-	local ic = icon(f, r, 76)
-	ic.Position = UDim2.fromOffset((CARD_W - 76) / 2, 6)
-	local name = text(f, "Name", tostring(r.Name), UDim2.new(1, -10, 0, 34), UDim2.fromOffset(5, 82), UiKit.Body, 15, Palette.UiInk, false)
+	local name = text(f, "Name", "", UDim2.new(1, -10, 0, 30), UDim2.fromOffset(5, 76), UiKit.Body, 15, Palette.UiInk, false)
 	name.TextYAlignment = Enum.TextYAlignment.Center
 	name.ZIndex = 4
 	local shade = frame(f, "Shade", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Palette.UiPanelDark, 14)
@@ -560,10 +655,10 @@ local function buildCard(parent: Instance, tier: number, track: string, id: stri
 	if border then
 		border.Thickness = 3
 	end
-	local c: Card = { frame = f, button = b, status = name, shade = shade, glow = glow, id = id, tier = tier, track = track }
+	local c: Card = { frame = f, button = b, status = name, shade = shade, glow = glow, id = "", tier = 0, track = track, icon = nil }
 	b.Activated:Connect(function()
 		local s = state
-		if not s then
+		if not s or c.tier < 1 or c.tier > Cfg.MaxTier then
 			return
 		end
 		if track == "premium" and not s.premium then
@@ -574,10 +669,10 @@ local function buildCard(parent: Instance, tier: number, track: string, id: stri
 			end)
 			return
 		end
-		local ok = PassRules.canClaim(asPass(s), tier, track, s.premium, opts(s))
+		local ok = PassRules.canClaim(asPass(s), c.tier, track, s.premium, opts(s))
 		if ok then
 			sfx("Click")
-			request("claim", tier, track)
+			request("claim", c.tier, track)
 		else
 			UiKit.shake(f, 0.25, 4)
 		end
@@ -585,33 +680,128 @@ local function buildCard(parent: Instance, tier: number, track: string, id: stri
 	return c
 end
 
+local function pages(): number
+	return math.ceil(Cfg.MaxTier / Cfg.PageSize)
+end
+
+-- show page n: re-fill the PageSize columns with that page's tiers (cards[2i-1] free, cards[2i] premium)
+local function showPage(n: number)
+	page = math.clamp(n, 1, pages())
+	local first = (page - 1) * Cfg.PageSize
+	for k, c in cards do
+		local t = first + (k + 1) // 2
+		local row = Cfg.Tiers[t]
+		if row then
+			setCard(c, t, if c.track == "free" then row.Free else row.Premium)
+		else
+			c.tier = t
+		end
+	end
+	paint()
+end
+
+local function stepPage(d: number)
+	if page + d < 1 or page + d > pages() then
+		return
+	end
+	sfx("Click")
+	showPage(page + d)
+	local track = ui.track :: ScrollingFrame?
+	if track then
+		track.CanvasPosition = Vector2.new(0, 0)
+	end
+end
+
 local function buildTrack(area: Frame)
-	local labels = frame(area, "RowLabels", UDim2.fromOffset(104, 404), UDim2.fromOffset(0, 0), Color3.new(), nil)
+	-- page bar: ◄ [1-10] [11-20] ... [91-100] ►   (L1 / R1 on a gamepad)
+	local bar = frame(area, "Pages", UDim2.new(1, 0, 0, PAGE_BAR_H - 6), UDim2.fromOffset(0, 0), Color3.new(), nil)
+	bar.BackgroundTransparency = 1
+	local n = pages()
+	local width = PANEL_W - 36
+	local chipW = math.floor((width - 116 - (n - 1) * 6) / n)
+	local prev = UiKit.button(bar, "Prev", "◄", UDim2.fromOffset(50, 36), UDim2.fromOffset(25, 19), Palette.UiPanelDark)
+	prev.TextSize = 22
+	prev.Activated:Connect(function()
+		stepPage(-1)
+	end)
+	local nextB = UiKit.button(bar, "Next", "►", UDim2.fromOffset(50, 36), UDim2.new(1, -25, 0, 19), Palette.UiPanelDark)
+	nextB.TextSize = 22
+	nextB.Activated:Connect(function()
+		stepPage(1)
+	end)
+	-- a pad pages with its bumpers: the arrows say so
+	InputHints.watch(prev, function(mode)
+		prev.Text = if mode == "gamepad" then "L1" else "◄"
+		nextB.Text = if mode == "gamepad" then "R1" else "►"
+	end)
+	chips = {}
+	for k = 1, n do
+		local lo, hi = (k - 1) * Cfg.PageSize + 1, math.min(k * Cfg.PageSize, Cfg.MaxTier)
+		local big = false
+		for _, m in Cfg.Milestones do
+			if m >= lo and m <= hi then
+				big = true
+			end
+		end
+		local chip = UiKit.button(bar, `Page{k}`, (if big then "★" else "") .. `{lo}-{hi}`, UDim2.fromOffset(chipW, 34),
+			UDim2.fromOffset(58 + (k - 1) * (chipW + 6) + chipW / 2, 19), Palette.UiPanelDark)
+		chip.TextSize = if chipW < 84 then 17 else 19
+		chip.TextColor3 = if big then MILESTONE else Palette.UiCream
+		local border = chip:FindFirstChildOfClass("UIStroke")
+		if border then
+			border.Thickness = 3
+		end
+		local mine = Instance.new("UIStroke")
+		mine.Name = "Mine"
+		mine.Thickness = 4
+		mine.Color = Palette.UiShock
+		mine.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		mine.Enabled = false
+		mine.Parent = chip
+		local badge = frame(chip, "Badge", UDim2.fromOffset(22, 22), UDim2.new(1, -14, 0, -10), Palette.UiRed, 11)
+		badge.ZIndex = 8
+		UiKit.stroke(badge, 2, Palette.UiInk)
+		local bn = text(badge, "N", "0", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 14, Palette.UiCream, false)
+		bn.ZIndex = 9
+		badge.Visible = false
+		chip.Activated:Connect(function()
+			sfx("Click")
+			showPage(k)
+			local track = ui.track :: ScrollingFrame?
+			if track then
+				track.CanvasPosition = Vector2.new(0, 0)
+			end
+		end)
+		chips[k] = chip
+	end
+
+	local labels = frame(area, "RowLabels", UDim2.fromOffset(104, 360), UDim2.fromOffset(0, PAGE_BAR_H), Color3.new(), nil)
 	labels.BackgroundTransparency = 1
-	local freeTag = UiKit.panel(labels, "Free", UDim2.fromOffset(96, CARD_H), UDim2.fromOffset(4, 66))
-	text(freeTag, "T", "FREE", UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 40), UiKit.Header, 28, Palette.UiInk, false)
-	text(freeTag, "S", "for everyone", UDim2.new(1, -6, 0, 40), UDim2.fromOffset(3, 80), UiKit.Body, 15, Palette.CoatShadow, false)
-	local premTag = UiKit.panel(labels, "Premium", UDim2.fromOffset(96, CARD_H), UDim2.fromOffset(4, 66 + CARD_H + 12))
+	local freeTag = UiKit.panel(labels, "Free", UDim2.fromOffset(96, CARD_H), UDim2.fromOffset(4, 62))
+	text(freeTag, "T", "FREE", UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 36), UiKit.Header, 28, Palette.UiInk, false)
+	text(freeTag, "S", "for everyone", UDim2.new(1, -6, 0, 40), UDim2.fromOffset(3, 74), UiKit.Body, 15, Palette.CoatShadow, false)
+	local premTag = UiKit.panel(labels, "Premium", UDim2.fromOffset(96, CARD_H), UDim2.fromOffset(4, 62 + CARD_H + 8))
 	premTag.BackgroundColor3 = GOLD
-	text(premTag, "Star", "★", UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 14), UiKit.Header, 36, Palette.UiCream, true)
-	text(premTag, "T", "PREMIUM", UDim2.new(1, -4, 0, 30), UDim2.fromOffset(2, 60), UiKit.Header, 20, Palette.UiInk, false)
-	text(premTag, "S", "pass owners", UDim2.new(1, -6, 0, 30), UDim2.fromOffset(3, 92), UiKit.Body, 15, Palette.UiInk, false)
+	text(premTag, "Star", "★", UDim2.new(1, 0, 0, 40), UDim2.fromOffset(0, 10), UiKit.Header, 36, Palette.UiCream, true)
+	text(premTag, "T", "PREMIUM", UDim2.new(1, -4, 0, 30), UDim2.fromOffset(2, 56), UiKit.Header, 20, Palette.UiInk, false)
+	text(premTag, "S", "pass owners", UDim2.new(1, -6, 0, 30), UDim2.fromOffset(3, 88), UiKit.Body, 15, Palette.UiInk, false)
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "Track"
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.Position = UDim2.fromOffset(110, 0)
-	scroll.Size = UDim2.new(1, -110, 0, 404)
+	scroll.Position = UDim2.fromOffset(110, PAGE_BAR_H)
+	scroll.Size = UDim2.new(1, -110, 0, 360)
 	scroll.ScrollingDirection = Enum.ScrollingDirection.X
 	scroll.ScrollBarThickness = 10
 	scroll.ScrollBarImageColor3 = Palette.UiInk
-	scroll.CanvasSize = UDim2.fromOffset(COL_W * Cfg.MaxTier + 20, 0)
+	scroll.CanvasSize = UDim2.fromOffset(COL_W * Cfg.PageSize + 20, 0)
 	scroll.ElasticBehavior = Enum.ElasticBehavior.Always
+	scroll.Selectable = false
 	scroll.Parent = area
 	ui.track = scroll
 
-	local rail = frame(scroll, "Rail", UDim2.fromOffset(COL_W * Cfg.MaxTier, 12), UDim2.fromOffset(0, 24), DIM, 6)
+	local rail = frame(scroll, "Rail", UDim2.fromOffset(COL_W * Cfg.PageSize, 12), UDim2.fromOffset(0, 24), DIM, 6)
 	UiKit.stroke(rail, 2, Palette.UiInk)
 	local fill = frame(rail, "Fill", UDim2.new(0, 0, 1, 0), UDim2.fromOffset(0, 0), Palette.UiFlameMid, 6)
 	local g = Instance.new("UIGradient")
@@ -620,20 +810,27 @@ local function buildTrack(area: Frame)
 	ui.railFill = fill
 
 	cards = {}
-	for t, row in Cfg.Tiers do
-		local col = frame(scroll, `Tier{t}`, UDim2.fromOffset(COL_W, 400), UDim2.fromOffset((t - 1) * COL_W, 0), Color3.new(), nil)
+	columns = {}
+	for i = 1, Cfg.PageSize do
+		-- the column frame turns into a gold backdrop on milestone tiers
+		local col = frame(scroll, `Col{i}`, UDim2.fromOffset(COL_W - 4, 352), UDim2.fromOffset((i - 1) * COL_W + 2, 0), MILESTONE, 16)
 		col.BackgroundTransparency = 1
-		local circle = frame(col, "Circle", UDim2.fromOffset(54, 54), UDim2.fromOffset((COL_W - 54) / 2, 3), DIM, 27)
+		local circle = frame(col, "Circle", UDim2.fromOffset(54, 54), UDim2.fromOffset((COL_W - 4 - 54) / 2, 3), DIM, 27)
 		circle.ZIndex = 3
 		UiKit.stroke(circle, 3, Palette.UiInk)
-		local num = text(circle, "Num", tostring(t), UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 32, Palette.UiCream, true)
+		local num = text(circle, "Num", tostring(i), UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 32, Palette.UiCream, true)
 		num.ZIndex = 4
-		columns[t] = { circle = circle, num = num }
-		table.insert(cards, buildCard(col, t, "free", row.Free, 66))
-		table.insert(cards, buildCard(col, t, "premium", row.Premium, 66 + CARD_H + 12))
+		local star = text(col, "Star", "★", UDim2.fromOffset(30, 30), UDim2.new(0.5, 16, 0, -6), UiKit.Header, 28, MILESTONE, true)
+		star.ZIndex = 5
+		star.Visible = false
+		columns[i] = { frame = col, circle = circle, num = num, star = star }
+		table.insert(cards, buildCard(col, "free", 62))
+		table.insert(cards, buildCard(col, "premium", 62 + CARD_H + 8))
 	end
+	showPage(1)
 end
 
+-- the LOCKER: boost line + DANCE, then one row per slot (filled by fillLocker the first time it opens)
 local function buildLocker(area: Frame)
 	local top = frame(area, "Top", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 0), Palette.UiPanelDark, 12)
 	UiKit.stroke(top, 3, Palette.UiInk)
@@ -658,12 +855,22 @@ local function buildLocker(area: Frame)
 	list.ScrollBarImageColor3 = Palette.UiInk
 	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	list.CanvasSize = UDim2.fromScale(0, 0)
+	list.Selectable = false
 	list.Parent = area
+	ui.lockerList = list
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 8)
 	layout.Parent = list
+	tiles = {}
+end
 
+local function fillLocker()
+	if lockerBuilt then
+		return
+	end
+	lockerBuilt = true
+	local list = ui.lockerList :: ScrollingFrame
 	-- every equippable reward by slot, in tier order
 	local bySlot: { [string]: { { id: string, tier: number, track: string } } } = {}
 	for t, row in Cfg.Tiers do
@@ -675,15 +882,14 @@ local function buildLocker(area: Frame)
 			end
 		end
 	end
-	tiles = {}
 	for i, slot in PassRules.Slots do
 		local items = bySlot[slot] or {}
-		local row = frame(list, slot, UDim2.new(1, -16, 0, 128), UDim2.fromOffset(0, 0), Color3.new(), nil)
+		local row = frame(list, slot, UDim2.new(1, -16, 0, 134), UDim2.fromOffset(0, 0), Color3.new(), nil)
 		row.BackgroundTransparency = 1
 		row.LayoutOrder = i
 		local tag = UiKit.panel(row, "Label", UDim2.fromOffset(100, 116), UDim2.fromOffset(2, 6))
 		tag.BackgroundColor3 = Palette.UiFlameMid
-		local tl = text(tag, "T", SLOT_LABEL[slot], UDim2.new(1, -8, 0, 60), UDim2.fromOffset(4, 10), UiKit.Header, 22, Palette.UiCream, true)
+		local tl = text(tag, "T", SLOT_LABEL[slot], UDim2.new(1, -8, 0, 44), UDim2.fromOffset(4, 8), UiKit.Header, 22, Palette.UiCream, true)
 		tl.TextWrapped = true
 		local off = UiKit.button(tag, "Off", "REMOVE", UDim2.fromOffset(86, 30), UDim2.new(0.5, 0, 1, -22), Palette.UiPanelDark)
 		off.TextSize = 16
@@ -691,10 +897,23 @@ local function buildLocker(area: Frame)
 			sfx("Click")
 			request("unequip", slot)
 		end)
+		-- a sideways strip per slot: 40 helmets don't fit across any screen
+		local strip = Instance.new("ScrollingFrame")
+		strip.Name = "Strip"
+		strip.BackgroundTransparency = 1
+		strip.BorderSizePixel = 0
+		strip.Position = UDim2.fromOffset(108, 0)
+		strip.Size = UDim2.new(1, -108, 1, 0)
+		strip.ScrollingDirection = Enum.ScrollingDirection.X
+		strip.ScrollBarThickness = 8
+		strip.ScrollBarImageColor3 = Palette.UiInk
+		strip.CanvasSize = UDim2.fromOffset(#items * 93 + 8, 0)
+		strip.ElasticBehavior = Enum.ElasticBehavior.Always
+		strip.Selectable = false
+		strip.Parent = row
 		for j, it in items do
 			local r = Cfg.Rewards[it.id]
-			-- 10 helmets fit across the panel without scrolling sideways: 110 + 10 x 93 px
-			local f = frame(row, it.id, UDim2.fromOffset(88, 116), UDim2.fromOffset(110 + (j - 1) * 93, 6), FREE_CARD, 12)
+			local f = frame(strip, it.id, UDim2.fromOffset(88, 116), UDim2.fromOffset(2 + (j - 1) * 93, 6), FREE_CARD, 12)
 			local st = UiKit.stroke(f, 3, Palette.UiInk)
 			local ic = icon(f, r, 60)
 			ic.Position = UDim2.fromOffset(14, 4)
@@ -705,7 +924,8 @@ local function buildLocker(area: Frame)
 			local shade = frame(f, "Shade", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Palette.UiPanelDark, 12)
 			shade.BackgroundTransparency = 0.5
 			shade.ZIndex = 3
-			local lockText = text(shade, "Req", (if it.track == "premium" then "★ " else "") .. `TIER {it.tier}`, UDim2.new(1, 0, 0, 24), UDim2.fromOffset(0, 40), UiKit.Header, 17, Palette.UiCream, true)
+			local lockText = text(shade, "Req", (if it.track == "premium" then "★ " else "") .. Loc.t("TIER {1}", { it.tier }),
+				UDim2.new(1, 0, 0, 24), UDim2.fromOffset(0, 40), UiKit.Header, 17, Palette.UiCream, true)
 			lockText.ZIndex = 4
 			local hit = Instance.new("TextButton")
 			hit.Name = "Hit"
@@ -735,11 +955,16 @@ local function buildLocker(area: Frame)
 				UiKit.punch(f, 0.1)
 			end)
 		end
+		task.wait() -- one slot per frame: a phone builds the locker without a hitch
 	end
+	paint()
 end
 
 local function setTab(name: string)
 	tab = name
+	if name == "locker" and not lockerBuilt then
+		task.spawn(fillLocker)
+	end
 	;(ui.rewardsArea :: Frame).Visible = name == "rewards"
 	;(ui.lockerArea :: Frame).Visible = name == "locker"
 	for key, b in { rewards = ui.tabRewards, locker = ui.tabLocker } do
@@ -755,9 +980,16 @@ local function scrollToTier()
 	if not s or not track then
 		return
 	end
+	-- the page of your next tier, then that column ~2nd from the left
+	local target = math.min(s.tier + 1, Cfg.MaxTier)
+	local pg = math.ceil(target / Cfg.PageSize)
+	if pg ~= page then
+		showPage(pg)
+	end
+	local idx = target - (pg - 1) * Cfg.PageSize
 	-- CanvasPosition is in screen pixels; COL_W is in design pixels (the gui's UIScale shrinks them)
 	local scale = (ui.gui :: ScreenGui):FindFirstChildOfClass("UIScale")
-	local x = math.max(0, (s.tier - 2) * COL_W) * (if scale then scale.Scale else 1)
+	local x = math.max(0, (idx - 2) * COL_W) * (if scale then scale.Scale else 1)
 	UiKit.tween(track, 0.4, { CanvasPosition = Vector2.new(x, 0) })
 end
 
@@ -789,7 +1021,9 @@ local function build()
 	local g = UiKit.screen("BattlePassGui", 30) -- above the onboarding edge arrows (26) and mission guide (24)
 	ui.gui = g
 
-	-- left-edge chip (above the STORE chip)
+	-- PASS chip: the left chip column (HudLayout stack "Chips": PASS, NEWS, INVITE, HELP, ADMIN), lobby
+	-- only, same style as NEWS. [P] keycap on PC; the gold circle is your tier, the strip under the text is
+	-- the XP to the next one, the red badge counts rewards waiting for a Claim.
 	local chip = Instance.new("TextButton")
 	chip.Name = "PassButton"
 	chip.Position = UDim2.new(0, 13, 0.45, 0)
@@ -800,6 +1034,7 @@ local function build()
 	chip.TextColor3 = Palette.UiCream
 	InputHints.setChip(chip, Cfg.UiToggleKey.Name, "PASS")
 	chip.Visible = false
+	chip.AutoButtonColor = true
 	chip.Parent = g
 	UiKit.corner(chip, 10)
 	UiKit.stroke(chip, 3, Palette.UiInk)
@@ -808,9 +1043,10 @@ local function build()
 	cts.Color = Palette.UiInk
 	cts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	cts.Parent = chip
-	chip.Activated:Connect(toggle)
+	UiKit.onTap(chip, toggle)
 	ui.chip = chip
 	HudLayout.reserve(chip)
+	HudLayout.add("Chips", chip, 1)
 	local function badge(parent: Instance, size: number, pos: UDim2): Frame
 		local b = frame(parent, "Badge", UDim2.fromOffset(size, size), pos, Palette.UiRed, size)
 		b.ZIndex = 8
@@ -820,44 +1056,24 @@ local function build()
 		b.Visible = false
 		return b
 	end
-	ui.chipBadge = badge(chip, 24, UDim2.new(1, -14, 0, -10))
-
-	-- HUD pip: the "Pass" section of the top-bar box (ClientLib/TopBox), next to level + XP. Click it
-	-- (lobby) to open the pass. Pixel-sized like the rest of the box.
-	local TopBox = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("TopBox") :: ModuleScript) :: any
-	local pip = TopBox.section("Pass", 2, 150) :: Frame
-	pip.Name = "PassPip"
-	pip.Visible = false
-	local circle = frame(pip, "Tier", UDim2.fromOffset(32, 32), UDim2.new(0, 0, 0.5, -16), GOLD, 16)
-	circle.ZIndex = 3
+	ui.chipBadge = badge(chip, 22, UDim2.new(1, -44, 0, -12))
+	local circle = frame(chip, "Tier", UDim2.fromOffset(28, 28), UDim2.new(1, -14, 0.5, -14), GOLD, 14)
+	circle.ZIndex = 5
 	UiKit.stroke(circle, 2, Palette.UiInk)
-	local pt = text(circle, "N", "0", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 1), UiKit.Header, 18, Palette.UiInk, false)
-	pt.ZIndex = 4
+	local pt = text(circle, "N", "0", UDim2.new(1, -4, 1, -6), UDim2.fromOffset(2, 4), UiKit.Header, 16, Palette.UiInk, false)
+	pt.TextScaled = true
+	local ptc = Instance.new("UITextSizeConstraint")
+	ptc.MaxTextSize = 16
+	ptc.Parent = pt
+	pt.ZIndex = 6
 	ui.pipTier = pt
-	-- keyboard players see the hotkey ([P] PASS); touch players just tap the box
-	local cap = text(pip, "Cap", "PASS", UDim2.fromOffset(62, 15), UDim2.new(0, 38, 0.5, -15), UiKit.Header, 13, Palette.UiFlameMid, false)
-	cap.TextXAlignment = Enum.TextXAlignment.Left
-	InputHints.setChip(cap, Cfg.UiToggleKey.Name, "PASS")
-	local pxt = text(pip, "Xp", "", UDim2.new(1, -100, 0, 15), UDim2.new(0, 100, 0.5, -15), UiKit.Body, 12, Palette.UiInk, false)
-	pxt.TextXAlignment = Enum.TextXAlignment.Right
-	ui.pipText = pxt
-	local bar = frame(pip, "Bar", UDim2.new(1, -38, 0, 9), UDim2.new(0, 38, 0.5, 3), Palette.UiPanelDark, 5)
-	local bf = frame(bar, "Fill", UDim2.fromScale(0, 1), UDim2.fromOffset(0, 0), Palette.UiShock, 5)
+	local bar = frame(chip, "Bar", UDim2.new(1, -30, 0, 5), UDim2.new(0, 8, 1, -8), Palette.UiPanelDark, 3)
+	bar.ZIndex = 4
+	local bf = frame(bar, "Fill", UDim2.fromScale(0, 1), UDim2.fromOffset(0, 0), Palette.UiShock, 3)
+	bf.ZIndex = 4
 	ui.pipFill = bf
-	ui.pipBadge = badge(pip, 16, UDim2.new(0, 22, 0, -4))
-	local pipHit = Instance.new("TextButton")
-	pipHit.Name = "Open"
-	pipHit.BackgroundTransparency = 1
-	pipHit.Text = ""
-	pipHit.Size = UDim2.fromScale(1, 1)
-	pipHit.ZIndex = 10
-	pipHit.Parent = pip
-	UiKit.onTap(pipHit, function()
-		if inLobby() then
-			toggle()
-		end
-	end)
-	ui.pip = pip
+	ui.pipBadge = ui.chipBadge
+	ui.pip = chip
 
 	-- panel
 	local p = UiKit.panel(g, "Panel", UDim2.fromOffset(PANEL_W, PANEL_H), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
@@ -911,7 +1127,12 @@ local function build()
 	tbg.Rotation = 90
 	tbg.Parent = tierBadge
 	text(tierBadge, "Cap", "TIER", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 10), UiKit.Header, 18, Palette.UiInk, false)
-	ui.tierNum = text(tierBadge, "Num", "0", UDim2.new(1, 0, 0, 56), UDim2.fromOffset(0, 32), UiKit.Header, 54, Palette.UiCream, true)
+	local tn = text(tierBadge, "Num", "0", UDim2.new(1, -10, 0, 52), UDim2.fromOffset(5, 32), UiKit.Header, 54, Palette.UiCream, true)
+	tn.TextScaled = true
+	local tnc = Instance.new("UITextSizeConstraint")
+	tnc.MaxTextSize = 54
+	tnc.Parent = tn
+	ui.tierNum = tn
 	local nextText = text(p, "Next", "", UDim2.fromOffset(640, 26), UDim2.fromOffset(134, 86), UiKit.Body, 19, Palette.UiInk, false)
 	nextText.TextXAlignment = Enum.TextXAlignment.Left
 	ui.nextText = nextText
@@ -928,6 +1149,9 @@ local function build()
 	local boostSmall = text(p, "BoostSmall", "", UDim2.fromOffset(640, 22), UDim2.fromOffset(136, 156), UiKit.Body, 16, Palette.CoatShadow, false)
 	boostSmall.TextXAlignment = Enum.TextXAlignment.Left
 	ui.boostSmall = boostSmall
+	local milestone = text(p, "Milestone", "", UDim2.fromOffset(330, 22), UDim2.fromOffset(444, 156), UiKit.Header, 17, Palette.UiFlameMid, false)
+	milestone.TextXAlignment = Enum.TextXAlignment.Right
+	ui.milestone = milestone
 	local all = UiKit.button(p, "ClaimAll", "CLAIM ALL", UDim2.fromOffset(250, 66), UDim2.new(1, -150, 0, 132), Palette.UiGood)
 	all.TextSize = 28
 	all.Activated:Connect(function()
@@ -961,15 +1185,10 @@ end
 
 ---------------------------------------------------------------------------------- layout / visibility
 
--- the pip is a section of the top-bar box (ClientLib/TopBox lays it out); nothing to place
+-- the chip's place is HudLayout's "Chips" stack; nothing to place
 local function placePip() end
 
 local function syncVisibility()
-	-- the left-edge PASS chip is retired: the pass lives in the top-bar box (click it, or [P])
-	local chip = ui.chip :: TextButton?
-	if chip then
-		chip.Visible = false
-	end
 	if not inLobby() then
 		setOpen(false)
 	end
@@ -979,7 +1198,11 @@ end
 
 ---------------------------------------------------------------------------------- emote fx
 
-local function emoteFx(userId: number, style: string)
+local function emoteFx(userId: number, style: string, id: string?)
+	local def = if id then Cfg.Rewards[id] else nil
+	if def and def.Slot ~= "emote" then
+		def = nil
+	end
 	local who = Players:GetPlayerByUserId(userId)
 	local char = who and who.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -990,12 +1213,21 @@ local function emoteFx(userId: number, style: string)
 	att.Name = "PassEmoteFx"
 	att.Parent = root
 	local pe = Instance.new("ParticleEmitter")
-	pe.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Palette.HelmetRed),
-		ColorSequenceKeypoint.new(0.33, GOLD),
-		ColorSequenceKeypoint.new(0.66, Palette.UiWater),
-		ColorSequenceKeypoint.new(1, Palette.UiGood),
-	})
+	local fx = def and def.Fx
+	if type(fx) == "table" and #fx >= 2 then
+		local keys = {}
+		for i, h in fx do
+			table.insert(keys, ColorSequenceKeypoint.new((i - 1) / (#fx - 1), hex(h, GOLD)))
+		end
+		pe.Color = ColorSequence.new(keys)
+	else
+		pe.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Palette.HelmetRed),
+			ColorSequenceKeypoint.new(0.33, GOLD),
+			ColorSequenceKeypoint.new(0.66, Palette.UiWater),
+			ColorSequenceKeypoint.new(1, Palette.UiGood),
+		})
+	end
 	pe.LightEmission = 0.6
 	pe.Size = NumberSequence.new(0.35, 0.1)
 	pe.Speed = NumberRange.new(10, 18)
@@ -1014,7 +1246,8 @@ local function emoteFx(userId: number, style: string)
 	bb.AlwaysOnTop = true
 	bb.Adornee = root
 	bb.Parent = att
-	local l = text(bb, "T", if style == "spin" then "VICTORY SPIN!" else "HERO FLEX!", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), UiKit.Header, 34, GOLD, true)
+	local shout = if def and type(def.Shout) == "string" then def.Shout elseif style == "spin" then "VICTORY SPIN!" else "HERO FLEX!"
+	local l = text(bb, "T", shout, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), UiKit.Header, 34, GOLD, true)
 	UiKit.pop(l, 0.3)
 	task.delay(1.8, function()
 		att:Destroy()
@@ -1029,21 +1262,25 @@ local function emoteFx(userId: number, style: string)
 	if style == "spin" then
 		hum.AutoRotate = false
 		local t0 = os.clock()
+		-- Turns = full turns (the classic Victory Spin is 2 in 0.9 s); same speed, longer for more turns
+		local turns = math.clamp(tonumber(def and def.Turns) or 2, 1, 5)
+		local dur = 0.45 * turns
+		local speed = math.pi * 2 / 0.45
 		local conn: RBXScriptConnection? = nil
 		conn = RunService.RenderStepped:Connect(function(dt)
-			if os.clock() - t0 > 0.9 or not root.Parent then
+			if os.clock() - t0 > dur or not root.Parent then
 				hum.AutoRotate = true
 				if conn then
 					conn:Disconnect()
 				end
 				return
 			end
-			root.CFrame *= CFrame.Angles(0, dt * math.pi * 4.4, 0)
+			root.CFrame *= CFrame.Angles(0, dt * speed, 0)
 		end)
 		hum.Jump = true
 	else
 		hum.Jump = true
-		root.AssemblyLinearVelocity += Vector3.new(0, 38, 0)
+		root.AssemblyLinearVelocity += Vector3.new(0, math.clamp(tonumber(def and def.Hop) or 38, 10, 70), 0)
 	end
 end
 
@@ -1104,9 +1341,9 @@ function BattlePassController:Start()
 			pcall(audio.Stinger, audio, "Rescue")
 		end
 	end)
-	Net.event("BattlePass", "Fx").OnClientEvent:Connect(function(kind: any, userId: any, style: any)
+	Net.event("BattlePass", "Fx").OnClientEvent:Connect(function(kind: any, userId: any, style: any, id: any)
 		if kind == "emote" and type(userId) == "number" then
-			emoteFx(userId, if type(style) == "string" then style else "spin")
+			emoteFx(userId, if type(style) == "string" then style else "spin", if type(id) == "string" then id else nil)
 		end
 	end)
 
@@ -1128,10 +1365,15 @@ function BattlePassController:Start()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+		local panel = ui.panel :: Frame?
+		if panel and panel.Visible and tab == "rewards" and (input.KeyCode == Enum.KeyCode.ButtonL1 or input.KeyCode == Enum.KeyCode.ButtonR1) then
+			stepPage(if input.KeyCode == Enum.KeyCode.ButtonL1 then -1 else 1)
+			return
+		end
 		if processed or UserInputService:GetFocusedTextBox() then
 			return
 		end
-		if input.KeyCode == Cfg.UiToggleKey and owner() and (inLobby() or (ui.panel and (ui.panel :: Frame).Visible)) then
+		if input.KeyCode == Cfg.UiToggleKey and (inLobby() or (ui.panel and (ui.panel :: Frame).Visible)) then
 			toggle()
 		elseif input.KeyCode == Cfg.EmoteKey and inLobby() then
 			request("emote")

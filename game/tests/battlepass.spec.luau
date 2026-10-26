@@ -187,4 +187,109 @@ Spec.test("ProfileSchema v6 adds an empty pass and migrates v5", function()
 	Spec.eq(broken.pass.equipped.title, nil)
 end)
 
+-- the live shape: 100 tiers, the first 20 at 100 XP (unchanged from the 20-tier pass), then a ramp
+local NEEDS: { number } = {}
+for t = 1, 100 do
+	NEEDS[t] = if t <= 20 then 100 else math.floor((100 + 1400 * ((t - 20) / 80) ^ 1.4) / 10 + 0.5) * 10
+end
+local CURVE: R.Opts = { perTier = 100, maxTier = 100, needs = NEEDS, tiers = {}, rewards = {} }
+local V1: R.Opts = { perTier = 100, maxTier = 20, tiers = {}, rewards = {} }
+
+Spec.test("100-tier curve: smooth, reachable, first 20 tiers unchanged", function()
+	Spec.eq(R.xpAt(0, CURVE), 0)
+	Spec.eq(R.xpAt(20, CURVE), 2000, "tier 20 costs what it always did")
+	for t = 1, 20 do
+		Spec.eq(R.xpAt(t, CURVE), R.xpAt(t, V1), `tier {t} same as the old pass`)
+	end
+	for t = 2, 100 do
+		Spec.eq(R.need(t, CURVE) >= R.need(t - 1, CURVE), true, `tier {t} never cheaper than {t - 1}`)
+		Spec.eq(R.need(t, CURVE) - R.need(t - 1, CURVE) <= 40, true, `no jump at tier {t}`)
+	end
+	Spec.eq(R.need(100, CURVE), 1500)
+	Spec.eq(R.xpAt(100, CURVE), 57410, "season total")
+	Spec.eq(R.need(101, CURVE), 0)
+	Spec.eq(R.tierOf(0, CURVE), 0)
+	Spec.eq(R.tierOf(1999, CURVE), 19)
+	Spec.eq(R.tierOf(2000, CURVE), 20)
+	Spec.eq(R.tierOf(R.xpAt(57, CURVE), CURVE), 57)
+	Spec.eq(R.tierOf(R.xpAt(57, CURVE) - 1, CURVE), 56)
+	Spec.eq(R.tierOf(10 ^ 9, CURVE), 100)
+	local t, into, need = R.progress(R.xpAt(40, CURVE) + 7, CURVE)
+	Spec.eq(t, 40)
+	Spec.eq(into, 7)
+	Spec.eq(need, R.need(41, CURVE))
+	local mt, _, mn = R.progress(R.xpAt(100, CURVE), CURVE)
+	Spec.eq(mt, 100)
+	Spec.eq(mn, 0)
+	local p = pass(0)
+	R.addXp(p, 10 ^ 9, CURVE)
+	Spec.eq(p.xp, 57410, "capped at the last tier")
+end)
+
+Spec.test("curve migration keeps every tier and claim (20 x 100 -> 100 tiers)", function()
+	for _, xp in { 0, 50, 99, 100, 1234, 1999, 2000 } do
+		local p = pass(xp)
+		p.free = { 1, 2, 3 }
+		p.premium = { 1 }
+		Spec.eq(R.migrateCurve(p, 2, V1, CURVE), true)
+		Spec.eq(R.tierOf(p.xp, CURVE), R.tierOf(xp, V1), `tier kept at xp {xp}`)
+		Spec.eq(p.xp, xp, "first 20 tiers: xp unchanged")
+		Spec.eq(p.curve, 2)
+		Spec.eq(#p.free, 3, "claims untouched")
+		Spec.eq(R.migrateCurve(p, 2, V1, CURVE), false, "runs once")
+	end
+	-- a steeper old curve: same tier + same fraction on the new one
+	local OLD: R.Opts = { perTier = 1000, maxTier = 50, tiers = {}, rewards = {} }
+	local x = R.remapXp(30500, OLD, CURVE)
+	Spec.eq(R.tierOf(x, CURVE), 30)
+	Spec.eq(x, R.xpAt(30, CURVE) + math.floor(0.5 * R.need(31, CURVE)))
+	-- legacy store xp is curve-1 xp
+	local lp = pass(0)
+	R.mergeLegacy(lp, { xp = 1550, free = { 1, 15 } }, CURVE, V1)
+	Spec.eq(lp.xp, 1550)
+	Spec.eq(R.tierOf(lp.xp, CURVE), 15)
+	-- reconcile keeps a valid stamp, drops junk
+	local rp = R.reconcile({ season = "S1", xp = 10, curve = 2 }, "S1")
+	Spec.eq(rp.curve, 2)
+	local jp = R.reconcile({ season = "S1", xp = 10, curve = "x" }, "S1")
+	Spec.eq(jp.curve, nil)
+end)
+
+Spec.test("palette variants", function()
+	local PAL = { mint = { Name = "Mint", Color = "#6FE3B4", Trim = "#1E7A5A" } }
+	local id, d = R.variant("helmet:mint:neon", PAL)
+	Spec.eq(id, "helmet_mint")
+	Spec.eq((d :: any).Name, "Mint Helmet")
+	Spec.eq((d :: any).Neon, true)
+	Spec.eq((d :: any).Trim, "#1E7A5A")
+	local _, plain = R.variant("helmet:mint:plain", PAL)
+	Spec.eq((plain :: any).Trim, nil)
+	local hid, h = R.variant("hose:mint", PAL)
+	Spec.eq(hid, "hose_mint")
+	Spec.eq((h :: any).Stripe, "#1E7A5A")
+	local _, tr = R.variant("truck:mint:pulse", PAL)
+	Spec.eq((tr :: any).Name, "Mint Underglow")
+	Spec.eq((tr :: any).Pulse, "#1E7A5A")
+	local _, nz = R.variant("nozzle:mint:sparkle", PAL)
+	Spec.eq((nz :: any).Sparkle, true)
+	Spec.eq((R.variant("helmet:nope", PAL)), nil)
+	Spec.eq((R.variant("cape:mint", PAL)), nil)
+end)
+
+Spec.test("claimable with 100 tiers stays cheap and correct", function()
+	local tiers = {}
+	local rewards = {}
+	for t = 1, 100 do
+		rewards[`f{t}`] = { Slot = "title", Name = `F{t}` }
+		rewards[`p{t}`] = { Slot = "helmet", Name = `P{t}` }
+		tiers[t] = { Free = `f{t}`, Premium = `p{t}` }
+	end
+	local o: R.Opts = { perTier = 100, maxTier = 100, needs = NEEDS, tiers = tiers, rewards = rewards }
+	local p = pass(R.xpAt(60, o))
+	Spec.eq(R.claimable(p, true, o), 120)
+	Spec.eq(#R.claimAll(p, false, o, true), 60)
+	Spec.eq(R.claimable(p, true, o), 60)
+	Spec.eq(select(2, R.claim(p, 61, "free", true, o)), "locked")
+end)
+
 return Spec.finish()

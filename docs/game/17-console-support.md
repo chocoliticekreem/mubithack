@@ -74,7 +74,7 @@ touchpad / Back.
 | Results: NEXT CALL!, BACK TO STATION | The cursor opens on NEXT CALL! when it shows. The D-pad reaches BACK TO STATION and the offer card. B closes the screen | FIXED, verified (default, B) |
 | Pass offer card (#252), BUY / No thanks | Inside the results menu. In the lobby it is a HUD card, reached with D-pad left | FIXED. The D-pad move onto it is code only |
 | STORE | Opens on the first BUY (Roblox asks to confirm any purchase). B closes it and the cursor goes back to the STORE chip | FIXED, verified |
-| PASS (battle pass) | Opens on the REWARDS tab. Right stick scrolls. B closes | FIXED, verified (open, default, B) |
+| PASS (battle pass) | Opens on the REWARDS tab, on the page of your next tier. L1 / R1 change the page (10 tiers each, the arrows read L1 / R1). Right stick scrolls. B closes. The PASS chip is first in the left chip column (D-pad left) | FIXED, verified (open, default, L1 / R1 paging, B) |
 | NEWS / update log | Opens on OK!, not on the notify / favourite buttons. B closes | FIXED, verified (B), default after the fix: code |
 | HELP | Opens on GOT IT (never REPLAY). The keycaps show pad buttons (X, Y, R1, HOLD L1, D-PAD...). The GRAPHICS / POP-UPS / EFFECTS settings beside it can be reached (companion guis) | FIXED, verified |
 | Settings (GRAPHICS, POP-UPS, EFFECTS) | Buttons beside HELP, reached with the D-pad | OK |

@@ -49,9 +49,9 @@ local function show(offer: { [string]: any })
 		gui = g
 	end
 	local card = OfferCard.build(g, offer, {
-		-- left chip column: its bottom sits just above [N] NEWS (UpdateLogController: 0.53, -14) and ADMIN
-		position = UDim2.new(0, 13, 0.53, -26),
-		anchor = Vector2.new(0, 1),
+		-- right of the left chip column (HudLayout stack "Chips", 13 + 118 px wide), level with its middle
+		position = UDim2.new(0, 143, 0.5, 0),
+		anchor = Vector2.new(0, 0.5),
 		onClose = function()
 			current = nil
 		end,

@@ -29,7 +29,7 @@ settings = { cameraShake, sensitivity, musicVolume, sfxVolume, showXpPopups, ...
 gear = { unlocked[id] = true, loadout = { id }, equipped = { hand, back, face } }  -- v3: GearService; equipped (ids, "" = empty) = the station LOCKER loadout, restored on spawn / rejoin (filled by reconcile, no version bump); loadout = legacy rack picks, unused
 guides = { seen[missionId] = true }                              -- v4: first-time mission guide done (MissionGuideService)
 donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux donated (MonetizationService; last 50 receipts)
-pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy }  -- v6: battle pass (BattlePassService)
+pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy, curve? }  -- v6: battle pass (BattlePassService)
 gifts = { passes = { [key] = { by = UserId, at = unix } } }  -- v7: owner-gifted pass entitlements (AdminService :giftpass)
 updates = { lastSeen, prompted, likeAsks }                       -- v8: WHAT'S NEW panel (UpdateLogService); likeAsks: SocialAskService
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
@@ -52,6 +52,11 @@ v6 added `pass`: the battle pass moved from its own `BattlePass_S1` store into t
 lock, one save). BattlePassService imports the old store once per player in live games (`legacy`),
 resets the pass when `season` changes, and keeps claims idempotent through
 `ReplicatedStorage/Lib/BattlePass/PassRules` (specs: `game/tests/battlepass.spec.luau`).
+`pass.curve` (added inside v6, no bump: a missing value means curve 1) names the XP curve the xp was
+earned under. The pass grew from 20 tiers x 100 XP (curve 1) to 100 tiers on `BattlePassConfig.XpCurve`
+(curve 2, the first 20 tiers unchanged). On profile load BattlePassService runs `PassRules.migrateCurve`
+once: same tier, same fraction to the next one, so nobody loses a tier; claims are stored by tier number
+and tiers 1-20 keep their rewards, so claimed rewards never move. Legacy store xp is curve-1 xp too.
 v7 added `gifts.passes`: an owner's `:giftpass` (AdminService) stores an in-game entitlement that
 MonetizationService treats exactly like owning the pass (`Pass_<Key>`, plus `PassGifted_<Key>` so the
 store says GIFTED). It is not a Roblox game pass. Specs: `game/tests/admin.spec.luau`.

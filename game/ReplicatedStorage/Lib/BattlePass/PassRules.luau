@@ -3,13 +3,20 @@
 -- BattlePassController (what to draw). No Roblox APIs, so `luau game/tests/battlepass.spec.luau` runs it.
 --
 -- Pass data (lives in the player profile, ProfileSchema v6 `pass`):
---   { season: string, xp: number, free: { number }, premium: { number }, equipped: { [slot]: id }, legacy: boolean }
+--   { season: string, xp: number, free: { number }, premium: { number }, equipped: { [slot]: id }, legacy: boolean,
+--     curve: number? }   -- curve = the XP curve version the xp was earned under (nil = 1: 20 x 100 XP)
 -- Tiers = { { Free = id, Premium = id } } (index = tier); Rewards = { [id] = { Slot, Name, Pct?, ... } }.
--- `opts` = { perTier: number, maxTier: number, tiers: Tiers, rewards: Rewards, boostCap: number? }
+-- `opts` = { perTier: number, maxTier: number, needs: { number }?, tiers: Tiers, rewards: Rewards, boostCap: number? }
+--   needs[t] = XP from tier t-1 to tier t (a curve); without it every tier costs perTier.
 --
 --   PassRules.blank(season) -> Pass
 --   PassRules.reconcile(pass, season) -> (Pass, reset: boolean)   -- fixes types; a new season starts over
 --   PassRules.tierOf(xp, opts) -> number
+--   PassRules.xpAt(tier, opts) -> number                      -- total XP needed to reach `tier`
+--   PassRules.need(tier, opts) -> number                      -- XP from tier-1 to tier (0 past the max)
+--   PassRules.remapXp(xp, from, to) -> number                 -- same tier + same fraction on another curve
+--   PassRules.migrateCurve(pass, version, from, to) -> boolean   -- once per curve version; never loses a tier
+--   PassRules.variant(code, palette) -> (id?, def?)           -- "helmet:mint:neon" -> "helmet_mint", def
 --   PassRules.progress(xp, opts) -> (tier, into, need)        -- need = 0 at the max tier
 --   PassRules.gain(amount, premium, premiumMult, boostPct) -> number   -- whole XP actually given (>= 1)
 --   PassRules.addXp(pass, gained, opts) -> (added, tierBefore, tierAfter)
@@ -23,7 +30,7 @@
 --   PassRules.equip(pass, id, premium, opts) -> (ok, reason?)   -- slot comes from the reward
 --   PassRules.unequip(pass, slot) -> boolean
 --   PassRules.sanitizeEquipped(pass, premium, opts) -> boolean   -- drops what you no longer own
---   PassRules.mergeLegacy(pass, legacy, opts) -> boolean          -- one-time import of the old store
+--   PassRules.mergeLegacy(pass, legacy, opts, legacyOpts?) -> boolean   -- one-time import of the old store
 --   PassRules.countdown(seconds) -> "12d 4h" | "3h 20m" | "4m 10s" | "ENDED"
 
 export type Pass = {
@@ -33,10 +40,12 @@ export type Pass = {
 	premium: { number },
 	equipped: { [string]: string },
 	legacy: boolean,
+	curve: number?,
 }
 export type Opts = {
 	perTier: number,
 	maxTier: number,
+	needs: { number }?,
 	tiers: { { Free: string, Premium: string } },
 	rewards: { [string]: { [string]: any } },
 	boostCap: number?,
@@ -58,8 +67,46 @@ local function num(v: any, fallback: number): number
 	return fallback
 end
 
+-- cumulative XP per tier, cached per curve table (Config tables live for the whole session)
+local cumCache: { [any]: { number } } = setmetatable({}, { __mode = "k" }) :: any
+
+local function cumOf(needs: { number }): { number }
+	local c = cumCache[needs]
+	if c then
+		return c
+	end
+	c = {}
+	local total = 0
+	for i, n in needs do
+		total += math.max(1, math.floor(num(n, 1)))
+		c[i] = total
+	end
+	cumCache[needs] = c
+	return c
+end
+
+function PassRules.xpAt(tier: number, opts: Opts): number
+	local t = math.clamp(math.floor(num(tier, 0)), 0, math.max(1, opts.maxTier))
+	if t <= 0 then
+		return 0
+	end
+	local needs = opts.needs
+	if needs and #needs >= t then
+		return cumOf(needs)[t]
+	end
+	return math.max(1, opts.perTier) * t
+end
+
+function PassRules.need(tier: number, opts: Opts): number
+	local t = math.floor(num(tier, 0))
+	if t < 1 or t > opts.maxTier then
+		return 0
+	end
+	return PassRules.xpAt(t, opts) - PassRules.xpAt(t - 1, opts)
+end
+
 local function maxXp(opts: Opts): number
-	return math.max(1, opts.perTier) * math.max(1, opts.maxTier)
+	return PassRules.xpAt(math.max(1, opts.maxTier), opts)
 end
 
 local function has(list: { number }, tier: number): boolean
@@ -109,11 +156,29 @@ function PassRules.reconcile(p: any, season: string): (Pass, boolean)
 	end
 	p.equipped = eq
 	p.legacy = p.legacy == true
+	local cv = p.curve
+	p.curve = if type(cv) == "number" and cv == cv and cv % 1 == 0 and cv >= 1 then cv else nil
 	return p :: Pass, false
 end
 
 function PassRules.tierOf(xp: number, opts: Opts): number
-	return math.clamp(math.floor(math.max(0, num(xp, 0)) / math.max(1, opts.perTier)), 0, opts.maxTier)
+	local x = math.max(0, num(xp, 0))
+	local needs = opts.needs
+	if needs and #needs >= opts.maxTier then
+		-- binary search: the highest tier whose cumulative XP is <= x
+		local c = cumOf(needs)
+		local lo, hi = 0, opts.maxTier
+		while lo < hi do
+			local mid = (lo + hi + 1) // 2
+			if c[mid] <= x then
+				lo = mid
+			else
+				hi = mid - 1
+			end
+		end
+		return lo
+	end
+	return math.clamp(math.floor(x / math.max(1, opts.perTier)), 0, opts.maxTier)
 end
 
 function PassRules.progress(xp: number, opts: Opts): (number, number, number)
@@ -121,8 +186,69 @@ function PassRules.progress(xp: number, opts: Opts): (number, number, number)
 	if tier >= opts.maxTier then
 		return tier, 0, 0
 	end
-	local per = math.max(1, opts.perTier)
-	return tier, math.floor(math.max(0, num(xp, 0)) - tier * per), per
+	return tier, math.floor(math.max(0, num(xp, 0)) - PassRules.xpAt(tier, opts)), PassRules.need(tier + 1, opts)
+end
+
+-- The same tier and the same fraction of the way to the next one, on another curve. A tier never drops
+-- (unless the new curve has fewer tiers than the one you reached).
+function PassRules.remapXp(xp: number, from: Opts, to: Opts): number
+	local tier, into, need = PassRules.progress(xp, from)
+	local t = math.min(tier, to.maxTier)
+	local base = PassRules.xpAt(t, to)
+	if need > 0 and t < to.maxTier then
+		base += math.floor(math.clamp(into / need, 0, 0.999) * PassRules.need(t + 1, to))
+	end
+	return base
+end
+
+-- Moves a pass earned under an older XP curve onto `to` (once: pass.curve = version afterwards).
+-- from = the curve pass.curve names (nil -> the caller passes curve 1). Returns true when it changed.
+function PassRules.migrateCurve(p: Pass, version: number, from: Opts?, to: Opts): boolean
+	if p.curve == version then
+		return false
+	end
+	if from then
+		p.xp = math.min(maxXp(to), PassRules.remapXp(p.xp, from, to))
+	end
+	p.curve = version
+	return true
+end
+
+-- Cosmetic variants drawn from a colour palette (no new assets). code = "<slot>:<colour>[:<pattern>]":
+--   helmet:<c>:plain|twotone|metal|neon|sparkle   hose:<c>   truck:<c>[:pulse]   nozzle:<c>[:sparkle]
+-- palette[c] = { Name, Color, Trim }. id = "<slot>_<c>" (patterns aren't part of the id: one per colour).
+local SUFFIX = { helmet = "Helmet", hose = "Hose", truck = "Underglow", nozzle = "Nozzle" }
+
+function PassRules.variant(code: string, palette: { [string]: { [string]: any } }): (string?, { [string]: any }?)
+	local slot, c, pat = string.match(code, "^(%a+):(%a+):?(%a*)$")
+	local col = c and palette[c]
+	if not slot or not col or not SUFFIX[slot] then
+		return nil, nil
+	end
+	local def: { [string]: any } = { Slot = slot, Name = `{col.Name} {SUFFIX[slot]}`, Color = col.Color }
+	if slot == "helmet" then
+		if pat ~= "plain" and pat ~= "" then
+			def.Trim = col.Trim
+		end
+		if pat == "metal" then
+			def.Metal = true
+		elseif pat == "neon" then
+			def.Neon = true
+		elseif pat == "sparkle" then
+			def.Sparkle = true
+		end
+	elseif slot == "hose" then
+		def.Stripe = col.Trim
+	elseif slot == "truck" then
+		if pat == "pulse" then
+			def.Pulse = col.Trim
+		end
+	elseif slot == "nozzle" then
+		if pat == "sparkle" then
+			def.Sparkle = true
+		end
+	end
+	return `{slot}_{c}`, def
 end
 
 function PassRules.gain(amount: number, premium: boolean, premiumMult: number, boostPct: number): number
@@ -304,7 +430,8 @@ function PassRules.sanitizeEquipped(p: Pass, premium: boolean, opts: Opts): bool
 end
 
 -- legacy = the old BattlePass_S1 store value { xp, free = { tier }, premium = { tier } }.
-function PassRules.mergeLegacy(p: Pass, legacy: any, opts: Opts): boolean
+-- legacyOpts = the curve that store's xp was earned under (curve 1); omitted = the same as opts.
+function PassRules.mergeLegacy(p: Pass, legacy: any, opts: Opts, legacyOpts: Opts?): boolean
 	if p.legacy then
 		return false
 	end
@@ -312,7 +439,11 @@ function PassRules.mergeLegacy(p: Pass, legacy: any, opts: Opts): boolean
 	if type(legacy) ~= "table" then
 		return true
 	end
-	p.xp = math.min(maxXp(opts), math.max(p.xp, math.max(0, math.floor(num(legacy.xp, 0)))))
+	local lx = math.max(0, math.floor(num(legacy.xp, 0)))
+	if legacyOpts then
+		lx = PassRules.remapXp(lx, legacyOpts, opts)
+	end
+	p.xp = math.min(maxXp(opts), math.max(p.xp, lx))
 	for _, t in tierList(legacy.free, opts.maxTier) do
 		if not has(p.free, t) then
 			table.insert(p.free, t)

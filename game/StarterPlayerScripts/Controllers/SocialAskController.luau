@@ -429,23 +429,15 @@ local function buildChip()
 	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	ts.Parent = b
 	HudLayout.reserve(b)
+	HudLayout.add("Chips", b, 3) -- left chip column: PASS, NEWS, INVITE, HELP, ADMIN (the stack owns its Y)
 	UiKit.onTap(b, function()
 		SocialAskController:PromptInvite(SRC_LOBBY, b)
 	end)
 	ui.chip = b
 end
 
--- the chip sits in ADMIN's slot (under NEWS); for admins, one slot lower
-local function placeChip()
-	local chip = ui.chip
-	if not chip then
-		return
-	end
-	local pg = player:FindFirstChild("PlayerGui")
-	local admin = pg and pg:FindFirstChild("AdminChip", true)
-	local adminUp = admin ~= nil and admin:IsA("GuiObject") and admin.Visible
-	chip.Position = UDim2.new(0, 13, 0.53, if adminUp then 100 else 48)
-end
+-- the chip's place is HudLayout's "Chips" stack (after NEWS, before HELP and ADMIN); nothing to place
+local function placeChip() end
 
 ------------------------------------------------------------------------------------------ auto show
 
