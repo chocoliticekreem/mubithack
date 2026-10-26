@@ -34,7 +34,8 @@
 --        character attr Ragdolled;
 --        prompts under parts tagged Door (one ProximityPrompt each, builders)
 -- Calls (nil-guarded): FireService:ApplyWater, HeatService:Cool, MapService:GetLocation/GetInstance,
---        Lib/Tools/HoseLine (attach/detach/getPressure; optional, owned by another lane)
+--        Lib/Tools/HoseLine (getPressure; detach on leave; optional). The line's lifecycle (hand, back,
+--        dropped and lying) is InventoryService's.
 -- Counters: water_used, doors_broken, hose_teammate_hits, hose_knockdowns, axe_swings,
 --           axe_teammate_hits, puddles, foam_used, hose_rockets
 -- Foam: at most one puff per 0.85 / SprayHz s per player (server-side, on top of the remote's rate limit).
@@ -874,13 +875,13 @@ local function hookCharacter(player: Player, char: Model)
 	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
 	if hum then
 		hum.Died:Connect(function()
-			hoseLineCall("detach", player)
+			-- the line itself is InventoryService's: dying drops the nozzle and the line stays lying
 			player:SetAttribute(Names.Attr.Spraying, false)
 		end)
 	end
 	char.ChildRemoved:Connect(function(child: Instance)
 		if child:IsA("Tool") and child.Name == "Hose" then
-			hoseLineCall("detach", player) -- unequipped the hose
+			-- put away (slung on your back) or dropped: InventoryService keeps / lays the line, never here
 			player:SetAttribute(Names.Attr.Spraying, false)
 		end
 	end)

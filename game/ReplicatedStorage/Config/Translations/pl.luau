@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "Ten wąż jest z innego wozu!",
 	["Hose back on the hydrant"] = "Wąż z powrotem na hydrancie",
 	["Hose back on the reel"] = "Wąż z powrotem na zwijadle",
+	["Hose on your back. SWAP to spray again"] = "Wąż na plecach. ZAMIEŃ, by znów lać wodę",
 	["HOSE! Endless water. Spray the fire!"] = "WĄŻ! Woda bez końca. Lej na ogień!",
 	["Your oxygen tank ran dry!"] = "Butla z tlenem jest pusta!",
 	["Juggled! You dropped the {1}"] = "Żonglerka! Upuszczasz: {1}",

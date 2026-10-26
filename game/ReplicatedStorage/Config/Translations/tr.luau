@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "O hortum başka bir aracın!",
 	["Hose back on the hydrant"] = "Hortum yangın musluğuna geri takıldı",
 	["Hose back on the reel"] = "Hortum makaraya geri sarıldı",
+	["Hose on your back. SWAP to spray again"] = "Hortum sırtında. Tekrar sıkmak için DEĞİŞ",
 	["HOSE! Endless water. Spray the fire!"] = "HORTUM! Sonsuz su. Ateşe sık!",
 	["Your oxygen tank ran dry!"] = "Oksijen tüpün bitti!",
 	["Juggled! You dropped the {1}"] = "Hokkabazlık! Düşürdün: {1}",

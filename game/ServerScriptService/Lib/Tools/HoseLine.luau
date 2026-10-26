@@ -7,9 +7,21 @@
 --   HoseLine.attach(player: Player, sourcePart: BasePart): boolean  -- replaces any previous hose
 --   HoseLine.detach(player: Player)
 --   HoseLine.getPressure(player: Player): number   -- 0..1; 1 when no hose is attached
+--   HoseLine.release(player, anchor: BasePart, att: Attachment): boolean -- the holder let go (drop,
+--       throw, death, got in a truck): the SAME chain stays lying on the ground, its tip tied to `att`
+--       on the dropped nozzle `anchor`. No pressure, kinks or yanks while lying.
+--   HoseLine.adopt(player, anchor: BasePart): boolean -- someone picked that nozzle up: the lying chain
+--       becomes theirs (no new chain, no cap check: it is the same hose)
+--   HoseLine.discard(anchor: BasePart)              -- a lying chain is reeled in (destroyed)
+--   HoseLine.tipPosition(player): Vector3?          -- the end of the held chain (where a dropped nozzle lands)
 --   HoseLine.Kinked: Signal<Player, Player>         -- (hose owner, culprit). Fires when someone has
 --       stood on your hose for KinkDelay s, or when your line first tangles with another player's
 --       (then it fires both ways). The culprit can be the owner (you stood on your own hose).
+--   HoseLine.Stranded: Signal<Player, string>       -- ("seat") the holder sat down: InventoryService drops
+--       the nozzle (release) right away; if nobody did, the line is detached after the signal.
+-- The holder's end: the Hose tool's handle, else the hose slung on the back (character model "InvBack"
+--   with attr Item = "Hose", its "HoseEnd" attachment), else the right hand. An ObjectValue "TipAtt" in
+--   the hose model points at the current end (hand, back or dropped nozzle) for HoseLineController.
 -- Remotes (declared lazily on the first attach): HoseLine/Yank (S->C holder, velocity: Vector3),
 --   HoseLine/Trip (S->C tripper, velocity: Vector3). The client owns its character, so the tug and
 --   the stumble are applied by HoseLineController. A trip prefers Shared/Ragdoll (enable +
@@ -159,9 +171,15 @@ local PLAYER_GROUP = "Players"
 local FOLDER = "HoseLines"
 
 HoseLine.Kinked = Signal.new() :: Signal.Signal<Player, Player>
+HoseLine.Stranded = Signal.new() :: Signal.Signal<Player, string>
 
 type Hose = {
-	owner: Player,
+	owner: Player?, -- nil while lying on the ground
+	anchor: BasePart?, -- lying: the dropped nozzle's handle
+	tip: Attachment?, -- lying: the attachment on that nozzle
+	lostSince: number?, -- held, but the holder has no live character since then
+	tipRef: ObjectValue,
+	inst: string, -- mission instance (Player attr InstanceId) for the per-instance cap
 	source: BasePart,
 	sourceAtt: Attachment,
 	kind: string,
@@ -185,6 +203,7 @@ type Hose = {
 }
 
 local hoses: { [Player]: Hose } = {}
+local lying: { [BasePart]: Hose } = {} -- dropped nozzle handle -> its chain, still on the ground
 local hoseCount = 0
 local booted = false
 local lastTrip: { [Player]: number } = {}
@@ -214,6 +233,20 @@ local function claimPart(part: Instance)
 	end
 end
 
+-- Death / despawn: let InventoryService drop the nozzle first (release keeps the chain lying), then
+-- detach whatever that same hose still is (never a newer one).
+local function detachLater(player: Player)
+	local h = hoses[player]
+	if not h then
+		return
+	end
+	task.defer(function()
+		if hoses[player] == h then
+			HoseLine.detach(player)
+		end
+	end)
+end
+
 local function hookCharacter(player: Player, char: Model)
 	for _, d in char:GetDescendants() do
 		claimPart(d)
@@ -222,7 +255,8 @@ local function hookCharacter(player: Player, char: Model)
 	local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
 	if hum then
 		hum.Died:Connect(function()
-			HoseLine.detach(player)
+			-- deferred: InventoryService spills the nozzle on death first (release keeps the line lying)
+			detachLater(player)
 		end)
 	end
 end
@@ -232,7 +266,7 @@ local function hookPlayer(player: Player)
 		hookCharacter(player, char)
 	end)
 	player.CharacterRemoving:Connect(function()
-		HoseLine.detach(player)
+		detachLater(player)
 	end)
 	if player.Character then
 		task.spawn(hookCharacter, player, player.Character)
@@ -240,6 +274,7 @@ local function hookPlayer(player: Player)
 end
 
 local tick: (number) -> ()
+local kill: (any) -> ()
 
 local function boot()
 	if booted then
@@ -328,6 +363,15 @@ local function endAttachment(player: Player): Attachment?
 		end
 		return att
 	end
+	-- slung over the shoulder (InventoryService back slot): the line stays hooked to the coil on your back
+	local back = char:FindFirstChild("InvBack")
+	if back and back:IsA("Model") and back:GetAttribute("Item") == "Hose" then
+		local bp = back.PrimaryPart
+		local att = bp and bp:FindFirstChild("HoseEnd")
+		if att and att:IsA("Attachment") then
+			return att
+		end
+	end
 	local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
 	local grip = hand and hand:FindFirstChild("RightGripAttachment")
 	if grip and grip:IsA("Attachment") then
@@ -400,6 +444,11 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	local inInstance = 0
 	for other in hoses do
 		if instanceOf(other) == inst then
+			inInstance += 1
+		end
+	end
+	for _, l in lying do
+		if l.inst == inst then
 			inInstance += 1
 		end
 	end
@@ -502,6 +551,11 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	follow.Position = endAtt.WorldPosition
 	follow.Parent = segs[n]
 
+	local tipRef = Instance.new("ObjectValue")
+	tipRef.Name = "TipAtt"
+	tipRef.Value = endAtt
+	tipRef.Parent = model
+
 	model.PrimaryPart = segs[1]
 	model.Parent = folder()
 
@@ -512,6 +566,10 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 
 	local h: Hose = {
 		owner = player,
+		anchor = nil,
+		tip = nil,
+		tipRef = tipRef,
+		inst = inst,
 		source = sourcePart,
 		sourceAtt = sourceAtt,
 		kind = kind,
@@ -537,7 +595,7 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 		h.conns,
 		sourcePart.AncestryChanged:Connect(function()
 			if not sourcePart:IsDescendantOf(workspace) then
-				HoseLine.detach(player)
+				kill(h) -- held or lying: the truck / hydrant is gone, so is its hose
 			end
 		end)
 	)
@@ -550,18 +608,7 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	return true
 end
 
-function HoseLine.detach(player: Player)
-	local h = hoses[player]
-	if not h then
-		return
-	end
-	hoses[player] = nil
-	hoseCount -= 1
-	for _, c in h.conns do
-		c:Disconnect()
-	end
-	h.model:Destroy()
-	h.sourceAtt:Destroy()
+local function forget(player: Player)
 	for _, other in hoses do
 		other.contact[player] = nil
 		other.lastBlame[player] = nil
@@ -572,6 +619,132 @@ function HoseLine.detach(player: Player)
 		player:SetAttribute("HoseKind", nil)
 		player:SetAttribute("HoseKinkedBy", nil)
 	end
+end
+
+-- Destroys a hose wherever it is (held or lying).
+kill = function(h: Hose)
+	local owner = h.owner
+	if owner and hoses[owner] == h then
+		hoses[owner] = nil
+	elseif h.anchor and lying[h.anchor] == h then
+		lying[h.anchor] = nil
+	else
+		return -- already gone
+	end
+	hoseCount -= 1
+	for _, c in h.conns do
+		c:Disconnect()
+	end
+	h.model:Destroy()
+	h.sourceAtt:Destroy()
+	if owner then
+		forget(owner)
+	end
+end
+
+function HoseLine.detach(player: Player)
+	local h = hoses[player]
+	if h then
+		kill(h)
+	end
+end
+
+local function setTip(h: Hose, att: Attachment, ropeLength: number)
+	h.rope.Attachment1 = att
+	h.rope.Length = ropeLength
+	h.follow.Position = att.WorldPosition
+	h.tipRef.Value = att
+end
+
+-- The holder let go: the same chain stays on the ground, its tip tied to the dropped nozzle.
+function HoseLine.release(player: Player, anchor: BasePart, att: Attachment): boolean
+	local h = hoses[player]
+	if not h or typeof(anchor) ~= "Instance" or not anchor:IsA("BasePart") or typeof(att) ~= "Instance" or not att:IsA("Attachment") then
+		return false
+	end
+	if lying[anchor] or not h.source:IsDescendantOf(workspace) or not h.model.Parent then
+		return false
+	end
+	hoses[player] = nil
+	h.owner = nil
+	h.anchor = anchor
+	h.tip = att
+	h.kinkers, h.crossings, h.kinkedSeg, h.pressure = 0, 0, 0, 1
+	table.clear(h.contact)
+	table.clear(h.lastBlame)
+	table.clear(h.tangled)
+	for _, seg in h.segs do
+		pcall(seg.SetNetworkOwner, seg, nil)
+		seg:SetAttribute("Kinked", false)
+	end
+	setTip(h, att, Cfg.LyingRopeLength)
+	h.model.Name = "Hose_Lying"
+	h.model:SetAttribute("Owner", 0)
+	h.model:SetAttribute("Lying", true)
+	h.sourceAtt.Name = "HoseLineSource_Lying"
+	lying[anchor] = h
+	forget(player)
+	count("hose_lying")
+	return true
+end
+
+-- Someone picked the dropped nozzle up: the lying chain is theirs now (same hose, no new parts).
+function HoseLine.adopt(player: Player, anchor: BasePart): boolean
+	local h = lying[anchor]
+	if not h then
+		return false
+	end
+	if not h.source:IsDescendantOf(workspace) or not h.model.Parent then
+		kill(h)
+		return false
+	end
+	local root = rootOf(player)
+	local endAtt = endAttachment(player)
+	if not root or not endAtt then
+		return false
+	end
+	boot()
+	if hoses[player] then
+		HoseLine.detach(player)
+	end
+	lying[anchor] = nil
+	h.owner = player
+	h.anchor = nil
+	h.tip = nil
+	h.inst = instanceOf(player)
+	h.born = os.clock()
+	h.lastYank = 0
+	setTip(h, endAtt, h.length)
+	h.model.Name = `Hose_{player.UserId}`
+	h.model:SetAttribute("Owner", player.UserId)
+	h.model:SetAttribute("Lying", nil)
+	h.sourceAtt.Name = `HoseLineSource_{player.UserId}`
+	local split = math.floor(#h.segs * math.clamp(Cfg.OwnerSplit, 0, 1))
+	for i, seg in h.segs do
+		pcall(seg.SetNetworkOwner, seg, if i <= split then nil else player)
+	end
+	hoses[player] = h
+	player:SetAttribute("HosePressure", 1)
+	player:SetAttribute("HoseKind", h.kind)
+	player:SetAttribute("HoseKinkedBy", nil)
+	count("hose_adopted")
+	return true
+end
+
+function HoseLine.discard(anchor: BasePart)
+	local h = lying[anchor]
+	if h then
+		kill(h)
+	end
+end
+
+function HoseLine.isLying(anchor: BasePart): boolean
+	return lying[anchor] ~= nil
+end
+
+function HoseLine.tipPosition(player: Player): Vector3?
+	local h = hoses[player]
+	return if h then h.ends[#h.ends].WorldPosition else nil
 end
 
 function HoseLine.getPressure(player: Player): number
@@ -591,14 +764,28 @@ local function blame(h: Hose, culprit: Player, now: number, text: string)
 	if now - (h.lastBlame[culprit] or -math.huge) < Cfg.KinkCooldown then
 		return
 	end
+	local owner = h.owner
+	if not owner then
+		return
+	end
 	h.lastBlame[culprit] = now
-	HoseLine.Kinked:Fire(h.owner, culprit)
-	Popup.show(culprit, text, "blame", h.owner) -- over whoever is on the hose
+	HoseLine.Kinked:Fire(owner, culprit)
+	Popup.show(culprit, text, "blame", owner) -- over whoever is on the hose
 end
 
 tick = function(dt: number)
 	local now = os.clock()
 	local lines: { [Player]: { Vector3 } } = {}
+
+	-- 0. lying lines: the tip follows the dropped nozzle; gone with the nozzle or the source
+	for anchor, h in lying do
+		local tip = h.tip
+		if not h.model.Parent or not h.source:IsDescendantOf(workspace) or not anchor:IsDescendantOf(workspace) or not tip or not tip.Parent then
+			kill(h)
+			continue
+		end
+		h.follow.Position = tip.WorldPosition
+	end
 
 	-- 1. stretch: yank the holder back, or snap off after a teleport
 	for owner, h in hoses do
@@ -609,17 +796,26 @@ tick = function(dt: number)
 		local root, hum = rootOf(owner)
 		local endAtt = endAttachment(owner)
 		if not root or not endAtt then
-			HoseLine.detach(owner)
+			-- dying / respawning: give InventoryService a moment to drop the nozzle (the line stays lying)
+			h.lostSince = h.lostSince or now
+			if now - (h.lostSince :: number) > 1 then
+				HoseLine.detach(owner)
+			end
 			continue
 		end
+		h.lostSince = nil
 		if hum and hum.SeatPart then
-			-- got in a vehicle: the line goes back on the reel. A chain from the reel to a hand inside
-			-- the cab dragged on (and shoved) the truck it was hooked to.
-			HoseLine.detach(owner)
+			-- got in a vehicle: InventoryService drops the nozzle by the door (the line stays lying; a
+			-- chain from the reel to a hand inside the cab dragged on and shoved the truck it was hooked to)
+			HoseLine.Stranded:Fire(owner, "seat")
+			if hoses[owner] == h then
+				HoseLine.detach(owner)
+			end
 			continue
 		end
 		if h.rope.Attachment1 ~= endAtt then
-			h.rope.Attachment1 = endAtt -- tool equipped/unequipped: re-hook to the new end
+			h.rope.Attachment1 = endAtt -- tool equipped/unequipped, hose slung on the back: re-hook
+			h.tipRef.Value = endAtt
 		end
 		h.follow.Position = endAtt.WorldPosition
 		local srcPos = h.sourceAtt.WorldPosition
@@ -704,22 +900,23 @@ tick = function(dt: number)
 	for i = 1, #list do
 		for j = i + 1, #list do
 			local a, b = list[i], list[j]
-			local pa, pb = lines[a.owner], lines[b.owner]
-			if not pa or not pb or instanceOf(a.owner) ~= instanceOf(b.owner) then
+			local ao, bo = a.owner :: Player, b.owner :: Player -- held hoses always have one
+			local pa, pb = lines[ao], lines[bo]
+			if not pa or not pb or instanceOf(ao) ~= instanceOf(bo) then
 				continue
 			end
 			local c = HoseLine.countCrossings(pa, pb, Cfg.TangleMaxDy)
 			a.crossings += c
 			b.crossings += c
-			if c > 0 and not a.tangled[b.owner] then
-				a.tangled[b.owner] = true
-				b.tangled[a.owner] = true
+			if c > 0 and not a.tangled[bo] then
+				a.tangled[bo] = true
+				b.tangled[ao] = true
 				count("hose_tangles")
-				blame(a, b.owner, now, `Your hose is tangled with {b.owner.DisplayName}'s!`)
-				blame(b, a.owner, now, `Your hose is tangled with {a.owner.DisplayName}'s!`)
+				blame(a, bo, now, `Your hose is tangled with {bo.DisplayName}'s!`)
+				blame(b, ao, now, `Your hose is tangled with {ao.DisplayName}'s!`)
 			elseif c == 0 then
-				a.tangled[b.owner] = nil
-				b.tangled[a.owner] = nil
+				a.tangled[bo] = nil
+				b.tangled[ao] = nil
 			end
 		end
 	end
@@ -765,9 +962,15 @@ end
 function HoseLine._state(player: Player): { [string]: any }?
 	local h = hoses[player]
 	if not h then
-		return nil
+		local n = 0
+		for _ in lying do
+			n += 1
+		end
+		return { held = false, lying = n, hoses = hoseCount }
 	end
 	return {
+		held = true,
+		tipAtt = h.tipRef.Value and h.tipRef.Value:GetFullName(),
 		kind = h.kind,
 		length = h.length,
 		segments = #h.segs,
@@ -816,6 +1019,9 @@ function HoseLine._selftest(): (boolean, string)
 	end
 	local live = 0
 	for _ in hoses do
+		live += 1
+	end
+	for _ in lying do
 		live += 1
 	end
 	if live ~= hoseCount then

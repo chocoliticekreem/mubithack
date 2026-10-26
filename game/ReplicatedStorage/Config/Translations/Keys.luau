@@ -426,6 +426,7 @@ return {
 	"That hose belongs to another truck!",
 	"Hose back on the hydrant",
 	"Hose back on the reel",
+	"Hose on your back. SWAP to spray again",
 	"HOSE! Endless water. Spray the fire!",
 	"Your oxygen tank ran dry!",
 	"Juggled! You dropped the {1}",

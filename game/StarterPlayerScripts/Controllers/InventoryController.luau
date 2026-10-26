@@ -5,7 +5,8 @@
 --     InvCarry, with foam / air gauges (Foam+FoamSize, OxygenAir); the hose has no gauge (endless water)
 --   * input (bound only while you have something, so Rescue/Vehicle keep G and Q otherwise):
 --       G drop (Inventory/Drop), hold Q throw with a charge meter (Inventory/Throw(cameraLook, charge)),
---       1 / 2 swap hand <-> back (Inventory/Swap). Gamepad: B drop, L1 throw, DPadUp swap.
+--       1 / 2 swap hand <-> back (Inventory/Swap). Gamepad: B drop, L1 throw, DPadUp swap. Tapping the
+--       HAND or BACK tile swaps too. The hose swaps like anything else: on your back its line stays out.
 --     (lobby emotes live on Z / X / C in SquadController, so 1 / 2 are inventory-only)
 --   * the hotbar hides while you're seated (the truck key-hint bar takes the bottom centre)
 --   * relabels the truck reel prompt locally (Grab / Stow Hose); every prompt's "[E] Grab Axe" sticker
@@ -44,6 +45,9 @@ local chargeFill: Frame? = nil
 local chargeStart: number? = nil
 local boundItem = false
 local boundSwap = false
+local DropR: RemoteEvent? = nil
+local ThrowR: RemoteEvent? = nil
+local SwapR: RemoteEvent? = nil
 
 local function attr(name: string): string
 	local v = LocalPlayer:GetAttribute(name)
@@ -198,6 +202,23 @@ local function buildHotbar()
 	slots.hand = makeSlot(row, "Hand", "HAND", 1)
 	slots.back = makeSlot(row, "Back", "1/2 SWAP", 2)
 	slots.carry = makeSlot(row, "Carry", "CARRY", 3)
+	-- tap (or click) the HAND or BACK tile = swap, same as 1 / 2 / D-pad up / the SWAP button (phones:
+	-- tap the hose tile to bring it back off your back)
+	for _, key in { "hand", "back" } do
+		local tap = Instance.new("TextButton")
+		tap.Name = "Tap"
+		tap.Text = ""
+		tap.BackgroundTransparency = 1
+		tap.Size = UDim2.fromScale(1, 1)
+		tap.Selectable = false
+		tap.ZIndex = 6
+		tap.Parent = slots[key].tile
+		tap.Activated:Connect(function()
+			if SwapR and (attr("InvHand") ~= "" or attr("InvBack") ~= "") then
+				SwapR:FireServer()
+			end
+		end)
+	end
 	hotbarRow = row
 	-- world markers / edge arrows stay off it (ClientLib/HudLayout)
 	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
@@ -296,9 +317,6 @@ local function refreshHud()
 end
 
 -- input ----------------------------------------------------------------------------------------------
-local DropR: RemoteEvent? = nil
-local ThrowR: RemoteEvent? = nil
-local SwapR: RemoteEvent? = nil
 
 local function chargeOf(): number
 	if not chargeStart then
@@ -426,8 +444,8 @@ end
 
 -- Truck reels keep their builder's default prompt; only the text changes, locally, with what you hold.
 local function relabelReels()
-	local hand = attr("InvHand")
-	local text = if hand == "Hose" then "Stow Hose" else "Grab Hose" -- holding the extinguisher: swaps it for the hose
+	local hose = attr("InvHand") == "Hose" or attr("InvBack") == "Hose" -- slung on your back counts
+	local text = if hose then "Stow Hose" else "Grab Hose" -- holding the extinguisher: swaps it for the hose
 	local function set(p: Instance?)
 		if p and p:IsA("ProximityPrompt") and p:GetAttribute("InvReel") then
 			p.ActionText = text -- an open sticker follows (PromptController)

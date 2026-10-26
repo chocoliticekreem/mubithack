@@ -36,6 +36,14 @@
 --   HoseLineConfig.LengthHydrant), HosesPerTruck nozzles per hydrant; holding the extinguisher it swaps,
 --   holding another source's hose it swaps lines. HydrantController relabels it locally and hides it
 --   while you drive.
+-- Hose model: one hose per player, in the HAND or slung on the BACK (1/2, D-pad up, SWAP, a hotbar tap;
+--   grabbing another item while holding it slings it, the old back item drops). Either way its line
+--   stays hooked to you (syncHoseLine). Let go of it (G, Q, fumble, death, sitting in a vehicle via
+--   HoseLine.Stranded) and the nozzle drops with the SAME line lying from the source to it
+--   (HoseLine.release); anyone grabs it and carries on (HoseLine.adopt). A dropped nozzle reels in
+--   (removeLoose -> HoseLine.discard) after HoseLineConfig.LyingSeconds, when its truck drives off
+--   (LyingStowSpeed), when the call ends (StowHose) or when the reel reclaims it. 2 per source still
+--   counts held + slung + lying nozzles.
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
 -- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher
@@ -85,7 +93,9 @@ local TAG_RACK = "GearRack"
 local TAG_COMPARTMENT = "TruckCompartment"
 local ATTR_PROMPT = "InvPrompt"
 
-type Data = { foam: number?, air: number?, reel: BasePart? }
+-- reel: the hose's source (truck reel / hydrant Body); lyingAt: picked up off the ground, its line is
+-- still lying there (HoseLine.adopt takes it over instead of laying a new one)
+type Data = { foam: number?, air: number?, reel: BasePart?, lyingAt: BasePart? }
 type Held = { id: string, data: Data }
 type PState = {
 	hand: Held?,
@@ -133,7 +143,7 @@ local function call(serviceName: string, method: string, ...: any): any
 end
 
 local hoseLineCache: any = nil
-local function hoseLine(fn: string, ...: any): any
+local function hoseLineMod(): any
 	if not hoseLineCache then
 		local lib = ServerScriptService:FindFirstChild("Lib")
 		local tools = lib and lib:FindFirstChild("Tools")
@@ -145,7 +155,12 @@ local function hoseLine(fn: string, ...: any): any
 			end
 		end
 	end
-	local f = hoseLineCache and hoseLineCache[fn]
+	return hoseLineCache
+end
+
+local function hoseLine(fn: string, ...: any): any
+	local mod = hoseLineMod()
+	local f = mod and mod[fn]
 	if type(f) ~= "function" then
 		return nil
 	end
@@ -324,6 +339,11 @@ removeLoose = function(m: Model)
 			reelLoose[info.data.reel :: BasePart] = nil
 		end
 	end
+	-- its line lying on the ground goes back on the reel with it (a no-op once someone adopted it)
+	local handle = m.PrimaryPart
+	if handle then
+		hoseLine("discard", handle)
+	end
 	m:Destroy()
 end
 
@@ -340,8 +360,11 @@ local function grabLoose(player: Player, m: Model)
 	local reel = info.data.reel
 	if reel and not reel:IsDescendantOf(workspace) then
 		held.data = {} -- the truck is gone: just a loose nozzle now
+	elseif reel and hoseLine("isLying", handle) then
+		held.data.lyingAt = handle -- pick the line up off the ground (HoseLine.adopt), not a new one
 	end
 	local ok = giveHeld(player, held)
+	held.data.lyingAt = nil
 	if ok then
 		removeLoose(m)
 		Telemetry.count("inv_grabs")
@@ -349,7 +372,9 @@ local function grabLoose(player: Player, m: Model)
 	end
 end
 
-local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Player?): Model?
+-- `owner`: who let go of it. A hose nozzle keeps that player's line: the chain stays lying on the
+-- ground from the source to the nozzle (HoseLine.release) instead of vanishing.
+local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Player?, owner: Player?): Model?
 	local def = ItemDefs.get(held.id)
 	if not def then
 		return nil
@@ -389,6 +414,11 @@ local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Pl
 			rope.Color = BrickColor.new("Bright yellow")
 			rope.Parent = handle
 			info.rope = rope
+			-- the real line stays on the ground; this rope is then only the invisible leash (max length)
+			local by = owner or thrower
+			if by and hoseLine("release", by, handle, hoseEnd) then
+				rope.Visible = false
+			end
 		end
 		local list = reelLoose[reel] or {}
 		reelLoose[reel] = list
@@ -424,11 +454,43 @@ local function syncHeld(player: Player, ps: PState)
 	end
 end
 
-local function releaseHose(player: Player, held: Held?)
-	if held and held.id == "Hose" then
-		hoseLine("detach", player)
-		player:SetAttribute(Names.Attr.Spraying, false)
+-- The hose you have, in your hand or slung on your back (never both: one line per firefighter).
+local function hoseOf(ps: PState): (Held?, string?)
+	if ps.hand and ps.hand.id == "Hose" then
+		return ps.hand, "hand"
+	elseif ps.back and ps.back.id == "Hose" then
+		return ps.back, "back"
 	end
+	return nil, nil
+end
+
+-- One line per player, hooked to wherever the hose is (HoseLine finds the tool or the back coil).
+-- Hand <-> back keeps the same line. Losing the hose detaches it on the next step, so a drop in this
+-- same step (spawnLoose -> HoseLine.release) leaves the line lying on the ground instead.
+local function syncHoseLine(player: Player, ps: PState)
+	local held = hoseOf(ps)
+	local reel = held and held.data.reel
+	if held and reel and reel:IsDescendantOf(workspace) then
+		local _, _, hum = charOf(player)
+		if hum and hum.SeatPart then
+			return
+		end
+		local from = held.data.lyingAt
+		held.data.lyingAt = nil
+		if from and hoseLine("adopt", player, from) then
+			return
+		end
+		if not hoseLine("attach", player, reel) then
+			Popup.show(player, "Hose tangled, try again", "info", player)
+		end
+		return
+	end
+	task.defer(function()
+		local now = states[player]
+		if not (now and hoseOf(now)) then
+			hoseLine("detach", player)
+		end
+	end)
 end
 
 local function equipHand(player: Player, ps: PState)
@@ -441,8 +503,8 @@ local function equipHand(player: Player, ps: PState)
 		ps.tool = nil
 		t:Destroy()
 	end
-	if old and old ~= ps.hand then
-		releaseHose(player, old)
+	if old and old ~= ps.hand and old.id == "Hose" then
+		player:SetAttribute(Names.Attr.Spraying, false) -- the line itself is syncHoseLine's
 	end
 	ps.toolFor = ps.hand
 	local held = ps.hand
@@ -469,12 +531,6 @@ local function equipHand(player: Player, ps: PState)
 		-- trucks have endless water: the nozzle is always full (ToolService and the HUD read these)
 		player:SetAttribute(Names.Attr.TankSize, ToolConfig.TankSize)
 		player:SetAttribute(Names.Attr.Water, ToolConfig.TankSize)
-		local reel = held.data.reel
-		if reel and reel:IsDescendantOf(workspace) then
-			if not hoseLine("attach", player, reel) then
-				Popup.show(player, "Hose tangled, try again", "info", player)
-			end
-		end
 	end
 end
 
@@ -488,6 +544,7 @@ local BACK_TILT: { [string]: CFrame } = {
 	RescueSaw = CFrame.Angles(0, math.rad(90), 0),
 	Extinguisher = CFrame.Angles(0, 0, math.rad(-12)),
 	OxygenTank = CFrame.new(),
+	Hose = CFrame.Angles(0, math.rad(90), math.rad(-40)), -- nozzle over the shoulder
 }
 
 local function equipBack(player: Player, ps: PState)
@@ -507,6 +564,7 @@ local function equipBack(player: Player, ps: PState)
 	end
 	local m = ItemProps.build(held.id, "back", 0.85)
 	m.Name = "InvBack"
+	m:SetAttribute("Item", held.id) -- HoseLine hooks a slung hose's line to this coil ("HoseEnd")
 	m:PivotTo(torso.CFrame * CFrame.new(0, 0.1, torso.Size.Z / 2 + 0.6) * (BACK_TILT[held.id] or CFrame.new()))
 	local w = Instance.new("WeldConstraint")
 	w.Part0 = torso
@@ -607,6 +665,7 @@ local function apply(player: Player, ps: PState)
 	sweepTools(player, ps)
 	equipBack(player, ps)
 	equipFace(player, ps)
+	syncHoseLine(player, ps)
 	writeAttrs(player, ps)
 	InventoryService.Changed:Fire(player)
 end
@@ -627,7 +686,7 @@ local function dropHeldAt(player: Player, held: Held, cf: CFrame?, velocity: Vec
 	if not at then
 		return nil
 	end
-	return spawnLoose(held, at, velocity, thrower)
+	return spawnLoose(held, at, velocity, thrower, player)
 end
 
 giveHeld = function(player: Player, held: Held): (boolean, ItemDefs.Plan?)
@@ -641,7 +700,7 @@ giveHeld = function(player: Player, held: Held): (boolean, ItemDefs.Plan?)
 		end
 		return false, plan
 	end
-	local oldHand = ps.hand
+	local oldHand, oldBack = ps.hand, ps.back
 	if plan.slot == "face" then
 		local oldFace = ps.face
 		ps.face = held
@@ -660,9 +719,12 @@ giveHeld = function(player: Player, held: Held): (boolean, ItemDefs.Plan?)
 		ps.hand = held
 	end
 	apply(player, ps)
-	if plan.dropped and oldHand then
-		dropHeldAt(player, oldHand, nil, Vector3.new(0, 6, 0), nil)
-		say(player, ps, `Juggled! You dropped the {displayName(oldHand.id)}`)
+	local gone = if plan.droppedSlot == "back" then oldBack else oldHand
+	if plan.dropped and gone then
+		dropHeldAt(player, gone, nil, Vector3.new(0, 6, 0), nil)
+		say(player, ps, `Juggled! You dropped the {displayName(gone.id)}`)
+	elseif plan.stowed == "Hose" then
+		say(player, ps, "Hose on your back. SWAP to spray again", "hint")
 	end
 	return true, plan
 end
@@ -872,8 +934,12 @@ local function doSwap(player: Player): boolean
 		return false
 	end
 	ps.hand, ps.back = ps.back, ps.hand
-	apply(player, ps)
+	apply(player, ps) -- a hose keeps its line either way (syncHoseLine)
 	Telemetry.count("inv_swaps")
+	if ps.back and ps.back.id == "Hose" then
+		Telemetry.count("inv_hose_slung")
+		say(player, ps, "Hose on your back. SWAP to spray again", "hint")
+	end
 	return true
 end
 
@@ -911,6 +977,31 @@ local function fumble(player: Player)
 			fx("fumble", handPos, displayName(held.id))
 		end
 	end
+end
+
+-- Got in a vehicle with the hose (hand or back): the nozzle drops where the line ends (outside the cab),
+-- and the line stays lying there for whoever grabs it next (HoseLine.Stranded).
+local function leaveHose(player: Player)
+	local ps = states[player]
+	if not ps then
+		return
+	end
+	local held, slot = hoseOf(ps)
+	if not held then
+		return
+	end
+	local tip = hoseLine("tipPosition", player)
+	if slot == "hand" then
+		ps.hand = nil
+	else
+		ps.back = nil
+	end
+	apply(player, ps)
+	local cf = if typeof(tip) == "Vector3"
+		then CFrame.new(tip + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, math.random() * math.pi * 2, math.rad(80))
+		else nil
+	dropHeldAt(player, held, cf, Vector3.zero, nil)
+	Telemetry.count("inv_hose_left")
 end
 
 -- Death: everything you had spills on the floor.
@@ -1091,8 +1182,8 @@ end
 local function holdersOf(reel: BasePart, except: Player?): { Player }
 	local list = {}
 	for p, ps in states do
-		local held = ps.hand
-		if p ~= except and p.Parent and held and held.id == "Hose" and held.data.reel == reel then
+		local held = hoseOf(ps) -- in the hand or slung on the back: still out
+		if p ~= except and p.Parent and held and held.data.reel == reel then
 			table.insert(list, p)
 		end
 	end
@@ -1154,16 +1245,22 @@ local function onReel(player: Player, reel: BasePart)
 	end
 	local hydrant = isHydrantSource(reel)
 	local hand = ps.hand
-	if hand and hand.id == "Hose" then
-		local from = hand.data.reel
+	local hose, hoseSlot = hoseOf(ps) -- [T] stows it from the hand or from your back
+	if hose then
+		local from = hose.data.reel
 		local other = from ~= nil and from ~= reel and from:IsDescendantOf(workspace)
 		if other and not hydrant and not isHydrantSource(from :: BasePart) then
 			say(player, ps, "That hose belongs to another truck!")
 			return
 		end
-		ps.hand = nil
+		if hoseSlot == "hand" then
+			ps.hand = nil
+			hand = nil
+		else
+			ps.back = nil
+		end
 		if other then
-			hand = nil -- a hydrant in the mix: drop the old line, take this one (same endless hose)
+			-- a hydrant in the mix: drop the old line, take this one (same endless hose)
 		else
 			apply(player, ps)
 			Telemetry.count("inv_hose_stowed")
@@ -1379,8 +1476,15 @@ local function upkeepLoop()
 				continue
 			end
 			local reel = info.data.reel
-			local tooOld = now - info.born > Cfg.LooseSeconds
-			local stray = reel ~= nil and (not reel:IsDescendantOf(workspace) or (reel.Position - handle.Position).Magnitude > hoseLength(reel) * 2.5)
+			-- a dropped nozzle (and its line lying on the ground) reels itself in after LyingSeconds, or as
+			-- soon as its truck drives off
+			local tooOld = now - info.born > (if reel then HoseLineConfig.LyingSeconds or Cfg.LooseSeconds else Cfg.LooseSeconds)
+			local stray = reel ~= nil
+				and (
+					not reel:IsDescendantOf(workspace)
+					or (reel.Position - handle.Position).Magnitude > hoseLength(reel) * 2.5
+					or reel.AssemblyLinearVelocity.Magnitude > (HoseLineConfig.LyingStowSpeed or 6)
+				)
 			if tooOld or stray then
 				removeLoose(m)
 			end
@@ -1496,6 +1600,12 @@ function InventoryService:Start()
 		doSwap(player)
 	end)
 	folder()
+	local hl = hoseLineMod()
+	if hl and hl.Stranded then
+		hl.Stranded:Connect(function(player: Player, _why: string)
+			leaveHose(player)
+		end)
+	end
 
 	watchTag(TAG_RACK, function(inst: Instance)
 		hookStock(inst, TAG_RACK)
@@ -1521,7 +1631,7 @@ function InventoryService:Start()
 			if ps.carry then
 				releaseProp(player, ps, Vector3.zero, nil)
 			end
-			releaseHose(player, ps.hand)
+			hoseLine("detach", player)
 		end
 		if ps and ps.bpConn then
 			ps.bpConn:Disconnect()
@@ -1589,8 +1699,8 @@ function InventoryService:Equip(player: Player, eq: { hand: string?, back: strin
 		return false, "busy"
 	end
 	syncHeld(player, ps)
-	local cur = ps.hand
-	if cur and cur.id == "Hose" and eq.hand ~= cur.id then
+	local cur, curSlot = hoseOf(ps)
+	if cur and (eq :: any)[curSlot :: string] ~= cur.id then
 		return false, "hose"
 	end
 	local pool: { [string]: Held } = {}
@@ -1640,8 +1750,16 @@ end
 function InventoryService:StowHose(player: Player): boolean
 	local stowed = false
 	local ps = states[player]
-	if ps and ps.hand and ps.hand.id == "Hose" then
-		ps.hand = nil
+	local slot: string? = nil
+	if ps then
+		_, slot = hoseOf(ps)
+	end
+	if ps and slot then
+		if slot == "hand" then
+			ps.hand = nil
+		else
+			ps.back = nil
+		end
 		apply(player, ps)
 		stowed = true
 	end

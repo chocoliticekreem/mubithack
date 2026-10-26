@@ -14,7 +14,8 @@
 --   ItemDefs.grab(state, id, ctx?) -> (ok, newState, plan)   plan = { slot, stowed?, dropped?, reason? }
 --                                     a face item: slot "face", dropped = the mask it replaced
 --   ItemDefs.drop(state) -> (newState, what?, slot?)          carry first, else hand
---   ItemDefs.swap(state) -> (ok, newState, reason?)            hand <-> back
+--   ItemDefs.swap(state) -> (ok, newState, reason?)            hand <-> back (the hose too: slung on
+--                                     your back its line stays hooked to you; swap again to spray)
 --   ItemDefs.fumble(state) -> (newState, dropped?)             ragdoll: the hand item flies off
 --   ItemDefs.reelSlot(holding, lying, cap) -> "new" | "reclaim" | "full"
 --   ItemDefs.spinsWhenThrown(id, list) -> boolean
@@ -53,7 +54,8 @@ export type State = { hand: string?, back: string?, carry: string?, face: string
 export type Plan = {
 	slot: string?, -- "hand" | "back" | "carry" | "face"
 	stowed: string?, -- the old hand item moved to the back
-	dropped: string?, -- the old hand item fell at your feet
+	dropped: string?, -- the old hand item fell at your feet (droppedSlot "back": the old BACK item did)
+	droppedSlot: string?,
 	reason: string?, -- why a grab failed
 }
 
@@ -65,7 +67,7 @@ local Items: { [string]: Def } = {
 		name = "Hose",
 		short = "HOSE",
 		color = "#E8B83A",
-		backable = false,
+		backable = true, -- slung over your shoulder: its line stays hooked to you (Lib/Tools/HoseLine)
 		prefersBack = false,
 		throwable = true,
 		tethered = true,
@@ -312,6 +314,7 @@ end
 --   prefersBack + free back       -> back
 --   free hand                     -> hand
 --   hand item backable + free back -> old hand item stowed on your back, new item in hand
+--   holding the hose, back taken  -> the hose goes on your back, the old back item drops
 --   otherwise                     -> old hand item dropped at your feet (goofy swap), new item in hand
 function ItemDefs.grab(state: State, id: string, ctx: Ctx?): (boolean, State, Plan)
 	local def = ItemDefs.get(id)
@@ -325,7 +328,7 @@ function ItemDefs.grab(state: State, id: string, ctx: Ctx?): (boolean, State, Pl
 	if c.carryingNpc or state.carry ~= nil then
 		return false, state, { reason = "arms full" }
 	end
-	if state.hand == id and def.tethered then
+	if def.tethered and (state.hand == id or state.back == id) then
 		return false, state, { reason = "already holding" }
 	end
 	local s = copy(state)
@@ -348,6 +351,13 @@ function ItemDefs.grab(state: State, id: string, ctx: Ctx?): (boolean, State, Pl
 		s.back = s.hand
 		s.hand = id
 		return true, s, { slot = "hand", stowed = s.back }
+	end
+	if cur and cur.tethered then
+		-- a grab never costs you the hose: it goes over your shoulder and the old back item drops instead
+		local oldBack = s.back
+		s.back = s.hand
+		s.hand = id
+		return true, s, { slot = "hand", stowed = s.back, dropped = oldBack, droppedSlot = "back" }
 	end
 	local old = s.hand
 	s.hand = id

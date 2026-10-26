@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "สายน้ำนั้นเป็นของรถคันอื่น!",
 	["Hose back on the hydrant"] = "เก็บสายน้ำคืนหัวดับเพลิงแล้ว",
 	["Hose back on the reel"] = "เก็บสายน้ำคืนม้วนแล้ว",
+	["Hose on your back. SWAP to spray again"] = "สายน้ำอยู่บนหลัง กด สลับ เพื่อฉีดอีกครั้ง",
 	["HOSE! Endless water. Spray the fire!"] = "สายน้ำ! น้ำไม่มีหมด ฉีดไฟเลย!",
 	["Your oxygen tank ran dry!"] = "ถังออกซิเจนหมดแล้ว!",
 	["Juggled! You dropped the {1}"] = "ร่วง! ทำ {1} หล่น",

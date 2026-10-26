@@ -40,7 +40,8 @@ local function promptOf(body: Instance): ProximityPrompt?
 end
 
 local function holdingHose(): boolean
-	return LocalPlayer:GetAttribute("InvHand") == "Hose"
+	-- in your hand or slung on your back (InventoryService keeps its line hooked either way)
+	return LocalPlayer:GetAttribute("InvHand") == "Hose" or LocalPlayer:GetAttribute("InvBack") == "Hose"
 end
 
 local function textFor(body: BasePart): string
@@ -177,7 +178,7 @@ function HydrantController:Start()
 		end
 	end)
 	-- the label flips the moment the hose comes out / goes back, not on the next tick
-	for _, name in { "InvHand", "HoseKind" } do
+	for _, name in { "InvHand", "InvBack", "HoseKind" } do
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(function()
 			task.defer(function()
 				pcall(tick)
