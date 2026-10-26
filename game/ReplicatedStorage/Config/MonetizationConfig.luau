@@ -22,7 +22,7 @@ return Config.define({
 		PremiumPass = 2053853337, -- 299 R$; the battle pass premium track (BattlePassService)
 		-- FIRE HELICOPTER (HeliService / HeliController, Config/HeliConfig). 0 = not created yet: the store
 		-- card says COMING SOON, it is never offered or prompted, nobody owns it (Studio: PassDebug_Helicopter).
-		Helicopter = 0, -- TODO: the real pass id (suggested 399 R$; art: marketing/passes/helicopter.json)
+		Helicopter = 2054244278, -- FIRE HELICOPTER, R$299 (art: marketing/passes/helicopter.json)
 	},
 
 	-- How each pass shows in the store (order = card order). price = the R$ shown until
