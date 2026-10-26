@@ -9,6 +9,7 @@ import { UpdateBanner } from "./Update";
 import { GBeFirefighter, GDriveTruck, GFireSquad, GPutOut, GSaveKids, GSavePanda } from "./GeminiAds";
 import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
 import { IconFace, IconNight, IconRescue, IconSpray, IconTruck, IconWord } from "./Icons3";
+import { BADGES } from "./Badges";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
 
 const I = { width: 512, height: 512 };
@@ -23,6 +24,9 @@ export const Root: React.FC = () => (
     <Still id="g-ad-04-fire-squad" component={GFireSquad} {...A} />
     <Still id="g-ad-05-save-the-panda" component={GSavePanda} {...A} />
     <Still id="g-ad-06-put-out-the-fire" component={GPutOut} {...A} />
+    {BADGES.map((b) => (
+      <Still key={b.id} id={`badge-${b.id.replace(/_/g, "-")}`} component={b.component} {...I} />
+    ))}
     <Still id="pass-unlimited-foam" component={PassFoam} {...I} />
     <Still id="pass-premium" component={PassPremium} {...I} />
     <Still id="donate-10" component={Donate10} {...I} />

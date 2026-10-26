@@ -1,0 +1,15 @@
+{
+  "note": "Roblox badges for 10 achievements. Create each on the Creator Dashboard (Monetization -> Badges) with this name, description and icon, then put the badge id into game/ReplicatedStorage/Config/AchievementConfig.luau BadgeIds[id]. Until then awarding is a no-op. Players who unlocked an achievement earlier get its badge on their next join.",
+  "badges": [
+    { "id": "first_call", "name": "First Call", "description": "You finished your very first call. Welcome to Station 67, firefighter!", "icon": "out/first_call.png" },
+    { "id": "first_rescue", "name": "First Rescue", "description": "You saved someone from a fire. You're a real hero!", "icon": "out/first_rescue.png" },
+    { "id": "save_panda", "name": "Save the Panda", "description": "You carried a panda out of a burning house. The panda says thank you!", "icon": "out/save_panda.png" },
+    { "id": "fires_100", "name": "100 Fires Out", "description": "You put out 100 fires. Splash!", "icon": "out/fires_100.png" },
+    { "id": "cat_tree", "name": "Cat in a Tree", "description": "You climbed up and got the cat down from the tree. Meow!", "icon": "out/cat_tree.png" },
+    { "id": "night_hero", "name": "Night Hero", "description": "You won a call in the dark. Your helmet light saved the day!", "icon": "out/night_hero.png" },
+    { "id": "speed_run", "name": "Speed Run Record", "description": "You set a new speed record on a call. Super fast!", "icon": "out/speed_run.png" },
+    { "id": "combo_master", "name": "Combo Master", "description": "You and your friends hosed the same fire 25 times. Teamwork!", "icon": "out/combo_master.png" },
+    { "id": "yeet", "name": "YEET!", "description": "You threw someone to safety. Wheee!", "icon": "out/yeet.png" },
+    { "id": "level_25", "name": "Level 25", "description": "You reached level 25. You're a top firefighter!", "icon": "out/level_25.png" }
+  ]
+}
