@@ -21,6 +21,7 @@
 --     wait for it (at most DEVICE_WAIT s, then "Unknown") so a funnel can be split by device.
 --   * Mission funnel "Mission" (LogFunnelStepEvent, funnelSessionId = the run's InstanceId), everyone,
 --     every call: Dispatched, In Truck, Arrived On Scene, First Fire Out, Mission Complete, Back In Lobby.
+--     Every step: CustomField01 = device (as OnboardingV3), Mission Complete: CustomField02 = end reason.
 --   * Custom events (LogCustomEvent): FirstSpraySeconds (CustomField01 New | Returning),
 --     SessionMinutes (on leave, CustomField01 New | Returning), OnboardingQuitStep (new players on leave:
 --     value = furthest step number, CustomField01 = its step name), TutorialSkipped, FirstCallDeclined.
@@ -29,6 +30,8 @@
 --     device), OnboardingV3QuitStep (new players on leave: value = furthest v3 step, CustomField01 = its
 --     name, CustomField02 = device).
 -- Public API: FunnelService:LogCustom(player, event, value, field?) -- event must be a Funnel.Events name
+--             FunnelService:LogDevice(player, event, value, kind?)  -- CustomField01 = device, 02 = kind
+--             FunnelService:DeviceOf(player): string               -- Phone | Tablet | PC | Console | Unknown
 -- Server-side only; every AnalyticsService call is pcall'd (a failing call counts analytics_error).
 -- Counters: analytics_onboarding_step, analytics_mission_step, analytics_custom, analytics_error
 -- Test hooks (DevHook only): _state(player) -> JSON, _log() -> JSON (last 60 calls made)
@@ -146,7 +149,20 @@ local function onboarding(player: Player, name: string)
 	end
 end
 
-local function mission(player: Player, name: string, fields: { [string]: string }?)
+local function deviceOf(player: Player): string
+	local s = states[player]
+	if s and s.device then
+		return s.device
+	end
+	local d = player:GetAttribute(DEVICE_ATTR)
+	return if Funnel.isDevice(d) then d :: string else "Unknown"
+end
+
+local function mission(player: Player, name: string, reason: string?)
+	local fields: { [string]: string } = { [FIELD1] = deviceOf(player) }
+	if reason then
+		fields[FIELD2] = reason
+	end
 	local s = states[player]
 	local run = if s then s.run else ""
 	if not s or run == "" then
@@ -160,7 +176,7 @@ local function mission(player: Player, name: string, fields: { [string]: string 
 	local idx = Funnel.reach(track, Funnel.Mission, name)
 	if idx then
 		count("analytics_mission_step")
-		note(`mission {player.UserId} {run} {idx} {name}`)
+		note(`mission {player.UserId} {run} {idx} {name} {fields[FIELD1]}`)
 		analytics("LogFunnelStepEvent", player, Funnel.MissionFunnelName, run, idx, name, fields)
 	end
 end
@@ -373,6 +389,26 @@ function FunnelService:LogCustom(player: Player, event: string, value: number?, 
 	return true
 end
 
+-- Device-tagged custom event (CustomField01 = device, the OnboardingV3 helper; CustomField02 = kind, a
+-- small constant set). Used by LobbyService (pad wait / left), ResultsController via Dispatch, DailyChest.
+function FunnelService:LogDevice(player: Player, event: string, value: number?, kind: string?): boolean
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or (Funnel.Events :: any)[event] ~= event then
+		return false
+	end
+	local fields: { [string]: string } = { [FIELD1] = deviceOf(player) }
+	if type(kind) == "string" and kind ~= "" and #kind <= 40 then
+		fields[FIELD2] = kind
+	end
+	count("analytics_custom")
+	note(`custom {player.UserId} {event} {value} {fields[FIELD1]} {fields[FIELD2] or ""}`)
+	analytics("LogCustomEvent", player, event, tonumber(value) or 1, fields)
+	return true
+end
+
+function FunnelService:DeviceOf(player: Player): string
+	return deviceOf(player)
+end
+
 ------------------------------------------------------------------------------------------ lifecycle
 
 function FunnelService:Init(all: { [string]: any })
@@ -440,7 +476,7 @@ function FunnelService:Start()
 			for player, s in states do
 				if s.run == id then
 					onboarding(player, "Mission Complete")
-					mission(player, "Mission Complete", { [FIELD1] = reason })
+					mission(player, "Mission Complete", reason)
 				end
 			end
 		end)

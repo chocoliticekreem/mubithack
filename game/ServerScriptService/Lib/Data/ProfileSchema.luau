@@ -65,6 +65,7 @@ export type Profile = {
 	pass: PassData, -- v6: battle pass (BattlePassService, ReplicatedStorage/Lib/BattlePass/PassRules)
 	gifts: Gifts, -- v7: owner-gifted in-game entitlements (AdminService :giftpass -> MonetizationService)
 	updates: Updates, -- v8: WHAT'S NEW panel (UpdateLogService)
+	daily: Daily, -- (inside v8, no bump) DAILY CHEST streak (Services/ResultsFlowService, Lib/Retention/DailyChest)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -82,6 +83,9 @@ export type Gifts = { passes: { [string]: { by: number, at: number } } }
 -- likeAsks = how many times the "Having fun? 👍" card was shown (capped by Lib/Social/AskRules MaxEver).
 -- Added inside v8 without a bump (a missing count is 0), so older servers never refuse these saves.
 export type Updates = { lastSeen: string, prompted: string, likeAsks: number }
+-- DAILY CHEST: lastDay = UTC day number (unix // 86400) of the last chest, streak = its day 1..7, total = chests
+-- ever. Added inside v8 without a bump (missing = never opened), so older servers never refuse these saves.
+export type Daily = { lastDay: number, streak: number, total: number }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -173,6 +177,7 @@ function ProfileSchema.default(now: number): Profile
 		pass = { season = "", xp = 0, free = {}, premium = {}, equipped = {}, legacy = false },
 		gifts = { passes = {} },
 		updates = { lastSeen = "", prompted = "", likeAsks = 0 },
+		daily = { lastDay = 0, streak = 0, total = 0 },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -464,6 +469,13 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 			p.updates[key] = nil
 		end
 	end
+
+	fillMap(p, "daily")
+	p.daily = {
+		lastDay = count(p.daily.lastDay),
+		streak = math.clamp(count(p.daily.streak), 0, 7),
+		total = count(p.daily.total),
+	}
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly

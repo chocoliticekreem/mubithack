@@ -22,7 +22,7 @@ is ours: co-op chaos, penguins, the Blame Board and map variety.
 | Rescue | Brookhaven carry / Piggy items | Carry them outside (indoors) or to the truck (outdoors). Yeet = Blame. | SHIPPED (#217, copy #239) |
 | Reward | Pet Simulator pop-ups | XP, battle pass XP, stars, Blame cards. Next: **coins**. | Partly SHIPPED; PROPOSAL P1 |
 | Upgrade | Cut Grass / Pet Sim upgrade board with **Buy 1 / Max** | Hose power, truck speed, gear slots. | PROPOSAL P1 |
-| Next call | Doors / TDS "play again" | NEXT CALL! and a NEXT UNLOCK teaser on the results screen. | SHIPPED (#241) |
+| Next call | Doors / TDS "play again" | NEXT CALL! counts down "NEXT CALL IN 5..." and launches by itself (STAY AT STATION cancels), a "NEXT: NEW HELMET AT LEVEL 3!" reward preview (level unlocks or the pass's next free tier), and a free DAILY CHEST after the first call of the day (streak days 1-7). | SHIPPED (#241, pad-flow PR) |
 
 ## A clear reward and progression every call (PROPOSAL P1)
 
@@ -96,3 +96,19 @@ Rules, from Grow a Garden's HUD and Tizyz's "death by a thousand cuts":
 - **One world arrow** to the single next thing, not three stacked markers (R / F / !).
 - Modals (results, store, locker) always sit above the thumb buttons (results fixed, #241).
 - No full-screen colour washes on phones (calm effects by default).
+
+## Pad to launch and call #2 (2026-10-26)
+
+OnboardingV3 data: Pad Stepped 25 -> Call Launched 19 (24% quit on the pad, which counted 15 s), and
+Call Complete 11 -> Back In Lobby 8 (27% quit at the results).
+
+| Change | Where | Numbers |
+|---|---|---|
+| Solo pad launches in 3 s; a friend tops it up once to a shared 5 s; no wait-for-squad state (every call min 1) | LobbyConfig, LobbyQueue `sharedCountdown` | walk-on solo 15.1 s -> 3.1 s (Studio) |
+| One big pulsing GO NOW! above the squad strip (tap, E, gamepad X), launches on the next tick | LobbyController (OnboardingController's card keeps only NOT YET) | GO NOW 0.6 s |
+| First call auto-queue 7 s -> 3 s | FirstFireConfig.QueueCountdown | |
+| Lock-in 5 s -> 1 s, pad grace 1.5 -> 0.75 s, so running across a pad doesn't launch you | LobbyConfig | |
+| Late join: 10 s after a squad rolls out its pad reads HOP IN! and seats you in its truck | LobbyService, MissionService:JoinRun | |
+| NEXT CALL IN 5... auto-launch, STAY AT STATION, squad mates on the same results come along | ResultsController, DispatchService nextCall | |
+| DAILY CHEST: XP every day (25..150), Rookie Yellow helmet day 3, Slime hose day 5, Flamingo helmet day 7; owned -> +25 XP | Lib/Retention/DailyChest, ResultsFlowService, profile `daily` | |
+| Device tag (CustomField01) on the Mission funnel and on PadWaitSeconds, PadLeftBeforeLaunch, ResultsChoice, DailyChestOpened | FunnelService:LogDevice | |

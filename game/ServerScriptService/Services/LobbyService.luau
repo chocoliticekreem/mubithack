@@ -20,6 +20,14 @@
 -- drives), then standing beside the truck. Lobby/Fx "board" (true = fade out, false = fade back in)
 -- wraps the teleport. Then the normal GPS drive + arrival. Counters lobby_locks, squad_boarded,
 -- squad_board_beside, squad_board_no_truck.
+-- NO KID WAITS (LobbyConfig): solo 3 s, a friend tops it up once to a shared 5 s, GO NOW = launch now.
+-- LATE JOIN: for LobbyConfig.LateJoinSeconds after a squad launched, its pad reads "HOP IN!" and stepping
+-- on it seats you in a free seat of that squad's truck (MissionService:JoinRun while the run is still
+-- Dispatched) instead of starting a new countdown. Counters lobby_late_joins.
+-- PAD TELEMETRY (device-tagged through FunnelService:LogDevice, CustomField01 = device): PadWaitSeconds
+-- (value: seconds from stepping on to launch; field2 solo | squad | late) and PadLeftBeforeLaunch (value:
+-- seconds on the pad; field2 walked | notyet | quit). Counters pad_wait_seconds (sum), pad_launched,
+-- pad_left_before_launch, pad_left_<reason>, pad_wait_<device> / pad_left_<device>.
 --
 -- Public API (contract, docs/game/03-tech-architecture.md §10 "v1.5 additions"):
 --   LobbyService:GetSquads(): { Types.Squad }
@@ -83,12 +91,40 @@ local fallbackSeq = 0
 local launching: { [number]: boolean } = {} -- userIds between countdown 0 and InstanceId being set
 local lockedPads: { [number]: boolean } = {} -- padIds whose fence is up (LOCKED IN)
 local lastOnPad: { [number]: { padId: number, t: number } } = {} -- userId -> last time seen on a pad (grace)
+local padSince: { [number]: number } = {} -- userId -> os.clock() they got on a pad (telemetry)
+type Late = { squadId: string, instanceId: string, t: number }
+local lateBy: { [number]: Late } = {} -- padId -> the squad that just launched from it (LATE JOIN window)
+local lateOf: (padId: number) -> ActiveSquad? -- (defined in "late join"; renderPad reads it)
 local LOCK_ATTR = "PadLocked" -- Player attr: true while locked in on a pad (clients hide NOT YET / leave UI)
 
 local function count(name: string, n: number?)
 	pcall(function()
 		require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript).count(name, n or 1)
 	end)
+end
+
+local function deviceOf(player: Player): string
+	local d = player:GetAttribute("Device") -- OnboardingService, from the client's Onboarding/Ready
+	return if type(d) == "string" and d ~= "" then d else "Unknown"
+end
+
+-- one device-tagged pad event: ForgeTelemetry counters (in-server) + AnalyticsService (FunnelService)
+local function padEvent(player: Player?, event: string, seconds: number, kind: string)
+	local secs = math.max(0, math.floor(seconds * 10 + 0.5) / 10)
+	local dev = if player then deviceOf(player) else "Unknown"
+	if event == "PadWaitSeconds" then
+		count("pad_launched")
+		count("pad_wait_seconds", math.floor(secs + 0.5))
+		count(`pad_wait_{string.lower(dev)}`)
+	else
+		count("pad_left_before_launch")
+		count(`pad_left_{kind}`)
+		count(`pad_left_{string.lower(dev)}`)
+	end
+	local F = services.FunnelService
+	if player and F and type(F.LogDevice) == "function" then
+		pcall(F.LogDevice, F, player, event, secs, kind)
+	end
 end
 
 local function catalogIndex()
@@ -266,6 +302,7 @@ local function renderPad(padId: number)
 		ready = LobbyQueue.readyText(#pad.members, cap),
 		count = if locked and secs then `{LobbyConfig.LockText} {secs}`
 			elseif secs then `ROLLING IN {secs}`
+			elseif #pad.members == 0 and lateBy[padId] and lateOf(padId) then "HOP IN!"
 			elseif #pad.members == 0 then "STEP ON!"
 			else "",
 		names = table.concat(names, "  "),
@@ -293,6 +330,40 @@ local function syncSquadAttrs()
 			if p:GetAttribute(Names.Attr.SquadId) ~= sid then
 				p:SetAttribute(Names.Attr.SquadId, sid)
 			end
+		end
+	end
+end
+
+-- pad telemetry: who got on a pad (padSince) and who got off one without launching (reason)
+local function notePads(reason: string)
+	local q = queue
+	if not q then
+		return
+	end
+	local now = os.clock()
+	for uid, t in padSince do
+		if not LobbyQueue.padOf(q, uid) and not launching[uid] then
+			padSince[uid] = nil
+			padEvent(playerById(uid), "PadLeftBeforeLaunch", now - t, reason)
+		end
+	end
+	for _, pad in q.pads do
+		for _, uid in pad.members do
+			if not padSince[uid] then
+				padSince[uid] = now
+			end
+		end
+	end
+end
+
+local function noteLaunch(uids: { number }, kind: string?)
+	local now = os.clock()
+	local k = kind or (if #uids > 1 then "squad" else "solo")
+	for _, uid in uids do
+		local t = padSince[uid]
+		padSince[uid] = nil
+		if t then
+			padEvent(playerById(uid), "PadWaitSeconds", now - t, k)
 		end
 	end
 end
@@ -636,6 +707,91 @@ local function boardSquad(squad: ActiveSquad, players: { Player })
 	print(`[LobbyService] squad {squad.id}: {seated} seated, {beside} beside the truck`)
 end
 
+------------------------------------------------------------------ late join (hop in the truck)
+
+-- Is pad `padId` in its LATE JOIN window (a squad just launched from it, its run is still driving)?
+function lateOf(padId: number): ActiveSquad?
+	local l = lateBy[padId]
+	if not l then
+		return nil
+	end
+	local s = active[l.squadId]
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(l.instanceId)
+	if os.clock() - l.t > (LobbyConfig.LateJoinSeconds or 0) or not s or s.instanceId ~= l.instanceId or not run
+		or run:GetAttribute(Names.Attr.RoundState) ~= "Dispatched" then
+		lateBy[padId] = nil
+		return nil
+	end
+	return s
+end
+
+-- a free passenger seat in one of the squad's trucks (the leader's first)
+local function lateSeat(s: ActiveSquad): Seat?
+	local order: { number } = {}
+	if s.leader then
+		table.insert(order, s.leader)
+	end
+	for _, uid in s.members do
+		if uid ~= s.leader then
+			table.insert(order, uid)
+		end
+	end
+	for _, uid in order do
+		local p = playerById(uid)
+		local truck = p and truckOf(p)
+		local seats = truck and passengerSeats(truck)
+		if seats and #seats > 0 then
+			return seats[1]
+		end
+	end
+	return nil
+end
+
+-- Step on a pad right after its squad rolled out: ride along in its truck (into the same call).
+local function lateJoin(player: Player, padId: number, s: ActiveSquad): boolean
+	local seat = lateSeat(s)
+	local Mission = services.MissionService
+	local iid = s.instanceId
+	if not seat or not iid or not Mission or type(Mission.JoinRun) ~= "function" then
+		return false
+	end
+	launching[player.UserId] = true
+	local ok, joined = pcall(Mission.JoinRun, Mission, player, iid)
+	if not ok or joined ~= true then
+		launching[player.UserId] = nil
+		return false
+	end
+	table.insert(s.members, player.UserId)
+	player:SetAttribute(Names.Attr.SquadId, s.id)
+	padSince[player.UserId] = nil
+	padEvent(player, "PadWaitSeconds", 0, "late")
+	count("lobby_late_joins")
+	task.spawn(function()
+		boardFx({ player }, true)
+		task.wait(LobbyConfig.BoardFadeSeconds or 0.25)
+		local sat = seat.Occupant == nil and seatIn(player, seat)
+		if not sat then
+			local again = lateSeat(s)
+			sat = again ~= nil and seatIn(player, again)
+		end
+		task.wait(0.15)
+		boardFx({ player }, false)
+		launching[player.UserId] = nil
+		local leader = playerById(s.leader or 0)
+		Net.notify(player, if leader then `You hopped in {leader.DisplayName}'s truck!` else "You hopped in the truck!", "good")
+		for _, uid in s.members do
+			local m = playerById(uid)
+			if m and m ~= player then
+				Net.notify(m, `{player.DisplayName} hopped in!`, "info")
+			end
+		end
+	end)
+	LobbyService.SquadChanged:Fire(s.id)
+	print(`[LobbyService] {player.Name} late-joined squad {s.id} from pad {padId} -> {iid}`)
+	return true
+end
+
 ------------------------------------------------------------------ public API
 
 function LobbyService:Join(player: Player, padId: number): string?
@@ -663,6 +819,7 @@ function LobbyService:Join(player: Player, padId: number): string?
 	end
 	count("lobby_joins")
 	syncSquadAttrs()
+	notePads("walked")
 	if before then
 		padChanged(before, q.pads[before].squadId)
 	end
@@ -721,6 +878,7 @@ function LobbyService:Leave(player: Player)
 	end
 	local sid = q.pads[padId].squadId
 	LobbyQueue.leave(q, player.UserId)
+	notePads("notyet")
 	lastOnPad[player.UserId] = nil -- an explicit leave: no grace window putting you straight back
 	player:SetAttribute(Names.Attr.SquadId, "")
 	-- Step them off the pad so the next poll doesn't put them straight back.
@@ -810,6 +968,7 @@ function LobbyService:Launch(squadId: string, missionId: string): string?
 			LobbyQueue.leave(q, uid)
 			launching[uid] = true
 		end
+		noteLaunch(squad.members)
 		padChanged(pad.padId, nil)
 	end
 	local s = squad :: ActiveSquad
@@ -909,6 +1068,15 @@ function LobbyService:Launch(squadId: string, missionId: string): string?
 				warn(`[LobbyService] boarding {squadId} failed: {err}`)
 				boardFx(players, false)
 			end
+		end)
+	end
+	if not s.fallback and s.padId then
+		local pid = s.padId :: number
+		lateBy[pid] = { squadId = squadId, instanceId = iid, t = os.clock() }
+		renderPad(pid) -- "HOP IN!"
+		task.delay((LobbyConfig.LateJoinSeconds or 0) + 0.2, function()
+			lateOf(pid) -- expires it
+			renderPad(pid)
 		end)
 	end
 	LobbyService.Launched:Fire(squadId, missionId, iid)
@@ -1174,6 +1342,21 @@ local function poll(dt: number)
 			end
 		end
 	end
+	-- LATE JOIN: on an EMPTY pad whose squad just rolled out (truck still driving): ride along instead
+	for uid, padId in table.clone(onPad) do
+		local pad = q.pads[padId]
+		if pad and #pad.members == 0 and not LobbyQueue.padOf(q, uid) and lateBy[padId] then
+			local s = lateOf(padId)
+			local p = playerById(uid)
+			if s and p and lateJoin(p, padId, s) then
+				onPad[uid] = nil
+				local i = table.find(present, uid)
+				if i then
+					table.remove(present, i)
+				end
+			end
+		end
+	end
 	local before: { [number]: string? } = {}
 	for _, pad in q.pads do
 		before[pad.padId] = pad.squadId
@@ -1190,6 +1373,7 @@ local function poll(dt: number)
 	end
 	if any then
 		syncSquadAttrs()
+		notePads("walked")
 		-- Joiners see the clock immediately; leavers get their countdown cleared.
 		for _, uid in present do
 			local now = LobbyQueue.padOf(q, uid)
@@ -1240,6 +1424,7 @@ local function poll(dt: number)
 			for _, uid in e.members do
 				launching[uid] = true
 			end
+			noteLaunch(e.members)
 			renderPad(e.padId)
 			local sid, mid = e.squadId :: string, (e.missionId or firstEnabled() or "") :: string
 			task.spawn(function()
@@ -1365,6 +1550,7 @@ function LobbyService:Start()
 		maxSize = LobbyConfig.MaxSquadSize,
 		countdown = LobbyConfig.CountdownSeconds,
 		fullCountdown = LobbyConfig.FullCountdownSeconds,
+		sharedCountdown = LobbyConfig.SharedCountdownSeconds,
 		defaultMission = firstEnabled(),
 		lockSeconds = LobbyConfig.LockSeconds,
 		limits = function(id: string): (number, number)
@@ -1417,6 +1603,11 @@ function LobbyService:Start()
 	Players.PlayerRemoving:Connect(function(p: Player)
 		afk[p] = nil
 		lastOnPad[p.UserId] = nil
+		local since = padSince[p.UserId]
+		if since then
+			padSince[p.UserId] = nil
+			padEvent(p, "PadLeftBeforeLaunch", os.clock() - since, "quit") -- quit the game on the pad
+		end
 		for sid, s in active do
 			local i = table.find(s.members, p.UserId)
 			if i then

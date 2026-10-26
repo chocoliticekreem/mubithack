@@ -671,7 +671,7 @@ local function buildHud()
 	-- its height includes the button row hanging under it, so toasts / banners stack below the buttons
 	HudLayout.add("TopCentre", card, 20, function(): number
 		local a = ui.actions
-		local any = a and (ui.go.Visible or ui.skip.Visible or ui.home.Visible)
+		local any = a and (ui.go.Visible or ui.wait.Visible or ui.skip.Visible or ui.home.Visible)
 		return card.Size.Y.Offset + (if any then 52 else 0)
 	end)
 	HudLayout.reserve(card)
@@ -1161,7 +1161,7 @@ local function setActions(g: Guide?)
 		return
 	end
 	actionsKey = key
-	ui.go.Visible = call
+	ui.go.Visible = false -- the ONE big GO NOW! is LobbyController's (above the squad strip, E / X / tap)
 	ui.wait.Visible = call
 	ui.skip.Visible = skip
 	ui.home.Visible = home

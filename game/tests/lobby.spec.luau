@@ -248,4 +248,66 @@ Spec.test("no lockSeconds = never locked (old behaviour)", function()
 	Spec.eq(LobbyQueue.isLocked(q, 1), false)
 end)
 
+-- NO KID WAITS (LobbyConfig: countdown 3, sharedCountdown 5, lockSeconds 1, GO NOW = hurry to 0)
+local function quick()
+	return LobbyQueue.new({
+		pads = 3,
+		maxSize = 8,
+		countdown = 3,
+		fullCountdown = 3,
+		sharedCountdown = 5,
+		lockSeconds = 1,
+		defaultMission = "house_fire",
+		limits = function(id: string): (number, number)
+			local m = byId[id]
+			return m.players.min, m.players.max
+		end,
+	})
+end
+
+Spec.test("solo: a lone kid on a pad launches in 3 s, no waiting for a squad", function()
+	local q = quick()
+	LobbyQueue.join(q, 1, 101)
+	Spec.eq(LobbyQueue.secondsLeft(q, 1), 3)
+	local ev = LobbyQueue.tick(q, 1.5)
+	Spec.eq(kinds(ev, "launch")[1], nil, "still counting at 1.5 s")
+	ev = LobbyQueue.tick(q, 1.6)
+	local launch = kinds(ev, "launch")[1]
+	Spec.truthy(launch ~= nil and #launch.members == 1, "launched solo at 3 s")
+end)
+
+Spec.test("GO NOW (hurry to 0) launches on the next tick", function()
+	local q = quick()
+	LobbyQueue.join(q, 1, 101)
+	Spec.eq(LobbyQueue.hurry(q, 1, 0), true)
+	local launch = kinds(LobbyQueue.tick(q, 0.1), "launch")[1]
+	Spec.truthy(launch ~= nil, "launched at once")
+end)
+
+Spec.test("a friend joining tops the clock up ONCE to the shared 5 s; later joiners never extend it", function()
+	local q = quick()
+	LobbyQueue.join(q, 1, 101)
+	LobbyQueue.tick(q, 2.5) -- 0.5 s left
+	LobbyQueue.join(q, 1, 102)
+	Spec.eq(LobbyQueue.secondsLeft(q, 1), 5, "topped up to 5")
+	LobbyQueue.tick(q, 4.4) -- 0.6 s left
+	LobbyQueue.join(q, 1, 103)
+	Spec.eq(LobbyQueue.secondsLeft(q, 1), 1, "third joiner: no second top-up")
+	local launch = kinds(LobbyQueue.tick(q, 0.7), "launch")[1]
+	Spec.truthy(launch ~= nil and #launch.members == 3, "the squad of 3 launched")
+	-- a fresh squad on that pad gets its own one-time top-up again
+	LobbyQueue.join(q, 1, 104)
+	LobbyQueue.join(q, 1, 105)
+	Spec.eq(LobbyQueue.secondsLeft(q, 1), 5)
+end)
+
+Spec.test("a kid running across a pad (on < 1 s) is not locked in", function()
+	local q = quick()
+	LobbyQueue.join(q, 1, 101)
+	LobbyQueue.tick(q, 1.75) -- on the pad 1 s + 0.75 s grace (LobbyService)
+	Spec.eq(LobbyQueue.isLocked(q, 1), false, "1.25 s left: not locked")
+	LobbyQueue.apply(q, {}, { 101 })
+	Spec.eq(LobbyQueue.padOf(q, 101), nil, "walked off")
+end)
+
 return Spec.finish()

@@ -9,7 +9,9 @@
 --   for _, e in LobbyQueue.tick(q, dt) do ... end  -- "count" each whole second, "launch" at 0,
 --                                                    -- "short" when below the mission's min players
 -- Rules: countdown starts when a pad gets its first member, drops to `fullCountdown` once the squad
--- is full, keeps running when members join/leave, and resets when the pad empties. Launching frees
+-- is full, keeps running when members join/leave, and resets when the pad empties. SHARED: with
+-- opts.sharedCountdown set, the 2nd member joining tops the clock up once to that (a solo kid gets the
+-- short `countdown`, a squad gets at most `sharedCountdown` together). Launching frees
 -- the pad at once, so other pads keep counting and launching in parallel.
 -- LOCK: with opts.lockSeconds set, a pad whose countdown is at or under it is LOCKED: `apply` never
 -- takes a member off it for standing elsewhere (LobbyService also walls + clamps them onto the pad),
@@ -25,6 +27,7 @@ export type Options = {
 	defaultMission: string?,
 	limits: ((missionId: string) -> (number, number))?, -- (minPlayers, maxPlayers) for a mission
 	lockSeconds: number?, -- at/under this many seconds left the squad is locked onto its pad (nil = never)
+	sharedCountdown: number?, -- a 2nd member joining a counting pad tops it up ONCE to at most this (nil = never)
 }
 
 export type Pad = {
@@ -34,6 +37,7 @@ export type Pad = {
 	leader: number?,
 	missionId: string?,
 	remaining: number?, -- nil = not counting
+	shared: boolean?, -- the one-time sharedCountdown top-up already happened for this squad
 }
 
 export type State = {
@@ -114,6 +118,7 @@ local function shortenIfFull(state: State, pad: Pad)
 end
 
 local function reset(pad: Pad)
+	pad.shared = nil
 	pad.squadId = nil
 	pad.members = {}
 	pad.leader = nil
@@ -192,6 +197,13 @@ function LobbyQueue.join(state: State, padId: number, userId: number): (boolean,
 		pad.remaining = state.opts.countdown
 	end
 	table.insert(pad.members, userId)
+	-- a friend hopping on: one short shared countdown (never longer than sharedCountdown, and only once,
+	-- so a stream of joiners can never keep the first kid waiting)
+	local share = state.opts.sharedCountdown
+	if share and #pad.members == 2 and not pad.shared and pad.remaining then
+		pad.shared = true
+		pad.remaining = math.max(pad.remaining, share)
+	end
 	shortenIfFull(state, pad)
 	return true, "ok"
 end
