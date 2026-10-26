@@ -1985,4 +1985,18 @@ return {
 	["NEW HELMET!"] = "НОВЫЙ ШЛЕМ!",
 	["NEW HOSE!"] = "НОВЫЙ ШЛАНГ!",
 	["TOMORROW: DAY {1}"] = "ЗАВТРА: ДЕНЬ {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	["ARRIVING IN {1}s"] = "ПРИБЫТИЕ ЧЕРЕЗ {1} с",
+	["ARRIVING NOW!"] = "ПРИБЫВАЕМ!",
+	["WRONG WAY!"] = "НЕ ТУДА!",
+	["TURN AROUND"] = "РАЗВЕРНИСЬ",
+	["NOBODY'S DRIVING!"] = "НИКТО НЕ ЗА РУЛЁМ!",
+	["TAKE THE WHEEL!"] = "САДИСЬ ЗА РУЛЬ!",
+	["Hop in the driver's seat and drive to the fire!"] = "Пересядь на место водителя и вези всех к пожару!",
+	["SPRAY!"] = "ТУШИ!",
+	["PRACTICE FIRES  {1}/{2}"] = "УЧЕБНЫЕ ОГНИ  {1}/{2}",
+	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "КЛИК: водомёт   {1}: гудок   {2}: сирена   SPACE: спрыгнуть",
+	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "ТУШИТЬ огоньки!   ·   ГУДОК  СИРЕНА  СОЙТИ",
+	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: водомёт   Y: гудок   X: сирена   A: спрыгнуть",
+	["PRACTICE FIRE OUT!"] = "УЧЕБНЫЙ ОГОНЬ ПОТУШЕН!",
 }

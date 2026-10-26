@@ -7,7 +7,8 @@
 -- come first served, through road first at unsignalled junctions, never enter without room on the
 -- exit lane, so junctions can't gridlock). Signalled junctions follow CityBuilder's TrafficPhase.
 -- Cars keep their distance along their PATH, honk at people in the road, drive round parked trucks
--- and stalled cars, PULL OVER for moving fire trucks with the siren on (a few panic-swerve), and
+-- and stalled cars, PULL OVER for moving fire trucks with the siren on (or a driven siren truck crawling
+-- right behind them, TrafficConfig.SlowYieldBehind; a few panic-swerve), and
 -- unstick themselves: reroute after RerouteAfter s at a line, go anyway after ForceAfter, ghost
 -- through after GhostAfter, recycled when stuck out of view. A truck that rams a car at speed sends
 -- it flying with real physics and the driver pops out yelling.
@@ -114,7 +115,7 @@ type Car = {
 	dead: boolean,
 }
 
-type Truck = { model: Model, pos: Vector3, vel: Vector3, cf: CFrame, speed: number, siren: boolean }
+type Truck = { model: Model, pos: Vector3, vel: Vector3, cf: CFrame, speed: number, siren: boolean, driven: boolean }
 
 local services: { [string]: any } = {}
 local net: RoadNet.Net? = nil
@@ -594,7 +595,9 @@ local function gatherTrucks(): { Truck }
 			siren = m:GetAttribute("SirenOn") == true
 		end
 		local vel = root.AssemblyLinearVelocity
-		table.insert(out, { model = m, pos = root.Position, vel = vel, cf = root.CFrame, speed = vel.Magnitude, siren = siren :: boolean })
+		local driver = m:GetAttribute("Driver")
+		local driven = type(driver) == "number" and driver ~= 0
+		table.insert(out, { model = m, pos = root.Position, vel = vel, cf = root.CFrame, speed = vel.Magnitude, siren = siren :: boolean, driven = driven })
 	end
 	return out
 end
@@ -1037,10 +1040,15 @@ local function stepCar(car: Car, dt: number, trucks: { Truck }, peds: { Ped }, n
 	local mustHold = false
 	local cvx, cvz = car.hx * car.v, car.hz * car.v
 	for _, t in trucks do
-		if not t.siren or t.speed < Cfg.YieldMinSpeed or car.immuneT > 0 then
+		if not t.siren or car.immuneT > 0 then
 			continue
 		end
 		local fwd, right = Driver.relative(car.x, car.z, car.hx, car.hz, t.pos.X, t.pos.Z)
+		-- a parked siren truck is an obstacle; a DRIVEN one crawling right behind me (stuck behind me at a
+		-- line, a kid easing up) still gets the lane: pull over (no truck sits behind a car on a call)
+		if t.speed < Cfg.YieldMinSpeed and not (t.driven and Driver.slowBehind(fwd, right, Cfg)) then
+			continue
+		end
 		local dx, dz = car.x - t.pos.X, car.z - t.pos.Z
 		local d = math.max(math.sqrt(dx * dx + dz * dz), 0.01)
 		local closing = ((t.vel.X - cvx) * dx + (t.vel.Z - cvz) * dz) / d

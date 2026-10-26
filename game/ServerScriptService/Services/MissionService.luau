@@ -48,7 +48,7 @@
 --   Rescue/FireService:ClearInstance, MapService:RebuildSite, Busy cleared. Players stay where they are
 --   (drive back, or BACK TO STATION on the results screen -> LobbyService:ReturnToLobby).
 --   No free site for the mission -> the v1.5 instance path (GameConfig.InstanceFallback).
---   Run state: Workspace.Runs.<runId> Folder (attrs InstanceId, MissionId, RoundState, RoundEndsAt, SiteId,
+--   Run state: Workspace.Runs.<runId> Folder (attrs InstanceId, MissionId, RoundState, RoundEndsAt, SiteId, Rookie,
 --   LocationId, Address, Call; ObjectValue Site). Back-compat mirror Workspace.Instances.<runId> carries
 --   the same attrs with RoundState "Active" while Dispatched (v1.5 readers: HUD, Audio, Blame, Graphics).
 --   Remote added: Lobby/BackToStation (C->S, no args, 1/s; ResultsController already fires it).
@@ -419,9 +419,15 @@ local function inArrival(site: Instance, pos: Vector3): boolean
 	if zone then
 		local rel = zone.CFrame:PointToObjectSpace(pos)
 		local half = zone.Size / 2
-		return math.abs(rel.X) <= half.X + margin
-			and math.abs(rel.Z) <= half.Z + margin
-			and math.abs(rel.Y) <= math.max(half.Y, 30) + margin
+		if math.abs(rel.Y) > math.max(half.Y, 30) + margin then
+			return false
+		end
+		if math.abs(rel.X) <= half.X + margin and math.abs(rel.Z) <= half.Z + margin then
+			return true
+		end
+		-- where the GPS already says YOU'RE HERE (its route ends on the road, maybe 30+ studs out)
+		local gps = tonumber(GameConfig.ArrivalGpsRadius) or 0
+		return gps > 0 and Vector3.new(rel.X, 0, rel.Z).Magnitude <= gps
 	end
 	local centre = sitePos(site)
 	local flat = Vector3.new(pos.X - centre.X, 0, pos.Z - centre.Z)
@@ -1643,6 +1649,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 		f:SetAttribute(SITE.Address, address)
 		f:SetAttribute("Call", call)
 		f:SetAttribute("DispatchedAt", flow.startedAt)
+		f:SetAttribute("Rookie", rookie) -- DriveController / VehicleController: rookie straight-road boost
 		local ref = Instance.new("ObjectValue")
 		ref.Name = "Site"
 		ref.Value = model

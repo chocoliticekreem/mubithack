@@ -32,6 +32,7 @@
 -- Public API: FunnelService:LogCustom(player, event, value, field?) -- event must be a Funnel.Events name
 --             FunnelService:LogDevice(player, event, value, kind?)  -- CustomField01 = device, 02 = kind
 --             FunnelService:DeviceOf(player): string               -- Phone | Tablet | PC | Console | Unknown
+--             FunnelService:LogCustomFields(player, event, value, f1?, f2?, f3?) -- CustomField01..03 (constant sets)
 -- Server-side only; every AnalyticsService call is pcall'd (a failing call counts analytics_error).
 -- Counters: analytics_onboarding_step, analytics_mission_step, analytics_custom, analytics_error
 -- Test hooks (DevHook only): _state(player) -> JSON, _log() -> JSON (last 60 calls made)
@@ -407,6 +408,24 @@ end
 
 function FunnelService:DeviceOf(player: Player): string
 	return deviceOf(player)
+end
+
+-- Same, with up to three custom fields (DriveService: device, role, detail). Keep each a small constant set.
+function FunnelService:LogCustomFields(player: Player, event: string, value: number?, f1: string?, f2: string?, f3: string?): boolean
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or (Funnel.Events :: any)[event] ~= event then
+		return false
+	end
+	local fields: { [string]: string } = {}
+	for i, v in { f1, f2, f3 } :: { any } do
+		if type(v) == "string" and v ~= "" then
+			fields[Enum.AnalyticsCustomFieldKeys["CustomField0" .. i].Name] = v
+		end
+	end
+	local n = tonumber(value) or 1
+	count("analytics_custom")
+	note(`custom {player.UserId} {event} {n} {f1 or ""} {f2 or ""} {f3 or ""}`)
+	analytics("LogCustomEvent", player, event, n, fields)
+	return true
 end
 
 ------------------------------------------------------------------------------------------ lifecycle

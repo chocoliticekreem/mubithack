@@ -144,6 +144,15 @@ Funnel.Events = table.freeze({
 	PadLeftBeforeLaunch = "PadLeftBeforeLaunch", -- value: seconds on the pad; kind walked | notyet | quit
 	ResultsChoice = "ResultsChoice", -- value: seconds the results screen was up; kind tap | auto | stay
 	DailyChestOpened = "DailyChestOpened", -- value: streak day 1..7; kind = the reward id
+	-- the drive to a call (Services/DriveService through FunnelService:LogCustomFields; CustomField01 = device
+	-- Phone | Tablet | PC | Console | Unknown, CustomField02 / 03 below). Live funnel: 28-35% quit in the truck.
+	DriveStart = "DriveStart", -- value: road route length in metres; F2 role driver | passenger, F3 rookie | call
+	DriveArrive = "DriveArrive", -- value: seconds in the truck until the run went Active; F2 role, F3 rookie | call
+	DriveQuit = "DriveQuit", -- value: metres of road left; F2 role, F3 Lib/Vehicle/DriveMath.quitField
+	--                          ("left|t30-60|r1|s0|w10+": quit the game or the call, seconds bucket, resets, stuck, wrong-way s)
+	TruckReset = "TruckReset", -- value: 1; "Truck reset!" (VehicleService.Rescued); F2 why, F3 call | free
+	TruckStuck = "TruckStuck", -- value: metres left; no progress for DriveConfig.StuckSeconds on a call;
+	--                            F2 role, F3 nodriver | idle | blocked | wrongway
 })
 
 export type Track = { last: number }

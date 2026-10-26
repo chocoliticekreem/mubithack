@@ -12,6 +12,7 @@
 --   Driver.pedGap(fwd, right, half, cfg) -> number?
 --   Driver.shouldYield(fwd, right, closing, sirenOn, cfg) -> boolean   -- truck rel. to the car
 --   Driver.truckPassed(fwd, right, cfg) -> boolean
+--   Driver.slowBehind(fwd, right, cfg) -> boolean                  -- a slow truck right behind the car
 --   Driver.rammed(relX, relZ, truckSpeed, cfg) -> boolean          -- car in the truck's local frame (-Z = forward)
 --   Driver.panicWobble(t, seed) -> (lateral, yaw)                   -- comic swerve
 --   Driver.pickWeighted(weights, roll) -> string?
@@ -126,6 +127,12 @@ function Driver.shouldYield(fwd: number, right: number, closing: number, sirenOn
 	end
 	-- ahead of us: only an oncoming truck that is close and coming at us
 	return dist <= cfg.OncomingRadius and closing > 4
+end
+
+-- A driven siren truck crawling right behind the car (slower than YieldMinSpeed): pull over anyway.
+function Driver.slowBehind(fwd: number, right: number, cfg: any): boolean
+	local behind = tonumber(cfg.SlowYieldBehind) or 0
+	return behind > 0 and fwd < 0 and fwd > -behind and math.abs(right) < (tonumber(cfg.SlowYieldLateral) or 7)
 end
 
 function Driver.truckPassed(fwd: number, right: number, cfg: any): boolean

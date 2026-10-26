@@ -1985,4 +1985,18 @@ return {
 	["NEW HELMET!"] = "HELM BARU!",
 	["NEW HOSE!"] = "SELANG BARU!",
 	["TOMORROW: DAY {1}"] = "BESOK: HARI {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	["ARRIVING IN {1}s"] = "TIBA DALAM {1} dtk",
+	["ARRIVING NOW!"] = "HAMPIR SAMPAI!",
+	["WRONG WAY!"] = "SALAH ARAH!",
+	["TURN AROUND"] = "PUTAR BALIK",
+	["NOBODY'S DRIVING!"] = "TIDAK ADA YANG MENYETIR!",
+	["TAKE THE WHEEL!"] = "PEGANG SETIR!",
+	["Hop in the driver's seat and drive to the fire!"] = "Pindah ke kursi sopir dan setir ke lokasi api!",
+	["SPRAY!"] = "SEMPROT!",
+	["PRACTICE FIRES  {1}/{2}"] = "API LATIHAN  {1}/{2}",
+	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "KLIK: meriam air   {1}: klakson   {2}: sirene   SPACE: turun",
+	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "SEMPROT apinya!   ·   KLAKSON  SIRENE  TURUN",
+	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: meriam air   Y: klakson   X: sirene   A: turun",
+	["PRACTICE FIRE OUT!"] = "API LATIHAN PADAM!",
 }

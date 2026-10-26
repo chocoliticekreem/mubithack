@@ -1985,4 +1985,18 @@ return {
 	["NEW HELMET!"] = "YENİ KASK!",
 	["NEW HOSE!"] = "YENİ HORTUM!",
 	["TOMORROW: DAY {1}"] = "YARIN: GÜN {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	["ARRIVING IN {1}s"] = "{1} sn SONRA ORADAYIZ",
+	["ARRIVING NOW!"] = "GELDİK SAYILIR!",
+	["WRONG WAY!"] = "YANLIŞ YÖN!",
+	["TURN AROUND"] = "GERİ DÖN",
+	["NOBODY'S DRIVING!"] = "KİMSE SÜRMÜYOR!",
+	["TAKE THE WHEEL!"] = "DİREKSİYONA GEÇ!",
+	["Hop in the driver's seat and drive to the fire!"] = "Sürücü koltuğuna geç ve yangına sür!",
+	["SPRAY!"] = "SIK!",
+	["PRACTICE FIRES  {1}/{2}"] = "ALIŞTIRMA ATEŞLERİ  {1}/{2}",
+	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "TIKLA: su topu   {1}: korna   {2}: siren   SPACE: in",
+	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "Ateşlere SIK!   ·   KORNA  SİREN  KAPALI",
+	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: su topu   Y: korna   X: siren   A: in",
+	["PRACTICE FIRE OUT!"] = "ALIŞTIRMA ATEŞİ SÖNDÜ!",
 }

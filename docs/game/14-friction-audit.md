@@ -78,3 +78,32 @@ around the burning house). Check on a real phone.
 - **P5 Fire beacon on arrival:** smoke column and window glow on the burning building, plus a world arrow to the nearest burning part visible from the truck (FireFxController, G1 lane).
 - **P6 Calm effects mode on by default on phones,** with no full-screen beam or alarm tints.
 - **P7 Exit camera fix** (vehicle lane): after OUT, keep the camera 10+ studs back, facing the site.
+
+## The drive: In Truck -> Arrived On Scene (2026-10-26)
+
+Live funnels lose 28-35% here (OnboardingV3 18 -> 13, Mission 52 -> 35, old onboarding 49 -> 32). No
+autopilot: a kid always drives. Measured in a local place with a scripted Studio driver that follows the GPS
+line and stops where the GPS says YOU'RE HERE (as a kid would).
+
+| Measure | Before | After |
+|---|---|---|
+| Rookie call, nearest site (108 studs of road) | GPS said YOU'RE HERE at 4.5 s; **the call never started** (10 s+ parked there) | ON SCENE at 4.2 s |
+| Rookie call, 366 studs of road | YOU'RE HERE at 10.3 s; **never started** | ON SCENE at 10.3-10.6 s |
+| Regular call, 1,417 studs of road | 32.0 s | 29.9 s (straight-road boost x1.12) |
+| Rider in a truck nobody drives | no prompt; had to hop out and walk round to the driver's door | NOBODY'S DRIVING! card at 3 s, TAKE THE WHEEL! seats you in 0.13 s |
+| Riders' job | none (OFF only) | roof water cannon on curbside practice fires (+5 XP each), HONK, SIREN |
+
+Root cause of the worst one: the GPS route ends on the road and says YOU'RE HERE within 45 studs of the
+call, but the call only started inside the ArrivalZone box (+4 studs), which for many sites sits 30+ studs
+off the road. Arrival now also counts within `GameConfig.ArrivalGpsRadius` (50) of the zone centre.
+
+Shipped: `Services/DriveService` (telemetry, practice fires, take the wheel), `Controllers/DriveController`
+(ARRIVING IN Ns bar + call card, big TURN / WRONG WAY card, rider buttons), bigger GPS chevrons plus a
+glowing ribbon (NavigationConfig.Arrow*/Ribbon*), straight-road top-speed boost on calls (VehicleController,
+`DriveConfig.StraightBoost*`; accel, grip and turning circle unchanged from #253), traffic pulls over for a
+driven siren truck crawling right behind it (`TrafficConfig.SlowYieldBehind`).
+
+Telemetry (Creator Dashboard custom events, CustomField01 = device): `DriveStart` (route m; role; rookie |
+call), `DriveArrive` (seconds; role; rookie | call), `DriveQuit` (m left; role;
+`left|t30-60|r1|s0|w10+`), `TruckReset` (why; call | free), `TruckStuck` (m left; role; nodriver | idle |
+blocked | wrongway). Read these next time before changing the drive again.

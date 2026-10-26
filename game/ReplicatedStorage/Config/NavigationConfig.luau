@@ -34,6 +34,10 @@ return Config.define({
 	MaxArrows = 48, -- pooled arrows (spacing * MaxArrows = how far ahead the route is drawn)
 	ArrowHover = 0.35, -- studs above the road surface
 	ArrowColor = Color3.fromHex("#7FF5F0"),
+	ArrowArm = 7, -- studs, each half of a chevron (was 5: too thin to read from a phone's chase cam)
+	ArrowWidth = 1.5, -- studs (was 0.9)
+	RibbonWidth = 2.6, -- studs: the glowing line on the road under the chevrons (0 = none)
+	RibbonTransparency = 0.5,
 	ArrowFlowSpeed = 3.5, -- arrows/s the bright pulse runs along the route
 	TurnAngle = 35, -- degrees: sharper corners than this get a turn hint
 	TurnHintRange = 220, -- studs: farther than this the hint says "Follow the road ..."

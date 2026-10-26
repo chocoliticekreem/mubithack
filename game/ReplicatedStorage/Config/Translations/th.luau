@@ -1985,4 +1985,18 @@ return {
 	["NEW HELMET!"] = "หมวกใหม่!",
 	["NEW HOSE!"] = "สายดับเพลิงใหม่!",
 	["TOMORROW: DAY {1}"] = "พรุ่งนี้: วันที่ {1}",
+	-- Drive to a call (DriveController, VehicleController rider hints)
+	["ARRIVING IN {1}s"] = "ถึงใน {1} วิ",
+	["ARRIVING NOW!"] = "ใกล้ถึงแล้ว!",
+	["WRONG WAY!"] = "ผิดทาง!",
+	["TURN AROUND"] = "กลับรถ",
+	["NOBODY'S DRIVING!"] = "ไม่มีใครขับรถ!",
+	["TAKE THE WHEEL!"] = "ไปขับรถเลย!",
+	["Hop in the driver's seat and drive to the fire!"] = "ย้ายไปที่นั่งคนขับ แล้วขับไปที่ไฟไหม้!",
+	["SPRAY!"] = "ฉีด!",
+	["PRACTICE FIRES  {1}/{2}"] = "ไฟฝึกซ้อม  {1}/{2}",
+	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "คลิก: ปืนฉีดน้ำ   {1}: บีบแตร   {2}: ไซเรน   SPACE: โดดลง",
+	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "ฉีด ไฟให้ดับ!   ·   บีบแตร  ไซเรน  โดดลง",
+	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: ปืนฉีดน้ำ   Y: บีบแตร   X: ไซเรน   A: โดดลง",
+	["PRACTICE FIRE OUT!"] = "ดับไฟฝึกซ้อมแล้ว!",
 }
