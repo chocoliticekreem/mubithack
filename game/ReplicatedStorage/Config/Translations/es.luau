@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "¡Esa manguera es de otro camión!",
 	["Hose back on the hydrant"] = "Manguera de vuelta en el hidrante",
 	["Hose back on the reel"] = "Manguera de vuelta en el carrete",
+	["Hose on your back. SWAP to spray again"] = "Manguera a la espalda. CAMBIAR para volver a rociar",
 	["HOSE! Endless water. Spray the fire!"] = "¡MANGUERA! Agua infinita. ¡Rocía el fuego!",
 	["Your oxygen tank ran dry!"] = "¡Tu tanque de oxígeno se vació!",
 	["Juggled! You dropped the {1}"] = "¡Malabares! Se te cayó: {1}",

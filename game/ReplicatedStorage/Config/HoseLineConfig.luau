@@ -10,12 +10,17 @@ return Config.define({
 	SegmentTarget = 6, -- preferred studs per physical segment
 	MinSegments = 4,
 	MaxSegments = 32, -- hard cap per hose (performance)
-	MaxHosesPerInstance = 4, -- cap per mission instance (Player attr InstanceId; "" = lobby)
+	MaxHosesPerInstance = 6, -- cap per mission instance (Player attr InstanceId; "" = lobby), held + lying
 	MaxHoses = 24, -- cap per server; attach() returns false beyond either cap
 	Thickness = 0.55, -- segment diameter (physics part)
 	Density = 0.35, -- light: the hose drapes, it doesn't anchor you
 	Friction = 0.8,
 	HandRopeLength = 1.5, -- rope from the last segment to the holder's hand
+	-- dropped: the line stays lying from the source to the nozzle (HoseLine.release) until someone picks
+	-- it up, the truck drives off, the call ends or nobody touched it for LyingSeconds
+	LyingRopeLength = 2, -- the lying chain's tip is tied this close to the dropped nozzle
+	LyingSeconds = 120, -- a dropped nozzle (and its line) reels itself back in after this long
+	LyingStowSpeed = 6, -- studs/s: the source truck driving off reels its lying lines in
 	FollowForce = 2500, -- pull on the hose tip toward the hand (never on the holder)
 	FollowResponsiveness = 30,
 	OwnerSplit = 0.5, -- segments [1..N*split] stay server-owned, the rest are owned by the holder

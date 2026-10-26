@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "Selang itu punya truk lain!",
 	["Hose back on the hydrant"] = "Selang kembali ke hidran",
 	["Hose back on the reel"] = "Selang kembali ke gulungan",
+	["Hose on your back. SWAP to spray again"] = "Selang di punggung. TUKAR untuk menyemprot lagi",
 	["HOSE! Endless water. Spray the fire!"] = "SELANG! Air tanpa batas. Semprot apinya!",
 	["Your oxygen tank ran dry!"] = "Tabung oksigenmu habis!",
 	["Juggled! You dropped the {1}"] = "Kelempar-lempar! Kamu menjatuhkan {1}",

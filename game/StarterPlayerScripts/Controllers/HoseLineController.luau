@@ -9,7 +9,10 @@
 --     glove's hose nozzle is what you see there.
 --   * applies HoseLine/Yank (the end-of-the-line tug) and HoseLine/Trip (the stumble fallback) to
 --     the local character, which this client owns.
--- Reads: Model attrs Owner, SegLen, Segments; segment attrs Index, Kinked; HoseLineConfig.
+--   * a dropped hose keeps its line: the same model stays (attr Lying, Owner 0) and its last joint runs
+--     to the nozzle on the ground (ObjectValue TipAtt), until someone picks it up.
+-- Reads: Model attrs Owner, SegLen, Segments, Lying; ObjectValue TipAtt; segment attrs Index, Kinked;
+--   HoseLineConfig.
 -- Never trusts itself: it only draws what the server replicated.
 
 local Players = game:GetService("Players")
@@ -192,6 +195,16 @@ local function track(inst: Instance)
 end
 
 local function handPoint(model: Model): Vector3?
+	-- the server points TipAtt at the current end: the nozzle in your hand, the coil on your back, or
+	-- the dropped nozzle a lying line is tied to
+	local ref = model:FindFirstChild("TipAtt")
+	local tip = ref and ref:IsA("ObjectValue") and ref.Value
+	if tip and tip:IsA("Attachment") and tip:IsDescendantOf(workspace) then
+		return tip.WorldPosition
+	end
+	if model:GetAttribute("Lying") == true then
+		return nil
+	end
 	local owner = Players:GetPlayerByUserId(tonumber(model:GetAttribute("Owner")) or 0)
 	local char = owner and owner.Character
 	if not char then

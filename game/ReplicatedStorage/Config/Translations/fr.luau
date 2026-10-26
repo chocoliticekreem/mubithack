@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "Ce tuyau est à un autre camion !",
 	["Hose back on the hydrant"] = "Tuyau remis sur la borne",
 	["Hose back on the reel"] = "Tuyau remis sur le dévidoir",
+	["Hose on your back. SWAP to spray again"] = "Tuyau sur le dos. ÉCHANGER pour arroser à nouveau",
 	["HOSE! Endless water. Spray the fire!"] = "TUYAU ! Eau illimitée. Arrose le feu !",
 	["Your oxygen tank ran dry!"] = "Ta bouteille d'oxygène est vide !",
 	["Juggled! You dropped the {1}"] = "Raté ! Tu as lâché : {1}",

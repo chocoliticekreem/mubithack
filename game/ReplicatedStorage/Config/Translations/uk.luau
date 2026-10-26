@@ -424,6 +424,7 @@ return {
 	["That hose belongs to another truck!"] = "Це шланг іншої машини!",
 	["Hose back on the hydrant"] = "Шланг знову на гідранті",
 	["Hose back on the reel"] = "Шланг знову на котушці",
+	["Hose on your back. SWAP to spray again"] = "Шланг за спиною. ОБМІН, щоб знову поливати",
 	["HOSE! Endless water. Spray the fire!"] = "ШЛАНГ! Вода без кінця. Гаси вогонь!",
 	["Your oxygen tank ran dry!"] = "Кисневий балон порожній!",
 	["Juggled! You dropped the {1}"] = "Не втримав! Впало: {1}",
