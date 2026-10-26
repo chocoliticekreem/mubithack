@@ -36,6 +36,7 @@ local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitFo
 local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("PopupLogic") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local Loc = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local HudController = {}
 HudController.Priority = 50
@@ -499,7 +500,7 @@ local function showBanner(locationName: string)
 	if not u then
 		return
 	end
-	u.bannerText.Text = `ALARM! FIRE AT {string.upper(locationName)}!`
+	u.bannerText.Text = Loc.t("ALARM! FIRE AT {1}!", { string.upper(locationName) })
 	bannerShows += 1
 	local mine = bannerShows
 	u.banner.Visible = true
@@ -683,7 +684,7 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	local v, onScreen = cam:WorldToViewportPoint(target + Vector3.new(0, 4, 0))
 	-- metres (3.5 studs each); the marker hides once you're right there (it only clutters the view)
 	local metres = math.floor((target - from).Magnitude / 3.5 + 0.5)
-	m.dist.Text = `{metres}m`
+	m.dist.Text = Loc.t("{1}m", { metres })
 	-- calm (phones): far away the GPS route + its marker already lead to the call; F / R join once you're
 	-- close (three arrows to one spot is noise on a small screen)
 	local far = Calm.on() and metres > 60 and m.root.Name ~= "TruckMarker" and player:GetAttribute("WaypointPos") ~= nil
@@ -845,8 +846,8 @@ local function refresh(t: number)
 	u.objectives.Visible = active
 	local firesLeft, nearestFire = scanFires(from)
 	local rescued, total, nearestRescue = scanRescues(from)
-	u.fires.Text = `FIRES LEFT  {firesLeft}`
-	u.rescued.Text = `RESCUED  {rescued} / {total}`
+	u.fires.Text = Loc.t("FIRES LEFT  {1}", { firesLeft })
+	u.rescued.Text = Loc.t("RESCUED  {1} / {2}", { rescued, total })
 
 	-- heat
 	local heatAttr = player:GetAttribute(HEAT_ATTR)
@@ -896,7 +897,7 @@ local function refresh(t: number)
 	end
 	u.carry.Visible = carrying
 	if carrying then
-		u.carryText.Text = `CARRYING: {kind}\nGet them OUTSIDE or to the TRUCK!` -- either counts (RescueService)
+		u.carryText.Text = Loc.t("CARRYING: {1}\nGet them OUTSIDE or to the TRUCK!", { kind }) -- either counts (RescueService)
 	end
 
 	-- downed

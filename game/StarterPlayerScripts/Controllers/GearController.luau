@@ -34,6 +34,7 @@ local ItemDefs = require(Items:WaitForChild("ItemDefs") :: ModuleScript) :: any
 local Progression = require(Items:WaitForChild("Progression") :: ModuleScript) :: any
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript) :: any
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local GearController = {}
 GearController.Priority = 110
@@ -321,7 +322,7 @@ local function busyTick()
 		return
 	end
 	frame.Visible = true
-	lbl.Text = string.upper(what) .. "..."
+	lbl.Text = Loc.t("{1}...", { string.upper(what) })
 	local left = untilT - workspace:GetServerTimeNow()
 	local total = math.max(0.1, frame:GetAttribute("Total") or left)
 	if frame:GetAttribute("For") ~= untilT then
@@ -600,7 +601,7 @@ local function openLocker()
 				UiKit.shake(card.btn, 0.25, 6)
 			end
 			local def = ItemDefs.get(id)
-			toast(`{def and def.name or id}: {Progression.lockReason(id)}`, false)
+			toast(Loc.t("{1}: {2}", { def and def.name or id, Progression.lockReason(id) }), false)
 			return
 		elseif st == "truck" then
 			if card then
@@ -783,7 +784,7 @@ local function unlockBanner(lvl: number, ids: { string }): ScreenGui
 	local gui = UiKit.screen("GearUnlocked", 25)
 	local panel = UiKit.panel(gui, "Banner", UDim2.fromOffset(520, if #ids > 0 then 96 + 44 * #ids else 96), UDim2.new(0.5, 0, 0.3, 0), Vector2.new(0.5, 0))
 	panel.BackgroundColor3 = Palette.UiInk
-	UiKit.label(panel, "Head", if #ids > 0 then `LEVEL {lvl}: NEW GEAR!` else `LEVEL {lvl}!`, UDim2.new(1, 0, 0, 46), UDim2.fromOffset(0, 8), {
+	UiKit.label(panel, "Head", if #ids > 0 then Loc.t("LEVEL {1}: NEW GEAR!", { lvl }) else Loc.t("LEVEL {1}!", { lvl }), UDim2.new(1, 0, 0, 46), UDim2.fromOffset(0, 8), {
 		font = UiKit.Header,
 		textSize = 38,
 		color = Palette.UiWarn,
@@ -791,7 +792,7 @@ local function unlockBanner(lvl: number, ids: { string }): ScreenGui
 	})
 	for i, id in ids do
 		local def = ItemDefs.get(id)
-		UiKit.label(panel, `Item{i}`, `+ {def and def.name or id}`, UDim2.new(1, -40, 0, 38), UDim2.fromOffset(20, 50 + (i - 1) * 44), {
+		UiKit.label(panel, `Item{i}`, Loc.t("+ {1}", { def and def.name or id }), UDim2.new(1, -40, 0, 38), UDim2.fromOffset(20, 50 + (i - 1) * 44), {
 			font = UiKit.Header,
 			textSize = 28,
 			color = Palette.UiCream,
@@ -799,7 +800,7 @@ local function unlockBanner(lvl: number, ids: { string }): ScreenGui
 		})
 	end
 	local nextId, nextAt = Progression.nextUnlock(lvl)
-	local foot = if #ids > 0 then "Get it at the big red LOCKER!" elseif nextId then `Next unlock: {(ItemDefs.get(nextId) or {}).name or nextId} at Lv {nextAt}` else "You've unlocked everything!"
+	local foot = if #ids > 0 then "Get it at the big red LOCKER!" elseif nextId then Loc.t("Next unlock: {1} at Lv {2}", { (ItemDefs.get(nextId) or {}).name or nextId, nextAt }) else "You've unlocked everything!"
 	UiKit.label(panel, "Foot", foot, UDim2.new(1, -20, 0, 26), UDim2.new(0, 10, 1, -34), { textSize = 18, color = Palette.UiCream })
 	UiKit.pop(panel, 0.3)
 	task.delay(if #ids > 0 then 6 else 3.5, function()

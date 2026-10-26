@@ -15,6 +15,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local DataConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local ProfileController = {}
 ProfileController.Priority = 100
@@ -69,7 +70,7 @@ local function update()
 	;(levelLabel :: TextLabel).Text = tostring(level)
 	local frac = if need > 0 then math.clamp(into / need, 0, 1) else 1
 	TweenService:Create(fill :: Frame, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { Size = UDim2.fromScale(frac, 1) }):Play()
-	;(xpLabel :: TextLabel).Text = if need > 0 then `{into} / {need} XP` else "MAX LEVEL"
+	;(xpLabel :: TextLabel).Text = if need > 0 then Loc.t("{1} / {2} XP", { into, need }) else "MAX LEVEL"
 end
 
 local function build()
@@ -241,9 +242,9 @@ local function xpGain(amount: number, reason: string?)
 		local n = math.floor(xpPending)
 		xpPending = 0
 		if Calm.on() then
-			tick(`+{n} XP`)
+			tick(Loc.t("+{1} XP", { n }))
 		else
-			popup(`+{n} XP`, if xpReason ~= "" then xpReason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
+			popup(Loc.t("+{1} XP", { n }), if xpReason ~= "" then xpReason else nil, Palette.HelmetShield, 54, DataConfig.Ui.PopupSeconds)
 		end
 		xpReason = ""
 	end)
@@ -341,7 +342,7 @@ function ProfileController:Start()
 				local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 				HudLayout.celebrate(function()
 					local secs = Calm.seconds(tonumber(DataConfig.Ui.LevelUpSeconds) or 2, 1.8)
-					local card = popup(`LEVEL {level}!`, nil, Palette.UiCream, 80, secs, 0.62)
+					local card = popup(Loc.t("LEVEL {1}!", { level }), nil, Palette.UiCream, 80, secs, 0.62)
 					celebrate()
 					-- a tap anywhere hides it early (HudLayout.celebrate)
 					return secs + 0.2, function()

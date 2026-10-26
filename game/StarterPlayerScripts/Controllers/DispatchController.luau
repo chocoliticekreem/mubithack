@@ -22,6 +22,7 @@ local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript) :: any
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
 local InputHints = require(ClientLib:WaitForChild("InputHints") :: ModuleScript) :: any
 local TopBox = require(ClientLib:WaitForChild("TopBox") :: ModuleScript) :: any
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local DispatchController = {}
 DispatchController.Priority = 110
@@ -117,7 +118,7 @@ local function showCard(p: Payload?)
 	offerUntil = os.clock() + math.max(1, p.seconds)
 	ui.cardHead.Text = if p.kind == "mini" then "SMALL JOB" else "INCOMING CALL"
 	ui.cardCall.Text = p.call
-	ui.cardSub.Text = `{p.address}  ·  {p.distText}`
+	ui.cardSub.Text = Loc.t("{1}  ·  {2}", { p.address, p.distText })
 	ui.bar.Size = UDim2.fromScale(1, 1)
 	card.Visible = true
 	ui.dot.Visible = true
@@ -175,7 +176,7 @@ local function row(i: number, p: Payload)
 	stroke(r, 2, if p.kind == "mini" then Palette.UiWarn else INK)
 	local title = text(r, "Call", p.call, UiKit.Header, if p.busy then Color3.fromHex("#9A8F86") else CREAM, UDim2.new(1, -150, 0, 28), UDim2.fromOffset(12, 6))
 	textStroke(title, 1.5)
-	local sub = if p.busy then "Every crew's out on one. Try again soon." else `{p.address}  ·  {p.distText}`
+	local sub = if p.busy then "Every crew's out on one. Try again soon." else Loc.t("{1}  ·  {2}", { p.address, p.distText })
 	text(r, "Where", sub, UiKit.Body, if p.busy then Color3.fromHex("#9A8F86") else Palette.UiWarn, UDim2.new(1, -150, 0, 20), UDim2.fromOffset(12, 36))
 	if p.busy then
 		local tag = text(r, "Busy", "BUSY", UiKit.Header, Color3.fromHex("#9A8F86"), UDim2.fromOffset(120, 30), UDim2.new(1, -128, 0.5, -15))

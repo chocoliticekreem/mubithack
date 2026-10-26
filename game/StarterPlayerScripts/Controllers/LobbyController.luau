@@ -33,6 +33,7 @@ local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: Modul
 local LobbyQueue = require(ReplicatedStorage:WaitForChild("Lobby"):WaitForChild("LobbyQueue") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local LobbyController = {}
 LobbyController.Priority = 100
@@ -340,7 +341,7 @@ local function renderPicker()
 	ui.pickerSub.Text = (if mySquad == nil
 		then "Pick a call, then step on a glowing pad outside."
 		elseif leader then "You lead this squad: your pick is the squad's call."
-		else "Only your squad leader can change the call.") .. `  ({open} calls, scroll for more)`
+		else "Only your squad leader can change the call.") .. Loc.format("  ({1} calls, scroll for more)", { open })
 	for i, m in MissionCatalog do
 		local card = Instance.new("Frame")
 		card.Name = m.id
@@ -449,7 +450,7 @@ local function renderStrip()
 	local def = byId[mySquad.missionId or ""]
 	local cap = math.min(LobbyConfig.MaxSquadSize, def and def.players and def.players.max or LobbyConfig.MaxSquadSize)
 	local lead = mySquad.leader == player.UserId
-	ui.stripText.Text = `PAD {mySquad.padId}  |  {def and def.title or "No call"}  |  {LobbyQueue.readyText(#mySquad.members, cap)}{if lead then "  |  you lead" else ""}`
+	ui.stripText.Text = Loc.t(if lead then "PAD {1}  |  {2}  |  {3}  |  you lead" else "PAD {1}  |  {2}  |  {3}", { mySquad.padId, def and def.title or "No call", LobbyQueue.readyText(#mySquad.members, cap) })
 	ui.go.Visible = lead and player:GetAttribute("PadLocked") ~= true -- locked in: nothing left to hurry
 	ui.strip.Visible = true
 end
@@ -557,7 +558,7 @@ local function onCountdown(padId: number, seconds: number, title: string)
 	if firstCall then
 		ui.banner.Visible = false
 	elseif locked then
-		ui.banner.Text = `{LobbyConfig.LockText}  ROLLING OUT IN {seconds}`
+		ui.banner.Text = Loc.t(LobbyConfig.LockText .. "  ROLLING OUT IN {1}", { seconds })
 		ui.banner.TextColor3 = C.Hot
 		if not lockShown then
 			lockShown = true
@@ -566,7 +567,7 @@ local function onCountdown(padId: number, seconds: number, title: string)
 	else
 		lockShown = false
 		ui.banner.TextColor3 = C.Yellow
-		ui.banner.Text = if Calm.on() then `ROLLING OUT IN {seconds}` else `PAD {padId}: {title}  -  ROLLING OUT IN {seconds}`
+		ui.banner.Text = if Calm.on() then Loc.t("ROLLING OUT IN {1}", { seconds }) else Loc.t("PAD {1}: {2}  -  ROLLING OUT IN {3}", { padId, title, seconds })
 	end
 	ui.banner.Visible = not firstCall
 	if seconds <= LobbyConfig.BigCountdownFrom then

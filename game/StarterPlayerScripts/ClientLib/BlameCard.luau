@@ -14,6 +14,7 @@ local Palette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("P
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
 local UiKit = require(script.Parent:WaitForChild("UiKit") :: ModuleScript)
 local BlameOfCall = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("BlameOfCall") :: ModuleScript)
+local Loc = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local BlameCard = {}
 
@@ -84,7 +85,8 @@ function BlameCard.build(root: Frame, payload: any): Frame?
 		color = Palette.CoatShadow,
 	})
 	nm.ZIndex = 4
-	local story = UiKit.label(card, "Story", pick.story, UDim2.new(1, -16, 0, 38), UDim2.fromOffset(8, 114), {
+	local who, what = string.match(pick.story, "^(.-): (.+)$") -- "Name: blurb": translate the blurb, keep the name
+	local story = UiKit.label(card, "Story", if who then Loc.t("{1}: {2}", { who, what }) else pick.story, UDim2.new(1, -16, 0, 38), UDim2.fromOffset(8, 114), {
 		textSize = 14,
 	})
 	story.TextWrapped = true

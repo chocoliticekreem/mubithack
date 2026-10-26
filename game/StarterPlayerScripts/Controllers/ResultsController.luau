@@ -26,6 +26,7 @@ local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitFor
 local BlameCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("BlameCard") :: ModuleScript) :: any
 
 local GamepadNav = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("GamepadNav") :: ModuleScript) :: any
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local ResultsController = {}
 ResultsController.Priority = 60
@@ -472,7 +473,7 @@ local function show(payload: Types.ResultsPayload)
 	if bestSecs then
 		timeValue.Size, timeValue.Position, timeValue.TextSize = UDim2.new(1, -10, 0, 36), UDim2.fromOffset(5, 26), 36
 		local isNew = (payload :: any).newRecord == true
-		local bestLine = UiKit.label(timeChip, "Best", if isNew then "NEW RECORD!" else `BEST {UiKit.clock(bestSecs)}`, UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, 62), {
+		local bestLine = UiKit.label(timeChip, "Best", if isNew then "NEW RECORD!" else Loc.t("BEST {1}", { UiKit.clock(bestSecs) }), UDim2.new(1, -10, 0, 18), UDim2.fromOffset(5, 62), {
 			font = UiKit.Header,
 			textSize = 15,
 			color = if isNew then Palette.UiGood else Palette.UiInk,
@@ -517,7 +518,7 @@ local function show(payload: Types.ResultsPayload)
 			local xp, pass = math.floor(runXp), math.floor(passXp())
 			if xp ~= lastXp or pass ~= lastPass then
 				xpValue.Text = `+{xp}`
-				passValue.Text = if pass > 0 then `BATTLE PASS +{pass}` else ""
+				passValue.Text = if pass > 0 then Loc.t("BATTLE PASS +{1}", { pass }) else ""
 				if lastXp >= 0 then
 					UiKit.punch(xpChip, 0.1)
 				end
@@ -591,7 +592,7 @@ local function show(payload: Types.ResultsPayload)
 			if id and at then
 				local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
 				local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
-				local t = UiKit.label(root, "Teaser", `NEXT UNLOCK: {string.upper(name)} AT LEVEL {at}!`, UDim2.fromOffset(700, 30), UDim2.new(0.5, -350, 0, 590), {
+				local t = UiKit.label(root, "Teaser", Loc.t("NEXT UNLOCK: {1} AT LEVEL {2}!", { string.upper(name), at }), UDim2.fromOffset(700, 30), UDim2.new(0.5, -350, 0, 590), {
 					font = UiKit.Header,
 					textSize = 26,
 					color = Palette.UiCream,
