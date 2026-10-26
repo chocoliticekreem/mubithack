@@ -91,4 +91,23 @@ Spec.test("field is a constant pair", function()
 	Spec.eq(Rules.field("PremiumPass", "results"), "PremiumPass_results")
 end)
 
+Spec.test("big fire -> Helicopter (results only, when on sale)", function()
+	local passes = {
+		{ key = "UnlimitedFoam", forSale = true, owned = false },
+		{ key = "PremiumPass", forSale = true, owned = false },
+		{ key = "Helicopter", forSale = true, owned = false },
+	}
+	local k, r = Rules.pick(ctx({ passes = passes, signals = { bigFire = true } }), CFG)
+	Spec.eq(k, "Helicopter")
+	Spec.eq(r, "bigfire")
+	k = Rules.pick(ctx({ passes = passes, signals = { bigFire = true, foamEmpty = true } }), CFG)
+	Spec.eq(k, "UnlimitedFoam", "foam ran out is more relevant")
+	local unsold = table.clone(passes)
+	unsold[3] = { key = "Helicopter", forSale = false, owned = false }
+	k = Rules.pick(ctx({ passes = unsold, signals = { bigFire = true } }), CFG)
+	Spec.eq(k ~= "Helicopter", true, "id 0 / not for sale: never offered")
+	k = Rules.pick(ctx({ moment = "lobby", passes = passes, signals = { bigFire = true, levelUp = true } }), CFG)
+	Spec.eq(k, "PremiumPass", "the lobby card stays the level-up card")
+end)
+
 return Spec.finish()

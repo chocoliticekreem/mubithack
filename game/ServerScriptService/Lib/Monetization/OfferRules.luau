@@ -12,16 +12,17 @@
 --     ctx.sinceLast   seconds since the last offer was shown (math.huge = none yet)
 --     ctx.declined    { [key] = "No thanks" count this session }
 --     ctx.rotation    a counter that moves on after every shown offer (rotates the default pick)
---     ctx.signals     { foamEmpty: boolean, rescued: number, levelUp: boolean, passXp: number }
+--     ctx.signals     { foamEmpty: boolean, rescued: number, levelUp: boolean, passXp: number, bigFire: boolean }
 --     cfg = MonetizationConfig.Offers (ResultsEvery, MaxPerSession, MinGapSeconds, MaxDeclines,
 --           LobbyCardsPerSession, RescueHero)
 --   Reasons: "foam" (your foam ran out -> Unlimited Foam), "level" (levelled up -> Premium Pass),
 --   "rescue" (rescued RescueHero+ -> Premium Pass), "passxp" (earned battle pass XP -> Premium Pass),
+--   "bigfire" (a big call: fires out + burnt >= BigFire -> Helicopter, results only),
 --   "default" (rotation over the passes you can still buy).
 --   OfferRules.field(key, moment) -> string   -- the analytics CustomField01 value ("UnlimitedFoam_results")
 
 export type Pass = { key: string, forSale: boolean, owned: boolean }
-export type Signals = { foamEmpty: boolean?, rescued: number?, levelUp: boolean?, passXp: number? }
+export type Signals = { foamEmpty: boolean?, rescued: number?, levelUp: boolean?, passXp: number?, bigFire: boolean? }
 export type Ctx = {
 	moment: string,
 	passes: { Pass },
@@ -91,6 +92,9 @@ function OfferRules.pick(ctx: Ctx, cfg: any): (string?, string?)
 	-- relevance first: what just happened on this call
 	if s.foamEmpty and can.UnlimitedFoam then
 		return "UnlimitedFoam", "foam"
+	end
+	if s.bigFire and can.Helicopter and ctx.moment == "results" then
+		return "Helicopter", "bigfire"
 	end
 	if can.PremiumPass then
 		if s.levelUp then

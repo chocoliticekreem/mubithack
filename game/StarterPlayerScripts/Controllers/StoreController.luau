@@ -1,7 +1,9 @@
 --!strict
 -- StoreController [owner: Monetization]. The Robux store: a lobby-only STORE button in the top-bar box
 -- (ClientLib/TopBox, after level + pass; or [B]) that opens a sticker-style panel listing MonetizationConfig.Passes (icon, name, blurb, "R$ 149",
--- BUY / OWNED / GIFTED / COMING SOON) and a donate row (R$ 10 / 50 / 100 / 500).
+-- BUY / OWNED / GIFTED / COMING SOON) and a donate row (R$ 10 / 50 / 100 / 500). A pass with `hero = true`
+-- (the FIRE HELICOPTER) gets the wide card on top with a slowly turning 3D render (Lib/Heli/HeliBuilder in
+-- a ViewportFrame). Monetization/Open "heli" (the helipad kiosk) opens the store and punches that card.
 -- Prices come from MarketplaceService:GetProductInfo (config price until it answers). Ownership is the
 -- server's Player attr Pass_<Key>. Purchases go through Monetization/Buy (the server validates and
 -- prompts). The Donation Board's prompt fires Monetization/Open ("donate") to open it here.
@@ -11,6 +13,7 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -37,6 +40,9 @@ local donateRow: Frame? = nil
 local donatedLabel: TextLabel? = nil
 local cards: { Card } = {}
 local buyRemote: RemoteEvent? = nil
+local heroCard: Frame? = nil
+local heroModel: Model? = nil
+local heroSpin: RBXScriptConnection? = nil
 
 local GREY = Color3.fromHex("#8C8A88")
 
@@ -123,9 +129,35 @@ local function setOpen(open: boolean, section: string?)
 					UiKit.punch(donateRow, 0.08)
 				end
 			end)
+		elseif section == "heli" and heroCard then
+			task.delay(0.3, function()
+				if heroCard then
+					UiKit.punch(heroCard, 0.08)
+				end
+			end)
+		end
+		-- the hero render turns only while the store is open
+		if heroModel and not heroSpin then
+			local a = 0
+			heroSpin = RunService.RenderStepped:Connect(function(dt: number)
+				a += dt * 0.6
+				local m = heroModel
+				if m and m.Parent then
+					m:PivotTo(CFrame.Angles(0, a, 0))
+					local root = m.PrimaryPart
+					local rm = root and root:FindFirstChild("RotorMotor") :: Motor6D?
+					if rm then
+						rm.Transform = CFrame.Angles(0, a * 14, 0)
+					end
+				end
+			end)
 		end
 	else
 		p.Visible = false
+		if heroSpin then
+			heroSpin:Disconnect()
+			heroSpin = nil
+		end
 	end
 end
 
@@ -254,6 +286,127 @@ local function buildCard(parent: Instance, def: any, index: number, count: numbe
 	return c
 end
 
+-- the wide hero card (FIRE HELICOPTER): a 3D render on the left, name / price / blurb / BUY on the right
+local function buildHero(parent: Instance, def: any, y: number): Card
+	local w, h = 680, 130
+	local card = Instance.new("Frame")
+	card.Name = def.key
+	card.Size = UDim2.fromOffset(w, h)
+	card.Position = UDim2.new(0.5, -w / 2, 0, y)
+	card.BackgroundColor3 = Color3.fromHex("#BDEBFF")
+	card.BorderSizePixel = 0
+	card.Parent = parent
+	UiKit.corner(card, 14)
+	UiKit.stroke(card, 3, Palette.UiInk)
+	heroCard = card
+
+	local vp = Instance.new("ViewportFrame")
+	vp.Name = "Render"
+	vp.Size = UDim2.fromOffset(230, h - 12)
+	vp.Position = UDim2.fromOffset(6, 6)
+	vp.BackgroundColor3 = Color3.fromHex("#7FD3F5")
+	vp.Ambient = Color3.fromRGB(200, 200, 200)
+	vp.LightColor = Color3.fromRGB(255, 250, 235)
+	vp.LightDirection = Vector3.new(-1, -1.5, -0.6)
+	vp.Parent = card
+	UiKit.corner(vp, 10)
+	local ok = pcall(function()
+		local Builder = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Heli"):WaitForChild("HeliBuilder") :: ModuleScript) :: any
+		local HeliCfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HeliConfig") :: ModuleScript)
+		local world = Instance.new("WorldModel")
+		world.Parent = vp
+		local m = Builder.build(HeliCfg) :: Model
+		local root = m.PrimaryPart :: BasePart
+		root.Anchored = true -- the rest hangs off it by welds / motors (a WorldModel never simulates)
+		m.Parent = world
+		heroModel = m
+		local cam = Instance.new("Camera")
+		cam.FieldOfView = 42
+		cam.CFrame = CFrame.lookAt(Vector3.new(19, 7, -22), Vector3.new(0, -3.5, 3))
+		cam.Parent = vp
+		vp.CurrentCamera = cam
+	end)
+	if not ok then
+		vp.Visible = false
+	end
+	local ribbon = UiKit.label(card, "New", "NEW!", UDim2.fromOffset(70, 26), UDim2.fromOffset(10, 8), {
+		font = UiKit.Header,
+		textSize = 20,
+		color = Palette.UiCream,
+		stroke = true,
+	})
+	ribbon.BackgroundTransparency = 0
+	ribbon.BackgroundColor3 = Palette.UiRed
+	ribbon.ZIndex = 4
+	UiKit.corner(ribbon, 8)
+
+	-- small round icon (the pass image once it has one; the glyph until then)
+	local badge = Instance.new("Frame")
+	badge.Name = "IconBg"
+	badge.Size = UDim2.fromOffset(46, 46)
+	badge.Position = UDim2.fromOffset(248, 12)
+	badge.BackgroundColor3 = def.color or Palette.UiRed
+	badge.Parent = card
+	UiKit.corner(badge, 23)
+	UiKit.stroke(badge, 3, Palette.UiInk)
+	local glyph = UiKit.label(badge, "Glyph", def.icon or "?", UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), { textSize = 28 })
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "Icon"
+	icon.BackgroundTransparency = 1
+	icon.Size = UDim2.fromScale(0.9, 0.9)
+	icon.Position = UDim2.fromScale(0.05, 0.05)
+	icon.Visible = false
+	icon.ZIndex = 3
+	icon.Parent = badge
+	UiKit.corner(icon, 20)
+
+	UiKit.label(card, "Name", def.name, UDim2.fromOffset(250, 30), UDim2.fromOffset(302, 10), {
+		font = UiKit.Header,
+		textSize = 28,
+		color = Palette.UiInk,
+		align = Enum.TextXAlignment.Left,
+	})
+	local price = UiKit.label(card, "Price", `R$ {def.price}`, UDim2.fromOffset(120, 30), UDim2.new(1, -132, 0, 10), {
+		font = UiKit.Header,
+		textSize = 28,
+		color = Palette.UiFlameMid,
+		stroke = true,
+		strokeThickness = 2,
+		align = Enum.TextXAlignment.Right,
+	})
+	local blurb = UiKit.label(card, "Blurb", def.blurb, UDim2.fromOffset(w - 260, 40), UDim2.fromOffset(248, 60), {
+		font = UiKit.Body,
+		textSize = 17,
+		color = Palette.UiInk,
+		align = Enum.TextXAlignment.Left,
+	})
+	blurb.TextYAlignment = Enum.TextYAlignment.Top
+	local button = UiKit.button(card, "Buy", "BUY", UDim2.fromOffset(170, 40), UDim2.new(1, -95, 1, -26), Palette.UiWarn)
+	button.Size = UDim2.fromOffset(170, 40)
+	blurb.Size = UDim2.fromOffset(w - 260 - 180, 58)
+	local c: Card = { key = def.key, id = passId(def.key), button = button, price = price, icon = icon, glyph = glyph }
+	button.Activated:Connect(function()
+		if c.id == 0 or player:GetAttribute(Cfg.Attr.PassPrefix .. c.key) == true then
+			UiKit.shake(card, 0.25, 4)
+			return
+		end
+		local r = buyRemote
+		if r then
+			r:FireServer("pass", c.key)
+		end
+	end)
+	player:GetAttributeChangedSignal(Cfg.Attr.PassPrefix .. def.key):Connect(function()
+		paintCard(c)
+		if player:GetAttribute(Cfg.Attr.PassPrefix .. def.key) == true then
+			UiKit.punch(card, 0.08)
+		end
+	end)
+	player:GetAttributeChangedSignal(Cfg.Attr.GiftedPrefix .. def.key):Connect(function()
+		paintCard(c)
+	end)
+	return c
+end
+
 local function build()
 	local g = UiKit.screen("StoreGui", 7)
 	gui = g
@@ -286,7 +439,12 @@ local function build()
 	chip = slot -- syncChip shows / hides the whole section (lobby only)
 
 	-- panel
-	local p = UiKit.panel(g, "StorePanel", UDim2.fromOffset(720, 470), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	local heroes, regular = {}, {}
+	for _, def in Cfg.Passes do
+		table.insert(if def.hero == true then heroes else regular, def)
+	end
+	local heroH = if #heroes > 0 then 140 else 0 -- one wide card on top (130 + gap)
+	local p = UiKit.panel(g, "StorePanel", UDim2.fromOffset(720, 470 + heroH), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	p.Visible = false
 	p:SetAttribute("Menu", true)
 	p.ZIndex = 5
@@ -326,8 +484,17 @@ local function build()
 	end)
 
 	cards = {}
-	for i, def in Cfg.Passes do
-		table.insert(cards, buildCard(p, def, i, #Cfg.Passes))
+	for _, def in heroes do
+		table.insert(cards, buildHero(p, def, 72))
+		break -- one hero card
+	end
+	for i, def in regular do
+		local c = buildCard(p, def, i, #regular)
+		local f = p:FindFirstChild(def.key) :: Frame?
+		if f then
+			f.Position = f.Position + UDim2.fromOffset(0, heroH)
+		end
+		table.insert(cards, c)
 	end
 
 	-- donate row
