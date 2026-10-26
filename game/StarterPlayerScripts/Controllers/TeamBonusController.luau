@@ -16,6 +16,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local TeamRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Social"):WaitForChild("TeamRules") :: ModuleScript)
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript) :: any
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local TeamBonusController = {}
 TeamBonusController.Priority = 70
@@ -38,26 +39,26 @@ local function withText(list: any): string
 		return ""
 	end
 	if #list == 1 then
-		return `with {list[1]}`
+		return Loc.t("with {1}", { list[1] })
 	end
-	return `with {list[1]} +{#list - 1}`
+	return Loc.t("with {1} +{2}", { list[1], #list - 1 })
 end
 
 local function pop(kind: string, info: { [string]: any })
 	local title, color
 	if kind == "combo" then
-		title, color = `COMBO! x{tonumber(info.mult) or 1.5}`, Palette.FireEdge
+		title, color = Loc.t("COMBO! x{1}", { tonumber(info.mult) or 1.5 }), Palette.FireEdge
 	elseif kind == "teamwork" then
 		title, color = "TEAMWORK!", Palette.UiGood
 	elseif kind == "streak" then
-		title, color = `SQUAD STREAK x{tonumber(info.streak) or 2}!`, GOLD
+		title, color = Loc.t("SQUAD STREAK x{1}!", { tonumber(info.streak) or 2 }), GOLD
 	else
 		return
 	end
 	local xp = tonumber(info.xp) or 0
 	local sub = withText(info.with)
 	if xp > 0 then
-		sub = if sub == "" then `+{xp} XP` else `{sub}  +{xp} XP`
+		sub = if sub == "" then Loc.t("+{1} XP", { xp }) else Loc.t("{1}  +{2} XP", { sub, xp })
 	end
 	if kind == "combo" and sub == "" then
 		sub = "faster with friends!"
@@ -178,7 +179,7 @@ local function renderSquad(face: Frame, data: SquadData)
 	end
 	local bandText = face:FindFirstChild("Band") and (face :: any).Band:FindFirstChild("Text")
 	if bandText then
-		bandText.Text = if data.streak >= 2 then `SQUAD  STREAK x{data.streak}!` else "SQUAD"
+		bandText.Text = if data.streak >= 2 then Loc.t("SQUAD  STREAK x{1}!", { data.streak }) else "SQUAD"
 	end
 	local body = Instance.new("Frame")
 	body.Name = "Body"

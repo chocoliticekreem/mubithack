@@ -20,6 +20,7 @@ local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("Monet
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local StoreController = {}
 StoreController.Priority = 120
@@ -81,7 +82,7 @@ local function paintAll()
 	local d = donatedLabel
 	if d then
 		local total = tonumber(player:GetAttribute(Cfg.Attr.Donated)) or 0
-		d.Text = if total > 0 then `You've donated R$ {total}. You're a hero!` else "Every Robux keeps the trucks rolling."
+		d.Text = if total > 0 then Loc.t("You've donated R$ {1}. You're a hero!", { total }) else "Every Robux keeps the trucks rolling."
 	end
 end
 

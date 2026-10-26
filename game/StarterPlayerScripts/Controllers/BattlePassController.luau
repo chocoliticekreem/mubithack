@@ -29,6 +29,7 @@ local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChil
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local BattlePassController = {}
 BattlePassController.Priority = 110
@@ -276,13 +277,13 @@ local function celebrateTier(tier: number, ids: { string }): Frame?
 	ribbon.ZIndex = 31
 	local rl = text(ribbon, "Text", "BATTLE PASS TIER UP!", UDim2.fromScale(1, 1), UDim2.fromOffset(0, 0), UiKit.Header, 26, Palette.UiInk, false)
 	rl.ZIndex = 32
-	local big = text(card, "Tier", `TIER {tier}`, UDim2.new(1, 0, 0, 74), UDim2.fromOffset(0, 46), UiKit.Header, 72, GOLD, true)
+	local big = text(card, "Tier", Loc.t("TIER {1}", { tier }), UDim2.new(1, 0, 0, 74), UDim2.fromOffset(0, 46), UiKit.Header, 72, GOLD, true)
 	big.ZIndex = 32
 	local names = {}
 	for _, id in ids do
 		local r = Cfg.Rewards[id]
 		if r then
-			table.insert(names, r.Name)
+			table.insert(names, Loc.t(r.Name))
 		end
 	end
 	local row = Cfg.Tiers[tier]
@@ -290,10 +291,10 @@ local function celebrateTier(tier: number, ids: { string }): Frame?
 	if row and owner() then
 		local pr = Cfg.Rewards[row.Premium]
 		if pr then
-			premiumHint = `  |  Premium: {pr.Name}, claim it!`
+			premiumHint = Loc.t("  |  Premium: {1}, claim it!", { pr.Name })
 		end
 	end
-	local sub = text(card, "Rewards", (if #names > 0 then "Unlocked: " .. table.concat(names, ", ") else "Keep going!") .. premiumHint,
+	local sub = text(card, "Rewards", Loc.mark((if #names > 0 then Loc.t("Unlocked: {1}", { table.concat(names, ", ") }) else Loc.t("Keep going!")) .. premiumHint),
 		UDim2.new(1, -24, 0, 56), UDim2.fromOffset(12, 124), UiKit.Body, 19, Palette.UiCream, false)
 	sub.ZIndex = 32
 	UiKit.pop(card, 0.35)
@@ -338,7 +339,7 @@ local function xpPopup(amount: number, reason: string)
 	holder.Position = UDim2.fromOffset(abs.X / k + 4, y)
 	holder.ZIndex = 20
 	holder.Parent = layer
-	local main = text(holder, "Main", `+{amount} PASS XP`, UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), UiKit.Header, 28, Palette.UiShock, true)
+	local main = text(holder, "Main", Loc.t("+{1} PASS XP", { amount }), UDim2.new(1, 0, 0, 30), UDim2.fromOffset(0, 0), UiKit.Header, 28, Palette.UiShock, true)
 	main.TextXAlignment = Enum.TextXAlignment.Left
 	main.ZIndex = 21
 	local sub = text(holder, "Sub", reason, UDim2.new(1, 0, 0, 18), UDim2.fromOffset(2, 28), UiKit.Body, 17, Palette.UiCream, true)
@@ -371,7 +372,7 @@ local function xpTick(amount: number)
 	local scale = (ui.gui :: ScreenGui):FindFirstChildOfClass("UIScale")
 	local k = if scale then scale.Scale else 1
 	local abs = pip.AbsolutePosition - layer.AbsolutePosition
-	local l = text(layer, "PassTick", `+{amount} PASS`, UDim2.fromOffset(120, 22),
+	local l = text(layer, "PassTick", Loc.t("+{1} PASS", { amount }), UDim2.fromOffset(120, 22),
 		UDim2.fromOffset(abs.X / k + 4, (abs.Y + pip.AbsoluteSize.Y) / k + 4), UiKit.Body, 18, Palette.UiShock, true)
 	l.TextXAlignment = Enum.TextXAlignment.Left
 	l.ZIndex = 21
@@ -423,7 +424,7 @@ local function paintCard(c: Card, s: { [string]: any }, pass: PassRules.Pass)
 		b.BackgroundColor3 = Palette.UiGood
 		b.TextSize = 17
 	elseif not reached then
-		b.Text = `TIER {c.tier}`
+		b.Text = Loc.t("TIER {1}", { c.tier })
 		b.BackgroundColor3 = GREY
 		b.TextSize = 18
 	elseif lockedPremium then
@@ -500,20 +501,20 @@ local function paint()
 	;(ui.tierNum :: TextLabel).Text = tostring(s.tier)
 	local frac = if s.need > 0 then s.into / s.need else 1
 	UiKit.tween(ui.xpFill :: Frame, 0.35, { Size = UDim2.fromScale(math.clamp(frac, 0.02, 1), 1) })
-	;(ui.xpText :: TextLabel).Text = if s.need > 0 then `{s.into} / {s.need} XP` else "MAX TIER!"
+	;(ui.xpText :: TextLabel).Text = if s.need > 0 then Loc.t("{1} / {2} XP", { s.into, s.need }) else "MAX TIER!"
 	local nextRow = Cfg.Tiers[s.tier + 1]
 	local nextText = ui.nextText :: TextLabel
 	if nextRow then
 		local fr = Cfg.Rewards[nextRow.Free]
 		local pr = Cfg.Rewards[nextRow.Premium]
-		nextText.Text = `NEXT  TIER {s.tier + 1}:  {fr and fr.Name or "?"}  +  {pr and pr.Name or "?"}`
+		nextText.Text = Loc.t("NEXT  TIER {1}:  {2}  +  {3}", { s.tier + 1, fr and fr.Name or "?", pr and pr.Name or "?" })
 	else
 		nextText.Text = "ALL 20 TIERS DONE. YOU ARE THE FIRE CHIEF!"
 	end
 	;(ui.boostSmall :: TextLabel).Text = `XP boost +{s.boost or 0}%` .. (if s.premium then `  |  Premium x{Cfg.PremiumXpMultiplier}` else "")
 	local all = ui.claimAll :: TextButton
 	if s.claimable > 0 then
-		all.Text = `CLAIM ALL ({s.claimable})`
+		all.Text = Loc.t("CLAIM ALL ({1})", { s.claimable })
 		all.BackgroundColor3 = Palette.UiGood
 		all.AutoButtonColor = true
 	else
@@ -1121,7 +1122,7 @@ function BattlePassController:Start()
 			local season = ui.season :: TextLabel?
 			if s and season and ui.panel and (ui.panel :: Frame).Visible then
 				local left = (tonumber(s.endsAt) or 0) - workspace:GetServerTimeNow()
-				season.Text = `{s.seasonName or Cfg.SeasonName}   |   ENDS IN {PassRules.countdown(left)}`
+				season.Text = Loc.t("{1}   |   ENDS IN {2}", { s.seasonName or Cfg.SeasonName, PassRules.countdown(left) })
 			end
 		end
 	end)

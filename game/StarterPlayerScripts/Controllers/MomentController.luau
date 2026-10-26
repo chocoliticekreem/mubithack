@@ -33,6 +33,7 @@ local Calm = require(ClientLib:WaitForChild("Calm") :: ModuleScript)
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
 local WorldPopup = require(ClientLib:WaitForChild("WorldPopup") :: ModuleScript) :: any
 local MomentRules = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("MomentRules") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local MomentController = {}
 MomentController.Priority = 90
@@ -383,7 +384,7 @@ local function onRescue(kind: string, pos: any, data: any)
 	end
 	local by = tonumber(data.by) or 0
 	local what = KIND_WORD[tostring(data.kind)] or "someone"
-	moment("yeet", pos, by == player.UserId, `{nameOf(by)} yeeted {what} to safety!`)
+	moment("yeet", pos, by == player.UserId, Loc.t("{1} yeeted {2} to safety!", { nameOf(by), what }))
 end
 
 local function onHands(kind: string, pos: any, victimId: any)
@@ -391,7 +392,7 @@ local function onHands(kind: string, pos: any, victimId: any)
 	if kind ~= "slap" or v == 0 or typeof(pos) ~= "Vector3" then
 		return
 	end
-	moment("slap", pos, v == player.UserId, `{nameOf(v)} got SLAPPED!`)
+	moment("slap", pos, v == player.UserId, Loc.t("{1} got SLAPPED!", { nameOf(v) }))
 end
 
 local function onSquad(kind: string, userId: any, _cause: any, culprit: any)
@@ -402,7 +403,7 @@ local function onSquad(kind: string, userId: any, _cause: any, culprit: any)
 	end
 	local root = rootOfUser(victim)
 	local me = player.UserId
-	moment("blamed", if root then root.Position else nil, me == victim or me == by, `{nameOf(by)}'s fault! {nameOf(victim)} is down!`)
+	moment("blamed", if root then root.Position else nil, me == victim or me == by, Loc.t("{1}'s fault! {2} is down!", { nameOf(by), nameOf(victim) }))
 end
 
 local function listen(ns: string, name: string, fn: (...any) -> ())

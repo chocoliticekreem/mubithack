@@ -16,6 +16,7 @@ local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 local UiKit = require(script.Parent:WaitForChild("UiKit") :: ModuleScript) :: any
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local OfferCard = {}
 OfferCard.Width = 262
@@ -142,7 +143,7 @@ function OfferCard.build(parent: Instance, offer: { [string]: any }, opts: { [st
 	short.ZIndex = 5
 
 	local price = tonumber(offer.price) or tonumber(def.price) or 0
-	local buy = UiKit.button(card, "Buy", `BUY  R$ {price}`, UDim2.fromOffset(160, 38), UDim2.fromOffset(8 + 80, 82 + 19), Palette.UiWarn)
+	local buy = UiKit.button(card, "Buy", Loc.t("BUY  R$ {1}", { price }), UDim2.fromOffset(160, 38), UDim2.fromOffset(8 + 80, 82 + 19), Palette.UiWarn)
 	buy.TextSize = 22
 	buy.ZIndex = 6
 	local no = Instance.new("TextButton")
@@ -196,7 +197,7 @@ function OfferCard.build(parent: Instance, offer: { [string]: any }, opts: { [st
 			return
 		end
 		if i.price and i.price ~= price then
-			buy.Text = `BUY  R$ {i.price}`
+			buy.Text = Loc.t("BUY  R$ {1}", { i.price })
 		end
 		if i.icon then
 			icon.Image = `rbxassetid://{i.icon}`

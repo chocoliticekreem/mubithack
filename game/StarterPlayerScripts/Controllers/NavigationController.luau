@@ -32,6 +32,7 @@ local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript)
 local Pathfind = require(ClientLib:WaitForChild("Pathfind") :: ModuleScript)
 local Minimap = require(ClientLib:WaitForChild("Minimap") :: ModuleScript)
+local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local NavigationController = {}
 NavigationController.Priority = 70
@@ -57,7 +58,7 @@ local function unit(d: number): string
 	local per = tonumber(NavigationConfig.StudsPerUnit) or 1
 	local n = d / per
 	n = if n >= 100 then math.floor(n / 10 + 0.5) * 10 else math.floor(n + 0.5)
-	return `{n} {NavigationConfig.UnitName or "studs"}`
+	return Loc.t("{1} " .. (NavigationConfig.UnitName or "studs"), { n })
 end
 
 local function partPos(inst: Instance): Vector3?
@@ -629,19 +630,19 @@ local function updateHint(from: Vector3, to: Vector3, label: string, along: numb
 	end
 	local poly = route
 	if not poly then
-		mm:setHint(`HEAD {Pathfind.compass(to.X - from.X, to.Z - from.Z)}`, `{unit(direct)} · {string.upper(label)}`, ICON.straight)
+		mm:setHint(Loc.t("HEAD {1}", { Pathfind.compass(to.X - from.X, to.Z - from.Z) }), Loc.t("{1} · {2}", { unit(direct), string.upper(label) }), ICON.straight)
 		return
 	end
 	local total = math.max(0, Pathfind.length(poly) - along)
 	local kind, dist = Pathfind.nextTurn(poly, along, tonumber(NavigationConfig.TurnAngle) or 35)
-	local sub = `{unit(total)} · {string.upper(label)}`
+	local sub = Loc.t("{1} · {2}", { unit(total), string.upper(label) })
 	if kind and dist <= (tonumber(NavigationConfig.TurnHintRange) or 220) then
-		local word = if kind == "uturn" then "U-TURN" else `TURN {string.upper(kind)}`
-		mm:setHint(`{word} in {unit(dist)}`, sub, ICON[kind])
+		local word = if kind == "uturn" then "U-TURN" else Loc.t("TURN {1}", { string.upper(kind) })
+		mm:setHint(Loc.t("{1} in {2}", { word, unit(dist) }), sub, ICON[kind])
 	elseif kind then
-		mm:setHint(`FOLLOW THE ROAD {unit(dist)}`, sub, ICON.straight)
+		mm:setHint(Loc.t("FOLLOW THE ROAD {1}", { unit(dist) }), sub, ICON.straight)
 	else
-		mm:setHint(`STRAIGHT ON {unit(dist)}`, sub, ICON.straight)
+		mm:setHint(Loc.t("STRAIGHT ON {1}", { unit(dist) }), sub, ICON.straight)
 	end
 end
 
