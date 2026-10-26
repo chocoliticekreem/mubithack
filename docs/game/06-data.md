@@ -32,6 +32,7 @@ donations = { robux, count, receipts = { PurchaseId } }         -- v5: Robux don
 pass = { season, xp, free = { tier }, premium = { tier }, equipped = { slot = id }, legacy, curve? }  -- v6: battle pass (BattlePassService)
 gifts = { passes = { [key] = { by = UserId, at = unix } } }  -- v7: owner-gifted pass entitlements (AdminService :giftpass)
 updates = { lastSeen, prompted, likeAsks }                       -- v8: WHAT'S NEW panel (UpdateLogService); likeAsks: SocialAskService
+achievements = { stats = { name = n }, unlocked = { id = unix }, sites = { SiteId = true } }  -- v8, no bump: AchievementService
 weekly = { week, rescues, blamePoints, missions }                -- reset when the week changes
 meta = { created, lastSeen, sessions }
 ```
@@ -65,6 +66,9 @@ NEW panel for, `prompted` the version they were last offered the update-notifica
 (UpdateLogService). Everyone migrates to "" so the newest update shows once.
 `updates.likeAsks` (added inside v8, no bump: a missing value reads as 0) counts how often the "Having fun? 👍"
 card was shown (SocialAskService; capped at 3 ever by `Lib/Social/AskRules`).
+`achievements` (also inside v8, no bump: a missing table reads as empty) holds the achievement counters
+(`Config/AchievementConfig.Stats`), the unlock time per achievement id and the SiteIds worked (EXPLORER).
+AchievementService owns it; old profiles are seeded once from `missionsPlayed`, `firesOut`, `rescued` and the level.
 
 ## Session locking and saving
 

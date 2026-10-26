@@ -36,6 +36,8 @@
 --   ProfileSchema.markNotifyPrompted(p, version): boolean    -- v8: true = first opt-in prompt for this version
 --   ProfileSchema.markLikeAsked(p): number                   -- updates.likeAsks += 1 (the "Having fun? 👍" card,
 --                                                               Services/SocialAskService); returns the new count
+--   p.achievements (added inside v8, no bump): { stats, unlocked, sites } (Services/AchievementService,
+--     rules: ReplicatedStorage/Lib/Achievements/AchievementRules). A missing table reads as empty.
 --   ProfileSchema.xpForLevel(level): number                  -- lifetime XP at the start of `level`
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
@@ -66,6 +68,7 @@ export type Profile = {
 	gifts: Gifts, -- v7: owner-gifted in-game entitlements (AdminService :giftpass -> MonetizationService)
 	updates: Updates, -- v8: WHAT'S NEW panel (UpdateLogService)
 	daily: Daily, -- (inside v8, no bump) DAILY CHEST streak (Services/ResultsFlowService, Lib/Retention/DailyChest)
+	achievements: Achievements, -- v8 (no bump): AchievementService
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -86,6 +89,9 @@ export type Updates = { lastSeen: string, prompted: string, likeAsks: number }
 -- DAILY CHEST: lastDay = UTC day number (unix // 86400) of the last chest, streak = its day 1..7, total = chests
 -- ever. Added inside v8 without a bump (missing = never opened), so older servers never refuse these saves.
 export type Daily = { lastDay: number, streak: number, total: number }
+-- stats = counter by AchievementConfig.Stats name; unlocked = achievement id -> unix time; sites = SiteIds
+-- worked (EXPLORER). Added inside v8 without a bump (a missing table is empty), like updates.likeAsks.
+export type Achievements = { stats: { [string]: number }, unlocked: { [string]: number }, sites: { [string]: boolean } }
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -178,6 +184,7 @@ function ProfileSchema.default(now: number): Profile
 		gifts = { passes = {} },
 		updates = { lastSeen = "", prompted = "", likeAsks = 0 },
 		daily = { lastDay = 0, streak = 0, total = 0 },
+		achievements = { stats = {}, unlocked = {}, sites = {} },
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -476,6 +483,34 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 		streak = math.clamp(count(p.daily.streak), 0, 7),
 		total = count(p.daily.total),
 	}
+
+	fillMap(p, "achievements")
+	local ach = p.achievements
+	for _, key in { "stats", "unlocked" } do
+		local clean: { [string]: number } = {}
+		if type(ach[key]) == "table" then
+			for k, v in ach[key] do
+				if type(k) == "string" and #k <= 40 and type(v) == "number" then
+					clean[k] = count(v)
+				end
+			end
+		end
+		ach[key] = clean
+	end
+	local sites: { [string]: boolean } = {}
+	if type(ach.sites) == "table" then
+		for k, v in ach.sites do
+			if type(k) == "string" and #k <= 64 and v == true then
+				sites[k] = true
+			end
+		end
+	end
+	ach.sites = sites
+	for key in ach do
+		if key ~= "stats" and key ~= "unlocked" and key ~= "sites" then
+			ach[key] = nil
+		end
+	end
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
