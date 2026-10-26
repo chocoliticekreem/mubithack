@@ -83,7 +83,7 @@ local function buildCard(parent: Instance, def: any): any
 	UiKit.stroke(disc, 3, Palette.UiInk)
 	local icon = UiKit.label(disc, "Emoji", def.icon, UDim2.fromScale(1, 1), UDim2.new(), { textSize = 44 })
 	icon.ZIndex = 3
-	local lock = UiKit.label(disc, "Lock", "🔒", UDim2.fromOffset(30, 30), UDim2.new(1, -22, 1, -24), { textSize = 22 })
+	local lock = UiKit.label(disc, "Lock", "🔒", UDim2.fromOffset(38, 38), UDim2.new(1, -26, 1, -30), { textSize = 30 })
 	lock.ZIndex = 4
 	local name = UiKit.label(card, "Name", def.name, UDim2.new(1, -112, 0, 30), UDim2.fromOffset(102, 6), {
 		font = UiKit.Header,
