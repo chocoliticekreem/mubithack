@@ -3,7 +3,10 @@
 --   * Mission picker: opens from the MissionBoard ProximityPrompt, a click on the board or a pad's
 --     "Change call" prompt (PadPrompt); a scrolling list of ReplicatedStorage.Config.MissionCatalog
 --     (disabled ones greyed "COMING SOON"); ROLL OUT sends Lobby/Choose(missionId) (leader / solo).
---   * Squad strip (bottom): your squad, its call, "2/4 READY", and the leader's GO NOW (Lobby/Launch).
+--   * Squad strip (bottom): your squad, its call, "2/4 READY". Above it the ONE big pulsing GO NOW! button
+--     (leader, not locked in): tap / click, keyboard E, gamepad X (ContextActionService, only while it
+--     shows) -> Lobby/Launch, which launches on the next server tick. The onboarding first-call card has no
+--     GO NOW of its own any more (just NOT YET), so there is one obvious thing on screen.
 --   * Countdown: Lobby/Countdown(padId, seconds, title). Above BigCountdownFrom a banner; from 5..1 a
 --     huge centre number with a tick sound and a screen pulse (red + shake at 3..2..1); 0 = "GO GO GO!",
 --     the alarm hook (AlarmController:Blare/Play/Trigger if present) and a quick fade.
@@ -15,6 +18,7 @@
 --     a kid jumping around or spinning the camera is never tagged "on coffee break".
 -- Everything hides while the local Player's InstanceId ~= "" (in a mission).
 local CollectionService = game:GetService("CollectionService")
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -33,6 +37,7 @@ local MissionCatalog = require(ConfigDir:WaitForChild("MissionCatalog") :: Modul
 local LobbyQueue = require(ReplicatedStorage:WaitForChild("Lobby"):WaitForChild("LobbyQueue") :: ModuleScript)
 local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local LobbyController = {}
@@ -56,6 +61,14 @@ local C = {
 }
 
 local ui: { [string]: any } = {}
+local setGo: (on: boolean) -> () -- defined with renderStrip
+local function UiKitPop(g: GuiObject)
+	local sc = g:FindFirstChildOfClass("UIScale")
+	if sc then
+		sc.Scale = 0.85
+		TweenService:Create(sc, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	end
+end
 local mySquad: any = nil
 local byId: { [string]: any } = {}
 
@@ -218,20 +231,61 @@ local function buildUi()
 	end
 	stripScale.Parent = strip
 	ui.strip = strip
-	ui.stripText = label(strip, "Text", UDim2.new(0, 14, 0, 6), UDim2.new(1, -170, 1, -12), "", C.Cream, Enum.Font.FredokaOne)
+	ui.stripText = label(strip, "Text", UDim2.new(0, 14, 0, 6), UDim2.new(1, -28, 1, -12), "", C.Cream, Enum.Font.FredokaOne)
 	ui.stripText.TextXAlignment = Enum.TextXAlignment.Left
+	-- the ONE big GO NOW! (above the strip, in its UIScale): pulsing, with its key on a chip
 	local go = Instance.new("TextButton")
-	go.Name = "Go"
-	go.AnchorPoint = Vector2.new(1, 0.5)
-	go.Position = UDim2.new(1, -10, 0.5, 0)
-	go.Size = UDim2.new(0, 140, 0, 46)
-	go.BackgroundColor3 = C.Red
+	go.Name = "GoNow"
+	go.AnchorPoint = Vector2.new(0.5, 1)
+	go.Position = UDim2.new(0.5, 0, 0, -12)
+	go.Size = UDim2.new(0, 300, 0, 84)
+	go.BackgroundColor3 = C.Green
 	go.Text = "GO NOW!"
 	go.TextScaled = true
 	go.Font = Enum.Font.LuckiestGuy
 	go.TextColor3 = C.Cream
+	go.Visible = false
+	go.Selectable = true
+	go:SetAttribute("GamepadDefault", true)
 	go.Parent = strip
-	corner(go, 10)
+	corner(go, 16)
+	local goStroke = Instance.new("UIStroke")
+	goStroke.Thickness = 4
+	goStroke.Color = C.Ink
+	goStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	goStroke.Parent = go
+	local goText = Instance.new("UIStroke")
+	goText.Thickness = 3
+	goText.Color = C.Ink
+	goText.Parent = go
+	local goPad = Instance.new("UIPadding")
+	goPad.PaddingTop = UDim.new(0, 10)
+	goPad.PaddingBottom = UDim.new(0, 10)
+	goPad.PaddingLeft = UDim.new(0, 64)
+	goPad.PaddingRight = UDim.new(0, 18)
+	goPad.Parent = go
+	local key = Instance.new("TextLabel")
+	key.Name = "Key"
+	key.AnchorPoint = Vector2.new(0, 0.5)
+	key.Position = UDim2.new(0, -52, 0.5, 0)
+	key.Size = UDim2.fromOffset(44, 44)
+	key.BackgroundColor3 = C.Cream
+	key.TextColor3 = C.Ink
+	key.Font = Enum.Font.LuckiestGuy
+	key.TextScaled = true
+	key.Text = "E"
+	key.AutoLocalize = false
+	key.Parent = go
+	corner(key, 10)
+	InputHints.watch(key, function(mode: string)
+		key.Text = if mode == "gamepad" then "X" else "E"
+		key.Visible = mode ~= "touch"
+		goPad.PaddingLeft = UDim.new(0, if mode == "touch" then 18 else 64)
+	end)
+	local goScale = Instance.new("UIScale")
+	goScale.Parent = go
+	local pulseInfo = TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+	ui.goPulse = TweenService:Create(goScale, pulseInfo, { Scale = if Calm.on() then 1.04 else 1.1 })
 	-- first person locks the mouse: MenuMouseController frees it while this shows, so GO NOW is clickable
 	go:SetAttribute("Menu", true)
 	ui.go = go
@@ -437,6 +491,37 @@ local function hideOwnPadSign()
 	end
 end
 
+-- GO NOW! on/off: the pulse and the E / gamepad X binding only live while it shows
+local goOn = false
+local function sendGo()
+	Net.event("Lobby", "Launch"):FireServer()
+	UiKitPop(ui.go)
+	task.delay(0.25, function()
+		if goOn then
+			ui.goPulse:Play()
+		end
+	end)
+end
+function setGo(on: boolean)
+	if on == goOn then
+		return
+	end
+	goOn = on
+	ui.go.Visible = on
+	if on then
+		ui.goPulse:Play()
+		ContextActionService:BindActionAtPriority("PadGoNow", function(_, state: Enum.UserInputState)
+			if state == Enum.UserInputState.Begin then
+				sendGo()
+			end
+			return Enum.ContextActionResult.Sink
+		end, false, Enum.ContextActionPriority.High.Value + 50, Enum.KeyCode.E, Enum.KeyCode.ButtonX)
+	else
+		ui.goPulse:Cancel()
+		ContextActionService:UnbindAction("PadGoNow")
+	end
+end
+
 local function renderStrip()
 	if not ui.strip then
 		return
@@ -445,14 +530,15 @@ local function renderStrip()
 	hideOwnPadSign()
 	if inMission() or not mySquad or mySquad.instanceId then
 		ui.strip.Visible = false
+		setGo(false)
 		return
 	end
 	local def = byId[mySquad.missionId or ""]
 	local cap = math.min(LobbyConfig.MaxSquadSize, def and def.players and def.players.max or LobbyConfig.MaxSquadSize)
 	local lead = mySquad.leader == player.UserId
 	ui.stripText.Text = Loc.t(if lead then "PAD {1}  |  {2}  |  {3}  |  you lead" else "PAD {1}  |  {2}  |  {3}", { mySquad.padId, def and def.title or "No call", LobbyQueue.readyText(#mySquad.members, cap) })
-	ui.go.Visible = lead and player:GetAttribute("PadLocked") ~= true -- locked in: nothing left to hurry
 	ui.strip.Visible = true
+	setGo(lead and player:GetAttribute("PadLocked") ~= true) -- locked in: nothing left to hurry
 end
 
 ------------------------------------------------------------------ effects
@@ -653,7 +739,6 @@ function LobbyController:Start()
 	end)
 
 	local Board = Net.event("Lobby", "Board")
-	local Launch = Net.event("Lobby", "Launch")
 	local Countdown = Net.event("Lobby", "Countdown")
 	local Fx = Net.event("Lobby", "Fx")
 
@@ -692,9 +777,7 @@ function LobbyController:Start()
 			boardFade(a == true)
 		end
 	end)
-	ui.go.Activated:Connect(function()
-		Launch:FireServer()
-	end)
+	ui.go.Activated:Connect(sendGo)
 	player:GetAttributeChangedSignal("PadLocked"):Connect(renderStrip)
 	-- any input = you're here (the server only sees your body: a camera drag or jumping in place counts too)
 	local Alive = Net.event("Lobby", "Alive")

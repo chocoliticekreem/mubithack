@@ -11,6 +11,14 @@
 -- delays them. NEXT CALL stays the biggest button.
 -- Invite line: after the buttons, SocialAskController:ResultsReady may add "Bring your friends next time!"
 -- top-left (squad calls only); an offer card arriving later takes it down (never both on one screen).
+-- CALL #2 (OnboardingV3: 27% quit at the results): once the buttons are up NEXT CALL! counts down
+-- "NEXT CALL IN 5..." (a draining bar inside the button) and launches the next call by itself (Dispatch/Next);
+-- STAY AT STATION cancels it and drives you home (Lobby/BackToStation). If the results close before 0 (the
+-- run ended), the armed countdown still fires. Each choice goes to Results/Choice (tap | auto | stay).
+-- Reward preview line: the nearest goal, "NEXT: NEW HELMET AT LEVEL 3!" (DataConfig cosmetics / gear unlocks)
+-- or the battle pass's next free tier ("NEXT: CHERRY HELMET AT PASS TIER 2!", read-only from BattlePassConfig).
+-- DAILY CHEST (ResultsFlowService, DailyChest/Granted): a small card bottom-right (right of STAY AT STATION)
+-- that pops open with the reward; with no results screen up it shows on its own for a few seconds.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -41,6 +49,12 @@ local TEN_FOOT = (function(): boolean
 end)()
 
 local CARD_W, CARD_H = 190, 250
+local AUTO_NEXT = 5 -- s: NEXT CALL IN 5... (auto-launch)
+local RESULTS_SECONDS = 15 -- GameConfig.DispatchResultsSeconds: the countdown must end before the screen does
+local armedToken = -1 -- showToken whose NEXT CALL countdown is running (fires if the results close early)
+local shownAt = 0
+local pendingChest: { [string]: any }? = nil
+local drawChest: (root: Frame?, chest: { [string]: any }) -> () -- defined below
 local gui: ScreenGui? = nil
 local showToken = 0
 local runXp = 0 -- profile XP (Data/XpGained) since this run started; the pass's own is attr PassRunXp
@@ -84,8 +98,16 @@ end
 
 local function hide()
 	showToken += 1
+	armedToken = -1
 	offerRoot = nil
 	queuedOffer = nil
+	local chest = pendingChest -- granted, but the screen closed before NEXT CALL came up: show it anyway
+	pendingChest = nil
+	if chest then
+		task.defer(function()
+			pcall(drawChest, nil, chest)
+		end)
+	end
 	setBusy(false)
 	if gui then
 		local g = gui
@@ -269,6 +291,82 @@ local function flipIn(holder: Frame, face: Frame)
 	end
 end
 
+local function remoteOf(group: string, name: string): RemoteEvent?
+	local net = ReplicatedStorage:FindFirstChild("Net")
+	local g = net and net:FindFirstChild(group)
+	local r = g and g:FindFirstChild(name)
+	return if r and r:IsA("RemoteEvent") then r else nil
+end
+
+-- Results/Choice (ResultsFlowService, device-tagged telemetry) first, then the action itself
+local function choose(kind: string)
+	local r = remoteOf("Results", "Choice")
+	if r then
+		r:FireServer(kind, os.clock() - shownAt)
+	end
+end
+
+local function fireNext(kind: string)
+	armedToken = -1
+	choose(kind)
+	local remote = remoteOf("Dispatch", "Next")
+	if remote then
+		remote:FireServer()
+	end
+end
+
+-- the nearest reward goal: a level unlock (cosmetic or gear) or the battle pass's next free tier
+local function rewardPreview(me: Player): string?
+	local level = tonumber(me:GetAttribute("Level")) or 1
+	local bestText: string?, bestLevel = nil, math.huge
+	local okC, DataConfig = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
+	end)
+	if okC and type(DataConfig) == "table" and type(DataConfig.Cosmetics) == "table" then
+		for _, c in DataConfig.Cosmetics do
+			local at = tonumber(c.level) or 0
+			if at > level and at < bestLevel then
+				bestLevel = at
+				bestText = Loc.t("NEXT: {1} AT LEVEL {2}!", { if c.slot == "hose" then "NEW HOSE" else "NEW HELMET", at })
+			end
+		end
+	end
+	local okP, Progression = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
+	end)
+	local okD, ItemDefs = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript) :: any
+	end)
+	if okP and type(Progression) == "table" and type(Progression.nextUnlock) == "function" then
+		local id, at = Progression.nextUnlock(level)
+		if id and at and at < bestLevel then
+			local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
+			local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
+			bestLevel = at
+			bestText = Loc.t("NEXT: {1} AT LEVEL {2}!", { string.upper(name), at })
+		end
+	end
+	-- a level more than one away: the pass's next free tier is usually closer (read-only, any tier count)
+	if bestLevel > level + 1 then
+		local ok, passText = pcall(function(): string?
+			local Pass = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BattlePassConfig") :: ModuleScript) :: any
+			local tier = tonumber(me:GetAttribute("PassTier")) or 0
+			local tiers = type(Pass) == "table" and Pass.Tiers
+			local nextTier = type(tiers) == "table" and tiers[tier + 1]
+			local id = type(nextTier) == "table" and nextTier.Free
+			local reward = type(id) == "string" and type(Pass.Rewards) == "table" and Pass.Rewards[id]
+			if type(reward) == "table" and type(reward.Name) == "string" then
+				return Loc.t("NEXT: {1} AT PASS TIER {2}!", { string.upper(reward.Name), tier + 1 })
+			end
+			return nil
+		end)
+		if ok and passText then
+			bestText = passText
+		end
+	end
+	return bestText
+end
+
 local function star(parent: Instance, i: number, lit: boolean): TextLabel
 	local l = UiKit.label(parent, `Star{i}`, "★", UDim2.fromOffset(58, 58), UDim2.fromOffset((i - 1) * 64, 0), {
 		font = Enum.Font.GothamBlack,
@@ -286,6 +384,7 @@ end
 local function show(payload: Types.ResultsPayload)
 	hide()
 	local token = showToken
+	shownAt = os.clock()
 	-- above the phone thumb buttons (ThumbButtons 20: THROW sat on BACK TO STATION) and the HUD cards
 	local screen = UiKit.screen("Results", 35, true)
 	gui = screen
@@ -576,58 +675,85 @@ local function show(payload: Types.ResultsPayload)
 		end
 	end
 
-	-- session hook: the next unlock as a goal ("NEXT UNLOCK: Gas Mask at Level 2!"), then NEXT CALL! (one tap
-	-- straight into a fresh call, DispatchService Dispatch/Next) beside BACK TO STATION
+	-- session hook: the nearest reward as a goal ("NEXT: NEW HELMET AT LEVEL 3!"), then NEXT CALL! (one tap,
+	-- or by itself after NEXT CALL IN 5..., straight into a fresh call: DispatchService Dispatch/Next) beside
+	-- STAY AT STATION
 	local teaser: TextLabel? = nil
-	do
-		local okP, Progression = pcall(function()
-			return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
-		end)
-		local okD, ItemDefs = pcall(function()
-			return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript) :: any
-		end)
-		local level = tonumber(me:GetAttribute("Level")) or 1
-		if okP and type(Progression) == "table" and type(Progression.nextUnlock) == "function" then
-			local id, at = Progression.nextUnlock(level)
-			if id and at then
-				local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
-				local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
-				local t = UiKit.label(root, "Teaser", Loc.t("NEXT UNLOCK: {1} AT LEVEL {2}!", { string.upper(name), at }), UDim2.fromOffset(700, 30), UDim2.new(0.5, -350, 0, 590), {
-					font = UiKit.Header,
-					textSize = 26,
-					color = Palette.UiCream,
-					stroke = true,
-					strokeThickness = 2,
-				})
-				t.Visible = false
-				teaser = t
-			end
-		end
+	local previewText = rewardPreview(me)
+	if previewText then
+		local t = UiKit.label(root, "Teaser", previewText, UDim2.fromOffset(700, 26), UDim2.new(0.5, -350, 0, 586), {
+			font = UiKit.Header,
+			textSize = 24,
+			color = Palette.UiCream,
+			stroke = true,
+			strokeThickness = 2,
+		})
+		t.Visible = false
+		teaser = t
 	end
-	local nextBtn = UiKit.button(root, "NextCallButton", "NEXT CALL!", UDim2.fromOffset(340, 72), UDim2.new(0.5, -180, 0, 650), Palette.UiGood)
-	nextBtn.TextSize = 36
+	local nextBtn = UiKit.button(root, "NextCallButton", "NEXT CALL!", UDim2.fromOffset(360, 76), UDim2.new(0.5, -170, 0, 650), Palette.UiGood)
+	nextBtn.TextSize = 34
 	nextBtn.Visible = false
+	nextBtn.ClipsDescendants = true
+	-- the auto-launch bar: drains left to right inside the button while NEXT CALL IN n... counts
+	local bar = Instance.new("Frame")
+	bar.Name = "AutoBar"
+	bar.AnchorPoint = Vector2.new(0, 1)
+	bar.Position = UDim2.new(0, 0, 1, 0)
+	bar.Size = UDim2.new(1, 0, 0, 10)
+	bar.BackgroundColor3 = Palette.UiCream
+	bar.BackgroundTransparency = 0.15
+	bar.BorderSizePixel = 0
+	bar.Visible = false
+	bar.ZIndex = 4
+	bar.Parent = nextBtn
 	nextBtn.Activated:Connect(function()
 		sfx("Click", 0.6)
-		local net = ReplicatedStorage:FindFirstChild("Net")
-		local remote = net and net:FindFirstChild("Dispatch") and (net :: any).Dispatch:FindFirstChild("Next")
-		if remote and remote:IsA("RemoteEvent") then
-			remote:FireServer()
-		end
+		fireNext("tap")
 		hide()
 	end)
-	local back = UiKit.button(root, "BackButton", "BACK TO STATION", UDim2.fromOffset(300, 60), UDim2.new(0.5, 180, 0, 650), Palette.UiRed)
-	back.TextSize = 26
+	local back = UiKit.button(root, "BackButton", "STAY AT STATION", UDim2.fromOffset(280, 60), UDim2.new(0.5, 175, 0, 650), Palette.UiRed)
+	back.TextSize = 24
 	back.Visible = false
 	back.Activated:Connect(function()
 		sfx("Click", 0.6)
-		local lobby = ReplicatedStorage:FindFirstChild("Net")
-		local remote = lobby and lobby:FindFirstChild("Lobby") and (lobby :: any).Lobby:FindFirstChild("BackToStation")
-		if remote and remote:IsA("RemoteEvent") then
+		armedToken = -1
+		choose("stay")
+		local remote = remoteOf("Lobby", "BackToStation")
+		if remote then
 			remote:FireServer()
 		end
 		hide()
 	end)
+	-- NEXT CALL IN 5...: only on a dispatch run (workspace.Runs.<id>), so NEXT CALL can actually leave it
+	local function autoNext()
+		local runs = workspace:FindFirstChild("Runs")
+		local id = (payload :: any).instanceId
+		if type(id) ~= "string" or not runs or not runs:FindFirstChild(id) then
+			return
+		end
+		local secs = math.clamp(math.floor(math.min(AUTO_NEXT, RESULTS_SECONDS - 1.5 - (os.clock() - shownAt))), 2, AUTO_NEXT)
+		armedToken = token
+		bar.Visible = true
+		bar.Size = UDim2.new(1, 0, 0, 10)
+		UiKit.tween(bar, secs, { Size = UDim2.new(0, 0, 0, 10) }, Enum.EasingStyle.Linear)
+		task.spawn(function()
+			for n = secs, 1, -1 do
+				if token ~= showToken or armedToken ~= token then
+					return
+				end
+				nextBtn.Text = Loc.t("NEXT CALL IN {1}...", { n })
+				UiKit.punch(nextBtn, 0.06)
+				sfx("Tick", 0.35, 1 + (secs - n) * 0.08)
+				task.wait(1)
+			end
+			if token == showToken and armedToken == token then
+				nextBtn.Text = "NEXT CALL!"
+				fireNext("auto")
+				hide()
+			end
+		end)
+	end
 	-- gamepad: the cursor waits on NEXT CALL! (the biggest button) once it's up; the D-pad reaches BACK TO
 	-- STATION and the pass offer card's BUY / No thanks. B just closes the screen (the server still
 	-- brings the squad home after its countdown).
@@ -664,6 +790,13 @@ local function show(payload: Types.ResultsPayload)
 			teaser.Visible = true
 			UiKit.pop(teaser, 0.3)
 		end
+		autoNext()
+		-- the daily chest (if the server already granted it for this call): bottom-right, right of STAY
+		local chest = pendingChest
+		if chest then
+			pendingChest = nil
+			pcall(drawChest, root, chest)
+		end
 		-- BLAME OF THE CALL sticker, top-right (ClientLib/BlameCard): clear of NEXT CALL!, offer and invite
 		local okB, blameCard = pcall(BlameCard.build, root, payload)
 		if okB and blameCard then
@@ -685,6 +818,94 @@ local function show(payload: Types.ResultsPayload)
 			end)
 		end
 	end)
+end
+
+-- DAILY CHEST card (ResultsFlowService already granted it; this only shows it). On the results screen:
+-- bottom-right of the 1280x720 frame, right of STAY AT STATION (x 955), clear of the offer card (bottom-left)
+-- and the BLAME OF THE CALL sticker (top-right). Without a results screen: its own small gui for 5 s.
+function drawChest(root: Frame?, chest: { [string]: any })
+	local parent: Instance? = root
+	local own: ScreenGui? = nil
+	if not parent then
+		own = UiKit.screen("DailyChest", 36, true)
+		local holder = Instance.new("Frame")
+		holder.Name = "Root"
+		holder.BackgroundTransparency = 1
+		holder.AnchorPoint = Vector2.new(0.5, 0)
+		holder.Position = UDim2.new(0.5, 0, 0, 70)
+		holder.Size = UDim2.fromOffset(260, 130)
+		holder.Parent = own
+		parent = holder
+	end
+	local W, H = 250, 120
+	local card = UiKit.panel(parent :: Instance, "DailyChest", UDim2.fromOffset(W, H), if root then UDim2.fromOffset(1145, 652) else UDim2.fromOffset(130, 60), Vector2.new(0.5, 0.5))
+	card.ZIndex = 6
+	card.BackgroundColor3 = Color3.fromHex("#FFE2A8")
+	local band = Instance.new("Frame")
+	band.Name = "Band"
+	band.Size = UDim2.new(1, 0, 0, 30)
+	band.BackgroundColor3 = Palette.UiWarn
+	band.BorderSizePixel = 0
+	band.ZIndex = 7
+	UiKit.corner(band, 12)
+	band.Parent = card
+	local head = UiKit.label(band, "Head", "DAILY CHEST", UDim2.new(1, -60, 1, 0), UDim2.fromOffset(8, 0), {
+		font = UiKit.Header,
+		textSize = 20,
+		color = Palette.UiInk,
+	})
+	head.ZIndex = 8
+	head.TextXAlignment = Enum.TextXAlignment.Left
+	local dayL = UiKit.label(band, "Day", Loc.t("DAY {1}/7", { tonumber(chest.day) or 1 }), UDim2.fromOffset(70, 30), UDim2.new(1, -76, 0, 0), {
+		font = UiKit.Header,
+		textSize = 18,
+		color = Palette.UiRed,
+	})
+	dayL.ZIndex = 8
+	dayL.TextXAlignment = Enum.TextXAlignment.Right
+	local icon = UiKit.label(card, "Icon", "🎁", UDim2.fromOffset(64, 64), UDim2.fromOffset(6, 36), { textSize = 50 })
+	icon.ZIndex = 8
+	local xp = UiKit.label(card, "Xp", Loc.t("+{1} XP", { tonumber(chest.xp) or 0 }), UDim2.new(1, -84, 0, 36), UDim2.fromOffset(78, 34), {
+		font = UiKit.Header,
+		textSize = 32,
+		color = Palette.HelmetShield,
+		stroke = true,
+	})
+	xp.ZIndex = 8
+	xp.TextXAlignment = Enum.TextXAlignment.Left
+	local extra = if chest.cosmetic then (if string.find(tostring(chest.cosmetic), "^hose") then "NEW HOSE!" else "NEW HELMET!")
+		else Loc.t("TOMORROW: DAY {1}", { tonumber(chest.next) or 2 })
+	local sub = UiKit.label(card, "Sub", extra, UDim2.new(1, -84, 0, 24), UDim2.fromOffset(78, 72), {
+		font = UiKit.Header,
+		textSize = 18,
+		color = if chest.cosmetic then Palette.UiGood else Palette.UiInk,
+	})
+	sub.ZIndex = 8
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	-- closed chest first, then it pops open: a shake, the gift turns into the reward
+	xp.Visible, sub.Visible = false, false
+	UiKit.pop(card, 0.35)
+	sfx("Star", 0.6, 1.1)
+	task.delay(0.6, function()
+		if not card.Parent then
+			return
+		end
+		UiKit.shake(card, 0.3, 6)
+		task.wait(0.35)
+		if not card.Parent then
+			return
+		end
+		icon.Text = if chest.cosmetic then "🎉" else "⭐"
+		xp.Visible, sub.Visible = true, true
+		UiKit.pop(xp, 0.3)
+		UiKit.punch(card, 0.15)
+		sfx("Stamp", 0.6, 1.2)
+	end)
+	if own then
+		task.delay(5, function()
+			own:Destroy()
+		end)
+	end
 end
 
 local function isMine(payload: Types.ResultsPayload): boolean
@@ -759,10 +980,31 @@ function ResultsController:Start()
 		end
 		lastInstance = now
 	end)
-	-- v1.5 instances: hide once we are back in the lobby (InstanceId "") or launched into a new mission
+	-- v1.5 instances: hide once we are back in the lobby (InstanceId "") or launched into a new mission.
+	-- The run closed while NEXT CALL IN n... was still counting: take the next call anyway (free roam now).
 	Players.LocalPlayer:GetAttributeChangedSignal(Names.Attr.InstanceId):Connect(function()
-		if currentInstance ~= nil and Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId) ~= currentInstance then
+		local now = Players.LocalPlayer:GetAttribute(Names.Attr.InstanceId)
+		if currentInstance ~= nil and now ~= currentInstance then
+			local armed = armedToken == showToken
 			hide()
+			if armed and (now == nil or now == "") then
+				fireNext("auto")
+			end
+		end
+	end)
+	-- DAILY CHEST (ResultsFlowService): granted on the server a beat after the results open
+	Net.event("DailyChest", "Granted").OnClientEvent:Connect(function(chest: any)
+		if type(chest) ~= "table" then
+			return
+		end
+		local root = gui and gui:FindFirstChild("Root", true)
+		local buttonsUp = root and root:FindFirstChild("NextCallButton") and (root :: any).NextCallButton.Visible
+		if root and root:IsA("Frame") and buttonsUp then
+			pcall(drawChest, root, chest)
+		elseif gui then
+			pendingChest = chest -- drawn when NEXT CALL / STAY come up
+		else
+			pcall(drawChest, nil, chest)
 		end
 	end)
 end
@@ -771,6 +1013,12 @@ end
 -- controllers / a DevHook client harness can).
 function ResultsController:_show(payload: Types.ResultsPayload)
 	show(payload)
+end
+
+-- Test hook: draw a daily chest (same path as DailyChest/Granted).
+function ResultsController:_chest(chest: { [string]: any })
+	local root = gui and gui:FindFirstChild("Root", true)
+	pcall(drawChest, if root and root:IsA("Frame") then root else nil, chest)
 end
 
 -- Test hook: draw an offer card on the open results screen (same path as Monetization/Offer).

@@ -97,4 +97,10 @@ Spec.test("device: phone / tablet / PC / console", function()
 	Spec.eq(Funnel.isDevice(nil), false)
 end)
 
+Spec.test("pad / results / chest events are constant names", function()
+	for _, n in { "PadWaitSeconds", "PadLeftBeforeLaunch", "ResultsChoice", "DailyChestOpened" } do
+		Spec.eq((Funnel.Events :: any)[n], n)
+	end
+end)
+
 return Spec.finish()

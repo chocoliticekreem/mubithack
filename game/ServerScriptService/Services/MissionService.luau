@@ -19,6 +19,8 @@
 --   MissionService:GetMission(instanceId: string): Types.MissionRun?
 --   MissionService:GetMissions(): { Types.MissionRun }
 --   MissionService:LeaveResults(player): boolean  -- NEXT CALL!: leave a finished dispatch run's results now
+--   MissionService:JoinRun(player, instanceId): boolean -- LATE JOIN (LobbyService): hop into a dispatch run
+--     that is still Dispatched (driving), within its mission's max players
 -- Signals: RoundStarted(locationId: string)                 -- a run went Active (ROLL OUT)
 --          RoundEnded(payload: Types.ResultsPayload)          -- every run's results (v1 listeners)
 --          MissionStarted(instanceId: string, missionId: string)
@@ -1951,6 +1953,36 @@ function MissionService:LeaveResults(player: Player): boolean
 		end
 	end)
 	count("results_left_early")
+	return true
+end
+
+-- LATE JOIN (LobbyService: stepped on the pad right after its squad rolled out). Only a dispatch run that is
+-- still driving (Dispatched), only a player in no run, never past the mission's max players. The caller seats
+-- them in the squad's truck. true = they are in the run now.
+function MissionService:JoinRun(player: Player, instanceId: string): boolean
+	local run = runs[instanceId]
+	if not run or run.mode ~= "dispatch" or run.flow.state ~= "Dispatched" then
+		return false
+	end
+	if typeof(player) ~= "Instance" or player.Parent ~= Players or runOf(player) ~= nil or table.find(run.players, player) then
+		return false
+	end
+	local maxP = run.def and run.def.players and tonumber(run.def.players.max) or 8
+	if #run.players >= maxP then
+		return false
+	end
+	table.insert(run.players, player)
+	resetBlame({ player })
+	player:SetAttribute(Names.Attr.InstanceId, run.id)
+	safe("JoinRun waypoint", function()
+		local Nav = services.NavigationService
+		if Nav and type(Nav.SetWaypoint) == "function" then
+			local target: any = arrivalTarget(run.model) or sitePos(run.model)
+			Nav:SetWaypoint({ player }, target, run.label)
+		end
+	end)
+	notify({ player }, `DISPATCH: {run.label}`, "bad")
+	count("missions_late_joins")
 	return true
 end
 

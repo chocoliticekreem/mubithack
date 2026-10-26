@@ -52,7 +52,7 @@ return Config.define({
 	AutoQueue = true,
 	AutoQueueDelay = 3.5, -- s after the panda is saved (the celebration owns the screen first)
 	FirstCall = "house_fire", -- the plain core loop (spray fires, carry people out): gas_leak's valves + tanker countdown was too much for a first call
-	QueueCountdown = 7, -- s on the pad before it rolls (was 12: a dead wait right after the tutorial fire, where 2 players quit); GO NOW still skips it
+	QueueCountdown = 3, -- s on the pad before it rolls (was 12, then 7: OnboardingV3 had 24% quit on the pad); GO NOW skips it
 	QueueRetries = 2, -- the first call's squad dissolved while you were still queued: queue you again this often
 	CelebrateSeconds = 3.5, -- the client's "PANDA SAVED!" card
 	-- client copy

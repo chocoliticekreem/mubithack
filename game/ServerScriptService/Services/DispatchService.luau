@@ -627,10 +627,23 @@ end
 -- finished run's results (MissionService:LeaveResults), picks a real call (never a bin fire) and accepts
 -- it for you: one tap from MISSION COMPLETE to driving again. Nothing free: the DISPATCH list instead.
 local function nextCall(p: Player): boolean
+	local runBefore = p:GetAttribute(Names.Attr.InstanceId)
 	local okLeave, left = call("MissionService", "LeaveResults", p)
 	if okLeave and left == false then
 		Net.notify(p, "Finish your current call first!", "bad")
 		return false
+	end
+	-- keep the squad together (the results' NEXT CALL IN 5 fires on every member's screen at once): squad
+	-- mates still on the same finished call's results come along, unless they picked STAY AT STATION
+	-- (Player attr ResultsStay, ResultsFlowService)
+	local sid = p:GetAttribute(Names.Attr.SquadId)
+	if type(runBefore) == "string" and runBefore ~= "" and type(sid) == "string" and sid ~= "" then
+		for _, q in Players:GetPlayers() do
+			if q ~= p and q:GetAttribute(Names.Attr.SquadId) == sid and q:GetAttribute(Names.Attr.InstanceId) == runBefore
+				and q:GetAttribute("ResultsStay") ~= true then
+				call("MissionService", "LeaveResults", q)
+			end
+		end
 	end
 	if not isFree(p) then
 		return false

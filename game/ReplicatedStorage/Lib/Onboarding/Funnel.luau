@@ -94,6 +94,8 @@ function Funnel.isDevice(name: any): boolean
 	return type(name) == "string" and table.find(Funnel.Devices, name) ~= nil
 end
 
+-- Every Mission step carries CustomField01 = device (same set as OnboardingV3) since 2026-10-26;
+-- Mission Complete's end reason moved to CustomField02.
 Funnel.MissionFunnelName = "Mission"
 Funnel.Mission = table.freeze({
 	"Dispatched",
@@ -137,6 +139,11 @@ Funnel.Events = table.freeze({
 	TwistRolled = "TwistRolled", -- value: 1; a call got a twist at dispatch
 	TwistCompleted = "TwistCompleted", -- value: 1; the twisted call ended ALL CLEAR (cat: and the cat was saved)
 	CallTime = "CallTime", -- value: seconds from dispatch to the results; field = twist id or "none"
+	-- pad -> launch and results -> call #2 (FunnelService:LogDevice: CustomField01 = device, CustomField02 = kind)
+	PadWaitSeconds = "PadWaitSeconds", -- value: seconds from stepping on a pad to launch; kind solo | squad | late
+	PadLeftBeforeLaunch = "PadLeftBeforeLaunch", -- value: seconds on the pad; kind walked | notyet | quit
+	ResultsChoice = "ResultsChoice", -- value: seconds the results screen was up; kind tap | auto | stay
+	DailyChestOpened = "DailyChestOpened", -- value: streak day 1..7; kind = the reward id
 })
 
 export type Track = { last: number }
