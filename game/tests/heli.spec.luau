@@ -135,10 +135,23 @@ Spec.test("drop checks", function()
 	Spec.eq(why({ height = 120 }), "too high")
 end)
 
-Spec.test("cone height covers the drop radius with the hose cone", function()
-	local h = Rules.coneHeight(18, 0.86)
-	Spec.near(h, 30.35, 0.05)
-	Spec.truthy(math.sqrt(h * h + 18 * 18) < 42, "edge stays inside FireConfig.HoseRange")
+Spec.test("drop targets: radius, under the roof, nearest first, capped", function()
+	local cfg = { DropRadius = 18, DropDepth = 45, DropAbove = 12, DropMaxParts = 3 }
+	local fires = {
+		{ x = 0, y = 15, z = 0 }, -- on the roof, right there
+		{ x = 10, y = 2, z = 0 }, -- inside, ground floor
+		{ x = 25, y = 2, z = 0 }, -- too far
+		{ x = 0, y = 40, z = 5 }, -- way above the splash
+		{ x = 5, y = 2, z = 5 },
+		{ x = 12, y = 2, z = 12 },
+	}
+	local t = Rules.dropTargets(fires, { x = 0, y = 15, z = 0 }, cfg)
+	Spec.eq(#t, 3, "capped")
+	Spec.eq(t[1], 1)
+	Spec.eq(t[2], 5)
+	Spec.eq(t[3], 2)
+	cfg.DropMaxParts = 10
+	Spec.eq(#Rules.dropTargets(fires, { x = 0, y = 15, z = 0 }, cfg), 4, "17 studs diagonal still in")
 end)
 
 return Spec.finish()

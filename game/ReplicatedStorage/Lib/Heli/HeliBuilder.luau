@@ -245,7 +245,7 @@ function HeliBuilder.build(cfg: any): Model
 	pour.Enabled = false
 	pour.Texture = "rbxasset://textures/particles/smoke_main.dds"
 	pour.Color = ColorSequence.new(WATER, Color3.fromHex("#E8F8FF"))
-	pour.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2.5), NumberSequenceKeypoint.new(1, 7) })
+	pour.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 3.5), NumberSequenceKeypoint.new(1, 11) })
 	pour.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
 	pour.Lifetime = NumberRange.new(0.6, 1.1)
 	pour.Speed = NumberRange.new(30, 45)

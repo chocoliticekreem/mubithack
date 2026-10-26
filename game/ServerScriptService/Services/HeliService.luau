@@ -13,9 +13,10 @@
 --     physics back and auto-lands it straight down (LandSpeed), then parks it (anchored).
 --   * Bucket (server-authoritative): low over water (Hydrant-tagged ponds / pools / hydrants, HeliWater,
 --     terrain water) it fills over FillSeconds (model attr Fill 0..1). Heli/Drop: full + DropCooldown +
---     not higher than DropMaxHeight -> FireService:ApplyWater(pilot, splash + up * coneHeight, down,
---     DropLitres): the hose's own cone pointed straight down, so fires within ~DropRadius go out and
---     count exactly like a hose (Extinguished(part, pilot) -> fires out / XP / battle pass / COMBO).
+--     not higher than DropMaxHeight -> every burning part within DropRadius of the splash (and under it,
+--     DropDepth, inside a building under the roof), nearest first, at most DropMaxParts, gets
+--     FireService:ApplyWater(pilot, just above it, down, DropLitres): the hose's own API, so it counts
+--     exactly like a hose (Extinguished(part, pilot) -> fires out / XP / battle pass / COMBO).
 --     Teammates in the splash are cooled (HeatService:Cool). Heli/Fx tells every client to draw it.
 -- Remotes: Heli/Summon (C->S, no args, 1/s), Heli/Drop (C->S, no args, 2/s), Heli/Exit (C->S, no args, 2/s),
 --          Heli/Fx (S->C all: kind "drop" | "fill", heli: Model, pos: Vector3, hits: number?)
@@ -29,6 +30,7 @@
 --   _drop(player) -> string, _state(player) -> JSON, _land(player)
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
+local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -36,7 +38,6 @@ local Workspace = game:GetService("Workspace")
 
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigFolder:WaitForChild("HeliConfig") :: ModuleScript) :: any
-local FireConfig = require(ConfigFolder:WaitForChild("FireConfig") :: ModuleScript) :: any
 local MonCfg = require(ConfigFolder:WaitForChild("MonetizationConfig") :: ModuleScript) :: any
 local MapConfig = require(ConfigFolder:WaitForChild("MapConfig") :: ModuleScript) :: any
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -54,6 +55,10 @@ HeliService.Priority = 97 -- after MonetizationService (60), MapService, FireSer
 local TAG = "Heli"
 local WATER_TAG = "HeliWater"
 local SEATS = { "PilotSeat", "RideSeat1", "RideSeat2", "RideSeat3" }
+-- the heli's solid parts never collide with the people sitting in it (the cabin hull wraps the seats, and
+-- the physics rig's torso / head are their own assemblies: they would wedge the heli on the ground)
+local BODY_GROUP = "HeliBody"
+local RIDER_GROUP = "HeliRider"
 
 type Heli = {
 	model: Model,
@@ -78,6 +83,7 @@ local fxRemote: RemoteEvent? = nil
 local openStore: RemoteEvent? = nil
 local pad: { model: Model?, center: CFrame? } = { model = nil, center = nil }
 local waters: { [BasePart]: true } = {}
+local riderGroups: { [BasePart]: string } = {} -- a seated rider's part -> its collision group before
 
 local function count(name: string, n: number?)
 	pcall(Telemetry.count, name, n or 1)
@@ -338,11 +344,46 @@ local function onPilotChanged(h: Heli)
 	end
 end
 
+local function setRider(char: Model?, on: boolean)
+	if not char then
+		return
+	end
+	for _, d in char:GetDescendants() do
+		if d:IsA("BasePart") then
+			if on then
+				if riderGroups[d] == nil then
+					riderGroups[d] = d.CollisionGroup
+				end
+				d.CollisionGroup = RIDER_GROUP
+			elseif riderGroups[d] ~= nil then
+				d.CollisionGroup = riderGroups[d]
+				riderGroups[d] = nil
+			end
+		end
+	end
+end
+
+local function watchSeat(seat: Seat)
+	local was: Model? = nil
+	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+		local occ = seat.Occupant
+		local char = if occ then occ.Parent :: Model? else nil
+		if was and was ~= char then
+			setRider(was, false)
+		end
+		if char then
+			setRider(char, true)
+		end
+		was = char
+	end)
+end
+
 local function destroyHeli(h: Heli)
 	for _, p in Players:GetPlayers() do
 		local inH = seatedIn(p)
 		if inH == h then
 			unseat(p, besideSpot(h))
+			setRider(p.Character, false)
 		end
 	end
 	if helis[h.owner] == h then
@@ -486,6 +527,17 @@ local function build(owner: Player, at: CFrame): Heli
 		fullTold = false,
 	}
 	addPrompt(h)
+	for _, d in m:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.CollisionGroup = BODY_GROUP
+		end
+	end
+	for _, n in SEATS do
+		local seat = m:FindFirstChild(n)
+		if seat and seat:IsA("Seat") then
+			watchSeat(seat)
+		end
+	end
 	local ps = m:FindFirstChild("PilotSeat") :: Seat
 	ps:GetPropertyChangedSignal("Occupant"):Connect(function()
 		onPilotChanged(h)
@@ -683,13 +735,30 @@ local function drop(player: Player): string
 	setFill(h, 0)
 	h.model:SetAttribute("NextDrop", Workspace:GetServerTimeNow() + (tonumber(Cfg.DropCooldown) or 8))
 	local radius = tonumber(Cfg.DropRadius) or 18
-	local up = Rules.coneHeight(radius, tonumber(FireConfig.HoseConeCos) or 0.86)
+	-- the burning parts the splash reaches (HeliRules.dropTargets: radius, under the roof, capped), each
+	-- hosed point-blank from just above through the hose's own FireService:ApplyWater, so they count like
+	-- a hose: Extinguished(part, pilot) -> fires out / XP / battle pass, Doused -> COMBO
+	local burning: { BasePart } = {}
+	local pts = {}
+	for _, b in CollectionService:GetTagged(Names.Tag.Burning) do
+		if b:IsA("BasePart") and b:IsDescendantOf(Workspace) then
+			table.insert(burning, b)
+			table.insert(pts, { x = b.Position.X, y = b.Position.Y, z = b.Position.Z })
+		end
+	end
 	local hits = 0
 	local Fire = services.FireService
+	local litres = tonumber(Cfg.DropLitres) or 40
 	if Fire and type(Fire.ApplyWater) == "function" then
-		local okW, res = pcall(Fire.ApplyWater, Fire, player, ground + Vector3.new(0, up, 0), Vector3.new(0, -1, 0), tonumber(Cfg.DropLitres) or 40)
-		if okW and type(res) == "number" then
-			hits = res
+		for _, i in Rules.dropTargets(pts, { x = ground.X, y = ground.Y, z = ground.Z }, Cfg) do
+			local b = burning[i]
+			if b:HasTag(Names.Tag.Burning) then
+				local top = b.Position + Vector3.new(0, b.Size.Y / 2 + 1.5, 0)
+				local okW, res = pcall(Fire.ApplyWater, Fire, player, top, Vector3.new(0, -1, 0), litres)
+				if okW and type(res) == "number" and res > 0 then
+					hits += 1
+				end
+			end
 		end
 	end
 	-- soak (cool) everyone in the splash
@@ -939,6 +1008,14 @@ function HeliService:Start()
 		f = nf
 	end
 	folder = f :: Folder
+	pcall(function()
+		for _, g in { BODY_GROUP, RIDER_GROUP } do
+			if not PhysicsService:IsCollisionGroupRegistered(g) then
+				PhysicsService:RegisterCollisionGroup(g)
+			end
+		end
+		PhysicsService:CollisionGroupSetCollidable(BODY_GROUP, RIDER_GROUP, false)
+	end)
 	fxRemote = Net.event("Heli", "Fx")
 	openStore = Net.event("Monetization", "Open")
 	Net.onServer(Net.event("Heli", "Summon"), { rate = 1, burst = 1 }, function(player: Player)

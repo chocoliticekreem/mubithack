@@ -116,7 +116,7 @@ return Config.define({
 		Headlines = {
 			UnlimitedFoam = { foam = "OUT OF FOAM?", default = "NEVER RUN DRY!" },
 			PremiumPass = { level = "LEVEL UP!", rescue = "HERO RESCUE!", passxp = "GO GOLD!", default = "GO GOLD!" },
-			Helicopter = { bigfire = "WANT A FIRE HELICOPTER?", default = "FLY A FIRE HELICOPTER!" },
+			Helicopter = { bigfire = "WANT A HELI?", default = "FLY A HELI!" }, -- short: the card fits ~12 letters
 		},
 		Short = { -- one line under the pass name (what you actually get)
 			UnlimitedFoam = "Foam never runs out!",

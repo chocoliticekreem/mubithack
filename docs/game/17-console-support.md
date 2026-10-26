@@ -50,6 +50,11 @@ How it works:
 | Truck | Right stick | Look around. It is read every frame now: a held stick keeps turning, and the view eases back 0.8 s after you let go | VehicleController padLook |
 | Truck | X / Y / R3 | Siren / horn / chase ↔ cab camera | TruckSiren, TruckHorn, TruckCam |
 | Truck | A or B | Hop out | TruckExit (jump is off in the seat) |
+| Fire heli (pilot, pass) | Left stick / right stick | Fly (camera-relative) / look | HeliController |
+| Fire heli (pilot) | R2 or A / L2 | Up / down (keyboard SPACE / Q or SHIFT; touch UP / DOWN) | HeliUp, HeliDown |
+| Fire heli (pilot) | X or R1 | DROP the bucket (keyboard CLICK or G; touch DROP) | HeliDrop |
+| Fire heli (pilot or rider) | B | Out: the pilot's heli lands itself first (keyboard F; touch OUT; riders also A / SPACE) | HeliExit |
+| On foot (heli owners) | D-pad left → SUMMON | Call your heli (keyboard U) | HeliController SummonHeli |
 | Any menu | D-pad / left stick, A, B | Move the cursor, press, close (and give focus back) | GamepadNav |
 | Any menu | Right stick | Scroll the menu's list | GamepadNav.scroll |
 

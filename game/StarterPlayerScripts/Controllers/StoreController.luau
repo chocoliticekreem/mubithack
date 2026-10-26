@@ -321,8 +321,8 @@ local function buildHero(parent: Instance, def: any, y: number): Card
 		m.Parent = world
 		heroModel = m
 		local cam = Instance.new("Camera")
-		cam.FieldOfView = 40
-		cam.CFrame = CFrame.lookAt(Vector3.new(30, 12, -34), Vector3.new(0, -3, 4))
+		cam.FieldOfView = 42
+		cam.CFrame = CFrame.lookAt(Vector3.new(19, 7, -22), Vector3.new(0, -3.5, 3))
 		cam.Parent = vp
 		vp.CurrentCamera = cam
 	end)

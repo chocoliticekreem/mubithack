@@ -39,6 +39,9 @@ return Config.define({
 	FillMargin = 5, -- studs around a water part's footprint that still count
 	DropRadius = 18, -- fires within ~this many studs (flat) of the splash point go out
 	DropLitres = 40, -- per burning part hit (FireConfig.CoolPerLitre 9 -> 360 heat: any fire is out)
+	DropDepth = 45, -- also fires this far under the splash point (inside the building under a roof)
+	DropAbove = 12, -- ...and this far over it
+	DropMaxParts = 14, -- at most this many burning parts per drop (strong, never a whole big call)
 	DropMaxHeight = 90, -- bucket more than this above the ground = "Too high! Fly lower"
 	DropCooldown = 8, -- seconds from one drop to the next (the refill cycle); RemoteEvent rate limited too
 	ShakeRadius = 70, -- players this close to a splash get a little screen shake
@@ -61,12 +64,13 @@ return Config.define({
 	},
 
 	-- Keys (doc 16 / 17): move = WASD / left stick, look = mouse / right stick.
-	-- UP: Space or E / R2 or A.  DOWN: Q or Shift / L2.  DROP: click or G / X or R1.  OUT: F / B.
-	KeyUp = { Enum.KeyCode.Space, Enum.KeyCode.E },
+	-- UP: Space / R2 or A.  DOWN: Q or Shift / L2.  DROP: click or G / X or R1.  OUT: F / B.
+	-- (not E: E still triggers prompts, e.g. a truck door, while you hover low beside it)
+	KeyUp = { Enum.KeyCode.Space },
 	KeyDown = { Enum.KeyCode.Q, Enum.KeyCode.LeftShift },
 	KeyDrop = { Enum.KeyCode.G },
 	KeyExit = { Enum.KeyCode.F },
-	KeySummon = Enum.KeyCode.H, -- on foot, owners: call your heli
+	KeySummon = Enum.KeyCode.U, -- on foot, owners: call your heli (H is HELP / horn, J skip guide, L/Y/N dispatch)
 	PadUp = { Enum.KeyCode.ButtonR2, Enum.KeyCode.ButtonA },
 	PadDown = { Enum.KeyCode.ButtonL2 },
 	PadDrop = { Enum.KeyCode.ButtonX, Enum.KeyCode.ButtonR1 },
@@ -78,7 +82,7 @@ return Config.define({
 	TrimColor = Color3.fromHex("#2A2A30"),
 	BucketColor = Color3.fromHex("#FF8A1F"),
 	WaterColor = Color3.fromHex("#4FB3D9"),
-	RotorRpm = 360, -- visual spin, degrees per second x this / 60 (client only)
+	RotorRpm = 360, -- visual main-rotor spin, revolutions per minute (client only)
 
 	-- Sounds (ids "" = none; same rule as AudioConfig)
 	SplashSoundId = "rbxassetid://140727221118804", -- AudioConfig CartoonSplash (the big dump)

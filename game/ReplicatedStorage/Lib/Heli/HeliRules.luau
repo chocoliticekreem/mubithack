@@ -15,8 +15,8 @@
 --   HeliRules.fill(fill, dt, inWater, cfg) -> number      -- 0..1
 --   HeliRules.canDrop(d, cfg) -> (ok, reason?)            -- d = { pilot, fill, now, last, height }
 --     reasons: "not pilot", "empty", "cooldown", "too high"
---   HeliRules.coneHeight(radius, coneCos) -> studs        -- FireService:ApplyWater origin height over the
---     splash point so its cone covers `radius` at the ground (the hose's cone, pointed straight down)
+--   HeliRules.dropTargets(fires, splash, cfg) -> { index } -- which burning parts a drop reaches (radius,
+--     depth under a roof, nearest first, capped at DropMaxParts)
 local HeliRules = {}
 
 local function num(v: any, default: number): number
@@ -145,10 +145,32 @@ function HeliRules.canDrop(d: any, cfg: any): (boolean, string?)
 	return true, nil
 end
 
-function HeliRules.coneHeight(radius: number, coneCos: number): number
-	local c = math.clamp(num(coneCos, 0.86), 0.05, 0.999)
-	local tan = math.sqrt(1 - c * c) / c
-	return num(radius, 18) / tan
+-- Which burning parts one bucket drop puts out: within DropRadius (flat) of the splash point, from
+-- DropDepth below it (fires inside the building under a roof) to DropAbove over it, nearest first,
+-- at most DropMaxParts (strong, but one drop never ends a whole big call).
+--   fires = { { x, y, z } }, splash = { x, y, z } -> { index } (into fires)
+function HeliRules.dropTargets(fires: { any }, splash: any, cfg: any): { number }
+	local r = num(cfg.DropRadius, 18)
+	local depth = num(cfg.DropDepth, 45)
+	local above = num(cfg.DropAbove, 12)
+	local cap = math.max(1, math.floor(num(cfg.DropMaxParts, 14)))
+	local hit: { { i: number, d: number } } = {}
+	for i, f in fires do
+		local dx, dz = f.x - splash.x, f.z - splash.z
+		local d = math.sqrt(dx * dx + dz * dz)
+		local dy = f.y - splash.y
+		if d <= r and dy >= -depth and dy <= above then
+			table.insert(hit, { i = i, d = d })
+		end
+	end
+	table.sort(hit, function(a, b)
+		return a.d < b.d
+	end)
+	local out = {}
+	for k = 1, math.min(cap, #hit) do
+		table.insert(out, hit[k].i)
+	end
+	return out
 end
 
 return HeliRules

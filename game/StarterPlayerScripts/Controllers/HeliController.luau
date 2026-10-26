@@ -11,12 +11,12 @@
 --   * Pilot (your own heli's PilotSeat, State "flying"): no auto-pilot, arcade flight. You own the
 --     physics; every frame the stick / WASD (camera-relative), UP / DOWN and HeliRules.velocity set the
 --     LinearVelocity, and AlignOrientation keeps it level (lean only for looks: it can't flip).
---     Keys: WASD / left stick move, mouse / right stick look, SPACE or E / R2 or A up, Q or SHIFT / L2
+--     Keys: WASD / left stick move, mouse / right stick look, SPACE / R2 or A up, Q or SHIFT / L2
 --     down, CLICK or G / X or R1 DROP, F / B out (safe auto-land). Touch: Roblox's thumbstick + UP (the
 --     jump spot), DROP (big), DOWN, OUT. The camera follows the heli (Custom camera, zoomed out).
 --   * Riders: F / SPACE / B / OUT hops out (onto the ground beside it).
 --   * HUD while flying: bucket meter + what to do now; a key strip on PC / gamepad.
---   * On foot, owners: a round SUMMON HELI button on the right (H): Heli/Summon.
+--   * On foot, owners: a round SUMMON HELI button on the right (U): Heli/Summon.
 -- Test hooks (execute_luau on the Client): _input(mx, mz, up) (fake stick, nil clears), _drop(), _exit(),
 --   _summon(), _debug() -> JSON
 local CollectionService = game:GetService("CollectionService")
@@ -58,6 +58,8 @@ local current: Model? = nil
 local upHeld, downHeld = false, false
 local trigUp, trigDown = 0, 0
 local yaw = 0
+local cmd = Vector3.zero -- the velocity we asked for last frame (smoothed from this, not from the physics:
+-- sitting on the pad, contact would otherwise keep the measured speed at 0 and the heli never lifts)
 local fakeInput: { mx: number, mz: number, up: number }? = nil
 local jumpHiddenOn: Humanoid? = nil
 local savedZoom: { min: number, max: number }? = nil
@@ -210,10 +212,10 @@ end
 local function buildHud()
 	local g = UiKit.screen("HeliHud", 8)
 	hud = g
-	local f = UiKit.panel(g, "Bucket", UDim2.fromOffset(340, 64), UDim2.new(0.5, 0, 1, -150), Vector2.new(0.5, 1))
+	local f = UiKit.panel(g, "Bucket", UDim2.fromOffset(340, 64), UDim2.new(1, -12, 0, 168), Vector2.new(1, 0)) -- under the minimap: clear of the thumb buttons
 	f.Visible = false
 	meter = f
-	local icon = UiKit.label(f, "Icon", "🪣", UDim2.fromOffset(50, 50), UDim2.fromOffset(8, 7), { textSize = 34 })
+	local icon = UiKit.label(f, "Icon", "💧", UDim2.fromOffset(50, 50), UDim2.fromOffset(8, 7), { textSize = 34 })
 	icon.ZIndex = 3
 	local bar = Instance.new("Frame")
 	bar.Name = "Bar"
@@ -267,7 +269,7 @@ local function buildHud()
 		color = Palette.UiCream,
 		stroke = true,
 	})
-	InputHints.setChip(lab, Cfg.KeySummon.Name, "SUMMON HELI")
+	InputHints.setChip(lab, Cfg.KeySummon.Name, "HELI")
 	UiKit.onTap(b, function()
 		Net.event("Heli", "Summon"):FireServer()
 		UiKit.punch(b, 0.1)
@@ -343,8 +345,19 @@ end
 
 ------------------------------------------------------------------------------------------- flight
 
+-- the "Hop in" prompt of the heli you sit in is hidden for you (no sticker / outline while flying)
+local function boardPrompt(m: Model, on: boolean)
+	local root = m.PrimaryPart
+	local att = root and root:FindFirstChild("HopInAtt")
+	local pr = att and att:FindFirstChild("HeliBoard") :: ProximityPrompt?
+	if pr then
+		pr.Enabled = on
+	end
+end
+
 local function enter(m: Model, seat: Seat)
 	current = m
+	boardPrompt(m, false)
 	mode = if seat.Name == "PilotSeat" then "pilot" else "rider"
 	local hum = humanoid()
 	if hum then
@@ -367,6 +380,7 @@ local function enter(m: Model, seat: Seat)
 		player.CameraMaxZoomDistance = math.max(player.CameraMaxZoomDistance, Cfg.CamMaxZoom)
 		player.CameraMinZoomDistance = Cfg.CamMinZoom
 	end
+	cmd = Vector3.zero
 	if root then
 		local _, y, _ = root.CFrame:ToEulerAnglesYXZ()
 		yaw = y
@@ -385,6 +399,9 @@ local function leave()
 		return
 	end
 	mode = nil
+	if current and current.Parent then
+		boardPrompt(current, true)
+	end
 	current = nil
 	unbindAll()
 	if jumpHiddenOn then
@@ -461,13 +478,14 @@ local function fly(dt: number)
 	end
 	local rp = rayParams(m)
 	local clear = clearanceOf(root, rp)
-	local vel = root.AssemblyLinearVelocity
+	local vel = cmd
 	-- something solid just ahead (a wall, a tower): stop pushing and hop over it
 	local blocked = false
 	local dir = Vector3.new(mx, 0, mz)
 	if dir.Magnitude > 0.1 then
 		local probe = (tonumber(Cfg.ObstacleProbe) or 9) + Vector3.new(vel.X, 0, vel.Z).Magnitude * 0.25
-		local hit = Workspace:Spherecast(root.Position, 4.5, dir.Unit * probe, rp)
+		-- from the cabin's middle, smaller than the hull's height so the ground under the skids never counts
+		local hit = Workspace:Spherecast(root.Position + Vector3.new(0, 1, 0), 3.2, dir.Unit * probe, rp)
 		blocked = hit ~= nil and math.abs(hit.Normal.Y) < 0.6
 	end
 	local bmin = m:GetAttribute("BoundsMin")
@@ -480,7 +498,8 @@ local function fly(dt: number)
 		{ vx = vel.X, vy = vel.Y, vz = vel.Z, dt = dt, x = root.Position.X, y = root.Position.Y, z = root.Position.Z, clearance = clear, blocked = blocked, bounds = b },
 		Cfg
 	)
-	mv.VectorVelocity = Vector3.new(vx, vy, vz)
+	cmd = Vector3.new(vx, vy, vz)
+	mv.VectorVelocity = cmd
 	local newYaw = Rules.yawToward(yaw, vx, vz, dt, Cfg)
 	local turn = (newYaw - yaw) / math.max(dt, 1e-3)
 	yaw = newYaw
@@ -654,7 +673,7 @@ local function onFx(kind: any, m: any, pos: any, hits: any)
 		local bucket = typeof(m) == "Instance" and (m :: Instance):FindFirstChild("Bucket")
 		local pour = bucket and bucket:FindFirstChild("Pour") :: ParticleEmitter?
 		if pour then
-			pour:Emit(80)
+			pour:Emit(140)
 		end
 		task.delay(0.35, function()
 			splashFx(pos, true)
