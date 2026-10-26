@@ -432,13 +432,15 @@ local function bindRider(on: boolean)
 	riderBound = on
 	local high = Enum.ContextActionPriority.High.Value
 	if on then
-		ContextActionService:BindActionAtPriority("DriveSpray", onRiderAction, true, high, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
+		if Cfg.Targets then -- the roof cannon only has something to spray when practice fires are on
+			ContextActionService:BindActionAtPriority("DriveSpray", onRiderAction, true, high, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
+			ContextActionService:SetTitle("DriveSpray", "SPRAY")
+			ThumbLayout.place("DriveSpray", "primary", onRiderAction)
+		end
 		ContextActionService:BindActionAtPriority("DriveHonk", onRiderAction, true, high, keyOf("KeyHorn", Enum.KeyCode.H), Enum.KeyCode.ButtonY)
 		ContextActionService:BindActionAtPriority("DriveSiren", onRiderAction, true, high, keyOf("KeySiren", Enum.KeyCode.G), Enum.KeyCode.ButtonX)
-		ContextActionService:SetTitle("DriveSpray", "SPRAY")
 		ContextActionService:SetTitle("DriveHonk", "HONK")
 		ContextActionService:SetTitle("DriveSiren", "SIREN")
-		ThumbLayout.place("DriveSpray", "primary", onRiderAction)
 		ThumbLayout.place("DriveHonk", "upleft", onRiderAction)
 		ThumbLayout.place("DriveSiren", "left", onRiderAction)
 	else
