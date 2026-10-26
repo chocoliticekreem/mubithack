@@ -255,6 +255,27 @@ Spec.test("curve migration keeps every tier and claim (20 x 100 -> 100 tiers)", 
 	Spec.eq(jp.curve, nil)
 end)
 
+Spec.test("curve 3 (4x harder): v2 -> v3 keeps every tier and claim", function()
+	local N3: { number } = {}
+	for t = 1, 100 do
+		N3[t] = math.floor((150 + 5850 * ((t - 1) / 99) ^ 1.6) / 10 + 0.5) * 10
+	end
+	local V3: R.Opts = { perTier = 100, maxTier = 100, needs = N3, tiers = {}, rewards = {} }
+	Spec.eq(R.xpAt(100, V3), 240700, "season total")
+	for t = 2, 100 do
+		Spec.eq(R.need(t, V3) >= R.need(t - 1, V3), true, `tier {t} never cheaper than {t - 1}`)
+	end
+	for _, xp in { 0, 99, 2000, 9620, 26940, 57410 } do
+		local p = pass(xp)
+		p.free = { 1, 2 }
+		p.curve = 2
+		Spec.eq(R.migrateCurve(p, 3, CURVE, V3), true)
+		Spec.eq(R.tierOf(p.xp, V3), R.tierOf(xp, CURVE), `tier kept at v2 xp {xp}`)
+		Spec.eq(#p.free, 2, "claims untouched")
+		Spec.eq(R.migrateCurve(p, 3, CURVE, V3), false, "runs once")
+	end
+end)
+
 Spec.test("palette variants", function()
 	local PAL = { mint = { Name = "Mint", Color = "#6FE3B4", Trim = "#1E7A5A" } }
 	local id, d = R.variant("helmet:mint:neon", PAL)

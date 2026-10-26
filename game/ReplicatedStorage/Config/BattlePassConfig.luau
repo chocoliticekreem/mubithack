@@ -19,9 +19,8 @@
 -- "helmet:mint:neon" = PassRules.variant (id "helmet_mint", name "Mint Helmet"), drawn from Palette below.
 -- Never reorder or edit a shipped tier row; append-only. Every reward name is a Translations key.
 --
--- XP curve (XpCurve[t] = XP from tier t-1 to t): tiers 1-20 keep the original 100 XP each (so nobody's
--- progress moves), then it ramps smoothly to 1500 XP at tier 100. Total 57,410 XP: about 170 average
--- missions for a free player with no boosts. CurveVersion stamps each pass; a pass from an older curve is
+-- XP curve (XpCurve[t] = XP from tier t-1 to t): curve 3 ramps from 150 XP to 6000 XP per tier, 240,700 XP
+-- in total (about 4x curve 2): roughly 700 average missions for a free player with no boosts. CurveVersion stamps each pass; a pass from an older curve is
 -- moved onto this one keeping its tier and fraction (PassRules.migrateCurve, BattlePassService.onProfile).
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 local PassRules = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("BattlePass"):WaitForChild("PassRules") :: ModuleScript)
@@ -300,10 +299,17 @@ for _, row in Tiers do
 	end
 end
 
--- XP from tier t-1 to tier t: 100 for the original 20 tiers, then a smooth ramp to 1500 at tier 100
+-- curve 2 (Oct 2026): 100 for the original 20 tiers, then a smooth ramp to 1500 at tier 100 (57,410 XP)
+local XpCurveV2: { number } = {}
+for t = 1, 100 do
+	XpCurveV2[t] = if t <= 20 then 100 else math.floor((100 + 1400 * ((t - 20) / 80) ^ 1.4) / 10 + 0.5) * 10
+end
+
+-- curve 3 (current, ~4x harder): 150 XP for tier 1 ramping steeply to 6000 XP for tier 100.
+-- Totals: tier 10 = 1,990 · 25 = 9,660 · 50 = 44,270 · 75 = 117,640 · 100 = 240,700 XP.
 local XpCurve: { number } = {}
 for t = 1, 100 do
-	XpCurve[t] = if t <= 20 then 100 else math.floor((100 + 1400 * ((t - 20) / 80) ^ 1.4) / 10 + 0.5) * 10
+	XpCurve[t] = math.floor((150 + 5850 * ((t - 1) / 99) ^ 1.6) / 10 + 0.5) * 10
 end
 
 return Config.define({
@@ -313,10 +319,11 @@ return Config.define({
 	MaxTier = 100,
 	XpPerTier = 100, -- curve 1 (the original 20 x 100) and the fallback when XpCurve is missing
 	XpCurve = XpCurve,
-	CurveVersion = 2,
+	CurveVersion = 3,
 	-- older curves by version, for PassRules.migrateCurve (a pass with no `curve` was earned under 1)
 	CurveHistory = {
 		[1] = { perTier = 100, maxTier = 20 },
+		[2] = { perTier = 100, maxTier = 100, needs = XpCurveV2 },
 	},
 	Milestones = { 25, 50, 75, 100 }, -- the panel's gold columns + page markers
 	PageSize = 10, -- tiers per page in the REWARDS tab
