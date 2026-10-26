@@ -19,13 +19,13 @@
 --   SmokeService.Backdraft / HazardService.Caused("backdraft")   backdrafts (once per 3 s per player)
 --   VehicleService.Driven         drives (>= DriveMinStuds)
 --   ToolService.DoorBroken        doors
---   DataService.LevelUp, BattlePassService.TierUp, Player attrs SquadStreak / PassTier   max stats
+--   DataService.LevelUp, BattlePassService.TierUp, Player attrs SquadStreak / PassTier / DailyStreak (the
+--   DAILY CHEST, ResultsFlowService)   max stats
 -- Old profiles: on load the stats are raised to the profile's own counters (missionsPlayed, firesOut,
 --   rescued, level) and anything already earned unlocks at once (one summary toast past RetroToastMax).
 --
 -- Public API (nil-guarded callers):
 --   AchievementService:Record(player, stat, value, mode?)   -- mode "sum" | "max" (default: Stats kind).
---     The daily chest: Record(player, "dailyStreak", streak) and turn daily_7's `off` flag off.
 --   AchievementService:GetState(player) -> { unlocked, stats }?
 --   AchievementService:IsUnlocked(player, id) -> boolean
 -- Signals: Unlocked(player, id, xp)
@@ -194,6 +194,9 @@ local function awardBadge(player: Player, id: string)
 	end)
 end
 
+-- Player attrs other services own -> "max" stats
+local WATCHED: { [string]: string } = { SquadStreak = "streak", PassTier = "passTier", DailyStreak = "dailyStreak" }
+
 local TUTORIAL_PHASES = { burning = true, done = true } -- FirstFire tutorial cards on screen
 
 -- one toast at a time per player, ToastGapSeconds apart, through Shared/Notify (the HUD's toast queue)
@@ -325,13 +328,11 @@ end
 local function onProfile(player: Player)
 	local s = stateOf(player)
 	s.dirty = true -- the first flush seeds old profiles
-	local tier = tonumber(player:GetAttribute("PassTier"))
-	if tier then
-		record(player, "passTier", tier, "max")
-	end
-	local streak = tonumber(player:GetAttribute("SquadStreak"))
-	if streak then
-		record(player, "streak", streak, "max")
+	for attr, stat in WATCHED do
+		local v = tonumber(player:GetAttribute(attr))
+		if v then
+			record(player, stat, v, "max")
+		end
 	end
 	flush(player)
 	catchUpBadges(player)
@@ -519,12 +520,11 @@ end
 
 local function watchPlayer(player: Player)
 	stateOf(player)
-	player:GetAttributeChangedSignal("SquadStreak"):Connect(function()
-		record(player, "streak", tonumber(player:GetAttribute("SquadStreak")) or 0, "max")
-	end)
-	player:GetAttributeChangedSignal("PassTier"):Connect(function()
-		record(player, "passTier", tonumber(player:GetAttribute("PassTier")) or 0, "max")
-	end)
+	for attr, stat in WATCHED do
+		player:GetAttributeChangedSignal(attr):Connect(function()
+			record(player, stat, tonumber(player:GetAttribute(attr)) or 0, "max")
+		end)
+	end
 	-- a profile that loaded before this service started (boot order) still gets seeded
 	if profileOf(player) then
 		task.defer(onProfile, player)

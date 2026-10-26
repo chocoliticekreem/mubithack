@@ -52,7 +52,7 @@ local Stats: { [string]: "sum" | "max" } = {
 	sites = "max", -- different places you worked a call (derived)
 	level = "max", -- player level (DataService)
 	passTier = "max", -- battle pass tier (BattlePassService.TierUp / attr PassTier)
-	dailyStreak = "max", -- daily chest streak: AchievementService:Record(player, "dailyStreak", n)
+	dailyStreak = "max", -- daily chest streak day (ResultsFlowService Player attr DailyStreak)
 }
 
 local Defs: { Def } = {
@@ -98,8 +98,8 @@ local Defs: { Def } = {
 	{ id = "pass_25", name = "PASS TIER 25", desc = "Reach battle pass tier 25", stat = "passTier", goal = 25, xp = 150, tier = "silver", icon = "🎟" },
 	{ id = "pass_50", name = "PASS TIER 50", desc = "Reach battle pass tier 50", stat = "passTier", goal = 50, xp = 300, tier = "gold", icon = "🎫" },
 	{ id = "pass_100", name = "PASS TIER 100", desc = "Reach battle pass tier 100", stat = "passTier", goal = 100, xp = 600, tier = "gold", icon = "💎" },
-	-- no source yet: the daily chest sets it with AchievementService:Record(player, "dailyStreak", streak)
-	{ id = "daily_7", name = "DAILY STREAK 7", desc = "Open the daily chest 7 days in a row", stat = "dailyStreak", goal = 7, xp = 200, tier = "silver", icon = "📅", off = true },
+	-- the DAILY CHEST (ResultsFlowService, Player attr DailyStreak = streak day 1..7)
+	{ id = "daily_7", name = "DAILY STREAK 7", desc = "Open the daily chest 7 days in a row", stat = "dailyStreak", goal = 7, xp = 200, tier = "silver", icon = "📅" },
 }
 
 return {

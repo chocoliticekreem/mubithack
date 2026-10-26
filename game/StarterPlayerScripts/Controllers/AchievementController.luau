@@ -1,7 +1,7 @@
 --!strict
 -- AchievementController [owner: Achievements]. Client half of Services/AchievementService.
---   * 🏆 TROPHIES chip in the left chip column (lobby only, same look as NEWS / INVITE), in the first free
---     slot under ADMIN / INVITE; a red dot with the number of unlocks you haven't looked at yet.
+--   * 🏆 TROPHIES chip in the left chip column (HudLayout stack "Chips": PASS, NEWS, INVITE, TROPHIES, HELP,
+--     ADMIN; lobby only, same look as NEWS / INVITE); a red dot with the number of unlocks not looked at yet.
 --   * ACHIEVEMENTS panel: a HudLayout.modal (dims the HUD, shrinks to fit phones; gamepad: the cursor
 --     lands on ALL, the D-pad moves between ALL / TO DO / DONE! and X, the right stick scrolls, B closes).
 --     One card per achievement: tier-coloured icon, name, one line, a progress bar (7 / 10) and the XP
@@ -37,7 +37,6 @@ local TIER_COLOR: { [string]: Color3 } = {
 	gold = Color3.fromHex("#FFC531"),
 }
 local LOCKED_FILL = Color3.fromHex("#E6D9C2")
-local CHIP_SLOTS = { "AdminChip", "InviteChip" } -- chips above ours in the column (when visible)
 
 local ui: { [string]: any } = {}
 local open = false
@@ -198,25 +197,9 @@ local function syncChip()
 	if not chip then
 		return
 	end
-	chip.Visible = inLobby() and HudGate.allows("news") and not open
+	chip.Visible = inLobby() and HudGate.allows("news")
 	ui.dot.Visible = unseen > 0
 	ui.dotText.Text = tostring(math.min(unseen, 9))
-	-- first free slot under the chips above us (ADMIN for admins, INVITE when invites work)
-	local pg = player:FindFirstChild("PlayerGui")
-	local n = 0
-	for _, name in CHIP_SLOTS do
-		local c = pg and pg:FindFirstChild(name, true)
-		if c and c:IsA("GuiObject") and c.Visible then
-			local g = c:FindFirstAncestorOfClass("ScreenGui")
-			if g and g.Enabled then
-				n += 1
-			end
-		end
-	end
-	local want = UDim2.new(0, 13, 0.53, 48 + 52 * n)
-	if chip.Position ~= want then
-		chip.Position = want
-	end
 end
 
 local function buildChip()
@@ -242,6 +225,7 @@ local function buildChip()
 	local scale = Instance.new("UIScale")
 	scale.Parent = b
 	HudLayout.reserve(b)
+	HudLayout.add("Chips", b, 3.5) -- after INVITE, before HELP; the stack owns its Y
 	local dot = frame(b, "Dot", UDim2.fromOffset(22, 22), UDim2.new(1, -6, 0, -4), Palette.UiRed, 11)
 	dot.AnchorPoint = Vector2.new(0.5, 0.5)
 	dot.ZIndex = 3
@@ -490,11 +474,7 @@ function AchievementController:Start()
 		syncChip()
 	end)
 	HudGate.onChanged(syncChip)
-	-- the chips above ours come and go (admin, invite): re-check our slot now and then (cheap)
-	while true do
-		syncChip()
-		task.wait(1)
-	end
+	syncChip()
 end
 
 return AchievementController
