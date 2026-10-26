@@ -26,7 +26,7 @@ return Config.define({
 	BoostFall = 2.5, -- ... and back out (into a turn) faster
 
 	-- practice fires along the route (riders spray them with the roof water cannon)
-	Targets = true,
+	Targets = false, -- off: burning bins along every squad's route cluttered the streets for everyone
 	TargetMax = 6, -- per call
 	TargetSpacing = 55, -- studs along the route between two
 	TargetSkipStart = 35, -- none this close to the start ...
