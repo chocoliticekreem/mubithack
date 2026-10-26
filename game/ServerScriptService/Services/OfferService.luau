@@ -3,7 +3,8 @@
 -- Decides server side (pure rules: Lib/Monetization/OfferRules, caps in MonetizationConfig.Offers):
 --   * results: after a finished call (MissionService.MissionEnded, DecideDelay s later so the XP / level /
 --     pass XP of that call have landed): every ResultsEvery-th non-rookie call this session, one pass the
---     player doesn't own and that is on sale. Relevant first: foam ran out -> Unlimited Foam; levelled up /
+--     player doesn't own and that is on sale. Relevant first: foam ran out -> Unlimited Foam; a big fire
+--     (firesOut + burnedParts >= Offers.BigFire) -> Helicopter ("WANT A FIRE HELICOPTER?"); levelled up /
 --     rescued RescueHero+ / earned pass XP -> Premium Pass; else rotate. ResultsController draws the card
 --     (ClientLib/OfferCard) beside NEXT CALL, never in its way.
 --   * lobby: back at the station after a call that levelled you up, when no results offer was shown for
@@ -202,11 +203,16 @@ local function onMissionEnded(runId: string, payload: any)
 				s.completed += 1
 			end
 			local levelUp = level(player) > s.levelAtStart
+			local big = 0
+			if type(payload) == "table" then
+				big = (tonumber(payload.firesOut) or 0) + (tonumber(payload.burnedParts) or 0)
+			end
 			local signals = {
 				foamEmpty = s.foamEmpty,
 				rescued = rescuedBy(payload, player.UserId),
 				levelUp = levelUp,
 				passXp = tonumber(player:GetAttribute("PassRunXp")) or 0,
+				bigFire = big >= (tonumber(O.BigFire) or 12),
 			}
 			local key, reason = Rules.pick(ctxFor(player, s, "results", signals, rookie), O)
 			-- the lobby card may pick up a level up the results screen didn't use
@@ -369,6 +375,8 @@ function OfferService:_offer(player: Player, moment: string?, reason: string?): 
 		key = "UnlimitedFoam"
 	elseif (reason == "level" or reason == "rescue" or reason == "passxp") and table.find(list, "PremiumPass") then
 		key = "PremiumPass"
+	elseif reason == "bigfire" and table.find(list, "Helicopter") then
+		key = "Helicopter"
 	end
 	return send(player, s, key, reason or "default", moment or "results")
 end

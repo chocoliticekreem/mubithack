@@ -20,6 +20,9 @@ return Config.define({
 	GamePasses = {
 		UnlimitedFoam = 2053193383, -- 149 R$
 		PremiumPass = 2053853337, -- 299 R$; the battle pass premium track (BattlePassService)
+		-- FIRE HELICOPTER (HeliService / HeliController, Config/HeliConfig). 0 = not created yet: the store
+		-- card says COMING SOON, it is never offered or prompted, nobody owns it (Studio: PassDebug_Helicopter).
+		Helicopter = 0, -- TODO: the real pass id (suggested 399 R$; art: marketing/passes/helicopter.json)
 	},
 
 	-- How each pass shows in the store (order = card order). price = the R$ shown until
@@ -43,6 +46,16 @@ return Config.define({
 			price = 299,
 			icon = "★",
 			color = Color3.fromHex("#FFC531"),
+		},
+		{
+			key = "Helicopter",
+			name = "FIRE HELICOPTER",
+			blurb = "Fly your own fire helicopter! Fill the bucket and drop water on fires. Friends ride too!",
+			perk = "the Fire Helicopter: fly it, fill the bucket at water and drop it on fires!",
+			price = 399,
+			icon = "🚁",
+			color = Color3.fromHex("#D9372A"),
+			hero = true, -- the store draws it as the big card on top with a 3D render (HeliBuilder)
 		},
 	},
 
@@ -98,14 +111,17 @@ return Config.define({
 		DecideDelay = 2.5, -- s after MissionEnded (XP / level / pass XP land just after the results go out)
 		ClickWindow = 600, -- s: a pass bought this soon after tapping its offer counts as an offer purchase
 		RescueHero = 2, -- rescued at least this many this call = the "HERO RESCUE!" reason
+		BigFire = 12, -- fires out + parts burnt on a call at least this many = the "BIG FIRE!" reason (Helicopter)
 		-- what the card says, by pass key then reason (OfferRules reasons: foam, level, rescue, passxp, default)
 		Headlines = {
 			UnlimitedFoam = { foam = "OUT OF FOAM?", default = "NEVER RUN DRY!" },
 			PremiumPass = { level = "LEVEL UP!", rescue = "HERO RESCUE!", passxp = "GO GOLD!", default = "GO GOLD!" },
+			Helicopter = { bigfire = "WANT A FIRE HELICOPTER?", default = "FLY A FIRE HELICOPTER!" },
 		},
 		Short = { -- one line under the pass name (what you actually get)
 			UnlimitedFoam = "Foam never runs out!",
 			PremiumPass = "Gold helmets + titles",
+			Helicopter = "Drop water from the sky!",
 		},
 		-- the owned-perks tag beside the helmet number over a player's head (everyone else sees it)
 		PerkTag = { Px = 26, Gap = 4 },

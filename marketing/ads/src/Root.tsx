@@ -7,7 +7,7 @@ import { Thumb01, Thumb02, Thumb03, Thumb04, Thumb05 } from "./Thumbs";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
 import { UpdateBanner } from "./Update";
 import { GBeFirefighter, GDriveTruck, GFireSquad, GPutOut, GSaveKids, GSavePanda } from "./GeminiAds";
-import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassPremium } from "./Passes";
+import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassHeli, PassPremium } from "./Passes";
 import { IconFace, IconNight, IconRescue, IconSpray, IconTruck, IconWord } from "./Icons3";
 import { BADGES } from "./Badges";
 import { IconA, IconB, IconC, IconD, IconE, IconFinal, IconFinalLine } from "./Icons";
@@ -29,6 +29,7 @@ export const Root: React.FC = () => (
     ))}
     <Still id="pass-unlimited-foam" component={PassFoam} {...I} />
     <Still id="pass-premium" component={PassPremium} {...I} />
+    <Still id="pass-helicopter" component={PassHeli} {...I} />
     <Still id="donate-10" component={Donate10} {...I} />
     <Still id="donate-50" component={Donate50} {...I} />
     <Still id="donate-100" component={Donate100} {...I} />

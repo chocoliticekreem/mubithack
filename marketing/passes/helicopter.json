@@ -1,0 +1,8 @@
+{
+  "key": "Helicopter",
+  "name": "FIRE HELICOPTER 🚁",
+  "description": "Fly your own fire helicopter! Fill the bucket at water\nand drop it on fires. Friends can ride too!",
+  "price": 399,
+  "icon": "out/helicopter-icon.png",
+  "composition": "marketing/ads pass-helicopter"
+}
