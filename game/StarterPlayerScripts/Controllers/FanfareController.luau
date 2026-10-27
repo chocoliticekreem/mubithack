@@ -20,6 +20,7 @@ local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local Calm = require(ClientLib:WaitForChild("Calm") :: ModuleScript) :: any
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
+local PopupGate = require(ClientLib:WaitForChild("PopupGate") :: ModuleScript) :: any
 
 local FanfareController = {}
 FanfareController.Priority = 140
@@ -323,6 +324,11 @@ function FanfareController:Start()
 			body = if type(raw.body) == "string" then raw.body else "",
 			glowSeconds = math.clamp(tonumber(raw.glowSeconds) or 10, 1, 30),
 		}
+		-- someone ELSE's pass while you're still on your first call: skip it (PopupGate "fanfare"); your own
+		-- purchase / gift always shows
+		if p.receiverUserId ~= player.UserId and PopupGate.decide("fanfare") == "drop" then
+			return
+		end
 		if #queue < 6 then
 			table.insert(queue, p)
 		end

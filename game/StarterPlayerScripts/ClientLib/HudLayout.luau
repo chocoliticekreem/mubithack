@@ -27,11 +27,13 @@
 --                                             screen (phones: UiKit's scale stops at 0.55) shrinks its
 --                                             gui's ViewportScale until it does; back on close
 --   HudLayout.modalOpen() -> boolean, HudLayout.ModalChanged (BindableEvent, fires (open: boolean))
---   HudLayout.celebrate(fn)                   queue a centre card (level up / new gear / tier up); fn shows
+--   HudLayout.celebrate(fn, kind?)            queue a centre card (level up / new gear / tier up); fn shows
 --                                             it and returns its seconds (+ optional hide()). One at a
 --                                             time, never over a modal or a HudLayout.setBusy(name, true)
 --                                             screen (results). A tap / click anywhere calls hide() and
---                                             moves on; calm screens (ClientLib/Calm) cap it at 2.5 s
+--                                             moves on; calm screens (ClientLib/Calm) cap it at 2.5 s.
+--                                             ClientLib/PopupGate: dropped (not queued) until the first
+--                                             call is done; each card's end restarts the modal gap
 --   HudLayout.isBusy() -> boolean            any setBusy screen up (results / on a call): pop-ups wait
 --   HudLayout.reserve(obj)                    a HUD widget that edge arrows must stay off
 --   HudLayout.clear(x, y, radius, key?, prio?) -> (x, y)
@@ -454,13 +456,33 @@ local function pump()
 			task.wait(0.15)
 		end
 		celebrating = false
+		local g = popupGate()
+		if g then
+			g.noteEnd()
+		end
 		pump()
 	end)
 end
 
 -- fn shows the card and returns how many seconds it stays up (the next one waits that long) and, optionally,
 -- a hide() that takes it down early (tap to dismiss)
-function HudLayout.celebrate(fn: () -> (number?, (() -> ())?))
+local gate: any = nil
+local function popupGate(): any
+	if gate == nil then
+		local ok, m = pcall(function()
+			return require(script.Parent:WaitForChild("PopupGate") :: ModuleScript)
+		end)
+		gate = if ok then m else false
+	end
+	return gate
+end
+
+function HudLayout.celebrate(fn: () -> (number?, (() -> ())?), kind: string?)
+	-- the first call comes first: LEVEL 2! / NEW GEAR! landed on the first-call card in the same second
+	local g = popupGate()
+	if g and g.decide(kind or "celebrate") == "drop" then
+		return
+	end
 	table.insert(queue, { fn = fn, at = os.clock() })
 	pump()
 end

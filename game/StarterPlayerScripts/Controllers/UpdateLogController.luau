@@ -30,6 +30,7 @@ local UpdateLog = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild(
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript)
+local PopupGate = require(ClientLib:WaitForChild("PopupGate") :: ModuleScript) :: any
 
 local UpdateLogController = {}
 UpdateLogController.Priority = 125
@@ -46,6 +47,7 @@ local ui: { [string]: any } = {}
 local open = false
 local openedHow = 0 -- 1 = popped up by itself, 2 = NEWS chip
 local autoShown = false -- popped up by itself this session
+local gateHeld = false -- the auto-shown panel holds the PopupGate slot ("news")
 local tappedNotify = false
 local canNotify = false
 local canFavorite = false
@@ -425,6 +427,10 @@ function UpdateLogController:Close(viaOk: boolean?)
 	end
 	open = false
 	ui.panel.Visible = false
+	if gateHeld then
+		gateHeld = false
+		PopupGate.release("news")
+	end
 	local version = newest()
 	if version ~= "" and player:GetAttribute("LastSeenUpdate") ~= version then
 		player:SetAttribute("LastSeenUpdate", version) -- the server confirms (and saves) it
@@ -510,14 +516,17 @@ local function autoLoop()
 			clearSince = nil
 			continue
 		end
-		if blocked() then
+		-- PopupGate: one auto pop-up at a time, spaced; a brand-new player's first session never gets it
+		-- (deferred: the NEWS chip keeps its red dot and it shows next session)
+		if blocked() or PopupGate.decide("news") ~= "show" then
 			clearSince = nil
 			continue
 		end
 		local now = os.clock()
 		clearSince = clearSince or now
-		if now - (clearSince :: number) >= CLEAR_SECONDS and now - spawnedAt >= MIN_SECONDS then
+		if now - (clearSince :: number) >= CLEAR_SECONDS and now - spawnedAt >= MIN_SECONDS and PopupGate.claim("news") then
 			autoShown = true
+			gateHeld = true
 			UpdateLogController:Open(1)
 		end
 	end

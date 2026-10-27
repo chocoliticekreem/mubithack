@@ -32,6 +32,7 @@ local Workspace = game:GetService("Workspace")
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local InputHints = require(ClientLib:WaitForChild("InputHints") :: ModuleScript) :: any
+local HudGate = require(ClientLib:WaitForChild("HudGate") :: ModuleScript) :: any
 local ThumbLayout = require(ClientLib:WaitForChild("ThumbLayout") :: ModuleScript)
 local Calm = require(ClientLib:WaitForChild("Calm") :: ModuleScript) :: any
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -288,7 +289,8 @@ local function syncSummon()
 		return
 	end
 	local hum = humanoid()
-	b.Visible = owns() and mode == nil and hum ~= nil and hum.Health > 0 and hum.SeatPart == nil
+	-- HudGate "store": not over the cold open / first call (a brand-new owner sees it once onboarding is done)
+	b.Visible = owns() and mode == nil and hum ~= nil and hum.Health > 0 and hum.SeatPart == nil and HudGate.allows("store")
 end
 
 local function syncMeter()
@@ -718,6 +720,7 @@ function HeliController:Start()
 	end)
 	player:GetAttributeChangedSignal(MonCfg.Attr.PassPrefix .. Cfg.PassKey):Connect(syncSummon)
 	player:GetAttributeChangedSignal("InstanceId"):Connect(syncSummon)
+	HudGate.onChanged(syncSummon)
 
 	local function hookChar(char: Model)
 		local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?

@@ -640,7 +640,10 @@ local function onCountdown(padId: number, seconds: number, title: string)
 	local locked = seconds <= (LobbyConfig.LockSeconds or 0)
 	-- a newbie's auto-queued first call: the onboarding YOUR FIRST CALL / LOCKED IN card already counts
 	-- down; a second banner + toast stacked over it was unreadable on a phone
+	-- (any pad before the first call is done: FirstFire flips to "queued" a beat after the first tick, which
+	-- flashed the banner for a second)
 	local firstCall = player:GetAttribute("FirstFire") == "queued"
+		or (player:GetAttribute("FirstCallDone") == false and player:GetAttribute("FirstFire") ~= "skipped")
 	if firstCall then
 		ui.banner.Visible = false
 	elseif locked then
@@ -656,7 +659,8 @@ local function onCountdown(padId: number, seconds: number, title: string)
 		ui.banner.Text = if Calm.on() then Loc.t("ROLLING OUT IN {1}", { seconds }) else Loc.t("PAD {1}: {2}  -  ROLLING OUT IN {3}", { padId, title, seconds })
 	end
 	ui.banner.Visible = not firstCall
-	if seconds <= LobbyConfig.BigCountdownFrom then
+	-- the first-call card counts down itself: no second big 3-2-1 behind it (phones: three counters at once)
+	if seconds <= LobbyConfig.BigCountdownFrom and not firstCall then
 		local hot = seconds <= LobbyConfig.AlarmFromSeconds
 		pop(tostring(seconds), if hot then C.Hot else C.Cream, 1.9)
 		playLocal(LobbyConfig.TickSoundId)

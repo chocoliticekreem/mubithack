@@ -929,7 +929,13 @@ function HudController:Start()
 	-- remotes: never let a missing one kill the HUD loop
 	task.spawn(function()
 		local ok, err = pcall(function()
+			local PopupGate = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("PopupGate") :: ModuleScript) :: any
 			Net.event("Shared", "Notify").OnClientEvent:Connect(function(text: string, kind: string?)
+				-- achievement toasts (AchievementConfig.Toast*, "🏆 ...") wait out the first call: the unlock is
+				-- saved and the TROPHIES chip shows it (PopupGate "achievement")
+				if string.find(tostring(text), "^🏆") and PopupGate.decide("achievement") == "drop" then
+					return
+				end
 				toast(tostring(text), kind or "info")
 			end)
 		end)
