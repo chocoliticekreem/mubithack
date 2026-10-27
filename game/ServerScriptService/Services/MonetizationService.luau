@@ -734,6 +734,10 @@ function MonetizationService:Start()
 			warn(`[MonetizationService] ProcessReceipt: {res}`)
 			return Enum.ProductPurchaseDecision.NotProcessedYet
 		end
+		local track = services.TrackService -- analytics: a granted product purchase
+		if track and type(track.Receipt) == "function" then
+			pcall(track.Receipt, track, receipt, res)
+		end
 		return res
 	end
 
