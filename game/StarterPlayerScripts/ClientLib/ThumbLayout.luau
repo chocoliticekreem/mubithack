@@ -11,8 +11,12 @@
 --                               slot "jump"    : the jump button's own spot and size, for screens
 --                                                that hide Roblox's jump (driving: OUT sits there)
 --
---   ThumbLayout.place(action, slot, handler)   after ContextActionService:BindAction(action, handler, ...)
+--   ThumbLayout.place(action, slot, handler, label?)
+--                                              after ContextActionService:BindAction(action, handler, ...);
+--                                              label: the button's text when the action isn't bound (else
+--                                              its ContextActionService title)
 --   ThumbLayout.forget(action)                 before UnbindAction
+--   ThumbLayout.clusterLeft() -> number        screen px x where the cluster starts (keep widgets left of it)
 -- The handler is called as handler(action, Begin / End, nil), exactly like ContextActionService does.
 -- Roblox's own ContextActionService touch buttons are hidden: they live in a small frame by the jump
 -- button that clipped / mis-placed buttons on some phones (SPRAY simply did not show), so we never rely
@@ -28,10 +32,11 @@ type Handler = (string, Enum.UserInputState, any) -> any
 
 local ORDER: { Slot } = { "primary", "above", "upleft", "left", "upfar", "leftfar" }
 
-type Entry = { slot: Slot, handler: Handler?, button: TextButton? }
+type Entry = { slot: Slot, want: Slot, seq: number, handler: Handler?, button: TextButton?, label: string? }
 local entries: { [string]: Entry } = {}
 local gui: ScreenGui? = nil
 local hooked = false
+local seqN = 0
 
 local function isTouch(): boolean
 	local ok, InputHints = pcall(function()
@@ -92,6 +97,13 @@ local function slotRect(slot: Slot): (Vector2, number)
 	end
 end
 
+-- screen px x of the cluster's left edge (the "left" slot: THROW / SIREN), for widgets that must stay
+-- clear of it (the phone hotbar)
+function ThumbLayout.clusterLeft(): number
+	local c, size = slotRect("left")
+	return c.X - size / 2
+end
+
 local function screen(): ScreenGui
 	if gui and gui.Parent then
 		return gui :: ScreenGui
@@ -116,6 +128,10 @@ local function title(action: string): string
 end
 
 local function hideRoblox(action: string)
+	local e = entries[action]
+	if e and e.label then
+		return -- ours alone (never bound to ContextActionService): GetButton would warn every call
+	end
 	local b = ContextActionService:GetButton(action)
 	if b then
 		b.Visible = false
@@ -179,6 +195,11 @@ local function makeButton(action: string): TextButton
 		end
 	end)
 	b.Parent = screen()
+	-- edge arrows / world markers stay off the thumb buttons
+	pcall(function()
+		local HudLayout = require(script.Parent:WaitForChild("HudLayout") :: ModuleScript) :: any
+		HudLayout.reserve(b)
+	end)
 	return b
 end
 
@@ -202,7 +223,7 @@ local function apply(action: string)
 	b.Visible = true
 	local l = b:FindFirstChild("Label") :: TextLabel?
 	if l then
-		l.Text = title(action)
+		l.Text = e.label or title(action)
 		local lim = l:FindFirstChildOfClass("UITextSizeConstraint")
 		if lim then
 			lim.MaxTextSize = if e.slot == "primary" then 30 else 18
@@ -216,28 +237,64 @@ local function reapply()
 	end
 end
 
-function ThumbLayout.place(action: string, want: Slot, handler: Handler?)
+-- Every button gets the slot it asked for when it's free (the newest placement wins a contested slot:
+-- the truck's HONK takes "primary" from SPRAY while you drive); the rest take the first free one. Re-run
+-- on every place / forget, so SPRAY goes back to the big slot once the truck buttons are gone (it used to
+-- stay in the small "above" slot and SWAP took the big one after getting out of the truck).
+local function relayout(): { [string]: boolean }
+	local list: { { action: string, e: Entry } } = {}
+	for action, e in entries do
+		table.insert(list, { action = action, e = e })
+	end
+	table.sort(list, function(a, b)
+		return a.e.seq > b.e.seq
+	end)
 	local taken: { [Slot]: boolean } = {}
-	for other, e in entries do
-		if other ~= action then
-			taken[e.slot] = true
+	local got: { [string]: Slot } = {}
+	for _, it in list do
+		if not taken[it.e.want] then
+			taken[it.e.want] = true
+			got[it.action] = it.e.want
 		end
 	end
-	local slot = want
-	if taken[slot] then
-		for _, s in ORDER do
-			if not taken[s] then
-				slot = s
-				break
+	for _, it in list do
+		if not got[it.action] then
+			for _, s in ORDER do
+				if not taken[s] then
+					taken[s] = true
+					got[it.action] = s
+					break
+				end
 			end
+			got[it.action] = got[it.action] or it.e.want
 		end
 	end
+	local moved: { [string]: boolean } = {}
+	for action, slot in got do
+		local e = entries[action]
+		if e.slot ~= slot then
+			e.slot = slot
+			moved[action] = true
+		end
+	end
+	return moved
+end
+
+function ThumbLayout.place(action: string, want: Slot, handler: Handler?, label: string?)
+	seqN += 1
 	local e = entries[action]
 	if e then
-		e.slot = slot
+		e.want = want
+		e.seq = seqN
 		e.handler = handler or e.handler
+		e.label = label or e.label
 	else
-		entries[action] = { slot = slot, handler = handler, button = nil }
+		entries[action] = { slot = want, want = want, seq = seqN, handler = handler, button = nil, label = label }
+	end
+	for other in relayout() do
+		if other ~= action then
+			apply(other)
+		end
 	end
 	apply(action)
 	-- Roblox builds its own touch button a frame later: hide it again once it exists; titles too
@@ -270,6 +327,9 @@ function ThumbLayout.forget(action: string)
 	entries[action] = nil
 	if e and e.button then
 		e.button:Destroy()
+	end
+	for other in relayout() do
+		apply(other)
 	end
 end
 

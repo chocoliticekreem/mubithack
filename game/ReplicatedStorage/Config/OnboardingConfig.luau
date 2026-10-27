@@ -24,7 +24,7 @@ return Config.define({
 		-- The squad starts IN its truck (LobbyService boards everyone at launch): no bay run, no door.
 		-- "seat" is only for someone who got out on the way. Touch: one tap on the truck sits you in
 		-- (Controllers/TapUseController); keyboard: the seat prompt, no door to open first.
-		seat = { head = "HOP BACK IN!", sub = "Walk up to the truck and press {enter}", subTouch = "Tap the truck to hop in" },
+		seat = { head = "HOP BACK IN!", sub = "Walk up to the truck and press {enter}", subTouch = "Tap the green IN button to hop in" },
 		ride = { head = "YOU'RE IN THE TRUCK!", sub = "Your driver follows the GPS. Hang on!" },
 		drive = {
 			head = "HIT THE SIREN! FOLLOW THE GPS",

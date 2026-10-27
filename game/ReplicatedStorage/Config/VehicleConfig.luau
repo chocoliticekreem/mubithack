@@ -17,7 +17,7 @@ return Config.define({
 	MaxTrucks = 10, -- hard cap (8 players + slack): bays 1-4, then the 6 OverflowSpots
 	PerMissionTrucks = false, -- v1 fallback: MissionService:ParkAt(instanceId) builds a truck inside the instance
 	OwnerOnlyDrives = false, -- true = only the owner may take the wheel (others ride)
-	TapEnterRange = 22, -- studs from the chassis: a tap on the truck (touch) sits you straight in (Vehicle/Enter)
+	TapEnterRange = 22, -- studs from the chassis: touch's green IN bubble shows and sits you straight in (Vehicle/Enter)
 
 	-- Parking
 	-- Overflow parking (truck numbers 5..): the station's empty east parking lot. One column of trucks

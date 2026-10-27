@@ -687,14 +687,14 @@ end
 
 -- Turn the default camera to look along `look` (flattened, a little down), keeping its zoom. Used on
 -- getting in (look down the truck, not wherever you happened to face) and out (look the way you step).
-local function aimCamera(look: Vector3)
+local function aimCamera(look: Vector3, minDist: number?)
 	local cam = workspace.CurrentCamera
 	local flat = Vector3.new(look.X, 0, look.Z)
 	if not cam or cam.CameraType == Enum.CameraType.Scriptable or flat.Magnitude < 0.05 then
 		return
 	end
 	local focus = cam.Focus.Position
-	local dist = math.max(0.5, (cam.CFrame.Position - focus).Magnitude)
+	local dist = math.max(minDist or 0.5, (cam.CFrame.Position - focus).Magnitude)
 	local dir = (flat.Unit + Vector3.new(0, -0.2, 0)).Unit
 	cam.CFrame = CFrame.lookAt(focus - dir * dist, focus)
 end
@@ -720,7 +720,14 @@ local function hopOut()
 			if root then
 				root.AssemblyLinearVelocity = Vector3.zero
 			end
-			aimCamera(target.LookVector)
+			if InputHints.isTouch() then
+				-- phones: the camera came back 3 studs behind the helmet with the truck right behind it (the
+				-- whole screen was your head). Look along the truck instead (the camera sits in the open beside
+				-- it, not inside it), at a normal third-person distance.
+				aimCamera(seat.CFrame.LookVector, 12)
+			else
+				aimCamera(target.LookVector)
+			end
 		end
 	end)
 end
@@ -920,6 +927,16 @@ local function makeRespawnButton()
 		local reserve = 172 * s + 10
 		local w = math.max(200, math.min(math.floor(640 * math.max(s, 0.8)), math.floor(vp.X - 2 * reserve)))
 		local h = if w < 460 then math.floor(48 * math.max(s, 0.8)) else math.floor(34 * math.max(s, 0.8))
+		if InputHints.isTouch() then
+			-- phones: bottom-left, ending before the thumb buttons (centred, it ran under SIREN)
+			w = math.max(160, math.min(w, math.floor(ThumbLayout.clusterLeft() - 20)))
+			h = math.floor(48 * math.max(s, 0.8))
+			hint.AnchorPoint = Vector2.new(0, 1)
+			hint.Position = UDim2.new(0, 10, 1, -18)
+		else
+			hint.AnchorPoint = Vector2.new(0.5, 1)
+			hint.Position = UDim2.new(0.5, 0, 1, -18)
+		end
 		hint.Size = UDim2.fromOffset(w, h)
 		-- the RESPAWN button scales like the UiKit HUD: unscaled it ran into the PASS / STORE chips on phones
 		b.Position = UDim2.new(0, math.floor(16 * s), 1, -math.floor(150 * s))
@@ -929,6 +946,10 @@ local function makeRespawnButton()
 	if workspace.CurrentCamera then
 		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(layoutHints)
 	end
+	InputHints.onChanged(function()
+		task.defer(layoutHints)
+	end)
+	task.delay(1, layoutHints) -- the jump button (ThumbLayout's anchor) exists by now
 	local hc = Instance.new("UICorner")
 	hc.CornerRadius = UDim.new(0, 10)
 	hc.Parent = hint
@@ -1208,6 +1229,7 @@ local function seatedTruck(): (Model?, BasePart?)
 end
 
 local seatedIn: BasePart? = nil -- truck seat the local player sat in last frame
+local riderJumpOff: Humanoid? = nil -- a rider's humanoid whose jump we turned off (touch), until they're out
 
 -- Getting in: the camera looks down the truck (seat forward), not the way you faced on foot. In first
 -- person the default camera keeps its world yaw, so a passenger who boarded facing backwards rode along
@@ -1234,8 +1256,22 @@ local function updateSeated()
 	end
 	local passenger = if truck and not isDriver then truck else nil
 	if passenger ~= riding then
-		if riding then
+		if riding and driving then
+			-- moved from a crew seat to the wheel (TAKE THE WHEEL): enterDrive already bound the driver's
+			-- OUT under the same name, so unbinding here used to leave the new driver with no way out
+			if riderJumpOff and not jumpHiddenOn then
+				jumpHiddenOn = riderJumpOff -- the jump stays off while driving; exitDrive turns it back on
+			end
+			riderJumpOff = nil
+		elseif riding then
+			ThumbLayout.forget("TruckExit")
 			ContextActionService:UnbindAction("TruckExit")
+			if riderJumpOff then
+				if riderJumpOff.Parent then
+					riderJumpOff:SetStateEnabled(Enum.HumanoidStateType.Jumping, true)
+				end
+				riderJumpOff = nil
+			end
 		end
 		riding = passenger
 		if passenger then
@@ -1248,9 +1284,17 @@ local function updateSeated()
 				Enum.KeyCode.ButtonA,
 				Enum.KeyCode.ButtonB
 			)
-			ContextActionService:SetTitle("TruckExit", "OFF")
-			-- the big primary spot is the rider's SPRAY (water cannon, DriveController); HONK / SIREN beside it
-			ThumbLayout.place("TruckExit", "above", onAction)
+			ContextActionService:SetTitle("TruckExit", "OUT")
+			-- the big primary spot is the rider's SPRAY (water cannon, DriveController); HONK / SIREN beside it.
+			-- Touch: the same big OUT as the driver's, on the jump button's spot (Roblox's jump hides: it
+			-- also threw riders out, so two buttons did one thing and the small OFF was easy to miss).
+			-- Jumping comes back the moment you're out of the seat, however you got out.
+			local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+			if hum and touchDriving() and hum:GetStateEnabled(Enum.HumanoidStateType.Jumping) then
+				hum:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+				riderJumpOff = hum
+			end
+			ThumbLayout.place("TruckExit", if touchDriving() then "jump" else "above", onAction)
 		end
 	end
 	if truck ~= hintTruck then
@@ -1271,7 +1315,8 @@ local function updateSeated()
 		elseif truck then
 			hint.Text = InputHints.pick(
 				`CLICK: water cannon   {VehicleConfig.KeyHorn}: honk   {VehicleConfig.KeySiren}: siren   SPACE: hop off`,
-				"SPRAY the fires!   ·   HONK  SIREN  OFF",
+				-- no SPRAY button while practice fires are off (DriveConfig.Targets): don't name one
+				if DriveConfig.Targets then "SPRAY the fires!   ·   HONK  SIREN  OUT" else "HONK  SIREN  OUT",
 				"R2: water cannon   Y: honk   X: siren   A: hop off"
 			)
 		end

@@ -22,7 +22,11 @@
 -- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),
 --          Fumbled(player, itemId: string)
 -- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),
---          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string)
+--          Inventory/Swap (C->S, none, 4/s), Inventory/Fx (S->C all, kind: string, pos: Vector3, text: string),
+--          Inventory/Reel (C->S, prompt: one of our hose prompts, 3/s): the touch HOSE button / bubble. Roblox
+--          only lets a client trigger a prompt whose spot is on its screen, and the truck's hose prompt sits
+--          in the middle of the chassis (behind the camera from half the truck's sides), so phones grab and
+--          stow the hose through this instead; onReel checks the reach like the prompt does.
 --          kinds: "grab", "drop", "throw", "bonk", "fumble", "stow"
 -- World (reads): parts tagged GearRack (attr Item, or Slot -> ItemDefs.RackOrder), TruckCompartment
 --   (attr Item), TruckRefill (the reel: nozzle; anyone's, Cfg.HosesPerTruck nozzles each, grabbed and
@@ -125,6 +129,15 @@ local reelLoose: { [BasePart]: { Model } } = {} -- nozzles lying on the ground, 
 local flyers: { Flyer } = {}
 local stockHooked: { [BasePart]: true } = setmetatable({}, { __mode = "k" }) :: any
 local promptHooked: { [ProximityPrompt]: true } = setmetatable({}, { __mode = "k" }) :: any
+-- hose prompt -> its reel / hydrant body. Strong keys (an Instance key in a weak table can vanish while the
+-- Instance lives), dropped when the prompt is destroyed.
+local hoseSource: { [ProximityPrompt]: BasePart } = {}
+local function setHoseSource(p: ProximityPrompt, src: BasePart)
+	hoseSource[p] = src
+	p.Destroying:Connect(function()
+		hoseSource[p] = nil
+	end)
+end
 local looseFolder: Folder? = nil
 local FxRemote: RemoteEvent? = nil
 
@@ -1343,6 +1356,7 @@ local function hookTruckHose(reel: BasePart): boolean
 	p:SetAttribute("InvReel", true) -- InventoryController relabels it locally (Grab / Stow Hose)
 	p.Parent = base
 	promptHooked[p] = true
+	setHoseSource(p, reel)
 	p.Triggered:Connect(function(player: Player)
 		onReel(player, reel)
 	end)
@@ -1368,6 +1382,7 @@ local function hookReel(inst: Instance)
 		return
 	end
 	promptHooked[p] = true
+	setHoseSource(p, reel)
 	p.ActionText = "Grab Hose"
 	-- same chunky "[E] Grab Hose" sticker as the lockers (InventoryController), instant
 	p.Style = Enum.ProximityPromptStyle.Custom
@@ -1427,6 +1442,7 @@ local function hookHydrant(inst: Instance)
 	p:SetAttribute("InvHydrant", true) -- HydrantController relabels it locally (Grab / Stow Hose)
 	p.Parent = body
 	promptHooked[p] = true
+	setHoseSource(p, body)
 	p.Triggered:Connect(function(player: Player)
 		onReel(player, body)
 	end)
@@ -1603,6 +1619,13 @@ function InventoryService:Start()
 	end)
 	Net.onServer(SwapR, { rate = 4, burst = 2 }, function(player: Player)
 		doSwap(player)
+	end)
+	Net.onServer(Net.event("Inventory", "Reel"), { rate = 3, burst = 2 }, function(player: Player, prompt: any)
+		local src = if typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") then hoseSource[prompt] else nil
+		if src and prompt.Enabled and src:IsDescendantOf(workspace) then
+			Telemetry.count("inv_hose_tap")
+			onReel(player, src)
+		end
 	end)
 	folder()
 	local hl = hoseLineMod()

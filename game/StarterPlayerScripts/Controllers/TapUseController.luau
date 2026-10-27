@@ -1,20 +1,24 @@
 --!strict
--- TapUseController [owner: G3]. Touch (phones / iPads): tap things in the world to use them, and one
--- small round bubble instead of Roblox's big ProximityPrompt cards.
+-- TapUseController [owner: G3]. Touch (phones / iPads): tap things in the world to use them, and round
+-- verb bubbles instead of Roblox's big ProximityPrompt cards.
 --   * While InputHints says "touch", every ProximityPrompt is switched to Style Custom + Exclusivity
 --     AlwaysShow locally (Roblox draws nothing, and any prompt in reach can be tapped, not just the one
 --     OnePerButton picked) and the originals come back on keyboard / gamepad. InventoryController's
 --     "[E] Grab Axe" stickers stand down on touch too.
---   * ONE bubble at a time over the most relevant thing in reach (rescue > truck > pick-ups > the rest,
---     then nearest): a 50 px circle with a one-word verb (IN, GRAB, FILL, OPEN...) that follows the thing
---     on screen (ScreenGui "TapBubble"). Tap it to use it.
+--   * ONE use bubble over the most relevant thing in reach (rescue > pick-ups > the rest, then nearest):
+--     a 56 px cream circle with a one-word verb (GRAB, HOSE, FILL, OPEN...) that follows the thing on
+--     screen (ScreenGui "TapBubble"). Tap it to use it.
+--   * Fire trucks get a SECOND, green IN bubble (ScreenGui "TapBubbleIn") pinned to the door you would get
+--     in by: the driver's door while the driver seat is free, else the nearest free crew seat. That bubble
+--     is the ONLY way in on touch (Vehicle/Enter on the server). Tapping the truck (body, cab, doors,
+--     seats) never seats you: a tap near its hose reel / lockers uses that thing, anywhere else a small
+--     "Tap IN to get in" hint shows. The truck's hose prompt (TruckHosePrompt, which lives on the
+--     chassis) is drawn and tapped at the reel, not the chassis centre.
+--   * HOSE thumb button (ThumbLayout slot "upfar", the T key on touch) while a "Grab Hose" prompt (truck
+--     or hydrant) is in reach.
 --   * Tap the thing itself: a ray from the tap (your own character ignored) and a snap radius, so a
 --     fat-finger tap next to an axe still grabs it. In range: it happens (a hold prompt holds for its
 --     HoldDuration, with a ring filling). Out of range: a small "walk closer" pop over it.
---   * Fire trucks: tap the body, a door or a seat from up to VehicleConfig.TapEnterRange studs and you sit
---     straight in (Vehicle/Enter on the server: driver seat if it's yours and free, else the nearest free
---     seat). No door to open first, so the door never swings into you. Truck door / seat prompts are
---     never bubbled (the truck's IN bubble covers them); its lockers and reel are.
 -- Dev: Player attr ForceTouchUI = true makes a left mouse click act as a tap (Studio has no touch), and
 -- InputHintsMode = "touch" (ClientLib/InputHints) puts the whole UI in touch mode.
 local CollectionService = game:GetService("CollectionService")
@@ -32,17 +36,20 @@ local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript) :: any
 local VehicleConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("VehicleConfig") :: ModuleScript) :: any
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local InputHints = require(ClientLib:WaitForChild("InputHints") :: ModuleScript) :: any
+local ThumbLayout = require(ClientLib:WaitForChild("ThumbLayout") :: ModuleScript) :: any
 local WorldPopup = require(ClientLib:WaitForChild("WorldPopup") :: ModuleScript) :: any
 
 local TapUseController = {}
 TapUseController.Priority = 140
 
-local TRUCK_GEAR_TAP = 7 -- studs from the tap point to a truck reel / locker prompt that counts as tapping it
+local TRUCK_GEAR_TAP = 8 -- studs from the tap point to a truck reel / locker that counts as tapping it
 
 local player = Players.LocalPlayer
 local SNAP = 6 -- studs: a tap this close to a prompt's part counts as a tap on it
 local REACH_SLACK = 2 -- studs past a prompt's MaxActivationDistance that still count (the server re-checks)
-local BUBBLE_PX = 50
+local BUBBLE_PX = 56 -- on screen, never scaled: a thumb-sized target on every phone
+local HOSE_ACTION = "TapHose"
+local TOP_BAND = 0.36 -- of the screen height: the top HUD (timer, call / guide cards) lives above this
 local TRUCK_HIDDEN = { DoorPrompt = true, SeatPrompt = true }
 
 type Target = {
@@ -58,7 +65,18 @@ local shown: { [ProximityPrompt]: boolean } = {}
 local origStyle: { [ProximityPrompt]: { style: Enum.ProximityPromptStyle, excl: Enum.ProximityPromptExclusivity } } = {}
 local bubble: ScreenGui? = nil
 local bubbleTarget: Target? = nil
+local inBubble: ScreenGui? = nil
+local inTarget: Target? = nil
+local hoseTarget: Target? = nil
+local hosePlaced = false
 local busyUntil = 0
+
+local function count(name: string)
+	pcall(function()
+		local T = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript) :: any
+		T.count(name, 1)
+	end)
+end
 
 local function touch(): boolean
 	return InputHints.isTouch()
@@ -105,6 +123,29 @@ local function promptPos(prompt: ProximityPrompt): Vector3?
 	end
 	local part = partOf(prompt)
 	return part and part.Position
+end
+
+-- the truck's hose reel (tagged TruckRefill), where its chassis hose prompt is drawn and tapped
+local function reelOf(truck: Model): BasePart?
+	for _, r in CollectionService:GetTagged(Names.Tag.TruckRefill) do
+		if r:IsA("BasePart") and r:IsDescendantOf(truck) then
+			return r
+		end
+	end
+	return nil
+end
+
+-- where a prompt is drawn and tapped: its own part, except the chassis-wide truck hose prompt, which
+-- belongs to the reel (its centre is the middle of the truck, so taps on the reel used to miss it)
+local function anchorOf(prompt: ProximityPrompt): BasePart?
+	if prompt.Name == "TruckHosePrompt" then
+		local truck = truckOf(prompt)
+		local reel = truck and reelOf(truck)
+		if reel then
+			return reel
+		end
+	end
+	return partOf(prompt)
 end
 
 -- one short verb for the bubble
@@ -169,19 +210,47 @@ local function usable(prompt: ProximityPrompt): boolean
 end
 
 local function promptTarget(prompt: ProximityPrompt): Target?
-	local part = partOf(prompt)
+	local part = anchorOf(prompt)
 	if not part or not usable(prompt) then
 		return nil
 	end
-	-- the truck's own reel / lockers / foam rank level with getting IN (2), so whichever is closer wins:
-	-- standing at the hose reel shows GRAB, standing at the cab shows IN (the reel used to lose to IN)
+	-- the truck's own reel / lockers rank with the pick-ups (getting IN has its own bubble)
 	local rank = if truckOf(prompt) then math.min(rankOf(prompt), 2) else rankOf(prompt)
 	return { kind = "prompt", prompt = prompt, part = part, verb = verbOf(prompt), rank = rank }
 end
 
+local function freeSeat(s: Instance?): boolean
+	return s ~= nil and (s:IsA("Seat") or s:IsA("VehicleSeat")) and (s :: any).Occupant == nil
+end
+
+-- The way in that Vehicle/Enter would use: the driver's door while the driver seat is free (anyone may
+-- drive), else the nearest free crew seat. nil = the truck is full.
+local function entryPart(truck: Model): BasePart?
+	local drive = truck:FindFirstChild("DriveSeat")
+	if freeSeat(drive) then
+		local door = truck:FindFirstChild("Door_L")
+		local handle = door and door:FindFirstChild("DoorHandle_L")
+		if handle and handle:IsA("BasePart") then
+			return handle
+		end
+		return drive :: BasePart
+	end
+	local r = root()
+	local best: BasePart?, bestD = nil, math.huge
+	for i = 1, 5 do
+		local s = truck:FindFirstChild(`CrewSeat_{i}`)
+		if freeSeat(s) then
+			local d = if r then ((s :: BasePart).Position - r.Position).Magnitude else i
+			if d < bestD then
+				best, bestD = s :: BasePart, d
+			end
+		end
+	end
+	return best
+end
+
 local function truckTarget(truck: Model): Target?
-	local seat = truck:FindFirstChild("DriveSeat")
-	local part = if seat and seat:IsA("BasePart") then seat else truck.PrimaryPart
+	local part = entryPart(truck)
 	if not part then
 		return nil
 	end
@@ -227,9 +296,19 @@ local function use(t: Target): boolean
 	if t.kind == "truck" then
 		busyUntil = os.clock() + 0.6
 		Net.event("Vehicle", "Enter"):FireServer(t.truck)
+		count("tap_truck_in")
 		return true
 	end
 	local prompt = t.prompt :: ProximityPrompt
+	if prompt:GetAttribute("InvReel") or prompt:GetAttribute("InvHydrant") then
+		-- the hose goes through Inventory/Reel: Roblox ignores InputHoldBegin on a prompt whose spot is off
+		-- screen, and the truck's hose prompt sits in the middle of the chassis (behind the camera from the
+		-- far side), so the HOSE button / bubble did nothing there
+		busyUntil = os.clock() + 0.5
+		Net.event("Inventory", "Reel"):FireServer(prompt)
+		count("tap_hose")
+		return true
+	end
 	local hold = math.max(0, prompt.HoldDuration)
 	busyUntil = os.clock() + hold + 0.4
 	prompt:InputHoldBegin()
@@ -247,9 +326,9 @@ end
 
 -- A ScreenGui button that follows the target on screen (a world BillboardGui set AlwaysOnTop didn't draw
 -- reliably, and a screen button takes taps before the camera does).
-local function makeBubble(): ScreenGui
+local function makeBubble(name: string, getTarget: () -> Target?, fill: Color3?): ScreenGui
 	local gui = Instance.new("ScreenGui")
-	gui.Name = "TapBubble"
+	gui.Name = name
 	gui.ResetOnSpawn = false
 	gui.IgnoreGuiInset = true
 	gui.ScreenInsets = Enum.ScreenInsets.None
@@ -260,10 +339,10 @@ local function makeBubble(): ScreenGui
 	b.AnchorPoint = Vector2.new(0.5, 1)
 	b.AutoButtonColor = true
 	b.Size = UDim2.fromOffset(BUBBLE_PX, BUBBLE_PX)
-	b.BackgroundColor3 = Palette.UiCream
+	b.BackgroundColor3 = fill or Palette.UiCream
 	b.Font = Enum.Font.FredokaOne
 	b.TextColor3 = Palette.UiInk
-	b.TextSize = 15
+	b.TextSize = 17
 	b.Text = ""
 	b.Visible = false
 	b.Parent = gui
@@ -289,7 +368,7 @@ local function makeBubble(): ScreenGui
 	rc.CornerRadius = UDim.new(1, 0)
 	rc.Parent = ring
 	b.Activated:Connect(function()
-		local t = bubbleTarget
+		local t = getTarget()
 		if t then
 			use(t)
 		end
@@ -315,6 +394,31 @@ local function nearestTruck(): Model?
 	return best
 end
 
+-- Prompts that may get a bubble: the ones Roblox says are shown, plus the nearest truck's own gear
+-- (reel / lockers) when in reach. Roblox doesn't re-send PromptShown for a prompt you were already beside
+-- when you got out of the truck (VehicleController turns ProximityPromptService off while seated), so the
+-- HOSE bubble used to stay away until you walked off and came back.
+local function candidates(): { ProximityPrompt }
+	local list: { ProximityPrompt } = {}
+	local seen: { [ProximityPrompt]: boolean } = {}
+	for prompt in shown do
+		seen[prompt] = true
+		table.insert(list, prompt)
+	end
+	local truck = nearestTruck()
+	if truck then
+		for _, d in truck:GetDescendants() do
+			if d:IsA("ProximityPrompt") and not seen[d] and usable(d) then
+				local t = promptTarget(d)
+				if t and inReach(t) then
+					table.insert(list, d)
+				end
+			end
+		end
+	end
+	return list
+end
+
 local function pickBubble(): Target?
 	local r = root()
 	if not r or seated() then
@@ -331,50 +435,138 @@ local function pickBubble(): Target?
 			best, bestD = t, d
 		end
 	end
-	for prompt in shown do
-		consider(promptTarget(prompt))
-	end
-	local truck = nearestTruck()
-	if truck then
-		consider(truckTarget(truck))
+	-- on the first-call pad (FirstFire "queued") the card's GO NOW is the one thing to press: no CALLS
+	-- bubble from the mission board next to it
+	local firstCallPad = player:GetAttribute("FirstFire") == "queued"
+	for _, prompt in candidates() do
+		local t = promptTarget(prompt)
+		if t and not (firstCallPad and t.verb == "CALLS") then
+			consider(t)
+		end
 	end
 	return best
+end
+
+-- a "Grab Hose" prompt (truck or hydrant) in reach: the HOSE thumb button uses it
+local function pickHose(): Target?
+	local r = root()
+	if not r or seated() then
+		return nil
+	end
+	local best: Target?, bestD = nil, math.huge
+	for _, prompt in candidates() do
+		if string.find(prompt.ActionText, "^Grab Hose") then
+			local t = promptTarget(prompt)
+			if t and inReach(t) then
+				local d = (t.part.Position - r.Position).Magnitude
+				if d < bestD then
+					best, bestD = t, d
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function onHoseButton(_: string, state: Enum.UserInputState, _i: any): Enum.ContextActionResult
+	if state == Enum.UserInputState.Begin and hoseTarget then
+		use(hoseTarget :: Target)
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+local function refreshHoseButton()
+	local t = if touch() then pickHose() else nil
+	hoseTarget = t
+	if t and not hosePlaced then
+		hosePlaced = true
+		ThumbLayout.place(HOSE_ACTION, "upfar", onHoseButton, "HOSE")
+	elseif not t and hosePlaced then
+		hosePlaced = false
+		ThumbLayout.forget(HOSE_ACTION)
+	end
 end
 
 local function refreshBubble()
 	local t = if touch() then pickBubble() else nil
 	bubbleTarget = t
 	local gui = bubble
-	if not t then
-		if gui then
-			(gui :: any).Button.Visible = false
-		end
-		return
-	end
-	if not gui then
-		gui = makeBubble()
+	if t and not gui then
+		gui = makeBubble("TapBubble", function()
+			return bubbleTarget
+		end)
 		bubble = gui
 	end
-	local b = (gui :: ScreenGui):FindFirstChild("Button") :: TextButton
-	if b.Text ~= t.verb then
-		b.Text = t.verb
+	if gui then
+		local b = (gui :: any).Button :: TextButton
+		if not t then
+			b.Visible = false
+		elseif b.Text ~= t.verb then
+			b.Text = t.verb
+		end
 	end
+	-- the truck's own IN bubble (green = go), at its door
+	local truck = if touch() then nearestTruck() else nil
+	local it = if truck then truckTarget(truck) else nil
+	inTarget = it
+	local ig = inBubble
+	if it and not ig then
+		ig = makeBubble("TapBubbleIn", function()
+			return inTarget
+		end, Palette.UiGood or Color3.fromRGB(107, 214, 107))
+		inBubble = ig
+	end
+	if ig then
+		local b = (ig :: any).Button :: TextButton
+		if not it then
+			b.Visible = false
+		elseif b.Text ~= "IN" then
+			b.Text = "IN"
+		end
+	end
+	refreshHoseButton()
 end
 
--- every frame: keep the bubble over its target (above the part's top), hidden when it's behind you
-local function placeBubble()
-	local gui, t = bubble, bubbleTarget
+-- every frame: keep the bubbles over their targets (above the part's top), hidden when behind you
+local function placeOne(gui: ScreenGui?, t: Target?, avoid: Vector2?): Vector2?
 	local cam = workspace.CurrentCamera
 	if not gui or not t or not cam or not t.part.Parent then
-		return
+		return nil
 	end
 	local b = (gui :: any).Button :: TextButton
-	local up = if t.kind == "truck" then 4 else math.clamp(t.part.Size.Y / 2 + 1.2, 1.2, 4)
+	local up = if t.kind == "truck" then 2 else math.clamp(t.part.Size.Y / 2 + 1.2, 1.2, 4)
 	local v, on = cam:WorldToViewportPoint(t.part.Position + Vector3.new(0, up, 0))
-	b.Visible = on and v.Z > 0
-	if b.Visible then
-		b.Position = UDim2.fromOffset(math.floor(v.X + 0.5), math.floor(v.Y + 0.5))
+	if t.kind == "truck" and not (on and v.Z > 0) and t.truck and t.truck.PrimaryPart then
+		-- the door is out of view (you're at the back): put IN over the middle of the truck instead, so a
+		-- kid beside the truck always sees the way in
+		local c = (t.truck :: Model).PrimaryPart :: BasePart
+		v, on = cam:WorldToViewportPoint(c.Position + Vector3.new(0, 5, 0))
 	end
+	b.Visible = on and v.Z > 0
+	if not b.Visible then
+		return nil
+	end
+	-- never up in the top HUD band (timer, objective / guide cards, minimap draw over it there) or off an edge
+	local vp = cam.ViewportSize
+	local at = Vector2.new(
+		math.floor(math.clamp(v.X, BUBBLE_PX / 2 + 4, vp.X - BUBBLE_PX / 2 - 4) + 0.5),
+		math.floor(math.clamp(v.Y, vp.Y * TOP_BAND + BUBBLE_PX, vp.Y - 8) + 0.5)
+	)
+	-- two bubbles never sit on each other (looking down the truck, the door and the reel line up)
+	if avoid and (at - avoid).Magnitude < BUBBLE_PX + 8 then
+		local side = if at.X >= avoid.X then 1 else -1
+		if avoid.X + side * (BUBBLE_PX + 8) > vp.X - BUBBLE_PX / 2 or avoid.X + side * (BUBBLE_PX + 8) < BUBBLE_PX / 2 then
+			side = -side
+		end
+		at = Vector2.new(avoid.X + side * (BUBBLE_PX + 8), avoid.Y)
+	end
+	b.Position = UDim2.fromOffset(at.X, at.Y)
+	return at
+end
+
+local function placeBubble()
+	local main = placeOne(bubble, bubbleTarget, nil)
+	placeOne(inBubble, inTarget, main)
 end
 
 -- taps in the world ----------------------------------------------------------------------------------
@@ -439,22 +631,25 @@ local function tapAt(screen: Vector2, viewport: boolean?): string
 	local bestD = math.huge
 	for _, p in promptsNear(pos, hit) do
 		local t = promptTarget(p)
-		local pp = promptPos(p)
-		if t and pp then
-			local d = (pp - pos).Magnitude
+		if t then
+			local d = (t.part.Position - pos).Magnitude -- the truck hose: measured to the reel, not the chassis
 			if d < bestD then
 				best, bestD = t, d
 			end
 		end
 	end
-	-- on a truck: a tap NEAR its reel / lockers (within TRUCK_GEAR_TAP studs) uses that, anywhere else on
-	-- the truck gets you in. Before, only a tap exactly on the reel part counted, so grabbing a hose on a
-	-- phone kept putting kids in the driver's seat.
+	-- On a truck, tapping it is never a way in (it put kids in the driver's seat when they reached for the
+	-- hose; the open crew seats sit right by the reel). Only the green IN bubble gets you in. Near the
+	-- reel / a locker uses that; the cab, its doors and anywhere else: a hint pointing at the IN bubble.
 	local truck = truckOf(hit)
 	if truck then
-		local nearGear = best ~= nil and bestD <= TRUCK_GEAR_TAP and inReach(best :: Target)
-		if not nearGear then
-			best = truckTarget(truck)
+		local name = hit.Name
+		local cab = string.find(name, "^Door") ~= nil or string.find(name, "^Cab") ~= nil
+			or hit:FindFirstAncestor("Door_L") ~= nil or hit:FindFirstAncestor("Door_R") ~= nil
+		if cab or best == nil or bestD > TRUCK_GEAR_TAP then
+			WorldPopup.show(pos, "Tap IN to get in", { kind = "hint", mine = true, seconds = 1.2 })
+			count("tap_truck_body")
+			return "truck body: hint"
 		end
 	end
 	if not best then
