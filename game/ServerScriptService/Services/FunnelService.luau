@@ -91,6 +91,10 @@ local function note(line: string)
 end
 
 local function analytics(method: string, ...: any)
+	local track = services.TrackService -- every Roblox event is also stored durably (docs/game/20-analytics.md)
+	if track and type(track.Mirror) == "function" then
+		pcall(track.Mirror, track, method, ...)
+	end
 	local ok, err = pcall((AnalyticsService :: any)[method], AnalyticsService, ...)
 	if not ok then
 		count("analytics_error")
