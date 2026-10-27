@@ -35,6 +35,7 @@ local AskRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Soc
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript) :: any
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
+local PopupGate = require(ClientLib:WaitForChild("PopupGate") :: ModuleScript) :: any
 local InputHints = require(ClientLib:WaitForChild("InputHints") :: ModuleScript) :: any
 
 local SocialAskController = {}
@@ -53,6 +54,7 @@ local ui: { [string]: any } = {}
 local open = false
 local openedAt = 0
 local queued = false
+local gateHeld = false -- this open card holds the PopupGate slot ("like")
 local canInvite = false
 local canNotify = false
 local canFavorite = false
@@ -363,6 +365,10 @@ function SocialAskController:Close(kind: number?)
 	end
 	open = false
 	ui.panel.Visible = false
+	if gateHeld then
+		gateHeld = false
+		PopupGate.release("like")
+	end
 	ContextActionService:UnbindAction(BACK_ACTION)
 	local sel = GuiService.SelectedObject
 	if sel and sel:IsDescendantOf(ui.panel) then
@@ -500,8 +506,8 @@ local function autoLoop()
 		task.wait(0.5)
 		layoutButtons()
 		placeChip()
-		if open or queued or player:GetAttribute("LikeAskReady") ~= true or not calm() then
-			clearSince = nil
+		if open or queued or player:GetAttribute("LikeAskReady") ~= true or not calm() or PopupGate.decide("like") ~= "show" then
+			clearSince = nil -- PopupGate: one auto pop-up at a time, spaced, capped per session
 			continue
 		end
 		local now = os.clock()
@@ -515,11 +521,12 @@ local function autoLoop()
 		-- take a turn after any LEVEL UP / NEW GEAR card, then re-check the screen
 		HudLayout.celebrate(function()
 			queued = false
-			if player:GetAttribute("LikeAskReady") == true and calm() and not open then
+			if player:GetAttribute("LikeAskReady") == true and calm() and not open and PopupGate.claim("like") then
+				gateHeld = true
 				SocialAskController:Open()
 			end
 			return 0.05
-		end)
+		end, "turn")
 	end
 end
 

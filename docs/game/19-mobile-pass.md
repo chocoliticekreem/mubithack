@@ -1,0 +1,125 @@
+# 19. Mobile pass: the game on a phone
+
+Date: 2026-10-27. Live report from a phone: "click on truck and puts [you] in, can't pull hose or easily
+select items, [hard] to get off truck ... also when first join way too many pop ups at once, hella
+confusing."
+
+How it was checked: a local place (`MobileFix.rbxlx`, built with `forge place`, no Team Create). The
+Studio window was resized so the 3D viewport was exactly **667x375** (iPhone SE landscape), touch forced
+with the Player attributes `InputHintsMode = "touch"` and `ForceTouchUI = true`. Taps were driven with
+`Players.LocalPlayer.TapUseTest:Invoke(x, y)` (TapUseController) and thumb / hotbar buttons with real
+Studio mouse presses on the button (`user_mouse_input`, which goes through the same InputBegan path as a
+touch). A brand-new profile each run (Studio uses in-memory profiles), the tutorial skipped with the
+`FirstFireService._douse` / `_savePanda` DevHooks, the call ended with `forge test mission_end --reason
+allOut`. Screenshots: `scratchpad/tycoon-shots/mobile-pass/` (session scratchpad, not in git).
+Not checked on a real phone (Roblox's real jump button and thumbstick only exist on a touch device).
+
+## 1. Tapping the truck seated you
+
+| Problem | Root cause | Fix | Verified how |
+|---|---|---|---|
+| Tapping anywhere on a truck sat you in the driver's seat, even when reaching for the hose | `TapUseController.tapAt` treated the whole truck as an IN target, and the truck's hose prompt (`TruckHosePrompt`) lives at the **centre of the chassis**, so a tap on the reel measured 8-15 studs to it and fell through to "get in" (#240 only widened the radius) | The truck body, cab, doors and seats are never a way in. The only way in on touch is a **green IN bubble** (`TapBubbleIn`) pinned to the door you'd use (driver door while the driver seat is free, else the nearest free crew seat; over the middle of the truck if the door is off screen). Tap near the reel / a locker = that thing (measured to the **reel**, not the chassis centre). Anywhere else on the truck: a small "Tap IN to get in" hint | Every visible part of the truck tapped from both sides at three spots along it (see "Truck tap sweep" below): **0 seated** (before: 1 seated through a crew seat, every body tap seated before #240) |
+| Getting in needed a tap that also meant other things | one bubble at a time: IN and HOSE fought for it | two bubbles: the cream use bubble (HOSE / GRAB / ...) and the green IN bubble, never on top of each other, and never up in the top HUD band (timer, call cards) | `TapBubble` and `TapBubbleIn` both visible beside the truck, 56 px each |
+
+## 2. The hose on a phone
+
+| Problem | Root cause | Fix | Verified how |
+|---|---|---|---|
+| The hose couldn't be grabbed from half the truck's sides, and right after getting out | Roblox only treats a ProximityPrompt as shown (and only accepts `InputHoldBegin` on it) when the **prompt's spot is on screen**. `TruckHosePrompt` sits at the chassis centre, which is behind the camera when you stand on one side or at one end (measured: shown at +X / +Z, never at -X / -Z with the follow camera). So the HOSE bubble never appeared and a tap did nothing | New remote `Inventory/Reel` (InventoryService, 3/s): the touch HOSE bubble / button sends the hose prompt and the server runs the same `onReel` (reach checked by `nearSource`, as for the prompt). TapUse also lists the nearest truck's own gear itself instead of trusting PromptShown | HOSE thumb pressed after OUT: `InvHand` Extinguisher -> **Hose**, counters `inv_hose_tap 1`, `inv_hose_out 1` |
+| No T-key equivalent on touch | | **HOSE thumb button** (ThumbLayout slot `upfar`) whenever a "Grab Hose" prompt (truck or hydrant) is in reach | Button shows at 52 px beside the cluster after getting out, hides once the hose is in hand |
+| Spraying the hose | | SPRAY (ToolController) unchanged | Holding SPRAY 1.5 s with the hose: `water_used` 0 -> 19.2 |
+| Hose on your back (#266) | | unchanged | SWAP: hand Hose -> back Hose; tap the BACK tile: back in hand |
+| (found on the way) `hoseSource` lookups failing | an Instance used as a key in a weak table can be collected while the Instance lives | strong keys, cleared on Destroying | the remote grabs the hose |
+
+## 3. Picking items: the hotbar
+
+| Problem | Root cause | Fix | Verified how |
+|---|---|---|---|
+| Tiles were ~40 px on phones | UiKit's viewport scale bottoms out at 0.55 (72 design px x 0.55) | On touch the hotbar gets its own `TouchScale` so a tile is at least `InventoryConfig.TouchTilePx` (60) screen px; keyboard / gamepad unchanged | 667x375: HAND / BACK tiles **60x60** |
+| The row could sit under THROW / the thumb cluster | centred row, cluster on the right | The row slides left until it ends 10 px before `ThumbLayout.clusterLeft()`; the empty CARRY tile hides on touch (shows when carrying) | 667x375: tiles x 265-402, cluster starts at 416 |
+| "Tap a slot to equip it" | | already: tapping HAND / BACK swaps; tapping the BACK tile puts that item in your hand | Hand tap: hand Extinguisher -> back; Back tap: back -> hand |
+| SPRAY stuck small after a drive, SWAP in the big slot | ThumbLayout kept the overflow slot a button got while the truck's HONK held "primary" | Slots are re-laid out on every place / forget (newest wins a contested slot, the rest go back to the slot they asked for) | after OUT: SPRAY 84 px primary, SWAP 52 px above, HOSE 52 px upfar |
+| Edge arrows ("!" 41 m) drawn over SWAP | thumb buttons were never `HudLayout.reserve`d (doc 16 H13) | reserved in `makeButton` | |
+
+## 4. Getting out of the truck
+
+| Problem | Root cause | Fix | Verified how |
+|---|---|---|---|
+| Passengers had a small "OFF" button above the jump button, plus Roblox's jump also threw them out | #253 only moved the **driver's** OUT to the jump spot | Riders get the same big OUT on the jump button's spot, and Roblox's jump hides while they ride (it comes back the moment they're out, however they got out). One word, OUT, for both | Rider in CrewSeat_2: OUT 70 px at the jump spot, Jumping off; pressing OUT: seat nil, Jumping back on |
+| A rider who took the wheel lost their OUT | `updateSeated` unbound "TruckExit" when the rider seat went away, after `enterDrive` had bound the driver's OUT under the same name | don't unbind when moving straight to the wheel; hand the jump-off over to the driver | code only |
+| Driver OUT | | unchanged (jump spot) | Pressing OUT as driver: seat nil, Jumping back on |
+| After OUT the screen was your helmet | the camera came back 3 studs behind the head with the truck behind it | touch: look along the truck at 12+ studs | camera distance after OUT: 3.0 -> **12.5** |
+| Truck hint bar ran under SIREN | centred bar, full width | touch: bottom-left, ending before the thumb cluster; riders' hint no longer names a SPRAY button while practice fires are off ("HONK  SIREN  OUT") | screenshot |
+| Onboarding said "Tap the truck to hop in" | | "Tap the green IN button to hop in" | |
+
+## 5. First join: one pop-up gate
+
+New `ClientLib/PopupGate` (rules: `Lib/PopupGateRules`, spec `game/tests/popup_gate.spec.luau`).
+Pop-ups that open **by themselves** ask it first; things the player opens never do.
+
+1. Until the first call is done (`FirstCallDone == false`, or unknown): only the onboarding flow. Celebration
+   cards (LEVEL UP, NEW GEAR, TIER UP), achievement toasts, other players' pass fanfare and every auto
+   modal are **dropped**, not queued (a queue would dump them all on the screen when the call ends). What
+   they announce is still saved (XP bar, gear, TROPHIES / NEWS dots).
+2. After that, one auto modal at a time, and only `Gap` (8) s after the last pop-up or card went away.
+3. At most `SessionCap` (2) auto modals a session; in the session a player was new in, `NewbieCap` (1) and
+   only the like-ask. WHAT'S NEW and the lobby pass offer wait for the next session (the NEWS dot stays).
+
+First join, measured (a screen sampler logging every gui that appears, 667x375, touch):
+
+| Seconds | Before | After |
+|---|---|---|
+| 0-5 | cold open (+ HELI button for pass owners) | cold open |
+| 5 | SPRAY THE FIRE card, SPRAY, hotbar | same |
+| panda saved (+0-3 s) | DROP + SWAP + THROW buttons, XP bar, HELP chip, **LEVEL 2!** card, **LEVEL 2: NEW GEAR!** banner, **🏆 ACHIEVEMENT! FIRST RESCUE** toast, first-call card with its countdown, NOT YET, big **3-2-1**, ROLLING OUT banner, GO NOW, pad strip, CALLS bubble | SWAP, XP bar, HELP chip, first-call card with its countdown, NOT YET, GO NOW, pad strip (gate log: `drop celebrate`, `drop achievement`) |
+| first call | alarm, arriving bar, guide card, minimap, timer... (the call itself) | same |
+| results -> station, still the first session | NEWS / like-ask / lobby offer free to open one after another | one auto modal at most (like-ask); WHAT'S NEW deferred (gate log: `defer news`), the NEWS dot stays |
+
+| Pop-up | Before | Now |
+|---|---|---|
+| Cold open, tutorial card, SKIP | onboarding | unchanged |
+| HELI summon button (pass owners) | over the cold open | HudGate `store` (after the first call) |
+| DROP / THROW thumb buttons | appeared the second the panda was saved | touch: from the first finished call |
+| LEVEL 2! card + LEVEL 2: NEW GEAR! banner | on top of the first-call card | dropped until the first call is done (HudLayout.celebrate) |
+| 🏆 ACHIEVEMENT! FIRST RESCUE toast | same second | dropped until the first call is done (HudController) |
+| Big 3-2-1 + ROLLING OUT banner | behind the first-call card's own countdown | hidden for the first call (LobbyController) |
+| CALLS bubble from the board | on the first-call pad | hidden while FirstFire is "queued" (TapUseController) |
+| Someone else's pass fanfare banner | any time | dropped until your first call is done (FanfareController); your own purchase always shows |
+| WHAT'S NEW (UpdateLogController) | after the first call | gate `news`: never in a new player's first session; one at a time, spaced |
+| "Having fun? 👍" (SocialAskController) | after a happy moment | gate `like` |
+| Lobby pass offer (OfferController) | after a level-up call | gate `offer`: not in a new player's first session |
+
+## Truck tap sweep
+
+Client script: stand 4 studs off each side of the truck at three points along it (front, middle, back),
+put the camera 18 studs out, and tap the screen point of every truck part the camera can see
+(`TapUseTest:Invoke`), then check `Humanoid.SeatPart`.
+
+| Build | Taps | Seated | What the taps did |
+|---|---|---|---|
+| Before (#240 code) | 260 | **1** (a crew seat by the reel) | truck=99 (seat-in path), GRAB 94, HOSE 20, STOW 19, no target 24 |
+| After | 261 | **0** | "Tap IN" hint 103, GRAB 51, LOCKER 21, HOSE 13, STOW 13 (reel taps from both sides now reach the hose), no target 45 (the ray went past the truck) |
+
+Then the IN bubble itself: pressing `TapBubbleIn` at 844x390 sat the player in the DriveSeat; OUT got
+them out again.
+
+## Phone sizes
+
+| | 667x375 | 844x390 |
+|---|---|---|
+| Hotbar tiles | 60x60, x 265-402 | 60x60, x 353-490 |
+| Thumb cluster starts at | 416 | 593 |
+| Driver: OUT / HONK / SIREN | 70 / 84 / 52 px | same |
+| Rider: OUT at the jump spot | yes, Jumping off while riding | |
+| Truck hint bar | ends before SIREN | ends before SIREN (screenshot) |
+| Bubbles | 56 px, kept under the top HUD band | IN and GRAB side by side under the call card |
+
+ForgeProbe on the final build: 0 errors.
+
+## Not done / next
+
+- Real-phone check (Roblox's jump button and thumbstick only exist on a touch device).
+- The like-ask did not open in 4 minutes back at the station in the test session (its own calm rules:
+  `AskRules.calm`); the gate itself is spec-tested and logged `defer news` in the same session.
+- The SKIP TUTORIAL chip is small on 667x375; the NEWS chip can overlap the objectives card on a call.
+- With nothing in the big "primary" slot (an oxygen tank in hand), the cluster has a gap there.
