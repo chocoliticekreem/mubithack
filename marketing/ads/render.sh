@@ -14,7 +14,7 @@ for id in $IDS; do
   case "$id" in
     vid-*) npx remotion render .remotion/bundle "$id" "out/$id.mp4" --codec=h264 --crf=20 --log=error ;;
     *) npx remotion still .remotion/bundle "$id" "out/$id.png" --log=error
-       case "$id" in ad-*|thumb-*|g-ad-*) sips -s format jpeg -s formatOptions 92 "out/$id.png" --out "out/$id.jpg" >/dev/null && rm "out/$id.png" ;; esac ;;
+       case "$id" in ad-*|thumb-*|g-ad-*|m-ad-*) sips -s format jpeg -s formatOptions 92 "out/$id.png" --out "out/$id.jpg" >/dev/null && rm "out/$id.png" ;; esac ;;
   esac
   echo "rendered $id"
 done

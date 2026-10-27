@@ -6,6 +6,7 @@ import { Ad24, Ad25, Ad26, Ad27, Ad28, Ad29, Ad30, Ad31, Ad32, Ad33 } from "./Ad
 import { Thumb01, Thumb02, Thumb03, Thumb04, Thumb05 } from "./Thumbs";
 import { Vid15, Vid6, VID15_FRAMES, VID6_FRAMES } from "./Videos";
 import { UpdateBanner } from "./Update";
+import { MAaahFire, MDriveTruck, MPandaTrapped, MPutOut, MSavePanda, MSavePuppy } from "./MassiveAds";
 import { GBeFirefighter, GDriveTruck, GFireSquad, GPutOut, GSaveKids, GSavePanda } from "./GeminiAds";
 import { Donate10, Donate100, Donate50, Donate500, PassFoam, PassHeli, PassPremium } from "./Passes";
 import { IconFace, IconNight, IconRescue, IconSpray, IconTruck, IconWord } from "./Icons3";
@@ -24,6 +25,12 @@ export const Root: React.FC = () => (
     <Still id="g-ad-04-fire-squad" component={GFireSquad} {...A} />
     <Still id="g-ad-05-save-the-panda" component={GSavePanda} {...A} />
     <Still id="g-ad-06-put-out-the-fire" component={GPutOut} {...A} />
+    <Still id="m-ad-01-save-the-panda" component={MSavePanda} {...A} />
+    <Still id="m-ad-02-save-the-puppy" component={MSavePuppy} {...A} />
+    <Still id="m-ad-03-panda-is-trapped" component={MPandaTrapped} {...A} />
+    <Still id="m-ad-04-put-out-the-fire" component={MPutOut} {...A} />
+    <Still id="m-ad-05-drive-the-fire-truck" component={MDriveTruck} {...A} />
+    <Still id="m-ad-06-aaah-fire" component={MAaahFire} {...A} />
     {BADGES.map((b) => (
       <Still key={b.id} id={`badge-${b.id.replace(/_/g, "-")}`} component={b.component} {...I} />
     ))}
