@@ -1590,6 +1590,7 @@ return {
 	["Be the first hero to donate!"] = "Bağış yapan ilk kahraman sen ol!",
 	-- Hero board + leaderboards (HeroBoardService, LeaderboardService)
 	["TODAY'S TOP HEROES"] = "BUGÜNÜN EN İYİ KAHRAMANLARI",
+	["ALL-TIME TOP HEROES"] = "TÜM ZAMANLARIN EN İYİ KAHRAMANLARI",
 	["ALL SERVERS TODAY"] = "BUGÜN TÜM SUNUCULAR",
 	["THIS SERVER NOW"] = "ŞU AN BU SUNUCU",
 	["Be the first hero!"] = "İlk kahraman sen ol!",

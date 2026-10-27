@@ -60,4 +60,33 @@ Spec.test("mergeTop: value desc, zeroes dropped, ties by lower id, first n", fun
 	Spec.eq(top[2].userId, 1)
 end)
 
+Spec.test("dedupeTop: one row per player, biggest value, keeps a name", function()
+	local top = TeamRules.dedupeTop({
+		{ userId = 5, value = 10, name = "Ann" },
+		{ userId = 5, value = 12 },
+		{ userId = 6, value = 11, name = "Bo" },
+		{ userId = 7, value = 0, name = "Zero" },
+	}, 5)
+	Spec.eq(#top, 2)
+	Spec.eq(top[1].userId, 5)
+	Spec.eq(top[1].value, 12)
+	Spec.eq(top[1].name, "Ann")
+	Spec.eq(top[2].userId, 6)
+end)
+
+Spec.test("lifetime: achievement stats raised to the old profile counters", function()
+	local r, f = TeamRules.lifetime(nil)
+	Spec.eq(r, 0)
+	Spec.eq(f, 0)
+	r, f = TeamRules.lifetime({ firesOut = 40, rescued = { Civilian = 3, Dog = 1, Cat = 1, Panda = 1 } })
+	Spec.eq(r, 6)
+	Spec.eq(f, 40)
+	r, f = TeamRules.lifetime({ firesOut = 40, rescued = { Civilian = 3 }, achievements = { stats = { rescues = 9, fires = 12.7 } } })
+	Spec.eq(r, 9)
+	Spec.eq(f, 40)
+	r, f = TeamRules.lifetime({ firesOut = -3, rescued = "bad", achievements = { stats = { fires = 0 / 0 } } })
+	Spec.eq(r, 0)
+	Spec.eq(f, 0)
+end)
+
 return Spec.finish()

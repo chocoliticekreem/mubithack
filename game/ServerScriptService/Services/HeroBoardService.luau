@@ -4,20 +4,30 @@
 -- "STATION 67 - EST. 1967" sign and right of the LOCKER door, so it never blocks the pads, the PICK A
 -- MISSION board or the door: seen from the START row and the pads, and walking back from a call. Two
 -- columns, RESCUES and FIRES OUT, top TeamRules.Cfg.HeroTopN each, with avatar headshots and big numbers.
--- The subtitle alternates EVERY SERVER (OrderedDataStores with a daily UTC key, IncrementAsync so several
--- servers add up) and THIS SERVER (live counts of the players here).
+-- Three pages, CYCLE_SECONDS each: ALL TIME ("ALL-TIME TOP HEROES": lifetime totals), then ALL SERVERS TODAY
+-- (OrderedDataStores with a daily UTC key, IncrementAsync so several servers add up), then THIS SERVER NOW
+-- (live counts of the players here).
+-- ALL TIME source of truth = the saved profile (TeamRules.lifetime: achievements.stats from AchievementService,
+-- raised to the old firesOut / rescued counters), SET (not incremented) into two permanent global
+-- OrderedDataStores, key tostring(UserId), integer value: "AllTimeRescues" and "AllTimeFiresOut". Never rename
+-- them: the Creator Dashboard leaderboard reads them too. Written on profile load, at most once per
+-- REFRESH_SECONDS per player when the total moved, on leave and on close; read top N every REFRESH_SECONDS.
+-- The page always merges in this server's players' live totals, so it still works if DataStores fail.
 -- Also classic leaderstats (Rescues, Fires = today's numbers), so the player list shows the flex.
 -- Counts: RescueService.Rescued (the rescuer) and FireService.Extinguished (whoever put that part out).
 --
 -- Public API: HeroBoardService:GetToday(player): (rescues: number, fires: number)
---             HeroBoardService:GetTop(stat: "rescues" | "fires", which: "global" | "server"): { Row }
+--             HeroBoardService:GetLifetime(player): (rescues: number, fires: number)
+--             HeroBoardService:GetTop(stat: "rescues" | "fires", which: "alltime" | "global" | "server"): { Row }
 -- Consumes (nil-guarded): RescueService.Rescued, FireService.Extinguished, DataService:IsPersistent,
+--   DataService:GetProfile / .ProfileLoaded,
 --   MapService.LocationBuilt / :GetLocation ("Station"; station model attr StationOrigin)
 -- Writes: Model "HeroBoard" in the Station location; Player Folder "leaderstats" (IntValue Rescues, Fires);
---   OrderedDataStores FlameAndBlameHero_<stat>_d<dayId> (persistent servers only; Studio = memory)
--- Counters: hero_board_refreshes, hero_board_writes
--- Test hooks (DevHook only): _add(player, stat, n), _refresh(), _mode("global"|"server"),
---   _seed(stat, userId, value, name?) (memory board only), _selftest()
+--   OrderedDataStores FlameAndBlameHero_<stat>_d<dayId>, AllTimeRescues, AllTimeFiresOut
+--   (persistent servers only; Studio = memory)
+-- Counters: hero_board_refreshes, hero_board_writes, hero_alltime_writes, hero_alltime_reads
+-- Test hooks (DevHook only): _add(player, stat, n), _refresh(), _mode("alltime"|"global"|"server"),
+--   _seed(stat, userId, value, name?), _seedAll(stat, userId, value, name?) (memory boards only), _selftest()
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,6 +44,10 @@ local STATS = { "rescues", "fires" }
 local TITLES = { rescues = "RESCUES", fires = "FIRES OUT" }
 local LEADERSTAT = { rescues = "Rescues", fires = "Fires" }
 local REFRESH_SECONDS = 60
+-- permanent, unversioned: the Creator Dashboard leaderboard is pointed at these exact names
+local ALLTIME_STORE = { rescues = "AllTimeRescues", fires = "AllTimeFiresOut" }
+local PAGES = { "alltime", "global", "server" }
+local PAGE_SUB = { alltime = "ALL TIME", global = "ALL SERVERS TODAY", server = "THIS SERVER NOW" }
 local CYCLE_SECONDS = 8
 -- station-local placement (StationBuilder coords: wing facade at Z 29.5, street = +Z)
 local BOARD_CF = CFrame.new(-35.5, 18.6, 31.0) * CFrame.Angles(0, math.pi, 0) -- Front face looks at the street
@@ -52,8 +66,12 @@ local pending: { [number]: Today } = {}
 local global: { [string]: { Row } } = { rescues = {}, fires = {} }
 local memory: { [string]: { [number]: number } } = {} -- non-persistent "global" store
 local names: { [number]: string } = {}
-local mode: "global" | "server" = "global"
-local ui: { sub: TextLabel?, rows: { [string]: { RowUi } } } = { sub = nil, rows = {} }
+local allTime: { [string]: { Row } } = { rescues = {}, fires = {} } -- cached store top N
+local allMemory: { [string]: { [number]: number } } = { rescues = {}, fires = {} } -- non-persistent store
+local written: { [number]: Today } = {} -- last lifetime totals saved per userId
+local lastWrite: { [number]: number } = {} -- os.clock() of that save
+local mode: "alltime" | "global" | "server" = "alltime"
+local ui: { title: TextLabel?, sub: TextLabel?, rows: { [string]: { RowUi } } } = { title = nil, sub = nil, rows = {} }
 
 ----------------------------------------------------------------------------------------- counts
 
@@ -177,6 +195,115 @@ local function readGlobal()
 	end
 end
 
+----------------------------------------------------------------------------------- all time
+
+local function lifetimeOf(player: Player): (number, number, boolean)
+	local Data = services.DataService
+	if not Data or type(Data.GetProfile) ~= "function" then
+		return 0, 0, false
+	end
+	local ok, profile = pcall(Data.GetProfile, Data, player)
+	if not ok or profile == nil then
+		return 0, 0, false
+	end
+	local r, f = TeamRules.lifetime(profile)
+	return r, f, true
+end
+
+local function hasBudget(kind: Enum.DataStoreRequestType): boolean
+	local ok, b = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(kind)
+	end)
+	return not ok or b >= 1 -- unknown budget: try; the pcall around the call still catches throttling
+end
+
+-- save one player's lifetime totals when they moved; force = skip the per-player throttle (join/leave/close)
+local function writeAllTime(player: Player, force: boolean)
+	local userId = player.UserId
+	local r, f, loaded = lifetimeOf(player)
+	if not loaded then
+		return
+	end
+	names[userId] = player.DisplayName
+	if not force and os.clock() - (lastWrite[userId] or -math.huge) < REFRESH_SECONDS then
+		return
+	end
+	local w = written[userId] or { rescues = 0, fires = 0 }
+	local now = { rescues = r, fires = f }
+	for _, stat in STATS do
+		local v = (now :: any)[stat]
+		if v > 0 and v ~= (w :: any)[stat] then
+			if persistent then
+				if userId <= 0 or not hasBudget(Enum.DataStoreRequestType.SetIncrementSortedAsync) then
+					continue -- retried on the next refresh
+				end
+				local ok, err = pcall(function()
+					DataStoreService:GetOrderedDataStore(ALLTIME_STORE[stat]):SetAsync(tostring(userId), v)
+				end)
+				if not ok then
+					warn(`[HeroBoardService] all-time write {stat}: {err}`)
+					continue
+				end
+			else
+				allMemory[stat][userId] = v
+			end
+			(w :: any)[stat] = v
+			Telemetry.count("hero_alltime_writes")
+		end
+	end
+	written[userId] = w
+	lastWrite[userId] = os.clock()
+end
+
+local function readAllTime()
+	local n = TeamRules.Cfg.HeroTopN
+	for _, stat in STATS do
+		local rows: { Row } = {}
+		if persistent then
+			if hasBudget(Enum.DataStoreRequestType.GetSortedAsync) then
+				local ok, page = pcall(function()
+					return DataStoreService:GetOrderedDataStore(ALLTIME_STORE[stat]):GetSortedAsync(false, n):GetCurrentPage()
+				end)
+				if ok and type(page) == "table" then
+					for _, item in page do
+						local id = tonumber(item.key)
+						if id and type(item.value) == "number" then
+							table.insert(rows, { userId = id, value = item.value })
+						end
+					end
+					Telemetry.count("hero_alltime_reads")
+				else
+					warn(`[HeroBoardService] all-time read {stat}: {page}`)
+					rows = allTime[stat] -- keep the cache
+				end
+			else
+				rows = allTime[stat]
+			end
+		else
+			for id, v in allMemory[stat] do
+				table.insert(rows, { userId = id, value = v })
+			end
+		end
+		rows = TeamRules.dedupeTop(rows, n) :: any
+		for _, r in rows do
+			r.name = nameOf(r.userId)
+		end
+		allTime[stat] = rows
+	end
+end
+
+-- cached store top N + the live totals of everyone on this server (fresher, and works with no DataStore)
+local function allTimeTop(stat: string): { Row }
+	local rows: { Row } = table.clone(allTime[stat] or {})
+	for _, p in Players:GetPlayers() do
+		local r, f, loaded = lifetimeOf(p)
+		if loaded then
+			table.insert(rows, { userId = p.UserId, value = if stat == "rescues" then r else f, name = p.DisplayName })
+		end
+	end
+	return TeamRules.dedupeTop(rows, TeamRules.Cfg.HeroTopN) :: any
+end
+
 local function serverTop(stat: string): { Row }
 	local rows: { Row } = {}
 	for _, p in Players:GetPlayers() do
@@ -191,11 +318,14 @@ end
 -------------------------------------------------------------------------------------------- UI
 
 local function render()
+	if ui.title then
+		ui.title.Text = if mode == "alltime" then "ALL-TIME TOP HEROES" else "TODAY'S TOP HEROES"
+	end
 	if ui.sub then
-		ui.sub.Text = if mode == "global" then "ALL SERVERS TODAY" else "THIS SERVER NOW"
+		ui.sub.Text = PAGE_SUB[mode]
 	end
 	for stat, rowsUi in ui.rows do
-		local rows = if mode == "global" then global[stat] else serverTop(stat)
+		local rows = if mode == "alltime" then allTimeTop(stat) elseif mode == "global" then global[stat] else serverTop(stat)
 		for i, r in rowsUi do
 			local row = rows[i]
 			r.frame.Visible = row ~= nil or i == 1
@@ -203,7 +333,7 @@ local function render()
 			if row then
 				r.rank.Text = tostring(i)
 				r.name.Text = row.name or "Firefighter"
-				r.value.Text = tostring(row.value)
+				r.value.Text = tostring(math.floor(row.value))
 				if row.userId > 0 then
 					r.face.Image = `rbxthumb://type=AvatarHeadShot&id={row.userId}&w=150&h=150`
 					r.initial.Text = ""
@@ -295,7 +425,7 @@ local function buildBoard(station: Model?)
 	band.BackgroundColor3 = Palette.TruckRed
 	band.BorderSizePixel = 0
 	band.Parent = gui
-	label(band, "Title", "TODAY'S TOP HEROES", UDim2.fromScale(0.64, 0.84), UDim2.fromScale(0.02, 0.08), Enum.Font.LuckiestGuy, Palette.UiCream)
+	ui.title = label(band, "Title", "TODAY'S TOP HEROES", UDim2.fromScale(0.64, 0.84), UDim2.fromScale(0.02, 0.08), Enum.Font.LuckiestGuy, Palette.UiCream)
 	ui.sub = label(band, "Sub", "", UDim2.fromScale(0.32, 0.5), UDim2.fromScale(0.66, 0.25), Enum.Font.LuckiestGuy, Palette.HelmetShield, Enum.TextXAlignment.Right)
 	ui.rows = {}
 
@@ -388,7 +518,15 @@ function HeroBoardService:GetToday(player: Player): (number, number)
 	return if t then t.rescues else 0, if t then t.fires else 0
 end
 
+function HeroBoardService:GetLifetime(player: Player): (number, number)
+	local r, f = lifetimeOf(player)
+	return r, f
+end
+
 function HeroBoardService:GetTop(stat: string, which: string): { Row }
+	if which == "alltime" then
+		return allTimeTop(stat)
+	end
 	return if which == "server" then serverTop(stat) else (global[stat] or {})
 end
 
@@ -398,6 +536,16 @@ function HeroBoardService:Refresh()
 		flush()
 		readGlobal()
 	end)
+	if not ok then
+		warn(`[HeroBoardService] refresh: {err}`)
+	end
+	for _, p in Players:GetPlayers() do
+		local okW, errW = pcall(writeAllTime, p, false)
+		if not okW then
+			warn(`[HeroBoardService] all-time write: {errW}`)
+		end
+	end
+	ok, err = pcall(readAllTime)
 	if not ok then
 		warn(`[HeroBoardService] refresh: {err}`)
 	end
@@ -417,8 +565,24 @@ function HeroBoardService:Start()
 	end
 	Players.PlayerAdded:Connect(setupPlayer)
 	Players.PlayerRemoving:Connect(function(p: Player)
+		pcall(writeAllTime, p, true) -- before DataService drops the profile
+		written[p.UserId], lastWrite[p.UserId] = nil, nil
 		task.defer(render)
 	end)
+	-- existing players with history show up the moment their profile loads
+	if Data and Data.ProfileLoaded then
+		Data.ProfileLoaded:Connect(function(p: Player)
+			task.spawn(function()
+				pcall(writeAllTime, p, true)
+				if mode == "alltime" then
+					render()
+				end
+			end)
+		end)
+	end
+	for _, p in Players:GetPlayers() do
+		task.spawn(pcall, writeAllTime, p, true)
+	end
 
 	local Rescue = services.RescueService
 	if Rescue and Rescue.Rescued then
@@ -459,12 +623,16 @@ function HeroBoardService:Start()
 	task.spawn(function()
 		while true do
 			task.wait(CYCLE_SECONDS)
-			mode = if mode == "global" then "server" else "global"
+			local i = table.find(PAGES, mode) or 0
+			mode = PAGES[i % #PAGES + 1] :: any
 			render()
 		end
 	end)
 	game:BindToClose(function()
 		pcall(flush)
+		for _, p in Players:GetPlayers() do
+			pcall(writeAllTime, p, true)
+		end
 	end)
 	task.wait(5)
 	while true do
@@ -488,6 +656,8 @@ function HeroBoardService:_refresh(): string
 	for _, stat in STATS do
 		local rows = global[stat]
 		table.insert(out, `{stat}={#rows}` .. (if rows[1] then `({rows[1].name}:{rows[1].value})` else ""))
+		local all = allTimeTop(stat)
+		table.insert(out, `all_{stat}={#all}` .. (if all[1] then `({all[1].name}:{all[1].value})` else ""))
 	end
 	return table.concat(out, " ") .. ` persistent={persistent} day={day}`
 end
@@ -506,8 +676,20 @@ function HeroBoardService:_seed(stat: string, userId: number, value: number, nam
 	return `{stat} {userId}={value}`
 end
 
+-- fake lifetime heroes for the ALL TIME page (memory board only; never touches DataStores)
+function HeroBoardService:_seedAll(stat: string, userId: number, value: number, name: string?): string
+	if persistent then
+		return "refused: persistent server"
+	end
+	allMemory[stat][userId] = value
+	names[userId] = name or names[userId]
+	readAllTime()
+	render()
+	return `alltime {stat} {userId}={value}`
+end
+
 function HeroBoardService:_mode(m: string): string
-	mode = if m == "server" then "server" else "global"
+	mode = if m == "server" then "server" elseif m == "alltime" then "alltime" else "global"
 	render()
 	return mode
 end
