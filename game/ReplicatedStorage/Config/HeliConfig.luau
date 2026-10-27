@@ -54,13 +54,17 @@ return Config.define({
 	LandSpeed = 22, -- studs/s safe auto-land when the pilot leaves (or presses EXIT in the air)
 	IdleDespawnSeconds = 600, -- an empty heli far from its owner for this long goes home (despawns)
 
-	-- The station helipad (StationBuilder local studs: the east parking lot, east of the truck column)
+	-- The station helipad (StationBuilder local studs; street = +Z). It sits on the lawn BEHIND the east
+	-- parking lot (lot X 76..158, Z -50..54), so nothing on it is ever in a truck's way: the overflow
+	-- trucks face the street and drive straight out (VehicleConfig.OverflowSpots). A paved path runs from
+	-- the lot's back edge to the kiosk on the pad's front (+Z) edge.
 	Pad = {
 		LocationId = "Station",
-		Center = Vector3.new(134, 0.5, -16), -- floor point under the H (lot X 90..152, Z -50..54)
+		Center = Vector3.new(120, 0.5, -80), -- floor point under the H
 		Radius = 13,
-		WaterOffset = Vector3.new(0, 0, 24), -- the refill tank, from the pad centre (local)
+		WaterOffset = Vector3.new(0, 0, -28), -- the refill tank, from the pad centre (behind it, away from the lot)
 		WaterRadius = 7,
+		SpareOffsets = { Vector3.new(-28, 0, 0), Vector3.new(28, 0, 0) }, -- more landing spots beside the pad
 	},
 
 	-- Keys (doc 16 / 17): move = WASD / left stick, look = mouse / right stick.

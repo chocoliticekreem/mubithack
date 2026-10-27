@@ -939,6 +939,11 @@ function CityBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	if typeof(so) == "CFrame" then
 		local a, b = so * V(-112, 0, 26), so * V(-18, 0, 60)
 		table.insert(ctx.blocked, { x0 = math.min(a.X, b.X), z0 = math.min(a.Z, b.Z), x1 = math.max(a.X, b.X), z1 = math.max(a.Z, b.Z) })
+		-- ...nor on the truck exits: the bay apron and the parking lot both open straight onto the avenue
+		-- (StationBuilder: apron X -20..62, lot X 76..158 to the kerb at Z 68). A verge tree used to grow
+		-- in the lot's mouth, right where the overflow trucks drive out.
+		local c, d = so * V(-24, 0, -54), so * V(162, 0, 72)
+		table.insert(ctx.blocked, { x0 = math.min(c.X, d.X), z0 = math.min(c.Z, d.Z), x1 = math.max(c.X, d.X), z1 = math.max(c.Z, d.Z) })
 	end
 	-- keep lamps / trees out of curb cuts, gates and spur mouths
 	for _, s in plan.sites do

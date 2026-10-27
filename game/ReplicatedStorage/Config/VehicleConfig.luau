@@ -20,17 +20,18 @@ return Config.define({
 	TapEnterRange = 22, -- studs from the chassis: touch's green IN bubble shows and sits you straight in (Vehicle/Enter)
 
 	-- Parking
-	-- Overflow parking (truck numbers 5..): the station's empty east parking lot. One column of trucks
-	-- side by side along its west edge (14 studs apart), noses east toward the open lane, which runs south
-	-- to the lot drive. Each { x, z, yaw } is in bay 1's frame (x = truck-right, z = truck-back; bay 1
-	-- faces out of its door), yaw in degrees (90 = facing east). World: X 108, Z 165 / 151 / ... / 95.
+	-- Overflow parking (truck numbers 5..): the station's east parking lot (StationBuilder: X 76..158,
+	-- its whole front edge is asphalt to the kerb). One row side by side (13.5 studs apart), every truck
+	-- facing the street like the bays, so it drives STRAIGHT out onto the avenue with nothing in the way.
+	-- Each { x, z, yaw } is in bay 1's frame (x = truck-right, z = truck-back; bay 1 faces out of its door),
+	-- yaw in degrees (0 = facing the street). Station-local: X 83 / 96.5 / 110 / 123.5 / 137 / 150.5, Z 30.
 	OverflowSpots = {
-		{ -118, -23, 90 },
-		{ -118, -9, 90 },
-		{ -118, 5, 90 },
-		{ -118, 19, 90 },
-		{ -118, 33, 90 },
-		{ -118, 47, 90 },
+		{ -93, -20, 0 },
+		{ -106.5, -20, 0 },
+		{ -120, -20, 0 },
+		{ -133.5, -20, 0 },
+		{ -147, -20, 0 },
+		{ -160.5, -20, 0 },
 	},
 	-- past OverflowSpots (no station layout / past MaxTrucks): a row on the apron in front of the bays
 	ReserveAhead = 46, -- studs in front of the station anchor for that row
