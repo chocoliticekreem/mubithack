@@ -9,7 +9,7 @@
 -- (live counts of the players here).
 -- ALL TIME source of truth = the saved profile (TeamRules.lifetime: achievements.stats from AchievementService,
 -- raised to the old firesOut / rescued counters), SET (not incremented) into two permanent global
--- OrderedDataStores, key tostring(UserId), integer value: "AllTimeRescues" and "AllTimeFiresOut". Never rename
+-- OrderedDataStores, key "Player_<UserId>" (dashboard key template Player_{UserId}), integer value: "AllTimeRescues" and "AllTimeFiresOut". Never rename
 -- them: the Creator Dashboard leaderboard reads them too. Written on profile load, at most once per
 -- REFRESH_SECONDS per player when the total moved, on leave and on close; read top N every REFRESH_SECONDS.
 -- The page always merges in this server's players' live totals, so it still works if DataStores fail.
@@ -46,6 +46,8 @@ local LEADERSTAT = { rescues = "Rescues", fires = "Fires" }
 local REFRESH_SECONDS = 60
 -- permanent, unversioned: the Creator Dashboard leaderboard is pointed at these exact names
 local ALLTIME_STORE = { rescues = "AllTimeRescues", fires = "AllTimeFiresOut" }
+-- key = "Player_<UserId>": matches the Creator Dashboard Leaderboard key template "Player_{UserId}"
+local ALLTIME_KEY_PREFIX = "Player_"
 local WRITE_GAP = REFRESH_SECONDS - 10 -- per-player all-time save gap; under the refresh period so jitter never skips one
 local PAGES = { "alltime", "global", "server" }
 local PAGE_SUB = { alltime = "ALL TIME", global = "ALL SERVERS TODAY", server = "THIS SERVER NOW" }
@@ -240,7 +242,7 @@ local function writeAllTime(player: Player, force: boolean)
 					continue -- retried on the next refresh
 				end
 				local ok, err = pcall(function()
-					DataStoreService:GetOrderedDataStore(ALLTIME_STORE[stat]):SetAsync(tostring(userId), v)
+					DataStoreService:GetOrderedDataStore(ALLTIME_STORE[stat]):SetAsync(ALLTIME_KEY_PREFIX .. tostring(userId), v)
 				end)
 				if not ok then
 					warn(`[HeroBoardService] all-time write {stat}: {err}`)
@@ -271,7 +273,7 @@ local function readAllTime()
 				end)
 				if ok and type(page) == "table" then
 					for _, item in page do
-						local id = tonumber(item.key)
+						local id = tonumber((string.gsub(item.key, "^" .. ALLTIME_KEY_PREFIX, "")))
 						if id and type(item.value) == "number" then
 							table.insert(rows, { userId = id, value = item.value })
 						end
