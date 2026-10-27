@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "СІДАЙ НАЗАД!",
 	["Walk up to the truck and press {1}"] = "Підійди до машини й тисни {1}",
 	["Tap the truck to hop in"] = "Тапни машину, щоб сісти",
+	["Tap the green IN button to hop in"] = "Натисни зелену кнопку СІСТИ, щоб сісти",
 	["YOU'RE IN THE TRUCK!"] = "ТИ В МАШИНІ!",
 	["Your driver follows the GPS. Hang on!"] = "Водій їде за GPS. Тримайся!",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "ВМИКАЙ СИРЕНУ! ЇДЬ ЗА GPS",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "НАВЧАЛЬНІ ВОГНИКИ  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "КЛІК: водомет   {1}: біб   {2}: сирена   SPACE: злізти",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "ГАСИТИ вогники!   ·   БІБ  СИРЕНА  ЗЛІЗТИ",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "ГАСИТИ вогники!   ·   БІБ  СИРЕНА  ВИЙТИ",
+	["Tap IN to get in"] = "Натисни СІСТИ, щоб сісти",
+	["HONK  SIREN  OUT"] = "БІБ  СИРЕНА  ВИЙТИ",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: водомет   Y: біб   X: сирена   A: злізти",
 	["PRACTICE FIRE OUT!"] = "НАВЧАЛЬНИЙ ВОГНИК ЗГАШЕНО!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

@@ -66,6 +66,7 @@ return {
 	"HOP BACK IN!",
 	"Walk up to the truck and press {1}",
 	"Tap the truck to hop in",
+	"Tap the green IN button to hop in",
 	"YOU'RE IN THE TRUCK!",
 	"Your driver follows the GPS. Hang on!",
 	"HIT THE SIREN! FOLLOW THE GPS",
@@ -2000,6 +2001,9 @@ return {
 	"PRACTICE FIRES  {1}/{2}",
 	"CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off",
 	"SPRAY the fires!   ·   HONK  SIREN  OFF",
+	"SPRAY the fires!   ·   HONK  SIREN  OUT",
+	"Tap IN to get in",
+	"HONK  SIREN  OUT",
 	"R2: water cannon   Y: honk   X: siren   A: hop off",
 	"PRACTICE FIRE OUT!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

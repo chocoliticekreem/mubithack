@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "TEKRAR BİN!",
 	["Walk up to the truck and press {1}"] = "Araca yaklaş ve {1} tuşuna bas",
 	["Tap the truck to hop in"] = "Binmek için araca dokun",
+	["Tap the green IN button to hop in"] = "Binmek için yeşil BİN düğmesine dokun",
 	["YOU'RE IN THE TRUCK!"] = "ARAÇTASIN!",
 	["Your driver follows the GPS. Hang on!"] = "Şoförün GPS'i takip ediyor. Sıkı tutun!",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "SİRENİ AÇ! GPS'İ TAKİP ET",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "ALIŞTIRMA ATEŞLERİ  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "TIKLA: su topu   {1}: korna   {2}: siren   SPACE: in",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "Ateşlere SIK!   ·   KORNA  SİREN  KAPALI",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "Ateşlere SIK!   ·   KORNA  SİREN  İN",
+	["Tap IN to get in"] = "Binmek için BİN'e dokun",
+	["HONK  SIREN  OUT"] = "KORNA  SİREN  İN",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: su topu   Y: korna   X: siren   A: in",
 	["PRACTICE FIRE OUT!"] = "ALIŞTIRMA ATEŞİ SÖNDÜ!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "NAIK LAGI!",
 	["Walk up to the truck and press {1}"] = "Dekati truk dan tekan {1}",
 	["Tap the truck to hop in"] = "Ketuk truk untuk naik",
+	["Tap the green IN button to hop in"] = "Ketuk tombol hijau NAIK untuk naik",
 	["YOU'RE IN THE TRUCK!"] = "KAMU DI DALAM TRUK!",
 	["Your driver follows the GPS. Hang on!"] = "Sopirmu mengikuti GPS. Pegangan!",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "NYALAKAN SIRENE! IKUTI GPS",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "API LATIHAN  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "KLIK: meriam air   {1}: klakson   {2}: sirene   SPACE: turun",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "SEMPROT apinya!   ·   KLAKSON  SIRENE  TURUN",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "SEMPROT apinya!   ·   KLAKSON  SIRENE  KELUAR",
+	["Tap IN to get in"] = "Ketuk NAIK untuk naik",
+	["HONK  SIREN  OUT"] = "KLAKSON  SIRENE  KELUAR",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: meriam air   Y: klakson   X: sirene   A: turun",
 	["PRACTICE FIRE OUT!"] = "API LATIHAN PADAM!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

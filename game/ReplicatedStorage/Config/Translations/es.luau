@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "¡VUELVE A SUBIR!",
 	["Walk up to the truck and press {1}"] = "Acércate al camión y presiona {1}",
 	["Tap the truck to hop in"] = "Toca el camión para subir",
+	["Tap the green IN button to hop in"] = "Toca el botón verde SUBIR para subir",
 	["YOU'RE IN THE TRUCK!"] = "¡ESTÁS EN EL CAMIÓN!",
 	["Your driver follows the GPS. Hang on!"] = "Tu conductor sigue el GPS. ¡Agárrate!",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "¡PRENDE LA SIRENA! SIGUE EL GPS",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "FUEGOS DE PRÁCTICA  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "CLIC: cañón de agua   {1}: bocina   {2}: sirena   SPACE: bajarte",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "¡ROCIAR los fuegos!   ·   BOCINA  SIRENA  BAJAR",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "¡ROCIAR los fuegos!   ·   BOCINA  SIRENA  SALIR",
+	["Tap IN to get in"] = "Toca SUBIR para subir",
+	["HONK  SIREN  OUT"] = "BOCINA  SIRENA  SALIR",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: cañón de agua   Y: bocina   X: sirena   A: bajarte",
 	["PRACTICE FIRE OUT!"] = "¡FUEGO DE PRÁCTICA APAGADO!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

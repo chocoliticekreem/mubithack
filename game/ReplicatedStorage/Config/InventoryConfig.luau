@@ -50,6 +50,7 @@ return Config.define({
 
 	-- UI (client)
 	HotbarSlotSize = 72, -- keeps the row under HudController's toast stack
+	TouchTilePx = 60, -- phones / tablets: a hotbar tile is at least this many screen px (a thumb)
 	HighlightColor = Color3.fromHex("#FFE15A"),
 	SoundGrab = "rbxassetid://2575934454", -- item pickup blip
 	SoundDrop = "rbxasset://sounds/action_jump_land.mp3", -- built-in

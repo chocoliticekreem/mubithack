@@ -9,6 +9,10 @@
 --       HAND or BACK tile swaps too. The hose swaps like anything else: on your back its line stays out.
 --     (lobby emotes live on Z / X / C in SquadController, so 1 / 2 are inventory-only)
 --   * the hotbar hides while you're seated (the truck key-hint bar takes the bottom centre)
+--   * phones / tablets (InputHints touch): the tiles grow to at least Cfg.TouchTilePx screen px (UiKit's
+--     0.55 phone scale made them 40 px), the row slides left so it never sits under the thumb buttons
+--     (ThumbLayout.clusterLeft), and the CARRY tile only shows while you carry something. Tap HAND / BACK
+--     = swap, so tapping what's on your back puts it in your hand.
 --   * relabels the truck reel prompt locally (Grab / Stow Hose); every prompt's "[E] Grab Axe" sticker
 --     and yellow outline are PromptController's
 --   * Inventory/Fx world pops: GRAB!, BONK!, Butterfingers!, YEET!
@@ -40,6 +44,7 @@ type Slot = { frame: Frame, tile: Frame, glyph: TextLabel, name: TextLabel, bar:
 
 local slots: { [string]: Slot } = {}
 local hotbarRow: Frame? = nil
+local touchScale: UIScale? = nil
 local chargeFrame: Frame? = nil
 local chargeFill: Frame? = nil
 local chargeStart: number? = nil
@@ -199,6 +204,10 @@ local function buildHotbar()
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 20)
 	layout.Parent = row
+	local ts = Instance.new("UIScale")
+	ts.Name = "TouchScale"
+	ts.Parent = row
+	touchScale = ts
 	slots.hand = makeSlot(row, "Hand", "HAND", 1)
 	slots.back = makeSlot(row, "Back", "1/2 SWAP", 2)
 	slots.carry = makeSlot(row, "Carry", "CARRY", 3)
@@ -310,10 +319,52 @@ local function paint(key: string, id: string, isProp: boolean)
 	end
 end
 
+-- touch: thumb-sized tiles, clear of the thumb buttons; keyboard / gamepad: exactly as before
+local function fitTouch()
+	local row, ts = hotbarRow, touchScale
+	if not row or not ts then
+		return
+	end
+	local touch = InputHints.isTouch()
+	local carry = slots.carry
+	if carry then
+		carry.frame.Visible = not touch or attr("InvCarry") ~= ""
+	end
+	local gui = row:FindFirstAncestorOfClass("ScreenGui")
+	local vs = gui and gui:FindFirstChild("ViewportScale")
+	local k = if vs and vs:IsA("UIScale") then vs.Scale else 1
+	local want = tonumber(Cfg.TouchTilePx) or 60
+	local s = if touch then math.max(1, want / math.max(1, Cfg.HotbarSlotSize * k)) else 1
+	if math.abs(ts.Scale - s) > 0.001 then
+		ts.Scale = s
+	end
+	local shift = 0
+	if touch then
+		local n = if carry and carry.frame.Visible then 3 else 2
+		local width = (Cfg.HotbarSlotSize * n + 20 * (n - 1)) * s * k -- screen px
+		local cam = workspace.CurrentCamera
+		local vpX = if cam then cam.ViewportSize.X else 1280
+		local right = vpX / 2 + width / 2
+		local limit = ThumbLayout.clusterLeft() - 10
+		if right > limit then
+			shift = math.max(8 + width / 2 - vpX / 2, limit - right) -- never off the left edge
+		end
+	end
+	local want2 = UDim2.new(0.5, math.floor(shift / k + 0.5), 1, -4)
+	if row.Position ~= want2 then
+		row.Position = want2
+	end
+	local cf = chargeFrame
+	if cf then
+		cf.Position = UDim2.new(0.5, math.floor(shift / k + 0.5), 1, -math.floor((Cfg.HotbarSlotSize + NAME_H + 4) * s + 12))
+	end
+end
+
 local function refreshHud()
 	paint("hand", attr("InvHand"), false)
 	paint("back", attr("InvBack"), false)
 	paint("carry", attr("InvCarry"), true)
+	fitTouch()
 end
 
 -- input ----------------------------------------------------------------------------------------------
@@ -409,9 +460,16 @@ local function quietSlots(): boolean
 	return LocalPlayer:GetAttribute("FirstFire") == "burning"
 end
 
+-- Phones, until the first call is done: no DROP / THROW buttons either (they popped up the moment the
+-- panda was saved, in the same second as the first-call card, LEVEL 2! and GO NOW). Touch only: the keys
+-- G / Q stay bound on keyboard and gamepad.
+local function newbieTouch(): boolean
+	return InputHints.isTouch() and LocalPlayer:GetAttribute("FirstCallDone") == false
+end
+
 function rebind()
 	local quiet = quietSlots()
-	local wantItem = hasItem() and not quiet
+	local wantItem = hasItem() and not quiet and not newbieTouch()
 	if wantItem and not boundItem then
 		ContextActionService:BindAction("InvDrop", onDrop, true, Enum.KeyCode.G, Enum.KeyCode.ButtonB)
 		ContextActionService:BindAction("InvThrow", onThrow, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonL1)
@@ -523,6 +581,16 @@ function InventoryController:Start()
 	task.spawn(hideBackpack)
 	buildHotbar()
 	refreshHud()
+	InputHints.onChanged(function()
+		task.defer(fitTouch)
+	end)
+	local cam = workspace.CurrentCamera
+	if cam then
+		cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			task.defer(fitTouch)
+		end)
+	end
+	task.delay(1, fitTouch) -- Roblox's jump button exists by now (ThumbLayout sizes the cluster from it)
 	for _, name in { "InvHand", "InvBack", "InvCarry" } do
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(function()
 			refreshHud()
@@ -534,6 +602,10 @@ function InventoryController:Start()
 		LocalPlayer:GetAttributeChangedSignal(name):Connect(refreshHud)
 	end
 	LocalPlayer:GetAttributeChangedSignal("FirstFire"):Connect(rebind)
+	LocalPlayer:GetAttributeChangedSignal("FirstCallDone"):Connect(rebind)
+	InputHints.onChanged(function()
+		task.defer(rebind)
+	end)
 	local function watchSeat(char: Model)
 		local hum = char:WaitForChild("Humanoid", 10)
 		if hum and hum:IsA("Humanoid") then

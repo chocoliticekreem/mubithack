@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "REMONTE !",
 	["Walk up to the truck and press {1}"] = "Approche du camion et appuie sur {1}",
 	["Tap the truck to hop in"] = "Touche le camion pour monter",
+	["Tap the green IN button to hop in"] = "Touche le bouton vert MONTER pour monter",
 	["YOU'RE IN THE TRUCK!"] = "TU ES DANS LE CAMION !",
 	["Your driver follows the GPS. Hang on!"] = "Ton chauffeur suit le GPS. Accroche-toi !",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "ALLUME LA SIRÈNE ! SUIS LE GPS",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "FEUX D'ENTRAÎNEMENT  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "CLIC : canon à eau   {1} : klaxon   {2} : sirène   SPACE : descendre",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "ARROSER les feux !   ·   KLAXON  SIRÈNE  DESCENDRE",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "ARROSER les feux !   ·   KLAXON  SIRÈNE  SORTIR",
+	["Tap IN to get in"] = "Touche MONTER pour monter",
+	["HONK  SIREN  OUT"] = "KLAXON  SIRÈNE  SORTIR",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2 : canon à eau   Y : klaxon   X : sirène   A : descendre",
 	["PRACTICE FIRE OUT!"] = "FEU D'ENTRAÎNEMENT ÉTEINT !",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)

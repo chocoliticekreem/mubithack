@@ -64,6 +64,7 @@ return {
 	["HOP BACK IN!"] = "ขึ้นรถเร็ว!",
 	["Walk up to the truck and press {1}"] = "เดินไปที่รถแล้วกด {1}",
 	["Tap the truck to hop in"] = "แตะรถเพื่อขึ้นรถ",
+	["Tap the green IN button to hop in"] = "แตะปุ่มสีเขียว ขึ้น เพื่อขึ้นรถ",
 	["YOU'RE IN THE TRUCK!"] = "ขึ้นรถแล้ว!",
 	["Your driver follows the GPS. Hang on!"] = "คนขับกำลังตาม GPS จับแน่นๆ!",
 	["HIT THE SIREN! FOLLOW THE GPS"] = "เปิดไซเรน! ตาม GPS ไป",
@@ -1997,6 +1998,9 @@ return {
 	["PRACTICE FIRES  {1}/{2}"] = "ไฟฝึกซ้อม  {1}/{2}",
 	["CLICK: water cannon   {1}: honk   {2}: siren   SPACE: hop off"] = "คลิก: ปืนฉีดน้ำ   {1}: บีบแตร   {2}: ไซเรน   SPACE: โดดลง",
 	["SPRAY the fires!   ·   HONK  SIREN  OFF"] = "ฉีด ไฟให้ดับ!   ·   บีบแตร  ไซเรน  โดดลง",
+	["SPRAY the fires!   ·   HONK  SIREN  OUT"] = "ฉีด ไฟให้ดับ!   ·   บีบแตร  ไซเรน  ลง",
+	["Tap IN to get in"] = "แตะ ขึ้น เพื่อขึ้นรถ",
+	["HONK  SIREN  OUT"] = "บีบแตร  ไซเรน  ลง",
 	["R2: water cannon   Y: honk   X: siren   A: hop off"] = "R2: ปืนฉีดน้ำ   Y: บีบแตร   X: ไซเรน   A: โดดลง",
 	["PRACTICE FIRE OUT!"] = "ดับไฟฝึกซ้อมแล้ว!",
 	-- Fire Helicopter pass (HeliService, HeliController, store / offers)
