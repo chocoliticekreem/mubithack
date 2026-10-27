@@ -1592,6 +1592,7 @@ return {
 	"Be the first hero to donate!",
 	-- Hero board + leaderboards (HeroBoardService, LeaderboardService)
 	"TODAY'S TOP HEROES",
+	"ALL-TIME TOP HEROES",
 	"ALL SERVERS TODAY",
 	"THIS SERVER NOW",
 	"Be the first hero!",

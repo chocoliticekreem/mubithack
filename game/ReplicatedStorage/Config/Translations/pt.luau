@@ -1590,6 +1590,7 @@ return {
 	["Be the first hero to donate!"] = "Seja o primeiro herói a doar!",
 	-- Hero board + leaderboards (HeroBoardService, LeaderboardService)
 	["TODAY'S TOP HEROES"] = "MAIORES HERÓIS DE HOJE",
+	["ALL-TIME TOP HEROES"] = "MAIORES HERÓIS DE TODOS OS TEMPOS",
 	["ALL SERVERS TODAY"] = "TODOS OS SERVIDORES HOJE",
 	["THIS SERVER NOW"] = "ESTE SERVIDOR AGORA",
 	["Be the first hero!"] = "Seja o primeiro herói!",

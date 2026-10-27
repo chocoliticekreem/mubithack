@@ -13,6 +13,9 @@
 --   TeamRules.best(rows) -> userId?              -- top score (> 0) of 2+ rows, ties: more rescues, then lower id
 --   TeamRules.dayId(unixSeconds) -> number       -- UTC day number: the hero board's daily OrderedDataStore key
 --   TeamRules.mergeTop(rows, n) -> rows          -- sort by value desc (ties: lower userId), first n
+--   TeamRules.dedupeTop(rows, n) -> rows         -- mergeTop after keeping each userId once (its biggest value)
+--   TeamRules.lifetime(profile) -> (rescues, fires)  -- ALL-TIME hero board totals of a saved profile:
+--                                                   achievements.stats (live) raised to the old counters
 local TeamRules = {}
 
 TeamRules.Cfg = table.freeze({
@@ -136,6 +139,41 @@ function TeamRules.mergeTop(rows: { TopRow }, n: number): { TopRow }
 		table.remove(out)
 	end
 	return out
+end
+
+function TeamRules.dedupeTop(rows: { TopRow }, n: number): { TopRow }
+	local best: { [number]: TopRow } = {}
+	for _, r in rows do
+		local b = best[r.userId]
+		if b == nil or r.value > b.value then
+			best[r.userId] = { userId = r.userId, value = r.value, name = r.name or (b and b.name) }
+		elseif r.name and not b.name then
+			b.name = r.name
+		end
+	end
+	local list = {}
+	for _, r in best do
+		table.insert(list, r)
+	end
+	return TeamRules.mergeTop(list, n)
+end
+
+local function count(v: any): number
+	return if type(v) == "number" and v == v and v >= 0 and v ~= math.huge then math.floor(v) else 0
+end
+
+-- Lifetime rescues / fires out of a profile (ProfileSchema). AchievementService counts every rescue and
+-- fire live into achievements.stats; profiles older than that only have the mission-end counters
+-- (rescued by kind, firesOut), so the bigger of the two wins. Never negative, always an integer.
+function TeamRules.lifetime(profile: any): (number, number)
+	if type(profile) ~= "table" then
+		return 0, 0
+	end
+	local ach = if type(profile.achievements) == "table" then profile.achievements else {}
+	local stats = if type(ach.stats) == "table" then ach.stats else {}
+	local rescued = if type(profile.rescued) == "table" then profile.rescued else {}
+	local oldRescues = count(rescued.Civilian) + count(rescued.Dog) + count(rescued.Cat) + count(rescued.Panda)
+	return math.max(count(stats.rescues), oldRescues), math.max(count(stats.fires), count(profile.firesOut))
 end
 
 return TeamRules

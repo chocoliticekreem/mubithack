@@ -1590,6 +1590,7 @@ return {
 	["Be the first hero to donate!"] = "Jadilah pahlawan pertama yang donasi!",
 	-- Hero board + leaderboards (HeroBoardService, LeaderboardService)
 	["TODAY'S TOP HEROES"] = "PAHLAWAN TERATAS HARI INI",
+	["ALL-TIME TOP HEROES"] = "PAHLAWAN TERATAS SEPANJANG MASA",
 	["ALL SERVERS TODAY"] = "SEMUA SERVER HARI INI",
 	["THIS SERVER NOW"] = "SERVER INI SEKARANG",
 	["Be the first hero!"] = "Jadilah pahlawan pertama!",
