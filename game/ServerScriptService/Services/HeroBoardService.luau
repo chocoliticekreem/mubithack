@@ -46,6 +46,7 @@ local LEADERSTAT = { rescues = "Rescues", fires = "Fires" }
 local REFRESH_SECONDS = 60
 -- permanent, unversioned: the Creator Dashboard leaderboard is pointed at these exact names
 local ALLTIME_STORE = { rescues = "AllTimeRescues", fires = "AllTimeFiresOut" }
+local WRITE_GAP = REFRESH_SECONDS - 10 -- per-player all-time save gap; under the refresh period so jitter never skips one
 local PAGES = { "alltime", "global", "server" }
 local PAGE_SUB = { alltime = "ALL TIME", global = "ALL SERVERS TODAY", server = "THIS SERVER NOW" }
 local CYCLE_SECONDS = 8
@@ -225,11 +226,12 @@ local function writeAllTime(player: Player, force: boolean)
 		return
 	end
 	names[userId] = player.DisplayName
-	if not force and os.clock() - (lastWrite[userId] or -math.huge) < REFRESH_SECONDS then
+	if not force and os.clock() - (lastWrite[userId] or -math.huge) < WRITE_GAP then
 		return
 	end
 	local w = written[userId] or { rescues = 0, fires = 0 }
 	local now = { rescues = r, fires = f }
+	local wrote = false
 	for _, stat in STATS do
 		local v = (now :: any)[stat]
 		if v > 0 and v ~= (w :: any)[stat] then
@@ -248,11 +250,14 @@ local function writeAllTime(player: Player, force: boolean)
 				allMemory[stat][userId] = v
 			end
 			(w :: any)[stat] = v
+			wrote = true
 			Telemetry.count("hero_alltime_writes")
 		end
 	end
 	written[userId] = w
-	lastWrite[userId] = os.clock()
+	if wrote then
+		lastWrite[userId] = os.clock() -- only a real save starts the gap
+	end
 end
 
 local function readAllTime()
