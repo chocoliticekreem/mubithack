@@ -2038,4 +2038,5 @@ return {
 	["SPLASH!"] = "BYUR!",
 	["SPLASH! x{1}"] = "BYUR! x{1}",
 	["BUCKET FULL! Fly to a fire and DROP"] = "EMBER PENUH! Terbang ke api lalu JATUHKAN",
+	["NICE! More fire is coming. Get ready!"] = "MANTAP! Api lagi akan datang. Bersiap!",
 }

@@ -8,11 +8,14 @@
 --       `state` and never adds to `burning`: the caller applies both after the loop.
 --   FireSim.cool(cell: Cell, litres: number, p: Params): boolean   -- true = the fire is out now
 --   FireSim.levelFor(state: number, heat: number): number          -- 0 (not burning) or 1..3
+--   FireSim.hp(heat: number, p: Params): number                    -- 0..1 "fire left" (1 = full, 0 = out)
+--   FireSim.quantize(v: number, step: number): number              -- v rounded up to a step (0 stays 0)
 --   FireSim.inCone(dx, dy, dz, ax, ay, az, range, cosMin): boolean -- is offset d inside the spray cone
 --   FireSim.canIgnite(locCount, locCap, total, globalCap): boolean -- per-instance + global fire budget
 --
 -- A Cell may carry extra fields (FireService adds part, level, location, cause); FireSim only touches
--- heat, fuel, state and neighbors.
+-- heat, fuel, state, neighbors and doused (a part someone put out: spread never re-heats it, so a fire
+-- you put out stays out; only a telegraphed event may re-light it through FireService:Ignite).
 
 local FireSim = {}
 
@@ -21,7 +24,7 @@ FireSim.BURNING = 1
 FireSim.CHARRED = 2
 
 export type Pos = { x: number, y: number, z: number }
-export type Cell = { heat: number, fuel: number, state: number, neighbors: { Cell } }
+export type Cell = { heat: number, fuel: number, state: number, neighbors: { Cell }, doused: boolean? }
 export type Edge = { from: Cell, to: Cell }
 export type Params = {
 	SpreadRadius: number,
@@ -83,6 +86,26 @@ function FireSim.levelFor(state: number, heat: number): number
 	return 1
 end
 
+-- "Fire left" for the HP ring / flame size: 1 at full heat, 0 at ExtinguishAt.
+function FireSim.hp(heat: number, p: Params): number
+	local span = 100 - p.ExtinguishAt
+	if span <= 0 then
+		return 0
+	end
+	return math.clamp((heat - p.ExtinguishAt) / span, 0, 1)
+end
+
+-- Round up to a step so a fire that is still burning never replicates 0 (0 means out).
+function FireSim.quantize(v: number, step: number): number
+	if v <= 0 then
+		return 0
+	end
+	if step <= 0 then
+		return v
+	end
+	return math.min(1, math.ceil(v / step - 1e-9) * step)
+end
+
 function FireSim.step(burning: { [Cell]: true }, dt: number, p: Params): ({ Edge }, { Cell })
 	local lit: { Edge } = {}
 	local charred: { Cell } = {}
@@ -94,7 +117,7 @@ function FireSim.step(burning: { [Cell]: true }, dt: number, p: Params): ({ Edge
 			continue
 		end
 		for _, n in c.neighbors do
-			if n.state == FireSim.IDLE then
+			if n.state == FireSim.IDLE and not n.doused then
 				n.heat += p.SpreadHeatPerSecond * dt
 				if n.heat >= p.IgniteAt and not seen[n] then
 					seen[n] = true

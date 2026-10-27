@@ -153,6 +153,12 @@ Funnel.Events = table.freeze({
 	TruckReset = "TruckReset", -- value: 1; "Truck reset!" (VehicleService.Rescued); F2 why, F3 call | free
 	TruckStuck = "TruckStuck", -- value: metres left; no progress for DriveConfig.StuckSeconds on a call;
 	--                            F2 role, F3 nodriver | idle | blocked | wrongway
+	-- fire pacing per call (Services/CallPaceService at MissionEnded through FunnelService:LogCustomFields;
+	-- CustomField01 = device, CustomField02 = rookie | call). "Fires sit there, then come back" check.
+	FireHitTicks = "FireHitTicks", -- value: spray ticks that hit a burning part on this call
+	FiresOutOnCall = "FiresOutOnCall", -- value: burning parts this player put out on this call
+	ReignitesOnCall = "ReignitesOnCall", -- value: put-out parts that caught again at the call's site
+	IdleSecondsOnCall = "IdleSecondsOnCall", -- value: seconds on scene with no burning fire within CallPaceService.IdleRadius
 })
 
 export type Track = { last: number }

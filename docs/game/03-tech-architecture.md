@@ -402,8 +402,10 @@ comment listing the API, signals, writes and test hooks; peers taken in `Init`; 
 --   FireService:CountBurning(locationId: string?): number
 --   FireService:ExtinguishAll()
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?),
---          Charred(part)
--- Writes: tag "Burning"; attrs FireLevel (1..3), Charred (bool) on Flammable parts.
+--          Charred(part), Relit(part) (a put-out part caught again; only with DousedStaysOut off)
+-- Writes: tag "Burning"; attrs FireLevel (1..3), FireHP (0..1 fire left, nil when out), OutBy (UserId
+--   whose water put it out), Charred (bool) on Flammable parts. A part put out by water stays out
+--   (FireConfig.DousedStaysOut): spread never heats it and Ignite refuses it.
 -- Test hooks (DevHook only): _ignite(pos), _selftest()
 
 local CollectionService = game:GetService("CollectionService")

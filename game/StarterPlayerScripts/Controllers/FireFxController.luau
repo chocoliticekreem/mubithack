@@ -1,7 +1,7 @@
 --!strict
 -- FireFxController [owner: G1]. Client-only fire visuals. Nothing here affects gameplay.
 --
--- Reads: tag Burning, attrs FireLevel (1..3) and Charred (FireService); FireConfig.Fx*/MaxClient*;
+-- Reads: tag Burning, attrs FireLevel (1..3), FireHP (0..1), OutBy and Charred (FireService); FireConfig.Fx*/MaxClient*;
 --        Palette.Fire*/Smoke*/Charred*.
 -- Writes (local only): per nearby burning part
 --   * ParticleEmitters "FlameCore" + "FlameLicks" on the part itself (Box surface, so the whole part burns)
@@ -9,8 +9,12 @@
 --     and a flickering PointLight on the nearest part of each ~FxLightClusterRadius cluster (at most
 --     MaxClientLights; the nearest MaxShadowLights cast shadows)
 --   * a progressive scorch tint on the part while it burns
+-- Fire left (FireHP): flame rate / size / light scale with it, and every drop (each hose tick) puffs a
+--   little "HitSteam" and shows an HP bar over that fire for FxHitSeconds (nearest FxMaxRings fires) --
+--   no invisible HP: the fire you spray visibly shrinks the moment the water lands.
 -- On put-out (tag removed, not Charred): one-shot Attachment "SteamFx" (puff + lingering wisps + hiss),
---   and with FireConfig.FxPoofChance a tiny cartoon "poof" smoke ring.
+--   and with FireConfig.FxPoofChance a tiny cartoon "poof" smoke ring. Put out by YOUR water (attr OutBy):
+--   always the poof ring, a big "FIRE OUT!" popup and a ding.
 -- On burn-out (Charred): Slate material, charred colour, a few "recently out" wisps.
 -- Budget / LOD: re-ranked by camera distance 4x/s; nearest MaxClientFx get emitters, beyond FxLodDistance
 --   the cheap tier (no embers/haze, quarter rate), beyond FxDistance nothing. Rates also scale down when
@@ -51,6 +55,8 @@ type Fx = {
 	seed: number,
 	baseBrightness: number,
 	sound: Sound?,
+	hp: number, -- FireHP last applied (1 = full)
+	hitSteam: ParticleEmitter?,
 }
 
 local FireFxController = {}
@@ -61,6 +67,19 @@ local burning: { [BasePart]: number } = {} -- part -> os.clock() when it started
 local original: { [BasePart]: Color3 } = setmetatable({}, { __mode = "k" }) :: any
 local liveLights: { Fx } = {}
 local poofsLive = 0
+local controllers: { [string]: any } = {}
+local LocalPlayer = game:GetService("Players").LocalPlayer
+local hpConns: { [BasePart]: RBXScriptConnection } = {}
+local lastHit: { [BasePart]: number } = {} -- part -> os.clock() of its last FireHP drop
+type Ring = { gui: BillboardGui, fill: Frame }
+local rings: { [BasePart]: Ring } = {}
+local outDing = 0 -- os.clock() of the last FIRE OUT ding (rate limit)
+local outStreak = 0
+
+local function hpOf(part: BasePart): number
+	local v = part:GetAttribute(Names.Attr.FireHP)
+	return if type(v) == "number" then math.clamp(v, 0, 1) else 1
+end
 
 local function cameraPos(): Vector3?
 	local cam = workspace.CurrentCamera
@@ -240,19 +259,24 @@ local function build(part: BasePart): Fx
 		seed = math.random() * 1000,
 		baseBrightness = 1,
 		sound = nil,
+		hp = 1,
+		hitSteam = nil,
 	}
 	return f
 end
 
 -- Apply FireLevel, LOD tier and the global rate scale to an Fx (cheap when nothing changed).
-local function tune(f: Fx, level: number, tier: number, scale: number)
-	if f.level == level and f.tier == tier and math.abs(f.scale - scale) < 0.05 then
+local function tune(f: Fx, level: number, tier: number, scale: number, hp: number?)
+	local h = hp or f.hp
+	if f.level == level and f.tier == tier and math.abs(f.scale - scale) < 0.05 and math.abs(f.hp - h) < 0.01 then
 		return
 	end
-	local s = sizeFactor(f.part)
+	f.hp = h
+	-- fire left: a nearly-out fire is a small low flicker, not a full blaze that vanishes all at once
+	local s = sizeFactor(f.part) * (0.55 + 0.45 * h)
 	local area = math.clamp(f.part.Size.X * f.part.Size.Z / 16, 0.5, 4) -- more surface, more flames
 	local lod = if tier == 1 then 1 else 0.25
-	local r = scale * lod
+	local r = scale * lod * (0.4 + 0.6 * h)
 	-- level 3 values were tuned live in Studio (Fire Station interior): core 45/area, licks 22/area
 	f.core.Rate = (15 + 10 * level) * area * r
 	f.core.Size = seq({ { 0, (0.6 + 0.2 * level) * s }, { 0.3, (1.6 + 0.4 * level) * s, 0.4 * s }, { 1, 0.4 * s } })
@@ -269,9 +293,9 @@ local function tune(f: Fx, level: number, tier: number, scale: number)
 	f.smoke.Size = seq({ { 0, (1.5 + 0.5 * level) * s }, { 1, (5 + 3 * level) * s, 1 } })
 	f.smoke.Rate = (1.5 + 2.5 * level) * r
 	f.smoke.Lifetime = NumberRange.new(2.5 + level, 4 + level)
-	f.baseBrightness = 1.2 + 0.7 * level
+	f.baseBrightness = (1.2 + 0.7 * level) * (0.35 + 0.65 * h)
 	if f.light then
-		f.light.Range = 10 + 5 * level
+		f.light.Range = (10 + 5 * level) * (0.5 + 0.5 * h)
 	end
 	f.level, f.tier, f.scale = level, tier, scale
 end
@@ -304,6 +328,9 @@ local function clear(part: BasePart)
 		return
 	end
 	setLight(f, false, false)
+	if f.hitSteam then
+		f.hitSteam:Destroy()
+	end
 	f.core:Destroy()
 	f.licks:Destroy()
 	f.attachment:Destroy() -- embers, smoke, haze, light and sound with it
@@ -322,7 +349,7 @@ local function ignitionBurst(part: BasePart)
 end
 
 -- Tiny cartoon smoke ring + "poof!" text. Purely for comedy; capped.
-local function poof(origin: Vector3)
+local function poof(origin: Vector3, quiet: boolean?)
 	if poofsLive >= 4 then
 		return
 	end
@@ -350,7 +377,9 @@ local function poof(origin: Vector3)
 		TweenService:Create(b, info, { Position = out, Size = Vector3.one * 1.8, Transparency = 1 }):Play()
 	end
 	-- the "poof!" itself is a small popup (ClientLib/WorldPopup: caps, dedupe, feedback setting)
-	WorldPopup.show(origin, ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)], { height = 1.5, flavour = true })
+	if not quiet then
+		WorldPopup.show(origin, ({ "poof!", "pff.", "*fwump*", "psst!" })[math.random(1, 4)], { height = 1.5, flavour = true })
+	end
 	holder.Parent = workspace
 	task.delay(1.3, function()
 		holder:Destroy()
@@ -373,7 +402,7 @@ local function steamLook(puff: ParticleEmitter, s: number, dist: number): number
 end
 
 -- Put out (not charred): steam puff + lingering wisps + hiss, sometimes a cartoon poof.
-local function steamPuff(part: BasePart)
+local function steamPuff(part: BasePart, noPoof: boolean?)
 	local cam = cameraPos()
 	if not cam or (part.Position - cam).Magnitude > FireConfig.FxDistance then
 		return
@@ -422,7 +451,7 @@ local function steamPuff(part: BasePart)
 		wisp.Enabled = false
 	end)
 	Debris:AddItem(a, FireConfig.FxWispSeconds + 1)
-	if math.random() < FireConfig.FxPoofChance then
+	if not noPoof and math.random() < FireConfig.FxPoofChance then
 		poof(part.Position + Vector3.new(0, part.Size.Y / 2, 0))
 	end
 end
@@ -452,6 +481,127 @@ local function charPart(part: BasePart)
 		wisp.Enabled = false
 	end)
 	Debris:AddItem(a, FireConfig.FxWispSeconds + 3)
+end
+
+-- HP bar over a fire you are hitting (BillboardGui in PlayerGui, no text: green while there's lots left,
+-- yellow, then red-orange as it dies).
+local function ringFor(part: BasePart): Ring?
+	local r = rings[part]
+	if r then
+		return r
+	end
+	local pg = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if not pg then
+		return nil
+	end
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "FireHpRing"
+	gui.Adornee = part
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Size = UDim2.fromOffset(64, 12)
+	gui.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 3, 0)
+	gui.MaxDistance = FireConfig.FxDistance
+	gui.ResetOnSpawn = false
+	local back = Instance.new("Frame")
+	back.Size = UDim2.fromScale(1, 1)
+	back.BackgroundColor3 = Color3.fromRGB(30, 26, 24)
+	back.BackgroundTransparency = 0.2
+	back.BorderSizePixel = 0
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = back
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(255, 255, 255)
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.3
+	stroke.Parent = back
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Position = UDim2.fromOffset(2, 2)
+	fill.Size = UDim2.new(1, -4, 1, -4)
+	fill.BorderSizePixel = 0
+	fill.BackgroundColor3 = Palette.FireBody
+	local c2 = corner:Clone()
+	c2.Parent = fill
+	fill.Parent = back
+	back.Parent = gui
+	gui.Parent = pg
+	r = { gui = gui, fill = fill }
+	rings[part] = r
+	return r
+end
+
+local function dropRing(part: BasePart)
+	local r = rings[part]
+	if r then
+		r.gui:Destroy()
+		rings[part] = nil
+	end
+end
+
+local function setRing(part: BasePart, hp: number)
+	local r = ringFor(part)
+	if not r then
+		return
+	end
+	local h = math.clamp(hp, 0, 1)
+	TweenService:Create(r.fill, TweenInfo.new(0.12), { Size = UDim2.new(h, -4 * h, 1, -4) }):Play()
+	-- the fire's own colour, cooling to steam-white as it dies
+	r.fill.BackgroundColor3 = Palette.FireEdge:Lerp(Palette.FireBody, h)
+end
+
+-- One hose tick landed on this fire: a small steam puff right where it hit, and the flames shrink now.
+local function onHp(part: BasePart)
+	local hp = hpOf(part)
+	local f = fx[part]
+	local prev = if f then f.hp else 1
+	if f then
+		tune(f, f.level, f.tier, f.scale, hp)
+	end
+	if hp >= prev - 1e-3 then
+		return -- growing back (no water on it): just resize
+	end
+	lastHit[part] = os.clock()
+	setRing(part, hp)
+	if f and f.tier == 1 then
+		local e = f.hitSteam
+		if not e then
+			e = newEmitter("HitSteam", f.attachment)
+			e.Texture = TEX_SMOKE
+			e.Enabled = false
+			e.LightInfluence = 0.6
+			e.Color = ColorSequence.new(Palette.SmokeWhite)
+			e.Transparency = seq({ { 0, 0.35 }, { 0.6, 0.6 }, { 1, 1 } })
+			e.Lifetime = NumberRange.new(0.5, 0.9)
+			e.Speed = NumberRange.new(4, 7)
+			e.SpreadAngle = Vector2.new(35, 35)
+			e.Drag = 2
+			e.EmissionDirection = Enum.NormalId.Top
+			f.hitSteam = e
+		end
+		local s = sizeFactor(part)
+		local cam = cameraPos()
+		local k = if cam then 0.3 + 0.7 * ToolMath.lensFade((part.Position - cam).Magnitude, ToolConfig.SprayLensNear, ToolConfig.SprayLensFar) else 1
+		e.Size = seq({ { 0, 0.8 * s * k }, { 1, 3 * s * k } })
+		e:Emit(if Calm.on() then 2 else 4)
+	end
+end
+
+-- Put out by your water: the pop, a ding that climbs with a quick streak, and always the poof ring.
+local function fireOut(part: BasePart)
+	local top = part.Position + Vector3.new(0, part.Size.Y / 2, 0)
+	local now = os.clock()
+	outStreak = if now - outDing < 4 then math.min(outStreak + 1, 8) else 0
+	WorldPopup.show(top, "FIRE OUT!", { kind = "good", big = true, mine = true, height = 2 })
+	if now - outDing > 0.25 then
+		outDing = now
+		local audio = controllers.AudioController
+		if audio and type(audio.Play) == "function" then
+			pcall(audio.Play, audio, "Ding", top, { speed = 1 + 0.06 * outStreak })
+		end
+	end
+	poof(top, true)
 end
 
 -- Re-rank by distance; give the nearest fires full effects, far ones the cheap tier, the rest nothing.
@@ -497,7 +647,7 @@ local function refresh()
 		fx[part] = f
 		local level = (part:GetAttribute(Names.Attr.FireLevel) :: number?) or 1
 		local tier = if item.d <= FireConfig.FxLodDistance then 1 else 2
-		tune(f, level, tier, scale)
+		tune(f, level, tier, scale, hpOf(part))
 		local wantLight = #lit < FireConfig.MaxClientLights
 		if wantLight then
 			for _, p in lit do
@@ -527,6 +677,24 @@ local function refresh()
 			clear(part)
 		end
 	end
+	-- HP bars: only fires hit in the last FxHitSeconds, nearest FxMaxRings
+	local hitList: { { part: BasePart, d: number } } = {}
+	for part, t in lastHit do
+		if not burning[part] or now - t > FireConfig.FxHitSeconds then
+			lastHit[part] = nil
+			dropRing(part)
+		else
+			table.insert(hitList, { part = part, d = (part.Position - cam).Magnitude })
+		end
+	end
+	table.sort(hitList, function(a, b)
+		return a.d < b.d
+	end)
+	for i, item in hitList do
+		if i > FireConfig.FxMaxRings then
+			dropRing(item.part)
+		end
+	end
 end
 
 -- Flicker every frame, only for the handful of parts that have a light.
@@ -541,7 +709,9 @@ local function flicker()
 	end
 end
 
-function FireFxController:Init(_controllers: { [string]: any }) end
+function FireFxController:Init(all: { [string]: any })
+	controllers = all
+end
 
 function FireFxController:Start()
 	local function added(inst: Instance)
@@ -552,6 +722,13 @@ function FireFxController:Start()
 		if original[inst] == nil then
 			original[inst] = inst.Color
 		end
+		local part = inst :: BasePart
+		if hpConns[part] then
+			hpConns[part]:Disconnect()
+		end
+		hpConns[part] = part:GetAttributeChangedSignal(Names.Attr.FireHP):Connect(function()
+			onHp(part)
+		end)
 	end
 	local function removed(inst: Instance)
 		if not inst:IsA("BasePart") then
@@ -559,13 +736,24 @@ function FireFxController:Start()
 		end
 		burning[inst] = nil
 		clear(inst)
+		local c = hpConns[inst]
+		if c then
+			c:Disconnect()
+			hpConns[inst] = nil
+		end
+		lastHit[inst] = nil
+		dropRing(inst)
 		if not inst:IsDescendantOf(workspace) then
 			return
 		end
 		if inst:GetAttribute(Names.Attr.Charred) == true then
 			charPart(inst)
 		else
-			steamPuff(inst)
+			local mine = LocalPlayer ~= nil and inst:GetAttribute(Names.Attr.OutBy) == LocalPlayer.UserId
+			steamPuff(inst, mine)
+			if mine then
+				fireOut(inst)
+			end
 		end
 	end
 	CollectionService:GetInstanceAddedSignal(Names.Tag.Burning):Connect(added)

@@ -22,6 +22,11 @@ return Config.define({
 	HoseNearFrontDot = -0.1, -- "roughly in front": flat direction dot >= this
 	TrainingCoolMultiplier = 3, -- the tutorial's training fire goes out 3x faster
 	CoolPerLitre = 9,
+	-- juice (2026-10-26, "fires just sit there, then come back"): every hose tick shows, put out = stays out
+	HpStep = 0.05, -- FireHP replicates in steps this big (one hose tick at full pressure = ~0.12)
+	DousedStaysOut = true, -- a part put out by water never re-lights (spread, flare-ups, wind); fresh parts still burn
+	FxHitSeconds = 1.2, -- client: HP ring + hit steam show this long after the last hp drop
+	FxMaxRings = 3, -- client: at most this many HP rings (nearest hit fires)
 	-- client effects budget (FireFxController)
 	MaxClientFx = 40, -- burning parts with emitters, nearest first
 	MaxClientLights = 10, -- of those, how many get a flickering PointLight
