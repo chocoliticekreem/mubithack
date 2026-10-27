@@ -3,7 +3,7 @@
 -- numbers in Config/HeliConfig, maths in ReplicatedStorage/Lib/Heli/HeliRules, model from HeliBuilder).
 --   * Ownership = Player attr Pass_Helicopter (MonetizationService: real pass, gift, or Studio
 --     PassDebug_Helicopter). While the pass id is 0 nobody owns it outside Studio, so all of this no-ops.
---   * One heli per owner (MaxPerOwner). Owners call it from the station HELIPAD (east parking lot: pad,
+--   * One heli per owner (MaxPerOwner). Owners call it from the station HELIPAD (on the lawn behind the east parking lot: pad,
 --     kiosk prompt, HeliWater refill tank) or anywhere with SUMMON HELI (Heli/Summon, cooldown): it lands
 --     on a clear spot next to you and you're in the pilot seat. Non-owners at the kiosk get the store
 --     (Monetization/Open "heli") instead: "GET THE HELICOPTER".
@@ -607,9 +607,12 @@ local function padSpots(): { CFrame }
 	if not c then
 		return {}
 	end
-	local out = {}
-	for _, off in { Vector3.zero, Vector3.new(-26, 0, 0), Vector3.new(0, 0, -30), Vector3.new(-26, 0, -30), Vector3.new(0, 0, 50) } do
-		table.insert(out, c * CFrame.new(off))
+	-- the H first, then beside it (HeliConfig Pad.SpareOffsets, in the station's frame; pad.center faces
+	-- the lot, so a station-frame offset is the inverse of its rotation)
+	local out = { c }
+	local spare = (Cfg.Pad :: any).SpareOffsets
+	for _, off in (if type(spare) == "table" then spare else {}) :: { Vector3 } do
+		table.insert(out, c * CFrame.new(-off.X, off.Y, -off.Z))
 	end
 	return out
 end
@@ -904,7 +907,16 @@ local function buildPad(station: Model)
 	local R: number = P.Radius
 	local base = O * CFrame.new(c)
 	local Z90 = CFrame.Angles(0, 0, math.rad(90))
-	-- the pad: dark disc, yellow ring, big white H (paint on top, so trucks drive over it)
+	-- the pad sits on the lawn behind the parking lot: a flat paved apron under it and a path from the
+	-- lot's back edge (station-local Z -50) to the kiosk, so you can see and walk straight to it
+	local apronW = R * 2 + 12
+	padPart(m, "PadApron", base * CFrame.new(0, -0.1, -4), Vector3.new(apronW, 0.2, apronW + 8), Color3.fromHex("#8E8A86"), { collide = false })
+	local pathZ0 = c.Z - 4 + (apronW + 8) / 2 -- apron front edge (local, toward the lot)
+	local pathLen = math.max(0, -50 - pathZ0)
+	if pathLen > 0 then
+		padPart(m, "PadPath", O * CFrame.new(c.X, c.Y - 0.1, pathZ0 + pathLen / 2), Vector3.new(8, 0.2, pathLen), Color3.fromHex("#B9A38E"), { collide = false })
+	end
+	-- the pad: dark disc, yellow ring, big white H (paint on top)
 	padPart(m, "Pad", base * CFrame.new(0, 0.12, 0) * Z90, Vector3.new(0.3, R * 2, R * 2), Color3.fromHex("#3A3A44"), { shape = Enum.PartType.Cylinder })
 	padPart(m, "Ring", base * CFrame.new(0, 0.2, 0) * Z90, Vector3.new(0.18, R * 2 - 1.2, R * 2 - 1.2), Color3.fromHex("#FFC531"), {
 		shape = Enum.PartType.Cylinder,
@@ -940,10 +952,11 @@ local function buildPad(station: Model)
 	local tankSign = padPart(m, "TankSign", wc * CFrame.new(0, 3.2, wr + 0.9), Vector3.new(9, 1.6, 0.3), Color3.fromHex("#2E5E9A"), { collide = false })
 	signText(tankSign, Enum.NormalId.Back, "BUCKET REFILL", W)
 	signText(tankSign, Enum.NormalId.Front, "BUCKET REFILL", W)
-	-- the kiosk: a sign on a post at the pad's west edge (the side you walk up from), with the prompt
-	local kc = base * CFrame.new(-(R + 3), 0, 0)
+	-- the kiosk: a sign on a post at the pad's front (+Z) edge, where the path from the lot arrives, a
+	-- little off the path's centre line so it never stands in the way
+	local kc = base * CFrame.new(-9, 0, R + 3)
 	padPart(m, "KioskPost", kc * CFrame.new(0, 3, 0), Vector3.new(0.6, 6, 0.6), Color3.fromHex("#4A4650"))
-	local sign = padPart(m, "KioskSign", kc * CFrame.new(0, 6.6, 0) * CFrame.Angles(0, math.rad(-90), 0), Vector3.new(9, 3.2, 0.4), Color3.fromHex("#D9372A"))
+	local sign = padPart(m, "KioskSign", kc * CFrame.new(0, 6.6, 0), Vector3.new(9, 3.2, 0.4), Color3.fromHex("#D9372A"))
 	signText(sign, Enum.NormalId.Front, "🚁 HELIPAD", W)
 	signText(sign, Enum.NormalId.Back, "🚁 HELIPAD", W)
 	local pr = Instance.new("ProximityPrompt")
@@ -961,7 +974,7 @@ local function buildPad(station: Model)
 	end)
 	m.Parent = station
 	pad.model = m
-	pad.center = base * CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(90), 0) -- nose toward the street-ish (+X... east)
+	pad.center = base * CFrame.Angles(0, math.pi, 0) -- nose toward the lot and the street (+Z)
 end
 
 ------------------------------------------------------------------------------------------- loop

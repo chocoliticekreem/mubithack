@@ -16,7 +16,7 @@
 --     jump spot), DROP (big), DOWN, OUT. The camera follows the heli (Custom camera, zoomed out).
 --   * Riders: F / SPACE / B / OUT hops out (onto the ground beside it).
 --   * HUD while flying: bucket meter + what to do now; a key strip on PC / gamepad.
---   * On foot, owners: a round SUMMON HELI button on the right (U): Heli/Summon.
+--   * On foot, owners: a small HELI chip in the left chip column ([U] on PC): Heli/Summon.
 -- Test hooks (execute_luau on the Client): _input(mx, mz, up) (fake stick, nil clears), _drop(), _exit(),
 --   _summon(), _debug() -> JSON
 local CollectionService = game:GetService("CollectionService")
@@ -34,6 +34,8 @@ local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local InputHints = require(ClientLib:WaitForChild("InputHints") :: ModuleScript) :: any
 local HudGate = require(ClientLib:WaitForChild("HudGate") :: ModuleScript) :: any
 local ThumbLayout = require(ClientLib:WaitForChild("ThumbLayout") :: ModuleScript)
+local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
+local PopupGate = require(ClientLib:WaitForChild("PopupGate") :: ModuleScript) :: any
 local Calm = require(ClientLib:WaitForChild("Calm") :: ModuleScript) :: any
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Net = require(Shared:WaitForChild("Net") :: ModuleScript)
@@ -250,31 +252,35 @@ local function buildHud()
 	strip.Visible = false
 	keyStrip = strip
 
-	-- SUMMON HELI (owners, on foot): right edge, above the thumb cluster
+	-- SUMMON HELI (owners, on foot): a small chip in the left chip column (HudLayout "Chips": PASS, NEWS,
+	-- INVITE, TROPHIES, HELI, HELP, ADMIN), same style as the others, [U] keycap on PC. Every device: that
+	-- column already stays clear of the touch thumbstick, the right-hand ThumbLayout cluster and the
+	-- hotbar, and D-pad left (GamepadNav.focusHud) reaches it like any HUD button.
 	local b = Instance.new("TextButton")
 	b.Name = "SummonHeli"
-	b.AnchorPoint = Vector2.new(1, 0.5)
-	b.Position = UDim2.new(1, -12, 0.42, 0)
-	b.Size = UDim2.fromOffset(76, 76)
+	b.Position = UDim2.new(0, 13, 0.5, 0)
+	b.Size = UDim2.fromOffset(118, 40)
 	b.BackgroundColor3 = Palette.UiRed
-	b.Text = ""
+	b.Font = UiKit.Header
+	b.TextSize = 20
+	b.TextColor3 = Palette.UiCream
+	InputHints.setChip(b, Cfg.KeySummon.Name, "HELI")
 	b.AutoButtonColor = true
 	b.Visible = false
 	b.Parent = g
-	UiKit.corner(b, 38)
+	UiKit.corner(b, 10)
 	UiKit.stroke(b, 3, Palette.UiInk)
-	UiKit.label(b, "Glyph", "🚁", UDim2.fromScale(1, 0.62), UDim2.fromScale(0, 0.04), { textSize = 36 })
-	local lab = UiKit.label(b, "Label", "", UDim2.new(1, 8, 0, 20), UDim2.new(0, -4, 1, -24), {
-		font = UiKit.Header,
-		textSize = 15,
-		color = Palette.UiCream,
-		stroke = true,
-	})
-	InputHints.setChip(lab, Cfg.KeySummon.Name, "HELI")
+	local ts = Instance.new("UIStroke")
+	ts.Thickness = 2
+	ts.Color = Palette.UiInk
+	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	ts.Parent = b
 	UiKit.onTap(b, function()
 		Net.event("Heli", "Summon"):FireServer()
 		UiKit.punch(b, 0.1)
 	end)
+	HudLayout.reserve(b)
+	HudLayout.add("Chips", b, 3.8) -- after TROPHIES, before HELP; the stack owns its Y
 	summonBtn = b
 end
 
@@ -289,8 +295,17 @@ local function syncSummon()
 		return
 	end
 	local hum = humanoid()
-	-- HudGate "store": not over the cold open / first call (a brand-new owner sees it once onboarding is done)
-	b.Visible = owns() and mode == nil and hum ~= nil and hum.Health > 0 and hum.SeatPart == nil and HudGate.allows("store")
+	-- on foot only (never while driving / riding a truck or in a heli), never over the results screen,
+	-- and not during onboarding: HudGate "store" (cold open / first-call HUD reveal) + PopupGate (the
+	-- first call isn't done yet). A brand-new owner gets it once onboarding is over.
+	b.Visible = owns()
+		and mode == nil
+		and hum ~= nil
+		and hum.Health > 0
+		and hum.SeatPart == nil
+		and HudGate.allows("store")
+		and not PopupGate.onboarding()
+		and not HudLayout.isBusy("Results")
 end
 
 local function syncMeter()
@@ -443,6 +458,7 @@ local function onSeat()
 	else
 		leave()
 	end
+	syncSummon() -- also for a truck seat (leave() returns early when we weren't in a heli)
 end
 
 local function fly(dt: number)
@@ -720,7 +736,9 @@ function HeliController:Start()
 	end)
 	player:GetAttributeChangedSignal(MonCfg.Attr.PassPrefix .. Cfg.PassKey):Connect(syncSummon)
 	player:GetAttributeChangedSignal("InstanceId"):Connect(syncSummon)
+	player:GetAttributeChangedSignal("Onboarded"):Connect(syncSummon)
 	HudGate.onChanged(syncSummon)
+	HudLayout.BusyChanged.Event:Connect(syncSummon)
 
 	local function hookChar(char: Model)
 		local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?

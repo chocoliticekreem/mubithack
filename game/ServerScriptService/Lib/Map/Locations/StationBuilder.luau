@@ -37,9 +37,9 @@
 --       row: 8 "OutsideSpawn" points (tag OutsideSpawn, attr Slot 1..8, Z 36.5, facing the pads; MapService
 --       spawns players here first) -> LobbyProps' 3 big squad pads (Z 50) -> the PICK A MISSION board at
 --       the street edge. Nothing else stands in the yard (no planters, benches, flagpole or trees);
---       "STATION 67" facade sign, a kerb lamp, bushes along the wall, hydrant.
+--       "STATION 67" facade sign, a kerb lamp, bushes along the wall (none at the bay-1 corner), hydrant.
 --   Grounds (lot X -164..164, Z -164..68, all real ground): open paved plaza,
---       memorial garden west (fountain, bronze statue, flags), parking lot east (empty open asphalt: overflow truck parking), training
+--       memorial garden west (fountain, bronze statue, flags), parking lot east (open asphalt: overflow truck row facing the street, whole front edge is the drive), helipad behind it, training
 --       yard behind (drill tower, burn box), hedges on the property edge, rooftop "STATION 67" sign, and
 --       a skyline backdrop (only when there is no CityConfig; the city provides the real skyline).
 -- Alarm parts (AlarmController drives them, client-side only):
@@ -1168,12 +1168,14 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	-- (no flagpole in the front yard any more: it stood between the pads; the memorial garden has the
 	-- "67" flag. No lawn sign east of the apron: it sat right where trucks cut across to the parking lot)
 	-- bushes along the wing facade, trees around the lot
-	for _, b in { V(-58, 0, 32), V(-47, 0, 32), V(-37, 0, 32), V(-29, 0, 32), V(-63, 0, -30), V(-63, 0, -6), V(-63, 0, 20) } do
+	-- (not at X -29 any more: right at bay 1's corner, where a truck swinging west out of the bay clipped it)
+	for _, b in { V(-58, 0, 32), V(-47, 0, 32), V(-37, 0, 32), V(-63, 0, -30), V(-63, 0, -6), V(-63, 0, 20) } do
 		prop("bush", outside, facing(b.X, LAWN_Y, b.Z, 0, 1), nil, function()
 			ball(outside, "Bush", CFrame.new(b.X, LAWN_Y + 1, b.Z), 3.4, C.Foliage)
 		end)
 	end
-	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(80, 0, -50), V(80, 0, -10) } do
+	-- (none east of the hose tower in the lot's footprint: the lot now starts at X 76)
+	for _, t in { V(-76, 0, -50), V(-76, 0, -20), V(-76, 0, 10), V(-40, 0, -52), V(-6, 0, -52), V(68, 0, -6), V(68, 0, -56) } do
 		local jx = (rng:NextNumber() - 0.5) * 3
 		local jz = (rng:NextNumber() - 0.5) * 3
 		local cf = CFrame.new(t.X + jx, LAWN_Y, t.Z + jz) * CFrame.Angles(0, rng:NextNumber() * math.pi * 2, 0)
@@ -1348,11 +1350,14 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	end
 
 	-- parking lot (east): plain open asphalt (no stalls, cars, wheel stops, lamps or signs to snag on);
-	-- the overflow truck parking (VehicleConfig.OverflowSpots) and room to drive around
-	local LX0, LX1, LZ0, LZ1 = 90, 152, -50, 54
+	-- the overflow truck parking (VehicleConfig.OverflowSpots: one row facing the street) and its
+	-- drive is the lot's WHOLE front edge, asphalt right to the kerb: every truck pulls straight out onto
+	-- the avenue. Nothing stands between the lot and the street (no hedge, lamp, tree or sign); the
+	-- helipad (HeliService, HeliConfig.Pad) is on the lawn behind the lot.
+	local LX0, LX1, LZ0, LZ1 = 76, 158, -50, 54
 	span(grounds, "ParkingLot", LX0, LX1, APRON_Y - 1, APRON_Y, LZ0, LZ1, C.Asphalt)
-	span(grounds, "ParkingDrive", 102, 116, WALK_Y - 0.95, WALK_Y + 0.05, LZ1, KERB_Z, C.Asphalt)
-	for _, p in { V(84, 0, -30), V(84, 0, 0), V(156, 0, -30), V(156, 0, 20) } do
+	span(grounds, "ParkingDrive", LX0, LX1, WALK_Y - 0.95, WALK_Y + 0.05, LZ1, KERB_Z, C.Asphalt)
+	for _, p in { V(98, 0, -60), V(144, 0, -60) } do
 		tree(p.X, p.Z)
 	end
 
@@ -1380,7 +1385,7 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 		box(cone, "Base", cx, APRON_Y + 0.2, cz, 1.8, 0.4, 1.8, C.Cone)
 		cyl(cone, "Body", CFrame.new(cx, APRON_Y + 1.3, cz), "y", 1.8, 1.0, C.Cone)
 	end
-	for _, p in { V(-80, 0, -70), V(-84, 0, -110), V(-80, 0, -140), V(40, 0, -80), V(60, 0, -110), V(36, 0, -140), V(80, 0, -90), V(110, 0, -120), V(140, 0, -80), V(-110, 0, -90), V(-140, 0, -120), V(-120, 0, -150), V(0, 0, -148) } do
+	for _, p in { V(-80, 0, -70), V(-84, 0, -110), V(-80, 0, -140), V(40, 0, -80), V(60, 0, -110), V(36, 0, -140), V(74, 0, -100), V(110, 0, -128), V(146, 0, -128), V(-110, 0, -90), V(-140, 0, -120), V(-120, 0, -150), V(0, 0, -148) } do
 		tree(p.X, p.Z, if rng:NextNumber() < 0.4 then { kind = "pine" } else nil)
 	end
 
@@ -1403,10 +1408,9 @@ function StationBuilder.Build(model: Model, origin: CFrame, rng: Random)
 	hedge(-162, -159, -159, 62, 5)
 	hedge(159, 162, -159, 62, 5)
 	hedge(-159, -100, 60, 62.5, 2.4)
-	hedge(122, 159, 60, 62.5, 2.4)
 	for x = -150, 150, 50 do
-		-- (not at x 100: right beside the lot drive, where trucks swing out onto the avenue)
-		if x < -70 or x > 120 then
+		-- (none from the apron to the hedge: the bays and the whole lot front open straight onto the avenue)
+		if x < -70 then
 			lamp(x, WALK_Y, KERB_Z - 2, 1)
 		end
 	end

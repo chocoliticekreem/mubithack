@@ -9,7 +9,7 @@
 --   top-left     stack "Left": objectives -> building integrity -> mission guide card
 --   top-right    minimap (NavMinimap, in the top-bar row) -> its turn-hint slot -> squad strip
 --   left edge    stack "Chips" (lobby buttons, one column, in order): [P] PASS, NEWS, INVITE, TROPHIES,
---                [H] HELP, ADMIN. Centred on the left edge, its bottom kept clear of a phone's thumbstick and the
+--                [U] HELI (pass owners, on foot), [H] HELP, ADMIN. Centred on the left edge, its bottom kept clear of a phone's thumbstick and the
 --                gamepad's bottom-left D-pad legend; bottom-left: carry card
 --   bottom       hotbar (centre), carry slot above it, truck hints, heat gauge (right)
 --   centre       transient banners (heat warning, level-up / tier-up cards)
@@ -34,7 +34,8 @@
 --                                             moves on; calm screens (ClientLib/Calm) cap it at 2.5 s.
 --                                             ClientLib/PopupGate: dropped (not queued) until the first
 --                                             call is done; each card's end restarts the modal gap
---   HudLayout.isBusy() -> boolean            any setBusy screen up (results / on a call): pop-ups wait
+--   HudLayout.isBusy(name?) -> boolean       any (or that one) setBusy screen up (results / on a call): pop-ups
+--                                             wait; HudLayout.BusyChanged (BindableEvent, fires (name, on))
 --   HudLayout.reserve(obj)                    a HUD widget that edge arrows must stay off
 --   HudLayout.clear(x, y, radius, key?, prio?) -> (x, y)
 --                                             pull a full-bleed screen point toward the centre until a
@@ -54,6 +55,7 @@ local HudLayout = {}
 HudLayout.Gap = 8
 HudLayout.ModalOrder = 50 -- DisplayOrder a modal's ScreenGui gets while open (above every HUD gui)
 HudLayout.ModalChanged = Instance.new("BindableEvent")
+HudLayout.BusyChanged = Instance.new("BindableEvent") -- fires (name, on) when a setBusy screen flips
 
 -- the right column under the minimap (full-bleed design units): map top + size + hint slot
 local function navCfg(): any
@@ -126,27 +128,60 @@ local function markDirty()
 	dirty = true
 end
 
+local function placeStack(st: any, inset: number, bottoms: { [string]: number })
+	local items = st.items
+	table.sort(items, function(a, b)
+		return a.order < b.order
+	end)
+	local s = 1
+	local first = items[1]
+	if first then
+		s = HudLayout.scaleOf(guiOf(first.obj))
+	end
+	local cursor = st.top(s, inset)
+	-- st.below: start under that stack's last shown widget when it reaches this far down (the chip column
+	-- under the call objectives on a phone), as long as the whole stack still fits above the bottom margin
+	local over = if st.below then bottoms[st.below] else nil
+	if over and over + st.gap * s > cursor then
+		local total = 0
+		for _, it in items do
+			if it.obj.Parent and shown(it.obj) then
+				local h = if it.height then it.height() else it.obj.Size.Y.Offset
+				total += (h + st.gap) * HudLayout.scaleOf(guiOf(it.obj))
+			end
+		end
+		local cam = workspace.CurrentCamera
+		local vh = if cam then cam.ViewportSize.Y else 720
+		local want = over + st.gap * s
+		if want + total <= vh - (st.bottomMargin or 0) then
+			cursor = want
+		end
+	end
+	local any = false
+	for _, it in items do
+		local obj = it.obj
+		if obj.Parent and shown(obj) then
+			local gs = HudLayout.scaleOf(guiOf(obj))
+			setTop(obj, cursor)
+			local h = if it.height then it.height() else obj.Size.Y.Offset
+			cursor += (h + st.gap) * gs
+			any = true
+		end
+	end
+	return if any then cursor - st.gap * s else nil
+end
+
 local function recompute()
 	local inset = HudLayout.inset()
-	for _, st in stacks do
-		local items = st.items
-		table.sort(items, function(a, b)
-			return a.order < b.order
-		end)
-		local s = 1
-		local first = items[1]
-		if first then
-			s = HudLayout.scaleOf(guiOf(first.obj))
+	local bottoms: { [string]: number } = {}
+	for name, st in stacks do
+		if not st.below then
+			bottoms[name] = placeStack(st, inset, bottoms)
 		end
-		local cursor = st.top(s, inset)
-		for _, it in items do
-			local obj = it.obj
-			if obj.Parent and shown(obj) then
-				local gs = HudLayout.scaleOf(guiOf(obj))
-				setTop(obj, cursor)
-				local h = if it.height then it.height() else obj.Size.Y.Offset
-				cursor += (h + st.gap) * gs
-			end
+	end
+	for name, st in stacks do
+		if st.below then
+			bottoms[name] = placeStack(st, inset, bottoms)
 		end
 	end
 	for i = #pins, 1, -1 do
@@ -264,15 +299,19 @@ end)
 HudLayout.stack("Left", function(s, inset)
 	return inset + 10 * s
 end)
--- the left chip column: 6 chips x 40 + 5 gaps x 10 = 290 design units, centred on the screen's left edge
+-- the left chip column: 7 chips x 40 + 6 gaps x 10 = 340 design units, centred on the screen's left edge
 -- but never lower than 120 px above the bottom (touch thumbstick, D-pad legend) nor under the top bar
-HudLayout.ChipColumn = 290
+HudLayout.ChipColumn = 340
 HudLayout.stack("Chips", function(s, inset)
 	local cam = workspace.CurrentCamera
 	local h = if cam then cam.ViewportSize.Y else 720
 	local col = HudLayout.ChipColumn * s
 	return math.max(inset + 60 * s, math.min(h * 0.5 - col * 0.5, h - 120 - col))
 end, 10)
+-- ...and never over the "Left" stack (call objectives / building integrity / guide card): on a phone
+-- those reach down into the column, so on a call the chips (HELI) start under them
+stacks.Chips.below = "Left"
+stacks.Chips.bottomMargin = 120
 
 -- modals ---------------------------------------------------------------------------------------
 local openModals: { [GuiObject]: boolean } = {}
@@ -411,6 +450,18 @@ local celebrating = false
 -- XP / level-up events land a moment before the results screen; give it this long to claim the screen
 local GRACE = 1.2
 
+-- (declared before pump(), which calls it when a card ends: declared after, pump saw a nil global)
+local gate: any = nil
+local function popupGate(): any
+	if gate == nil then
+		local ok, m = pcall(function()
+			return require(script.Parent:WaitForChild("PopupGate") :: ModuleScript)
+		end)
+		gate = if ok then m else false
+	end
+	return gate
+end
+
 local function pump()
 	if celebrating or #queue == 0 or HudLayout.modalOpen() or next(busy) ~= nil then
 		return
@@ -466,16 +517,6 @@ end
 
 -- fn shows the card and returns how many seconds it stays up (the next one waits that long) and, optionally,
 -- a hide() that takes it down early (tap to dismiss)
-local gate: any = nil
-local function popupGate(): any
-	if gate == nil then
-		local ok, m = pcall(function()
-			return require(script.Parent:WaitForChild("PopupGate") :: ModuleScript)
-		end)
-		gate = if ok then m else false
-	end
-	return gate
-end
 
 function HudLayout.celebrate(fn: () -> (number?, (() -> ())?), kind: string?)
 	-- the first call comes first: LEVEL 2! / NEW GEAR! landed on the first-call card in the same second
@@ -488,12 +529,20 @@ function HudLayout.celebrate(fn: () -> (number?, (() -> ())?), kind: string?)
 end
 
 function HudLayout.setBusy(name: string, on: boolean)
+	local was = busy[name] == true
 	busy[name] = if on then true else nil
 	pump()
+	if was ~= (on == true) then
+		HudLayout.BusyChanged:Fire(name, on == true)
+	end
 end
 
--- true while a HudLayout.setBusy screen is up (results, on a call): a panel that pops up by itself waits
-function HudLayout.isBusy(): boolean
+-- true while a HudLayout.setBusy screen is up (results, on a call): a panel that pops up by itself waits.
+-- With a name: only that one ("Results", "OnCall").
+function HudLayout.isBusy(name: string?): boolean
+	if name then
+		return busy[name] == true
+	end
 	return next(busy) ~= nil
 end
 
