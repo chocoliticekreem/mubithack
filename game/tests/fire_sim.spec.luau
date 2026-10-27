@@ -136,4 +136,29 @@ Spec.test("a full instance does not stop another instance's fire from spreading"
 	Spec.eq(FireSim.canIgnite(counts.A, cap, counts.A + counts.B, 10), false, "A blocked")
 end)
 
+Spec.test("a doused part is never re-heated by a burning neighbour (put out = stays out)", function()
+	local a = cell(FireSim.BURNING, 90, 999)
+	local b = cell(FireSim.IDLE, 0, 999)
+	b.doused = true
+	a.neighbors = { b }
+	for _ = 1, 500 do -- 100 s next to a big fire
+		local lit = FireSim.step({ [a] = true }, 0.2, P)
+		Spec.eq(#lit, 0, "never relit")
+	end
+	Spec.eq(b.heat, 0, "no heat gained")
+end)
+
+Spec.test("hp is 1 at full heat, 0 at ExtinguishAt, and every litre shows", function()
+	Spec.eq(FireSim.hp(100, P), 1)
+	Spec.eq(FireSim.hp(10, P), 0)
+	Spec.eq(FireSim.hp(5, P), 0)
+	local c = cell(FireSim.BURNING, 100, 45)
+	local before = FireSim.quantize(FireSim.hp(c.heat, P), 0.05)
+	FireSim.cool(c, 1.2, P) -- one hose tick
+	local after = FireSim.quantize(FireSim.hp(c.heat, P), 0.05)
+	Spec.truthy(after < before, "one hose tick changes the replicated hp")
+	Spec.eq(FireSim.quantize(0.001, 0.05), 0.05, "still burning never reads 0")
+	Spec.eq(FireSim.quantize(0, 0.05), 0)
+end)
+
 return Spec.finish()

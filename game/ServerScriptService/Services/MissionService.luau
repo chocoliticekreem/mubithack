@@ -1319,7 +1319,8 @@ local function escalationTick(run: Live, obs: MissionFlow.Obs, t: number): boole
 	elseif run.quietSince == nil then
 		run.quietSince = t
 		if run.firesOut > 0 then
-			notify(run.players, "Looks clear... don't roll up the hose yet. Something's still smouldering.", "info")
+			-- never a silent wait: say the next wave is coming (it lands Escalation.LullSeconds later)
+			notify(run.players, "NICE! More fire is coming. Get ready!", "info")
 		end
 	end
 	local since = t - (if run.flow.arrivedAt > 0 then run.flow.arrivedAt else run.flow.activeSince)

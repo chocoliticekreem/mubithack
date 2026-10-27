@@ -16,14 +16,21 @@
 --   FireService:IndexLocation(model: Instance, locationId: string)  -- index a model built outside
 --     MapService (FirstFireService's training fire) as its own fire location; Destroying frees it
 -- Signals: Ignited(part, cause: Player?), Spread(from, to), Extinguished(part, by: Player?), Charred(part)
+--          Relit(part)  -- a part that was put out caught again (only with FireConfig.DousedStaysOut off)
 --          Doused(player: Player, hits: number)   -- a player's spray hit at least one burning part
 --          Combo(part, hoses: { Player }, mult: number) -- 2+ players hosing one part at once (TeamRules:
 --            every hose on it cools x comboMult; at most once per part per ComboPopSeconds)
--- Writes: tag Burning; attrs FireLevel (1..3, nil when out), Charred (true) + Color/Material on burnt-out parts
+-- Writes: tag Burning; attrs FireLevel (1..3, nil when out), FireHP (0..1 fire left in FireConfig.HpStep
+--   steps, nil when out: every hose tick shows), OutBy (UserId whose water put it out, set just before the
+--   tag goes), Charred (true) + Color/Material on burnt-out parts
+-- Put out = stays out (FireConfig.DousedStaysOut): a part put out by water is `doused`; spread never heats
+--   it and Ignite refuses it (flare-ups, wind, set pieces pick other parts). Fresh cells (a rebuilt site, a
+--   re-indexed location) start dry.
 -- Budget: every location (mission instance) is stepped on its own and has its own MaxBurningPerLocation
 --   cap, so parallel missions never starve each other; MaxBurning is a server-wide safety net.
 -- Counters: fires_ignited, fires_spread, fires_extinguished, parts_charred, fire_tick_over_budget,
---   fire_cap_hit, fire_combos
+--   fire_cap_hit, fire_combos, fire_hit_ticks (one per burning part hit by one spray tick), fire_reignite
+--   (a put-out part caught again), fire_relight_blocked (Ignite/spread refused a doused part)
 -- Test hooks (DevHook only): _index(model, locationId), _forget(locationId), _ignite(pos),
 --   _water(origin, aim, litres), _selftest()
 
@@ -52,6 +59,9 @@ type Cell = {
 	area: Instance?, -- SetAreaCap: the capped area this part is in
 	sprayers: { [Player]: number }?, -- COMBO: os.clock() of each hose's last hit on this part
 	comboAt: number?, -- last COMBO signal for this part
+	hp: number?, -- last replicated FireHP
+	doused: boolean?, -- put out by water: stays out (FireConfig.DousedStaysOut)
+	wasOut: boolean?, -- put out at least once (fire_reignite when it catches again)
 }
 
 type Location = {
@@ -70,6 +80,7 @@ FireService.Extinguished = Signal.new() :: Signal.Signal<BasePart, Player?>
 FireService.Charred = Signal.new() :: Signal.Signal<BasePart>
 FireService.Doused = Signal.new() :: Signal.Signal<Player, number>
 FireService.Combo = Signal.new() :: Signal.Signal<BasePart, { Player }, number>
+FireService.Relit = Signal.new() :: Signal.Signal<BasePart>
 
 local services: { [string]: any } = {}
 local cells: { [BasePart]: Cell } = {}
@@ -87,7 +98,19 @@ local function loc(id: string): Location
 	return l
 end
 
+local function setHp(c: Cell)
+	local hp = if c.state == FireSim.BURNING
+		then FireSim.quantize(FireSim.hp(c.heat, FireConfig :: any), tonumber(FireConfig.HpStep) or 0.05)
+		else 0
+	if hp == (c.hp or 0) then
+		return
+	end
+	c.hp = hp
+	c.part:SetAttribute(Names.Attr.FireHP, if hp > 0 then hp else nil)
+end
+
 local function setLevel(c: Cell)
+	setHp(c)
 	local level = FireSim.levelFor(c.state, c.heat)
 	if level == c.level then
 		return -- replicate transitions only
@@ -98,6 +121,10 @@ end
 
 local function startBurning(c: Cell, cause: Player?): boolean
 	if c.state ~= FireSim.IDLE then
+		return false
+	end
+	if c.doused and FireConfig.DousedStaysOut then
+		Telemetry.count("fire_relight_blocked")
 		return false
 	end
 	local l = loc(c.location)
@@ -120,8 +147,13 @@ local function startBurning(c: Cell, cause: Player?): boolean
 	if area then
 		area.count += 1
 	end
+	c.part:SetAttribute(Names.Attr.OutBy, nil)
 	CollectionService:AddTag(c.part, Names.Tag.Burning)
 	setLevel(c)
+	if c.wasOut then
+		Telemetry.count("fire_reignite")
+		FireService.Relit:Fire(c.part)
+	end
 	return true
 end
 
@@ -381,6 +413,9 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 			end
 		end
 	end
+	if hit > 0 then
+		Telemetry.count("fire_hit_ticks", hit)
+	end
 	if hit > 0 and player then
 		FireService.Doused:Fire(player, hit)
 	end
@@ -397,6 +432,11 @@ function FireService:ApplyWater(player: Player?, origin: Vector3, aim: Vector3, 
 		end
 	end
 	for _, c in out do -- apply after the loop: never remove keys from a set while iterating it
+		c.wasOut = true
+		c.doused = FireConfig.DousedStaysOut == true
+		if player and c.part.Parent then
+			c.part:SetAttribute(Names.Attr.OutBy, player.UserId) -- before the tag goes: the FIRE OUT! pop
+		end
 		stopBurning(c, false)
 		FireService.Extinguished:Fire(c.part, player)
 		Telemetry.count("fires_extinguished")

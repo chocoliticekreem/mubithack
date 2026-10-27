@@ -86,7 +86,7 @@ lobby banner 35, toasts 40, lobby toast 45; Left: objectives 10, integrity 20, g
 | R8 | **The rescue text didn't match the rule.** The HUD said "Bring to the TRUCK!", but bringing someone outside also counts. The guide said "Walk into the glowing drop zone", but nothing glows (the drop-off is invisible). | HudController, MissionGuides | "Get them OUTSIDE or to the TRUCK!" and "Walk up to the back of the truck." | FIXED #251 |
 | R9 | The rescue zone is invisible until after it counts (the green disc only flashes on success). | RescueService / TruckBuilder RescueDropoff | Faint neon disc at the truck while you carry someone. | PROPOSAL |
 | R10 | Foam works further than it looks (visual 12 studs, cools to 30): lenient, but not predictable. Water also passes through walls (no line of sight). | ToolService -> FireService:ApplyWater | Pass a range to ApplyWater; optional LOS ray. | PROPOSAL (G1 fire lane) |
-| R11 | Fire out has no number. The "poof" text shows 20% of the time; there is no "+1" or "FIRE OUT". | FireFxController | A rate-limited "OUT!" pop for the sprayer. | PROPOSAL |
+| R11 | Fire out has no number. The "poof" text shows 20% of the time; there is no "+1" or "FIRE OUT". | FireFxController | "FIRE OUT!" pop + ding + smoke ring for whoever's water put it out (attr OutBy); every hose tick shrinks the flames and shows an HP bar (attr FireHP). | FIXED (fire juice) |
 | R12 | The crosshair ray can hit the invisible RescueDropoff box near the truck and bend the aim. | TruckBuilder | CanQuery = false, after checking that RescueService does not use a spatial query on it. | PROPOSAL |
 
 ## 4. Camera and controls

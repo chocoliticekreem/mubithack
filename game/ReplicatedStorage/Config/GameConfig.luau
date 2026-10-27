@@ -31,9 +31,12 @@ return Config.define({
 	-- catalog's `escalation`, else Default; each fires `at` s after arrival, or early once nothing has
 	-- burned for LullSeconds (but at least MinGapSeconds after the previous phase). "All clear" can't end
 	-- a call while a phase is still to come. Phase fires scale with the squad like the arrival fires.
+	-- 2026-10-26 "fires out, then nothing happens, wait, it comes back is boring": the lull was 8 s with a
+	-- 30 s minimum gap, so a fast squad stood around for up to ~30 s. Now the next wave lands 3 s after
+	-- the last fire goes out (with a "More fire is coming" heads-up), at least 10 s after the previous one.
 	Escalation = {
-		LullSeconds = 8,
-		MinGapSeconds = 30,
+		LullSeconds = 3,
+		MinGapSeconds = 10,
 		Default = {
 			{ at = 90, fires = 4, up = true, text = "The fire's spreading to the upper floor!" },
 			{ at = 180, fires = 4, setPiece = "flashover", text = "FLASHOVER! A whole room just went up!" },

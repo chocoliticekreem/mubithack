@@ -2041,4 +2041,5 @@ return {
 	"SPLASH!",
 	"SPLASH! x{1}",
 	"BUCKET FULL! Fly to a fire and DROP",
+	"NICE! More fire is coming. Get ready!",
 }

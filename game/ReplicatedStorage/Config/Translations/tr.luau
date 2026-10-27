@@ -2038,4 +2038,5 @@ return {
 	["SPLASH!"] = "ŞAPUR!",
 	["SPLASH! x{1}"] = "ŞAPUR! x{1}",
 	["BUCKET FULL! Fly to a fire and DROP"] = "KOVA DOLU! Bir yangına uç ve BIRAK",
+	["NICE! More fire is coming. Get ready!"] = "SÜPER! Daha fazla ateş geliyor. Hazır ol!",
 }
