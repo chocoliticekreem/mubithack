@@ -79,7 +79,9 @@ local function get(): Frame
 	g.Name = "TopBox"
 	g.ResetOnSpawn = false
 	g.IgnoreGuiInset = true -- up in the top-bar row
-	g.ScreenInsets = Enum.ScreenInsets.None
+	-- DeviceSafeInsets: TopbarInset is measured inside the device safe area, so a full-screen (None) gui put
+	-- the box/eye a notch-width too far left and too high on notched phones (under Roblox's menu pill)
+	g.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
 	g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	g.DisplayOrder = 6
 	local b = Instance.new("Frame")
