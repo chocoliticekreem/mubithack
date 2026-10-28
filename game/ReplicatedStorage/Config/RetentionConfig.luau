@@ -32,7 +32,7 @@ return Config.define({
 	},
 
 	RookiePack = {
-		ProductId = 0, -- Creator Dashboard -> Monetization -> Developer Products -> ROOKIE PACK's ID. 0 = off.
+		ProductId = 3723304609, -- ROOKIE PACK (R$49, flat price). 0 = off.
 		Price = 49, -- R$ shown until GetProductInfo answers (the prompt always shows Roblox's real price)
 		Name = "ROOKIE PACK",
 		Headline = "ROOKIE PACK!",
