@@ -48,6 +48,7 @@ return Config.define({
 	Rookie = {
 		Calls = 2, -- profile missionsPlayed below this = rookie
 		NearestSite = true, -- the nearest free site (no MinDispatchStuds): a short drive
+		NearStuds = 150, -- DispatchService offers (NEXT CALL / radio) to a rookie: a site this close, else the nearest
 		ArrivalFires = 3, -- fires lit on arrival (instead of the catalog/scaled count)
 		FireCap = 10, -- burning parts the site may hold (FireService:SetLocationCap): spread can't snowball
 		MaxRescues = 2, -- people/pets to carry out (round robin over the catalog's kinds)

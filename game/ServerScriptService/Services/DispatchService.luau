@@ -198,6 +198,25 @@ local function opts(): any
 	return { near = Cfg.NearStuds, far = Cfg.FarStuds, exclude = Cfg.Exclude, size = Cfg.ListSize }
 end
 
+-- A rookie (GameConfig.Rookie.Calls) gets a call close by: a site within Rookie.NearStuds of them, else the
+-- nearest one (DispatchLogic.pickSite's fallback). The NearStuds..FarStuds band sent a rookie's second call
+-- up to 1,600 studs away, while the first (MissionService, Rookie.NearestSite) was the nearest.
+local function rookieOpts(p: Player): any?
+	local rk = GameConfig.Rookie
+	if type(rk) ~= "table" or (tonumber(rk.Calls) or 0) <= 0 then
+		return nil
+	end
+	local okProfile, profile = call("DataService", "GetProfile", p)
+	local played = if okProfile and type(profile) == "table" then (tonumber(profile.missionsPlayed) or 0) else 0
+	if played >= rk.Calls then
+		return nil
+	end
+	local o = opts()
+	o.near = 0
+	o.far = tonumber(rk.NearStuds) or 150
+	return o
+end
+
 local function freeSites(): { any }
 	local ok, list = call("MissionService", "FreeSites")
 	return if ok and type(list) == "table" then list else {}
@@ -520,7 +539,21 @@ local function makeOffer(p: Player, kind: string?): Offer?
 		o = miniOffer(p, origin)
 	end
 	if not o and kind ~= "mini" then
-		local c = DispatchLogic.offer(freeSites(), MissionCatalog :: any, origin, opts(), MissionFlow.siteSupports, roll)
+		-- a rookie: the plain house fire close by (as NEXT CALL does), not a school across town
+		local rk = rookieOpts(p)
+		local pool: { any } = MissionCatalog :: any
+		if rk then
+			pool = {}
+			for _, def in MissionCatalog do
+				if def.id == FirstFireConfig.FirstCall then
+					table.insert(pool, def)
+				end
+			end
+			if #pool == 0 then
+				pool = MissionCatalog :: any
+			end
+		end
+		local c = DispatchLogic.offer(freeSites(), pool, origin, rk or opts(), MissionFlow.siteSupports, roll)
 		if c then
 			o = offerOf(c, origin, Cfg.OfferSeconds)
 		end
@@ -664,7 +697,7 @@ local function nextCall(p: Player): boolean
 			end
 		end
 		local c = if origin and #plain > 0
-			then DispatchLogic.offer(freeSites(), plain :: any, origin, opts(), MissionFlow.siteSupports, roll)
+			then DispatchLogic.offer(freeSites(), plain :: any, origin, rookieOpts(p) or opts(), MissionFlow.siteSupports, roll)
 			else nil
 		if c and origin then
 			o = offerOf(c, origin, Cfg.OfferSeconds)

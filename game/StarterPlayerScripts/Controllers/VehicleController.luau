@@ -10,6 +10,14 @@
 --   * Touch (InputHints.isTouch, or the Studio attr DevTouch): dead zone + expo on the stick, a
 --     sideways push still drives forward, lower top speed (TouchMaxSpeed), and a released stick
 --     lines the truck up with the road (NavigationController:GetRoadDir). Always the chase cam.
+--     On a call, touch only: ROUTE ASSIST (DriveConfig.Assist*): while the stick pushes forward nearly centred
+--     the turn bends gently toward a point AssistLookAhead studs along the GPS route (NavigationController
+--     GetRouteInfo ax / az). Not autopilot: no push, no movement; steering past AssistMaxSteer turns it off.
+--   * AUTO-UNSTICK (any device, DriveConfig.Unstick*): pushing UnstickSeconds without getting UnstickStuds
+--     anywhere = stuck. The truck is lifted, backed off a few studs (DriveMath.unstickTries) and swung toward
+--     the route, only onto anchored ground at the same height with the whole truck box free and a clear
+--     sweep there (never through a wall or the map); "UNSTUCK!" pops and Drive/Unstuck (C->S) tells
+--     DriveService (UnstuckApplied). No free spot = nothing moves; VehicleService's "Truck reset!" stays the net.
 --   * Studio test drives: player attr DevDrive = Vector2(steer, throttle) overrides the seat.
 --   * On a call (my run is Dispatched): on a straight stretch of road (DriveMath.straight, the road from
 --     NavigationController:GetRoadDir) the TOP SPEED eases up to x DriveConfig.StraightBoostRookie (rookie
@@ -52,6 +60,7 @@ local DriveConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local DriveMath = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Vehicle"):WaitForChild("DriveMath") :: ModuleScript)
 local WorldPopup = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("WorldPopup") :: ModuleScript)
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
+local Loc = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
 
 local VehicleController = {}
 VehicleController.Priority = 60
@@ -76,6 +85,8 @@ local boostS = 1 -- smoothed straight-road top-speed multiplier (on a call)
 local throttleS = 0 -- smoothed (rate-limited) throttle / steer actually driving the truck
 local steerS = 0
 local engine: Sound? = nil
+local unstickWatch: DriveMath.StuckWatch? = nil -- auto-unstick timer (DriveMath.stuckWatch)
+local lastUnstick = 0
 
 -- chase camera state
 local camPos: Vector3? = nil
@@ -90,6 +101,7 @@ local savedFov = 70
 local respawnButton: TextButton? = nil
 local STATION_RADIUS = 150 -- studs from a TruckBay that count as "at the station"
 local hintLabel: TextLabel? = nil
+local unstuckLabel: TextLabel? = nil
 local camMode = "chase" -- "chase" | "cab"
 local riding: Model? = nil -- truck the local player sits in as a passenger
 local hiddenParts: { [BasePart]: boolean } = {}
@@ -232,6 +244,175 @@ local function straightRoad(pos: Vector3, fwd: Vector3, steer: number): boolean
 	return DriveMath.straight(fwd.X, fwd.Z, dx, dz, steer, tonumber(DriveConfig.StraightMaxDeg) or 12, tonumber(DriveConfig.StraightMaxSteer) or 0.25)
 end
 
+-- My run is Dispatched (driving to a call).
+local function onCall(): boolean
+	local id = player:GetAttribute(Names.Attr.InstanceId)
+	if type(id) ~= "string" or id == "" then
+		return false
+	end
+	local runs = workspace:FindFirstChild("Runs")
+	local run = runs and runs:FindFirstChild(id)
+	return run ~= nil and run:GetAttribute(Names.Attr.RoundState) == "Dispatched"
+end
+
+-- The live GPS route (NavigationController:GetRouteInfo) while on a call, else nil.
+local function callRoute(): any
+	local nav = controllers.NavigationController
+	if not nav or type(nav.GetRouteInfo) ~= "function" or not onCall() then
+		return nil
+	end
+	local ok, info = pcall(nav.GetRouteInfo, nav)
+	return if ok and type(info) == "table" and not info.arrived then info else nil
+end
+
+-- Touch route assist: extra yaw (rad/s, same sign as yawTarget) that bends the truck toward the GPS line
+-- ahead, faded out as the stick steers. 0 when off the route, not pushing forward, or the route is behind.
+local function routeAssist(pos: Vector3, fwd: Vector3, rawSteer: number, throttle: number, fwdSpeed: number): number
+	if DriveConfig.Assist ~= true or throttle < 0.1 or fwdSpeed < (tonumber(DriveConfig.AssistMinSpeed) or 5) then
+		return 0
+	end
+	local w = DriveMath.assistWeight(rawSteer, tonumber(DriveConfig.AssistMaxSteer) or 0.35)
+	if w <= 0 then
+		return 0
+	end
+	local info = callRoute()
+	if not info or type(info.ax) ~= "number" or type(info.az) ~= "number" then
+		return 0
+	end
+	if (tonumber(info.off) or math.huge) > (tonumber(DriveConfig.AssistMaxOff) or 40) then
+		return 0
+	end
+	local ang = DriveMath.headingTo(fwd.X, fwd.Z, info.ax - pos.X, info.az - pos.Z)
+	if math.abs(ang) > math.rad(tonumber(DriveConfig.AssistMaxDeg) or 50) then
+		return 0
+	end
+	return -ang * (tonumber(DriveConfig.AssistGain) or 1.4) * w
+end
+
+-- AUTO-UNSTICK. Tries DriveMath.unstickTries() spots behind the truck (away from the push), nose swung toward
+-- the route (or the road under it). A spot counts only with anchored, walkable ground within 3 studs of the
+-- ground the truck stands on now, the whole truck box free there (things that don't collide with the truck
+-- skipped) and a clear straight sweep from here to there. Returns the try that worked, or nil.
+local function unstick(truck: Model, chassis: BasePart, push: number): number?
+	local cf = chassis.CFrame
+	local look = cf.LookVector
+	local fwd = Vector3.new(look.X, 0, look.Z)
+	if fwd.Magnitude < 0.1 then
+		return nil -- on its side: the self-right handles that
+	end
+	fwd = fwd.Unit
+	local right = Vector3.new(-fwd.Z, 0, fwd.X)
+	local away = if push >= 0 then -fwd else fwd
+	local want = fwd
+	local info = callRoute()
+	if info and (math.abs(info.dx) + math.abs(info.dz)) > 0.1 then
+		want = Vector3.new(info.dx, 0, info.dz).Unit
+	else
+		local rx, rz = roadDir(chassis.Position)
+		if rx and rz then
+			local r = Vector3.new(rx, 0, rz)
+			want = if r:Dot(fwd) >= 0 then r else -r
+		end
+	end
+	local params = rayParams(truck)
+	params.RespectCanCollide = true
+	params.CollisionGroup = chassis.CollisionGroup
+	local here = workspace:Raycast(chassis.Position + Vector3.new(0, 2, 0), Vector3.new(0, -24, 0), params)
+	if not here then
+		return nil -- over nothing: VehicleService's net puts it back on a road
+	end
+	local ride = math.clamp(chassis.Position.Y - here.Position.Y, 1.5, 6)
+	local lift = tonumber(DriveConfig.UnstickLift) or 1.2
+	local shave = tonumber(DriveConfig.UnstickClearance) or 0.6
+	local boxCF, boxSize = truck:GetBoundingBox()
+	local rel = cf:ToObjectSpace(boxCF)
+	local size = Vector3.new(math.max(boxSize.X - shave * 2, 1), math.max(boxSize.Y - shave * 2 - lift, 1), math.max(boxSize.Z - shave * 2, 1))
+	local over = OverlapParams.new()
+	over.FilterType = Enum.RaycastFilterType.Exclude
+	over.FilterDescendantsInstances = { truck, workspace.Terrain }
+	for _, p in Players:GetPlayers() do
+		if p.Character then
+			over:AddToFilter(p.Character)
+		end
+	end
+	over.RespectCanCollide = true
+	over.CollisionGroup = chassis.CollisionGroup
+	local sweep = RaycastParams.new()
+	sweep.FilterType = Enum.RaycastFilterType.Exclude
+	sweep.FilterDescendantsInstances = over.FilterDescendantsInstances
+	sweep.RespectCanCollide = true
+	sweep.CollisionGroup = chassis.CollisionGroup
+	for i, t in DriveMath.unstickTries() do
+		local pos = chassis.Position + away * t.back + right * t.side
+		local g = workspace:Raycast(Vector3.new(pos.X, here.Position.Y + 6, pos.Z), Vector3.new(0, -12, 0), params)
+		if not g or not g.Instance.Anchored or g.Normal.Y < 0.75 or math.abs(g.Position.Y - here.Position.Y) > 3 then
+			continue
+		end
+		local face = fwd:Lerp(want, t.turn)
+		face = if face.Magnitude > 0.1 then face.Unit else fwd
+		local newCF = CFrame.lookAt(g.Position, g.Position + face) + Vector3.new(0, ride + lift, 0)
+		local box = newCF * rel + Vector3.new(0, shave, 0)
+		if #workspace:GetPartBoundsInBox(box, size, over) > 0 then
+			continue
+		end
+		-- the way there is clear: never through a wall (the box we start in is ignored by a shapecast)
+		local delta = newCF.Position - cf.Position
+		local from = (cf * rel) + Vector3.new(0, lift + shave, 0)
+		if delta.Magnitude > 0.1 and workspace:Blockcast(from, size * Vector3.new(0.8, 0.7, 0.8), delta, sweep) then
+			continue
+		end
+		truck:PivotTo(newCF * cf:ToObjectSpace(truck:GetPivot()))
+		chassis.AssemblyLinearVelocity = Vector3.zero
+		chassis.AssemblyAngularVelocity = Vector3.zero
+		throttleS, steerS = 0, 0
+		return i
+	end
+	return nil
+end
+
+local function unstickStep(truck: Model, chassis: BasePart, push: number)
+	if DriveConfig.Unstick ~= true then
+		return
+	end
+	local now = os.clock()
+	local p = chassis.Position
+	local due
+	unstickWatch, due = DriveMath.stuckWatch(
+		unstickWatch,
+		now,
+		p.X,
+		p.Z,
+		math.abs(push) > 0.25,
+		tonumber(DriveConfig.UnstickSeconds) or 3,
+		tonumber(DriveConfig.UnstickStuds) or 2.5
+	)
+	if not due or now - lastUnstick < (tonumber(DriveConfig.UnstickCooldown) or 4) then
+		return
+	end
+	lastUnstick = now
+	local ok, try = pcall(unstick, truck, chassis, push)
+	local worked = ok and type(try) == "number"
+	local un = unstuckLabel
+	if worked and un then
+		un.Text = Loc.t("UNSTUCK!")
+		un.TextTransparency = 0
+		un.TextStrokeTransparency = 0.2
+		un.Visible = true
+		TweenService:Create(un, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.8), {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+		task.delay(1.4, function()
+			if un.TextTransparency > 0.95 then
+				un.Visible = false
+			end
+		end)
+	end
+	pcall(function()
+		Net.event("Drive", "Unstuck"):FireServer(if worked then try else 0)
+	end)
+end
+
 -- Arcade handling ("grips like a Jailbreak car"): the springs only carry the truck's weight, the
 -- tyres kill sideways sliding, pitch / roll follow the ground (never the springs or a kerb), yaw is
 -- speed / turning radius, the stick sets a target speed and letting go brakes to a stop.
@@ -336,6 +517,7 @@ local function step(truck: Model, dt: number)
 	throttleS = TruckDrive.approach(throttleS, rawThrottle, h, tonumber(cfgAny.ThrottleRise) or 4, tonumber(cfgAny.ThrottleFall) or 8)
 	local steerRate = if touch then tonumber(cfgAny.TouchSteerRate) or 4 else tonumber(cfgAny.SteerRate) or 7
 	steerS = TruckDrive.approach(steerS, rawSteer, h, steerRate, steerRate * 1.6)
+	unstickStep(truck, chassis, rawThrottle)
 	local throttle, steer = throttleS, steerS
 	if dev then
 		chassis:SetAttribute("DevDriveState", Vector3.new(throttle, steer, hits)) -- Studio test drives only
@@ -398,8 +580,11 @@ local function step(truck: Model, dt: number)
 		tonumber(cfgAny.TurnRadiusHigh) or 80,
 		tonumber(cfgAny.MaxYawRate) or 1.5
 	) * ctrl
+	-- touch, on a call: bend toward the GPS line while the kid pushes forward (stick nearly centred)
+	local assist = if touch and grounded then routeAssist(chassis.Position, fwd, rawSteer, throttle, fwdSpeed) else 0
+	yawTarget += assist
 	-- touch, stick let go: line up with the road you're on (gently; only when already nearly straight)
-	if touch and grounded and math.abs(rawSteer) < 0.05 and fwdSpeed > 8 then
+	if touch and grounded and assist == 0 and math.abs(rawSteer) < 0.05 and fwdSpeed > 8 then
 		local rx, rz = roadDir(chassis.Position)
 		if rx and rz then
 			local ang = TruckDrive.alignAngle(fwd.X, fwd.Z, rx, rz)
@@ -928,11 +1113,12 @@ local function makeRespawnButton()
 		local w = math.max(200, math.min(math.floor(640 * math.max(s, 0.8)), math.floor(vp.X - 2 * reserve)))
 		local h = if w < 460 then math.floor(48 * math.max(s, 0.8)) else math.floor(34 * math.max(s, 0.8))
 		if InputHints.isTouch() then
-			-- phones: bottom-left, ending before the thumb buttons (centred, it ran under SIREN)
-			w = math.max(160, math.min(w, math.floor(ThumbLayout.clusterLeft() - 20)))
-			h = math.floor(48 * math.max(s, 0.8))
+			-- phones: one short line ABOVE the thumbstick zone (bottom-left 40% x 45%) and left of the thumb
+			-- buttons (at the bottom it sat on the stick and ran under SIREN)
+			w = math.max(140, math.min(math.floor(vp.X * 0.4) - 10, math.floor(ThumbLayout.clusterLeft() - 20)))
+			h = math.floor(30 * math.max(s, 0.8))
 			hint.AnchorPoint = Vector2.new(0, 1)
-			hint.Position = UDim2.new(0, 10, 1, -18)
+			hint.Position = UDim2.new(0, 10, 0.55, -6)
 		else
 			hint.AnchorPoint = Vector2.new(0.5, 1)
 			hint.Position = UDim2.new(0.5, 0, 1, -18)
@@ -961,6 +1147,21 @@ local function makeRespawnButton()
 	pad.Parent = hint
 	hint.Parent = gui
 	hintLabel = hint
+	-- "UNSTUCK!" toast (AUTO-UNSTICK): small, centre screen just under the turn card, ~1.2 s
+	local un = Instance.new("TextLabel")
+	un.Name = "Unstuck"
+	un.AnchorPoint = Vector2.new(0.5, 0.5)
+	un.Position = UDim2.fromScale(0.5, 0.6)
+	un.Size = UDim2.fromOffset(220, 40)
+	un.BackgroundTransparency = 1
+	un.Font = Enum.Font.LuckiestGuy
+	un.TextScaled = true
+	un.TextColor3 = Color3.fromRGB(140, 240, 150)
+	un.TextStrokeTransparency = 0.2
+	un.Text = ""
+	un.Visible = false
+	un.Parent = gui
+	unstuckLabel = un
 	gui.Parent = pg
 	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 	HudLayout.reserve(hint) -- world markers / edge arrows stay off the driving hints
@@ -1304,12 +1505,13 @@ local function updateSeated()
 	local hint = hintLabel
 	if hint then
 		-- calm (phones): the on-screen buttons name themselves; the key bar shows for a few seconds, then goes
-		hint.Visible = truck ~= nil and not (Calm.on() and os.clock() - hintSince > HINT_CALM_SECONDS)
+		-- touch: always just the first few seconds (the buttons name themselves; the stick zone stays clear)
+		hint.Visible = truck ~= nil and not ((Calm.on() or touchDriving()) and os.clock() - hintSince > HINT_CALM_SECONDS)
 		if isDriver then
 			-- touch: the buttons are the ContextAction titles bound above (OUT, SIREN, HONK, DRIFT)
 			hint.Text = InputHints.pick(
 				`SPACE: hop out   {VehicleConfig.KeySiren}: siren   {VehicleConfig.KeyHorn}: horn   {VehicleConfig.KeyCam}: camera   {VehicleConfig.KeyRespawn}: unflip`,
-				"Stick: push to drive, let go to stop   ·   OUT  SIREN  HONK",
+				"Push the stick to drive!",
 				"R2 gas  L2 brake  stick steer   A: out   X: siren   Y: horn   R3: camera   D-PAD RIGHT: unflip"
 			)
 		elseif truck then

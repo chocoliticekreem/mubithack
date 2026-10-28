@@ -85,6 +85,10 @@ VehicleService.Rescued = Signal.new() :: Signal.Signal<Model, string>
 local TRUCK_BAY_TAG = "TruckBay"
 local BODY_GROUP = "TruckBody"
 local DOOR_GROUP = "TruckDoor" -- doors don't collide with their own cab, only with people and props
+-- Things a truck drives through (people still bump into them): VehicleConfig.TruckPassModels (by name, e.g. the
+-- station's DonationBoard in front of bay 1) and VehicleConfig.TruckPassParts (e.g. tree "Canopy" balls that
+-- hang over the kerb). Live phone drives got stuck on exactly these right outside the station.
+local PASS_GROUP = "TruckPass"
 
 type Door = {
 	side: string, -- "L" | "R"
@@ -327,6 +331,7 @@ local function facing(p: Vector3, fwd: Vector3): CFrame
 end
 
 local nearestRoadCF: (pos: Vector3) -> CFrame? -- forward (road graph, below)
+local watchTruckPass: () -> () -- forward (props trucks drive through, below)
 local blocker: (cf: CFrame, except: Truck?) -> Truck? -- forward (parking, below)
 local homeCF: (t: Truck) -> CFrame -- forward (parking, below)
 
@@ -1640,7 +1645,8 @@ end
 --   below    chassis under RescueBelowY (the kill height)
 --   noground nothing under the chassis for RescueNoGroundSeconds (fell through the map)
 --   sunk     the chassis sits inside / under the anchored ground under it for RescueSinkSeconds
---   stuck    the driver holds the throttle and it moved < RescueStuckStuds in RescueStuckSeconds
+--   stuck    the driver holds the throttle (touch: or a sideways push) and it moved < RescueStuckStuds in
+--            RescueStuckSeconds (the driver's client unsticks itself first: VehicleController AUTO-UNSTICK)
 -- A parked (anchored) truck is checked for below / sunk only (it was anchored where it fell).
 local noGroundSince: { [Truck]: number } = {}
 local sunkSince: { [Truck]: number } = {}
@@ -1677,9 +1683,15 @@ local function needsRescue(t: Truck, now: number): string?
 	end
 	local seat = t.seat
 	local throttle = if seat and t.driver then seat.ThrottleFloat else 0
+	-- a thumb on a phone / tablet pushing sideways still drives (TruckDrive.touchStick cruise) while the seat
+	-- reports a small throttle: count that as pushing too, or a stuck phone truck never got this net
+	local steerIn = if seat and t.driver then seat.SteerFloat else 0
+	local dev = if t.driver then t.driver:GetAttribute("Device") else nil
+	local touch = dev == "Phone" or dev == "Tablet"
+	local pushing = math.abs(throttle) >= 0.5 or (touch and (math.abs(throttle) >= 0.15 or math.abs(steerIn) >= 0.5))
 	local s = stuckFrom[t]
 	local flat = Vector3.new(c.Position.X, 0, c.Position.Z)
-	if math.abs(throttle) < 0.5 or not s or (flat - s.pos).Magnitude > (tonumber(cfg.RescueStuckStuds) or 3) then
+	if not pushing or not s or (flat - s.pos).Magnitude > (tonumber(cfg.RescueStuckStuds) or 3) then
 		stuckFrom[t] = { at = now, pos = flat }
 	elseif now - s.at >= (tonumber(cfg.RescueStuckSeconds) or 5) then
 		return "stuck"
@@ -1812,6 +1824,54 @@ local function legacyParkAt(id: string): boolean
 	return true
 end
 
+---------------------------------------------------------------------------- props trucks drive through
+
+local function passPart(p: Instance)
+	if p:IsA("BasePart") and p.CanCollide and p.CollisionGroup == "Default" then
+		p.CollisionGroup = PASS_GROUP
+		count("truck_pass_parts")
+	end
+end
+
+local function passCheck(inst: Instance)
+	local cfg = VehicleConfig :: any
+	local models = if type(cfg.TruckPassModels) == "table" then cfg.TruckPassModels else {}
+	local parts = if type(cfg.TruckPassParts) == "table" then cfg.TruckPassParts else {}
+	if inst:IsA("Model") and models[inst.Name] then
+		for _, d in inst:GetDescendants() do
+			passPart(d)
+		end
+		inst.DescendantAdded:Connect(passPart)
+	elseif inst:IsA("BasePart") then
+		if parts[inst.Name] then
+			passPart(inst)
+		else
+			local m = inst:FindFirstAncestorWhichIsA("Model")
+			if m and models[m.Name] then
+				passPart(inst)
+			end
+		end
+	end
+end
+
+function watchTruckPass()
+	task.spawn(function()
+		local map = workspace:WaitForChild("Map", 60)
+		if not map then
+			return
+		end
+		map.DescendantAdded:Connect(passCheck)
+		local n = 0
+		for _, d in map:GetDescendants() do
+			passCheck(d)
+			n += 1
+			if n % 4000 == 0 then
+				task.wait()
+			end
+		end
+	end)
+end
+
 ---------------------------------------------------------------------------- lifecycle
 
 function VehicleService:Init(all: { [string]: any })
@@ -1827,7 +1887,12 @@ function VehicleService:Start()
 			end
 		end
 		PhysicsService:CollisionGroupSetCollidable(BODY_GROUP, DOOR_GROUP, false)
+		if not PhysicsService:IsCollisionGroupRegistered(PASS_GROUP) then
+			PhysicsService:RegisterCollisionGroup(PASS_GROUP)
+		end
+		PhysicsService:CollisionGroupSetCollidable(BODY_GROUP, PASS_GROUP, false)
 	end)
+	watchTruckPass()
 	Net.event("Vehicle", "Pop")
 	Net.onServer(Net.event("Vehicle", "Horn"), { rate = 4, burst = 2 }, honk)
 	Net.onServer(Net.event("Vehicle", "Siren"), { rate = 2, burst = 1 }, toggleSiren)

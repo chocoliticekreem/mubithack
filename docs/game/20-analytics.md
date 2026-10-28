@@ -122,7 +122,7 @@ ColdOpenSkipped, OnboardingV3QuitStep, UpdateLogShown, NotifyPrompted / Accepted
 Accepted, **OfferShown / Clicked / Declined / Purchased, PassPurchased, LikeAskShown / Closed,
 InviteAskShown / Prompted / Sent, TwistRolled / Completed, CallTime, PadWaitSeconds,
 PadLeftBeforeLaunch, ResultsChoice, DailyChestOpened, DriveStart / Arrive / Quit, TruckReset,
-TruckStuck, NotifyAsk, ReturnGap (the Day-1 return proxy), RookiePackBought** (definitions:
+TruckStuck, UnstuckApplied, NotifyAsk, ReturnGap (the Day-1 return proxy), RookiePackBought** (definitions:
 `ReplicatedStorage/Lib/Onboarding/Funnel.luau`; retention ones: `docs/game/21-retention.md`).
 
 ### Forwarded to Roblox (Creator Dashboard → Analytics → Custom events)

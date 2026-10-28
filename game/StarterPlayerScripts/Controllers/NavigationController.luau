@@ -18,7 +18,8 @@
 --   NavigationController:GetRoadDir(x, z, range?): (dx?, dz?)  -- nearest road's direction
 --   NavigationController:GetRouteInfo(): RouteInfo?  -- the live GPS route (DriveController's ARRIVING bar,
 --     big TURN arrow and WRONG WAY card): { total, left (studs of road), turn ("left"|"right"|"uturn"|nil),
---     turnDist, dx, dz (route direction where you are), arrived }; nil = no target / no route
+--     turnDist, dx, dz (route direction where you are), arrived, off (studs from the route line), ax, az (a point
+--     DriveConfig.AssistLookAhead studs further along: VehicleController's touch route assist) }; nil = no target
 local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local HttpService = game:GetService("HttpService")
@@ -30,6 +31,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Palette = require(Shared:WaitForChild("Palette") :: ModuleScript)
 local NavigationConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("NavigationConfig") :: ModuleScript) :: any
+local DriveConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DriveConfig") :: ModuleScript) :: any
 local ClientLib = script.Parent.Parent:WaitForChild("ClientLib")
 local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript)
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript)
@@ -674,6 +676,9 @@ export type RouteInfo = {
 	dx: number,
 	dz: number,
 	arrived: boolean,
+	off: number?,
+	ax: number?,
+	az: number?,
 }
 local routeInfo: RouteInfo? = nil
 local routeTotal = 0 -- longest route length seen for this target (the ARRIVING bar's 0%)
@@ -701,6 +706,8 @@ local function updateRouteInfo(from: Vector3, to: Vector3, along: number, arrive
 	routeTotal = math.max(routeTotal, left)
 	local kind, dist = Pathfind.nextTurn(poly, along, tonumber(NavigationConfig.TurnAngle) or 35)
 	local s = Pathfind.samples(poly, along + 2, 1, 1)[1]
+	local ahead = Pathfind.samples(poly, along + (tonumber(DriveConfig.AssistLookAhead) or 26), 1, 1)[1]
+	local _, off = Pathfind.project(poly, from.X, from.Z)
 	routeInfo = {
 		total = routeTotal,
 		left = left,
@@ -709,6 +716,9 @@ local function updateRouteInfo(from: Vector3, to: Vector3, along: number, arrive
 		dx = if s then s.dx else 0,
 		dz = if s then s.dz else 0,
 		arrived = false,
+		off = off,
+		ax = if ahead then ahead.x else nil,
+		az = if ahead then ahead.z else nil,
 	}
 end
 

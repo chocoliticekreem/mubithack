@@ -46,4 +46,25 @@ return Config.define({
 	TurnHideStuds = 6, -- ... until you're this close to it
 	WrongWaySeconds = 1.5, -- facing back along the route this long while moving = "WRONG WAY!"
 	NoDriverSeconds = 3, -- a rider on a call with an empty driver seat this long = "NOBODY'S DRIVING!"
+	TouchTurnAlways = true, -- touch drivers on a call: the turn card never hides (TURN / STRAIGHT ON / WRONG WAY)
+
+	-- auto-unstick (driver's client, VehicleController; any device). Live: phones/tablets logged TruckStuck about
+	-- as often as DriveStart, and the server's "Truck reset!" net needs the seat throttle >= 0.5, which a
+	-- thumb pushing sideways (TruckDrive.touchStick cruise) never reports. NOT autopilot: only a held push.
+	Unstick = true,
+	UnstickSeconds = 3, -- pushing this long ...
+	UnstickStuds = 2.5, -- ... without getting this far = stuck: lift, back off a few studs, nose toward the route
+	UnstickCooldown = 4, -- seconds between two (the server's Truck reset! net catches what this can't)
+	UnstickLift = 1.2, -- studs over the ground the spot is checked / placed at
+	UnstickClearance = 0.6, -- studs shaved off the truck box for the "is this spot free?" check
+
+	-- touch route assist (driver's client, touch only, on a call). Not autopilot: it only bends the truck's
+	-- turn toward the GPS line while the kid is pushing forward with the stick (nearly) centred.
+	Assist = true,
+	AssistLookAhead = 26, -- studs ahead on the route the nose is pulled toward
+	AssistGain = 1.4, -- rad/s per rad of heading error
+	AssistMaxSteer = 0.35, -- stick steering past this = the kid is turning: no assist (fades out up to it)
+	AssistMaxDeg = 50, -- only when the route is within this many degrees of the nose (never fights a U-turn)
+	AssistMaxOff = 40, -- ... and the truck is within this many studs of the route line
+	AssistMinSpeed = 5, -- studs/s forward
 })
