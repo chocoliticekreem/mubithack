@@ -15,6 +15,10 @@
 -- with "ui:" are hide-only pieces (the rest of the HUD: Hud, DispatchGui, ChipMenuGui ...): the onboarding
 -- schedule never gates them. A key in keep (HudGate.setKeep) stays up while hidden (thumb buttons while seated).
 --   HudGate.setHidden(on), HudGate.hidden() -> boolean, HudGate.setKeep(key, on)
+-- SEATED (in a truck / heli seat, Controllers/HideUiController polls it): only driving UI shows. Every key in
+-- SEATED_HIDE is off (tutorial / guide cards, objective chips, menus, store / dispatch, hotbar ...), so a kid
+-- driving sees the road, the drive buttons, the minimap and ONE turn card (DriveController).
+--   HudGate.setSeated(on), HudGate.seated() -> boolean
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ColdOpen = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("ColdOpen") :: ModuleScript)
@@ -26,6 +30,14 @@ local listeners: { [number]: () -> () } = {}
 local nextId = 0
 local hiddenOn = false
 local keep: { [string]: boolean } = {}
+local seatedOn = false
+local SEATED_HIDE: { [string]: boolean } = {
+	["ui:Onboarding"] = true, ["ui:OnboardingEdge"] = true, ["ui:MissionGuide"] = true, ["ui:MissionGuideEdge"] = true,
+	["ui:ObjectiveChip"] = true, ["ui:ChipMenuGui"] = true, ["ui:SquadGui"] = true, ["ui:TwistGui"] = true,
+	["ui:LobbyUI"] = true, ["ui:DispatchGui"] = true, ["ui:ComeBackGui"] = true, ["ui:GearHud"] = true,
+	["ui:StructureHud"] = true, ["ui:TeamBonus"] = true, ["ui:Achievements"] = true,
+	store = true, dispatch = true, pass = true, news = true, invite = true, offer = true, admin = true, hotbar = true,
+}
 
 local function notify()
 	for _, fn in listeners do
@@ -35,6 +47,9 @@ end
 
 function HudGate.allows(key: string): boolean
 	if hiddenOn and not keep[key] then
+		return false
+	end
+	if seatedOn and SEATED_HIDE[key] then
 		return false
 	end
 	if string.sub(key, 1, 3) == "ui:" then
@@ -75,6 +90,18 @@ function HudGate.setHidden(on: boolean)
 	end
 	hiddenOn = on
 	notify()
+end
+
+function HudGate.setSeated(on: boolean)
+	if seatedOn == on then
+		return
+	end
+	seatedOn = on
+	notify()
+end
+
+function HudGate.seated(): boolean
+	return seatedOn
 end
 
 function HudGate.hidden(): boolean

@@ -66,6 +66,7 @@ type Target = {
 	part: BasePart,
 	verb: string,
 	rank: number,
+	item: string?, -- GRAB / CARRY: what you get ("RUSTY AXE")
 }
 
 local shown: { [ProximityPrompt]: boolean } = {}
@@ -197,6 +198,18 @@ local function verbOf(prompt: ProximityPrompt): string
 	return if #first <= 6 then first else "USE"
 end
 
+-- what the bubble acts on, so kids can tell WHICH thing they grab ("Grab Rusty Axe" -> "RUSTY AXE")
+local function itemOf(prompt: ProximityPrompt): string
+	-- the action names the item ("Grab Rusty Axe"); ObjectText is only where it is ("Truck"), so it's the fallback
+	local rest = string.match(prompt.ActionText, "^Grab%s+(.+)$")
+		or string.match(prompt.ActionText, "^Pick up%s+(.+)$")
+		or string.match(prompt.ActionText, "^Take%s+(.+)$")
+	if rest then
+		return string.upper(rest)
+	end
+	return string.upper(prompt.ObjectText)
+end
+
 local function rankOf(prompt: ProximityPrompt): number
 	if prompt.Name == "Carry" or prompt:FindFirstAncestorWhichIsA("Model") and prompt:FindFirstAncestorWhichIsA("Model"):HasTag(Names.Tag.Rescuable) then
 		return 1
@@ -225,7 +238,8 @@ local function promptTarget(prompt: ProximityPrompt): Target?
 	end
 	-- the truck's own reel / lockers rank with the pick-ups (getting IN has its own bubble)
 	local rank = if truckOf(prompt) then math.min(rankOf(prompt), 2) else rankOf(prompt)
-	return { kind = "prompt", prompt = prompt, part = part, verb = verbOf(prompt), rank = rank }
+	local verb = verbOf(prompt)
+	return { kind = "prompt", prompt = prompt, part = part, verb = verb, rank = rank, item = if verb == "GRAB" or verb == "CARRY" then itemOf(prompt) else nil }
 end
 
 local function freeSeat(s: Instance?): boolean
@@ -384,6 +398,27 @@ local function makeBubble(name: string, getTarget: () -> Target?, fill: Color3?)
 	local rc = Instance.new("UICorner")
 	rc.CornerRadius = UDim.new(1, 0)
 	rc.Parent = ring
+	-- the item's name in a pill under the circle (GRAB alone didn't say what you'd get)
+	local item = Instance.new("TextLabel")
+	item.Name = "Item"
+	item.AnchorPoint = Vector2.new(0.5, 0)
+	item.Position = UDim2.new(0.5, 0, 1, 4)
+	item.AutomaticSize = Enum.AutomaticSize.X
+	item.Size = UDim2.fromOffset(0, 22)
+	item.BackgroundColor3 = Palette.UiInk
+	item.TextColor3 = Palette.UiCream
+	item.Font = Enum.Font.FredokaOne
+	item.TextSize = 16
+	item.Text = ""
+	item.Visible = false
+	item.Parent = b
+	local ic = Instance.new("UICorner")
+	ic.CornerRadius = UDim.new(0, 8)
+	ic.Parent = item
+	local ip = Instance.new("UIPadding")
+	ip.PaddingLeft = UDim.new(0, 8)
+	ip.PaddingRight = UDim.new(0, 8)
+	ip.Parent = item
 	b.Activated:Connect(function()
 		local t = getTarget()
 		if t then
@@ -532,6 +567,12 @@ local function refreshBubble()
 			b.Visible = false
 		elseif b.Text ~= t.verb then
 			b.Text = t.verb
+		end
+		local item = b:FindFirstChild("Item") :: TextLabel?
+		if item then
+			local name = if t then t.item else nil
+			item.Visible = name ~= nil and name ~= ""
+			item.Text = name or ""
 		end
 	end
 	-- the truck's own IN bubble (green = go), at its door

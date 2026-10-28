@@ -161,7 +161,9 @@ function HideUiController:Start()
 	-- the touch buttons stay while seated (truck OUT, heli UP / DOWN); TopBox's spot can move (voice mic)
 	task.spawn(function()
 		while btn and btn.Parent do
-			HudGate.setKeep("ui:thumbs", seated())
+			local on = seated()
+			HudGate.setKeep("ui:thumbs", on)
+			HudGate.setSeated(on) -- driving: only the drive UI (HudGate SEATED_HIDE)
 			paint()
 			task.wait(0.5)
 		end
