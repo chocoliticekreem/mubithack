@@ -44,7 +44,7 @@ return Config.define({
 	-- sounds (SoundService-style ids; "" = silent)
 	TickSoundId = "rbxassetid://134410911353980",
 	GoSoundId = "rbxassetid://9117265660", -- (PSE) referee whistle
-	SirenSoundId = "rbxassetid://530137633",
+	SirenSoundId = "", -- off: the launching truck's own siren plays instead (3D, from the truck)
 	AlarmSoundId = "",
 	BellSoundId = "rbxassetid://6786936397",
 	HonkSoundId = "rbxassetid://107056835646946",

@@ -254,7 +254,10 @@ local function makeSound(parent: Instance, name: string, id: string, looped: boo
 	end
 	snd.Looped = looped
 	snd.Volume = volume
-	snd.RollOffMaxDistance = 300
+	-- positional: heard from the truck itself, loud close by, gone ~260 studs away
+	snd.RollOffMode = Enum.RollOffMode.InverseTapered
+	snd.RollOffMinDistance = 14
+	snd.RollOffMaxDistance = 260
 	return snd
 end
 
