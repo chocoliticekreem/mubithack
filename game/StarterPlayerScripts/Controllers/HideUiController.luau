@@ -51,7 +51,7 @@ local function paint()
 	if stroke then
 		stroke.Transparency = if hidden then 0.6 else 0
 	end
-	k.Visible = not hidden and InputHints.mode() == "keyboard"
+	k.Visible = false -- no key tag on the eye (it read as clutter); F1 / ` are listed in HELP
 end
 
 local function setHidden(on: boolean)
@@ -81,7 +81,7 @@ local function build()
 	g.Name = "HideUiGui"
 	g.ResetOnSpawn = false
 	g.IgnoreGuiInset = true -- up in the top-bar row, like ClientLib/TopBox
-	g.ScreenInsets = Enum.ScreenInsets.None
+	g.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets -- same space as GuiService.TopbarInset (see TopBox)
 	g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	g.DisplayOrder = 7
 	local b = Instance.new("TextButton")
