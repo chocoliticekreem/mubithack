@@ -1926,8 +1926,10 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 		return nil
 	end
 	local t = now()
+	local callIndex = squadCallIndex(players)
+	local ramp = CallRamp.tier(CallRampConfig, callIndex)
 	local flow = MissionFlow.new({
-		seconds = seconds or def.seconds or GameConfig.RoundSeconds,
+		seconds = seconds or (ramp and tonumber(ramp.Seconds)) or def.seconds or GameConfig.RoundSeconds,
 		alarm = GameConfig.AlarmSeconds,
 		intro = GameConfig.IntroSeconds,
 		results = GameConfig.ResultsSeconds,
@@ -1954,8 +1956,20 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 		firesLit = 0,
 		downs = 0,
 		payload = nil,
+		callIndex = callIndex,
+		ramp = ramp,
 	}
 	model:SetAttribute(Names.Attr.InstanceId, id)
+	model:SetAttribute("CallIndex", callIndex)
+	local cap = fireCap(run)
+	if cap then
+		safe("early call fire cap", function()
+			local Fire = services.FireService
+			if Fire and type(Fire.SetAreaCap) == "function" then
+				Fire:SetAreaCap(model, cap)
+			end
+		end)
+	end
 	model:SetAttribute(Names.Attr.MissionId, def.id)
 
 	resetBlame(players)
