@@ -23,6 +23,7 @@ Spec.test("calls 1-3 are small and short; later calls ramp up; call 6+ is the ca
 		Spec.truthy(t.Seconds <= 100, "short on-scene timer")
 		Spec.eq(t.TimeoutIsWin, true, "time out = CALL COMPLETE, never a fail")
 		Spec.eq(t.NearestSite, true, "a short drive")
+		Spec.eq(t.NoRegrow, true, "a fire put out is never replaced by spread")
 	end
 	local prev = 0
 	for i = 1, #Cfg.Tiers do

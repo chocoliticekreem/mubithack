@@ -138,6 +138,7 @@ type Live = {
 	ramp: any?, -- Config/CallRampConfig tier for that call (nil = the catalog call as written)
 	chip: { [string]: any }?, -- last objective chip attrs published (publishChip)
 	rampPhases: { any }?, -- the tier's escalation phases (CallRamp.phases), cached
+	capNow: number?, -- NoRegrow tier: the fire cap right now (shrinks as fires go out)
 }
 
 local services: { [string]: any } = {}
@@ -1229,6 +1230,33 @@ end
 -- Safety net: a call must never be "all clear" before anything burned. If nothing has burned at all a
 -- few seconds after arrival (the hazard that should light it
 -- didn't, or every Ignite failed), light the site's FireStart markers (then random Flammable parts).
+-- NoRegrow tiers (CallRampConfig, calls 1-3): a fire that goes out is never replaced by spread or a flare-up.
+-- The site's FireService area cap follows the burning count down (never below 1; SetAreaCap(0) means no cap),
+-- so a slow kid can't end up chasing fires that keep coming back. Escalation waves raise it again (escalate).
+local function setCap(run: Live, cap: number)
+	cap = math.max(1, math.floor(cap))
+	if run.capNow == cap then
+		return
+	end
+	run.capNow = cap
+	safe("early call fire cap", function()
+		local Fire = services.FireService
+		if Fire and type(Fire.SetAreaCap) == "function" then
+			Fire:SetAreaCap(run.model, cap)
+		end
+	end)
+end
+
+local function shrinkCap(run: Live, burning: number)
+	if not (run.ramp and run.ramp.NoRegrow == true and run.sawBurning) then
+		return
+	end
+	local cur = run.capNow or fireCap(run) or math.huge
+	if burning < cur then
+		setCap(run, burning)
+	end
+end
+
 local function rekindle(run: Live, obs: MissionFlow.Obs, t: number)
 	if obs.burning > 0 then
 		run.sawBurning = true
@@ -1303,6 +1331,9 @@ local function escalate(run: Live, phase: any, index: number)
 		return
 	end
 	local n = MissionFlow.scaledFires(tonumber(phase.fires) or 0, math.max(1, #run.players), GameConfig.FireScalePerPlayer or 0, 0)
+	if run.ramp and run.ramp.NoRegrow == true then
+		setCap(run, burningCount(run) + n) -- room for exactly this wave
+	end
 	local lit = 0
 	local kind = phase.setPiece
 	if kind == "flashover" or kind == "explosion" or kind == "collapse" then
@@ -1443,6 +1474,7 @@ local function tickAll()
 				run.sawBurning = true
 			elseif obs and st == "Active" then
 				rekindle(run, obs, t)
+				shrinkCap(run, obs.burning)
 				obs.held = escalationTick(run, obs, t)
 			end
 			handle(run, MissionFlow.tick(run.flow, t, obs))

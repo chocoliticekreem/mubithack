@@ -14,14 +14,17 @@
 --                 the first one WaveAt s after arrival (or early, once the scene is quiet; GameConfig.Escalation)
 --   SetPieces     keep the waves' flashover / explosion / collapse set pieces
 --   NearestSite   the nearest free site (a short drive), not one MinDispatchStuds away
+--   NoRegrow      a fire that goes out is never replaced: the site's fire cap follows the burning count down
+--                 (spread and flare-ups can't refill it), only a wave raises it. Playtest: with a cap of 4 a
+--                 slow kid put out 2 fires in 65 s while spread kept the site at 1-4 burning
 return table.freeze({
 	Tiers = table.freeze({
 		-- call 1: 3 fires (at most 4 burning), 1 rescue, no wave: ~1:30 for a normal kid
-		table.freeze({ Seconds = 75, ArrivalFires = 3, FireCap = 4, MaxRescues = 1, Waves = 0, TimeoutIsWin = true, NearestSite = true }),
+		table.freeze({ Seconds = 75, ArrivalFires = 3, FireCap = 4, MaxRescues = 1, Waves = 0, TimeoutIsWin = true, NearestSite = true, NoRegrow = true }),
 		-- call 2: + one short wave of 2 fires
-		table.freeze({ Seconds = 90, ArrivalFires = 3, FireCap = 5, MaxRescues = 1, Waves = 1, WaveFires = 2, WaveAt = 35, TimeoutIsWin = true, NearestSite = true }),
+		table.freeze({ Seconds = 90, ArrivalFires = 3, FireCap = 5, MaxRescues = 1, Waves = 1, WaveFires = 2, WaveAt = 35, TimeoutIsWin = true, NearestSite = true, NoRegrow = true }),
 		-- call 3: 4 fires, one wave of 2
-		table.freeze({ Seconds = 100, ArrivalFires = 4, FireCap = 5, MaxRescues = 1, Waves = 1, WaveFires = 2, WaveAt = 40, TimeoutIsWin = true, NearestSite = true }),
+		table.freeze({ Seconds = 100, ArrivalFires = 4, FireCap = 5, MaxRescues = 1, Waves = 1, WaveFires = 2, WaveAt = 40, TimeoutIsWin = true, NearestSite = true, NoRegrow = true }),
 		-- calls 4-5 ramp toward the full call (6+ fires, every rescue, 2+ waves with set pieces, 5-7 min)
 		table.freeze({ Seconds = 150, ArrivalFires = 4, FireCap = 7, MaxRescues = 2, Waves = 1, WaveFires = 3, WaveAt = 60, TimeoutIsWin = true }),
 		table.freeze({ Seconds = 200, ArrivalFires = 5, FireCap = 9, MaxRescues = 2, Waves = 2, WaveFires = 3, WaveAt = 70, SetPieces = true, TimeoutIsWin = true }),
