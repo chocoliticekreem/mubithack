@@ -52,8 +52,12 @@
 --   HoseLine.Stranded) and the nozzle drops with the SAME line lying from the source to it
 --   (HoseLine.release); anyone grabs it and carries on (HoseLine.adopt). A dropped nozzle reels in
 --   (removeLoose -> HoseLine.discard) after HoseLineConfig.LyingSeconds, when its truck drives off
---   (LyingStowSpeed), when the call ends (StowHose) or when the reel reclaims it. 2 per source still
+--   (HoseLine.isSourceMoving), when the call ends (StowHose) or when the reel reclaims it. 2 per source still
 --   counts held + slung + lying nozzles.
+-- Trucks and hoses never touch physically: the HoseTether hangs off HoseLine.anchorFor(reel) (an anchored
+--   stand-in, never the truck), dropped nozzles are in the HoseLine collision group (no truck contact), a
+--   held truck hose is stowed the moment its truck drives (HoseLine.Stranded "truck"), and grabbing a hose
+--   (reel or a lying nozzle) off a driving truck says "Wait for the truck to stop!" (inv_hose_refused_moving).
 -- FACE slot (gear v2): a worn item (the gas mask), a model "InvFace" welded to the Head; it only
 --   leaves when you die (spill) or swap it for another mask.
 -- Writes: Player attrs InvHand, InvBack, InvCarry, InvFace ("" = empty), GasMask (bool), OxygenAir, Foam/FoamSize (extinguisher
@@ -321,15 +325,25 @@ local function folder(): Folder
 	return nf
 end
 
+-- The tether's reel end hangs off HoseLine.anchorFor(reel): an anchored stand-in that follows a truck
+-- reel, never the truck itself (a rope into the truck put the truck in the nozzle's physics mechanism, and
+-- the nozzle's SetNetworkOwner(nil) took the truck away from its driver mid-drive).
 local function reelAttachment(reel: BasePart): Attachment
-	local a = reel:FindFirstChild("InvReelAtt") :: Attachment?
+	local anchor = hoseLine("anchorFor", reel)
+	local host: BasePart = if typeof(anchor) == "Instance" and anchor:IsA("BasePart") then anchor else reel
+	local a = host:FindFirstChild("InvReelAtt") :: Attachment?
 	if a then
 		return a
 	end
 	local na = Instance.new("Attachment")
 	na.Name = "InvReelAtt"
-	na.Parent = reel
+	na.Parent = host
 	return na
+end
+
+-- A truck reel whose truck is driving (someone in the driver seat, or rolling): no hose off it.
+local function reelMoving(reel: BasePart?): boolean
+	return reel ~= nil and hoseLine("isSourceMoving", reel) == true
 end
 
 local function isHydrantSource(part: BasePart): boolean
@@ -381,6 +395,10 @@ local function grabLoose(player: Player, m: Model)
 	end
 	local held: Held = { id = info.id, data = info.data }
 	local reel = info.data.reel
+	if reel and reel:IsDescendantOf(workspace) and reelMoving(reel) then
+		say(player, stateOf(player), "Wait for the truck to stop!")
+		return
+	end
 	if reel and not reel:IsDescendantOf(workspace) then
 		held.data = {} -- the truck is gone: just a loose nozzle now
 	elseif reel and hoseLine("isLying", handle) then
@@ -418,6 +436,19 @@ local function spawnLoose(held: Held, cf: CFrame, velocity: Vector3, thrower: Pl
 	m:PivotTo(cf)
 	m:AddTag(TAG_ITEM)
 	local handle = m.PrimaryPart :: BasePart
+	if held.id == "Hose" then
+		-- a dropped nozzle never bumps (or gets wedged under) a truck either
+		local group = hoseLineMod() and hoseLineMod().GROUP
+		if type(group) == "string" then
+			for _, d in m:GetDescendants() do
+				if d:IsA("BasePart") then
+					pcall(function()
+						d.CollisionGroup = group
+					end)
+				end
+			end
+		end
+	end
 	local prompt = invPrompt(handle, `Grab {def.name}`, "", Cfg.GrabDistance)
 	m.Parent = folder()
 	local info: Loose = { id = held.id, data = held.data, born = os.clock() }
@@ -505,7 +536,7 @@ local function syncHoseLine(player: Player, ps: PState)
 		end
 		local _, root = charOf(player)
 		local near = root ~= nil and (root.Position - reel.Position).Magnitude <= hoseLength(reel)
-		if not hoseLine("attach", player, reel) and near then
+		if not hoseLine("attach", player, reel) and near and not reelMoving(reel) then
 			-- (far from its source, e.g. the truck drove off or was reset: no line, and never one
 			-- laid across the map toward you)
 			Popup.show(player, "Hose tangled, try again", "info", player)
@@ -1008,6 +1039,26 @@ end
 
 -- Got in a vehicle with the hose (hand or back): the nozzle drops where the line ends (outside the cab),
 -- and the line stays lying there for whoever grabs it next (HoseLine.Stranded).
+-- Its truck drove off (HoseLine.Stranded "truck"): the hose goes back on the reel, no line left lying
+-- (HoseLine pops "The truck drove off — hose stowed!").
+local function stowDriven(player: Player)
+	local ps = states[player]
+	if not ps then
+		return
+	end
+	local held, slot = hoseOf(ps)
+	if not held then
+		return
+	end
+	if slot == "hand" then
+		ps.hand = nil
+	else
+		ps.back = nil
+	end
+	apply(player, ps)
+	Telemetry.count("inv_hose_stowed")
+end
+
 local function leaveHose(player: Player)
 	local ps = states[player]
 	if not ps then
@@ -1300,6 +1351,12 @@ local function onReel(player: Player, reel: BasePart)
 	-- Holding the extinguisher (everyone does after the training fire): [T] at the truck swaps it for the
 	-- hose. It used to refill the foam instead, so "GRAB THE HOSE: press T" did nothing on a kid's first
 	-- call. The extinguisher goes back in the truck (its compartments still hand out fresh ones).
+	if not hydrant and reelMoving(reel) then
+		-- a hose off a driving truck got dragged along / handed the truck's physics to the holder
+		Telemetry.count("inv_hose_refused_moving")
+		say(player, ps, "Wait for the truck to stop!")
+		return
+	end
 	local swapped = false
 	if hand and hand.id == "Extinguisher" then
 		ps.hand = nil
@@ -1515,6 +1572,7 @@ local function upkeepLoop()
 					not reel:IsDescendantOf(workspace)
 					or (reel.Position - handle.Position).Magnitude > hoseLength(reel) * 2.5
 					or reel.AssemblyLinearVelocity.Magnitude > (HoseLineConfig.LyingStowSpeed or 6)
+					or reelMoving(reel)
 				)
 			if tooOld or stray then
 				removeLoose(m)
@@ -1655,8 +1713,12 @@ function InventoryService:Start()
 	folder()
 	local hl = hoseLineMod()
 	if hl and hl.Stranded then
-		hl.Stranded:Connect(function(player: Player, _why: string)
-			leaveHose(player)
+		hl.Stranded:Connect(function(player: Player, why: string)
+			if why == "truck" then
+				stowDriven(player)
+			else
+				leaveHose(player)
+			end
 		end)
 	end
 

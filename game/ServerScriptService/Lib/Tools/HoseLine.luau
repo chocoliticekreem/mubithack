@@ -14,12 +14,26 @@
 --       becomes theirs (no new chain, no cap check: it is the same hose)
 --   HoseLine.discard(anchor: BasePart)              -- a lying chain is reeled in (destroyed)
 --   HoseLine.tipPosition(player): Vector3?          -- the end of the held chain (where a dropped nozzle lands)
+--   HoseLine.anchorFor(source: BasePart): BasePart   -- what a line's source end is tied to: the source itself
+--       for an anchored hydrant, else an ANCHORED proxy part that copies the source's CFrame every frame
+--       (InventoryService ties its HoseTether there too)
+--   HoseLine.isSourceMoving(source: BasePart): boolean -- a truck source with someone in its driver seat
+--       (attr Driver ~= 0) or rolling faster than HoseLineConfig.TruckMoveSpeed; hydrants never
 --   HoseLine.Kinked: Signal<Player, Player>         -- (hose owner, culprit). Fires when someone has
 --       stood on your hose for KinkDelay s, or when your line first tangles with another player's
 --       (then it fires both ways). The culprit can be the owner (you stood on your own hose).
 --   HoseLine.Stranded: Signal<Player, string>       -- ("seat") the holder sat down, ("snap") the holder
 --       ended up way past the line (teleport, source jumped, snag): InventoryService drops the nozzle
---       (release) right away; if nobody did, the line is detached after the signal.
+--       (release) right away; ("truck") its truck started driving: InventoryService stows the hose (no
+--       lying line). If nobody did, the line is detached after the signal.
+-- NEVER a physical link between a hose and a TRUCK: the chain's source end (and InventoryService's
+--   HoseTether) hang off an anchored proxy (anchorFor), and hoses don't collide with TruckBody/TruckDoor.
+--   Roblox gives every part joined by constraints ONE network owner, so a BallSocket from the chain to the
+--   reel made the truck part of the hose's mechanism: SetNetworkOwner on the segments (holder / server)
+--   took the truck's physics away from its driver mid-drive, VehicleController's raycast springs stopped,
+--   and the chassis dropped onto its belly with the wheels in the road ("stuck"), dragged by the holder.
+--   A held truck hose is stowed as soon as its truck drives (isSourceMoving), and no hose comes off a
+--   moving truck. Hydrant hoses are untouched (hydrants never move).
 -- NEVER a physical link between the chain and the holder: the tip follows the hand with a one-way
 --   AlignPosition (force on the hose only), the "HandRope" only ties a LYING tip to its dropped nozzle
 --   (disabled while held). A rope to the hand used to drag/teleport the holder whenever the hand
@@ -37,7 +51,8 @@
 --   parts Seg01.. with attr Index and Kinked); Player attrs HosePressure, HoseKind, HoseKinkedBy.
 -- Collision groups: "HoseLine" (hoses) never collides with "Players" (character parts we move
 --   from Default into "Players", or whatever group another system put them in).
--- Counters: hose_attached, hose_kinks, hose_tangles, hose_trips, hose_yanks, hose_snapped
+-- Counters: hose_attached, hose_kinks, hose_tangles, hose_trips, hose_yanks, hose_snapped,
+--   hose_detached_truck_moving (a held truck hose stowed because its truck drove), hose_refused_moving
 -- Test hooks (DevHook, dot-call: DevHook:Invoke("HoseLine", "._attachTest", player, 6)):
 --   _selftest(), _state(player), _attachTest(player, dist?)
 --
@@ -159,6 +174,12 @@ function HoseLine.shouldTrip(speedH: number, feetDist: number, cfg: any): boolea
 	return speedH >= cfg.TripSpeed and feetDist <= cfg.StandRadius
 end
 
+-- A truck counts as driving (hoses come off it, none can be grabbed) when someone sits in its driver
+-- seat (driver = attr Driver, a UserId; 0 / nil = nobody) or it rolls faster than cfg.TruckMoveSpeed.
+function HoseLine.truckDriving(driver: number?, speedH: number, cfg: any): boolean
+	return (driver ~= nil and driver ~= 0) or speedH > (cfg.TruckMoveSpeed or 3)
+end
+
 if (game :: any) == nil then
 	return HoseLine -- luau CLI (specs): pure maths only
 end
@@ -183,6 +204,9 @@ local Cfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HoseL
 local HOSE_GROUP = "HoseLine"
 local PLAYER_GROUP = "Players"
 local FOLDER = "HoseLines"
+-- VehicleService's truck groups: a hose never touches a truck (it used to shove / sink them)
+local TRUCK_GROUPS = { "TruckBody", "TruckDoor" }
+HoseLine.GROUP = HOSE_GROUP
 
 HoseLine.Kinked = Signal.new() :: Signal.Signal<Player, Player>
 HoseLine.Stranded = Signal.new() :: Signal.Signal<Player, string>
@@ -219,6 +243,7 @@ type Hose = {
 
 local hoses: { [Player]: Hose } = {}
 local lying: { [BasePart]: Hose } = {} -- dropped nozzle handle -> its chain, still on the ground
+local proxies: { [BasePart]: BasePart } = {} -- moving source (truck reel) -> its anchored stand-in
 local hoseCount = 0
 local booted = false
 local lastTrip: { [Player]: number } = {}
@@ -299,6 +324,21 @@ local function boot()
 	ensureGroup(HOSE_GROUP)
 	ensureGroup(PLAYER_GROUP)
 	PhysicsService:CollisionGroupSetCollidable(HOSE_GROUP, PLAYER_GROUP, false)
+	for _, g in TRUCK_GROUPS do
+		ensureGroup(g)
+		pcall(PhysicsService.CollisionGroupSetCollidable, PhysicsService, HOSE_GROUP, g, false)
+	end
+	-- every frame: proxies copy their source (never a constraint into the truck), and die with it
+	RunService.Heartbeat:Connect(function()
+		for src, proxy in proxies do
+			if not src:IsDescendantOf(workspace) or not proxy.Parent then
+				proxies[src] = nil
+				proxy:Destroy()
+			else
+				proxy.CFrame = src.CFrame
+			end
+		end
+	end)
 	YankRemote = Net.event("HoseLine", "Yank")
 	TripRemote = Net.event("HoseLine", "Trip")
 	for _, p in Players:GetPlayers() do
@@ -344,6 +384,57 @@ local function isHydrant(part: BasePart): boolean
 		node = node.Parent
 	end
 	return false
+end
+
+local function truckModelOf(part: BasePart): Model?
+	local node: Instance? = part
+	while node and node ~= workspace do
+		if node:IsA("Model") and node:HasTag(Names.Tag.Truck) then
+			return node
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
+function HoseLine.isSourceMoving(source: BasePart): boolean
+	if typeof(source) ~= "Instance" or not source:IsA("BasePart") or isHydrant(source) then
+		return false
+	end
+	local truck = truckModelOf(source)
+	local driver = truck and tonumber(truck:GetAttribute("Driver")) or nil
+	local v = source.AssemblyLinearVelocity
+	return HoseLine.truckDriving(driver, Vector3.new(v.X, 0, v.Z).Magnitude, Cfg)
+end
+
+-- The part a line's source end hangs off. An anchored hydrant is its own anchor; anything else (a truck
+-- reel) gets an anchored, non-colliding proxy that copies its CFrame every frame, so no constraint ever
+-- joins a hose to the truck's assembly (one mechanism = one network owner: the hose holder or the server
+-- would own the truck).
+function HoseLine.anchorFor(source: BasePart): BasePart
+	if isHydrant(source) and source.Anchored then
+		return source
+	end
+	local proxy = proxies[source]
+	if proxy and proxy.Parent then
+		return proxy
+	end
+	boot()
+	local p = Instance.new("Part")
+	p.Name = "HoseSourceProxy"
+	p.Size = Vector3.new(0.2, 0.2, 0.2)
+	p.Transparency = 1
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CanQuery = false
+	p.Massless = true
+	p.CollisionGroup = HOSE_GROUP
+	p.CFrame = source.CFrame
+	p:SetAttribute("SourceOf", source:GetFullName())
+	p.Parent = folder()
+	proxies[source] = p
+	return p
 end
 
 local function rootOf(player: Player): (BasePart?, Humanoid?)
@@ -478,6 +569,10 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 	if not HoseLine.canReach(sourcePart.Position, endAtt.WorldPosition, sourcePart.Size, length) then
 		return false -- the source is further away than its hose (it drove off / was reset): no line
 	end
+	if kind == "Truck" and HoseLine.isSourceMoving(sourcePart) then
+		count("hose_refused_moving")
+		return false -- never lay a line off a driving truck
+	end
 	local n = HoseLine.segmentCount(length, Cfg.SegmentTarget, Cfg.MinSegments, Cfg.MaxSegments)
 	local segLen = length / n
 
@@ -489,7 +584,8 @@ function HoseLine.attach(player: Player, sourcePart: BasePart): boolean
 		math.clamp(localP.Y, -half.Y, half.Y),
 		math.clamp(localP.Z, -half.Z, half.Z)
 	)
-	local sourceAtt = newAttachment(sourcePart, `HoseLineSource_{player.UserId}`, srcLocal)
+	-- on the anchored stand-in (same CFrame as the source), never on the truck itself
+	local sourceAtt = newAttachment(HoseLine.anchorFor(sourcePart), `HoseLineSource_{player.UserId}`, srcLocal)
 
 	-- lay the chain out from the source toward the holder's hand
 	local srcPos = sourceAtt.WorldPosition
@@ -827,6 +923,16 @@ tick = function(dt: number)
 			continue
 		end
 		h.lostSince = nil
+		if h.kind == "Truck" and HoseLine.isSourceMoving(h.source) then
+			-- its truck is driving off: the hose goes back on the reel (no line dragged behind a truck)
+			count("hose_detached_truck_moving")
+			Popup.show(owner, "The truck drove off — hose stowed!", "info", owner)
+			HoseLine.Stranded:Fire(owner, "truck")
+			if hoses[owner] == h then
+				HoseLine.detach(owner)
+			end
+			continue
+		end
 		if hum and hum.SeatPart then
 			-- got in a vehicle: InventoryService drops the nozzle by the door (the line stays lying; a
 			-- chain from the reel to a hand inside the cab dragged on and shoved the truck it was hooked to)

@@ -20,7 +20,9 @@ return Config.define({
 	-- it up, the truck drives off, the call ends or nobody touched it for LyingSeconds
 	LyingRopeLength = 2, -- the lying chain's tip is tied this close to the dropped nozzle
 	LyingSeconds = 120, -- a dropped nozzle (and its line) reels itself back in after this long
-	LyingStowSpeed = 6, -- studs/s: the source truck driving off reels its lying lines in
+	LyingStowSpeed = 6, -- (legacy) lying lines now go back on the reel as soon as their truck drives (TruckMoveSpeed)
+	TruckMoveSpeed = 3, -- studs/s: a truck rolling faster (or anyone in its driver seat) is "driving": its held
+	-- hoses are stowed (counter hose_detached_truck_moving) and no hose can be grabbed off it
 	FollowForce = 8000, -- pull on the hose tip toward the hand (never on the holder); 2500 stalled the tip ~100 studs out
 	FollowResponsiveness = 30,
 	OwnerSplit = 0.5, -- segments [1..N*split] stay server-owned, the rest are owned by the holder

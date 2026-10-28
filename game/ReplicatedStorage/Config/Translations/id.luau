@@ -2086,4 +2086,6 @@ return {
 	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Sembunyikan / tampilkan tombol game (atau mata 👁, kiri atas).",
 	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Ketuk mata 👁 (kiri atas) untuk menyembunyikan / menampilkan tombol game.",
 	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "PASS, BERITA, UNDANG, TROFI dan lainnya ada di tombol MENU di kiri.",
+	["The truck drove off — hose stowed!"] = "Truknya pergi — selang disimpan!",
+	["Wait for the truck to stop!"] = "Tunggu truknya berhenti!",
 }

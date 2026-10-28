@@ -2086,4 +2086,6 @@ return {
 	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Ukryj / pokaż przyciski gry (albo oko 👁 w lewym górnym rogu).",
 	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Dotknij oka 👁 (lewy górny róg), aby ukryć / pokazać przyciski gry.",
 	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "PRZEPUSTKA, NOWOŚCI, ZAPROŚ, TROFEA i więcej są w przycisku MENU po lewej.",
+	["The truck drove off — hose stowed!"] = "Wóz odjechał — wąż schowany!",
+	["Wait for the truck to stop!"] = "Poczekaj, aż wóz się zatrzyma!",
 }

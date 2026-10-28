@@ -2086,4 +2086,6 @@ return {
 	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Скрыть / показать кнопки игры (или глаз 👁 слева вверху).",
 	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Нажми на глаз 👁 (слева вверху), чтобы скрыть / показать кнопки игры.",
 	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "ПРОПУСК, НОВОСТИ, ПОЗВАТЬ, ТРОФЕИ и другое — в кнопке МЕНЮ слева.",
+	["The truck drove off — hose stowed!"] = "Машина уехала — шланг убран!",
+	["Wait for the truck to stop!"] = "Подожди, пока машина остановится!",
 }
