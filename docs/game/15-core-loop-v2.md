@@ -136,3 +136,18 @@ What made calls long:
 | Every call ends with "ALL DONE! 3..2..1" (cancelled if a fire flares up), then the results | MissionFlow `timing.doneDelay`, `CallRampConfig.AllDoneSeconds` |
 | One objective chip under the timer: 🔥 N FIRES LEFT -> 🐶 SAVE 1 MORE -> ⚠️ MORE FIRE COMING! -> ✅ ALL DONE! 3. The old top-left objectives card is hidden. | `ObjectiveChipController`, MissionService publishes ObjFires / ObjRescues / ObjRescueKind / ObjWave / DoneAt on the run folder |
 | `CallDuration` and `QuitMidCall` custom events by call number and device | `CallLengthService` (docs/game/20) |
+| Calls 1-3: a fire that goes out is never replaced (`NoRegrow`: the site's fire cap follows the burning count down; only a wave raises it). Without it a slow kid with a cap of 4 put out 2 fires in 65 s while spread kept the site at 1-4 burning. | MissionService `shrinkCap` |
+
+Measured in a local place (`ShortCalls.rbxlx`, iPhone 17 Pro emulation) with a scripted "normal kid" (board the
+truck 10 s, drive 20 studs/s, 8 s to grab gear, 6 s to find each fire, walk 10 studs/s, 35% of the spray on
+target, 15 s to find each person). Dispatch to results:
+
+| Call | Before | After |
+|---|---|---|
+| 1 (house fire) | 87 s, 3 stars | 90 s, 3 stars (drive 32 s vs 17 s: another nearest site) |
+| 2 (house fire) | 133 s | 82 s, one 2-fire wave, ALL DONE at 79 s |
+| 3 (house fire) | 282 s, 16 fires lit, 25 put out, 6 rescues | 97 s, 3 + 2 fires, 1 rescue |
+| 3 (panda zoo) | 360 s, TIME'S UP, up to 66 burning, 1 star | 129 s, CALL COMPLETE (timer), 1 star |
+
+Not done here: dispatch still sends call 3 to any mission (`GameConfig.Rookie.Calls` = 2 keeps house fires for
+calls 1-2), and the zoo's nearest site is a 74 s drive, so a zoo call 3 runs past 2 minutes (the timer caps it).
