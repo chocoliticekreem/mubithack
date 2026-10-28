@@ -23,7 +23,13 @@
 --          HoseRecoil(sprayer: Player, impulse: Vector3)  -- every hose spray event (-aim * HoseRecoil * pressure).
 --            The sprayer's own client applies the recoil smoothly (ToolController); listeners must
 --            NOT also call Ragdoll.knockback with it, or the recoil doubles.
--- Remotes: Tool/Spray  (C->S, aim: Vector3 unit, 12/s burst 4) -- hose or extinguisher, whichever is equipped
+--          SprayLocked(player, part: BasePart)       -- a touch auto-aim lock on a new burning part (validated)
+-- Remotes: Tool/Spray  (C->S, aim: Vector3 unit, lock: BasePart?, 12/s burst 4) -- hose or extinguisher,
+--            whichever is equipped. lock = the touch auto-aim's burning part (ToolController): accepted when it
+--            is Burning, within Lib/Fire/SprayAssist.Cfg.LockRange x ServerRangeSlack (48 studs) of your head and
+--            the aim points within ServerMaxOffDeg of it; then the water goes straight at its nearest point (past
+--            the hose's reach it lands from WaterLandsShort studs in front of it). Counters spray_locks (a new
+--            part locked), spray_lock_rejected
 --          Tool/Pushed (S->C victim, velocity: Vector3, fromUserId: number, kind: "hose"|"foam"|"axe")
 --            juice only (splash overlay, shake); the shove itself goes through Ragdoll.knockback
 --          Tool/Fx     (S->C all, kind: string, position: Vector3, extra: number?) -- "crack", "chop",
@@ -58,6 +64,7 @@ local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
+local SprayAssist = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Fire"):WaitForChild("SprayAssist") :: ModuleScript)
 local Progression = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
 local AXE_TIERS = { Axe = true, FireAxe = true, GoldenAxe = true }
 local AxeBuilder = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("Tools"):WaitForChild("AxeBuilder") :: ModuleScript)
@@ -68,6 +75,7 @@ ToolService.DoorBroken = Signal.new() :: Signal.Signal<Player, BasePart>
 ToolService.WaterUsed = Signal.new() :: Signal.Signal<Player, number>
 ToolService.HoseHit = Signal.new() :: Signal.Signal<Player, Player>
 ToolService.HoseRecoil = Signal.new() :: Signal.Signal<Player, Vector3>
+ToolService.SprayLocked = Signal.new() :: Signal.Signal<Player, BasePart>
 
 local ATTR_FOAM = "Foam"
 local ATTR_FOAM_SIZE = "FoamSize"
@@ -573,7 +581,54 @@ local function tutorialAim(player: Player, head: BasePart, aim: Vector3): (Vecto
 	return dir, origin
 end
 
-local function sprayOnce(player: Player, aim: Vector3)
+-- Touch auto-aim: the client names the burning part its aim locked onto. Believable (Burning, close enough,
+-- the aim points at it) -> the water goes straight at the part's nearest point, landing from just in front
+-- of it when it's past the hose's reach (the phone's generous hit volume). Anything else: the plain aim.
+local lastLock: { [Player]: BasePart } = {}
+local FireConfigMod: any = nil
+local function lockAim(player: Player, head: BasePart, aim: Vector3, raw: any): (Vector3, Vector3?)
+	if typeof(raw) ~= "Instance" or not (raw :: Instance):IsA("BasePart") then
+		return aim, nil
+	end
+	local part = raw :: BasePart
+	if not part:HasTag(Names.Tag.Burning) or not part:IsDescendantOf(workspace) then
+		return aim, nil
+	end
+	local from = head.Position
+	local lp = part.CFrame:PointToObjectSpace(from)
+	local h = part.Size / 2
+	local nearest = part.CFrame:PointToWorldSpace(Vector3.new(
+		math.clamp(lp.X, -h.X, h.X),
+		math.clamp(lp.Y, -h.Y, h.Y),
+		math.clamp(lp.Z, -h.Z, h.Z)
+	))
+	local d = nearest - from
+	local dist = d.Magnitude
+	if dist < 0.5 then
+		return aim, nil
+	end
+	local dir = d.Unit
+	local c = part.Position - from
+	local cdir = if c.Magnitude > 1e-3 then c.Unit else dir
+	local off = math.deg(math.acos(math.clamp(math.max(dir:Dot(aim), cdir:Dot(aim)), -1, 1)))
+	if not SprayAssist.validLock(dist, off) then
+		Telemetry.count("spray_lock_rejected")
+		return aim, nil
+	end
+	if lastLock[player] ~= part then
+		lastLock[player] = part
+		Telemetry.count("spray_locks")
+		ToolService.SprayLocked:Fire(player, part)
+	end
+	if not FireConfigMod then
+		FireConfigMod = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("FireConfig") :: ModuleScript)
+	end
+	local reach = (tonumber(FireConfigMod.HoseRange) or 42) * 0.9
+	local origin = if dist > reach then nearest - dir * SprayAssist.Cfg.WaterLandsShort else nil
+	return dir, origin
+end
+
+local function sprayOnce(player: Player, aim: Vector3, lock: any)
 	local kind = equipped(player)
 	local char = player.Character
 	if not kind or not char or blocked(player) then
@@ -585,6 +640,9 @@ local function sprayOnce(player: Player, aim: Vector3)
 	end
 	local origin: Vector3?
 	aim, origin = tutorialAim(player, head, aim)
+	if lock ~= nil and player:GetAttribute("FirstFire") ~= "burning" then -- the tutorial steers its own
+		aim, origin = lockAim(player, head, aim, lock)
+	end
 	if kind == "hose" then
 		sprayHose(player, char, head, aim, origin)
 	else
@@ -905,10 +963,10 @@ function ToolService:Start()
 	Pushed = Net.event("Tool", "Pushed")
 	Fx = Net.event("Tool", "Fx")
 	local Spray = Net.event("Tool", "Spray")
-	Net.onServer(Spray, { rate = 12, burst = 4 }, function(player: Player, rawAim: any)
+	Net.onServer(Spray, { rate = 12, burst = 4 }, function(player: Player, rawAim: any, rawLock: any)
 		local aim = Net.unit(rawAim)
 		if aim then
-			sprayOnce(player, aim)
+			sprayOnce(player, aim, rawLock)
 		end
 	end)
 	puddles()
@@ -920,6 +978,7 @@ function ToolService:Start()
 	Players.PlayerRemoving:Connect(function(player: Player)
 		hoseLineCall("detach", player)
 		lastSpray[player] = nil
+		lastLock[player] = nil
 		lastFoam[player] = nil
 		lastSwing[player] = nil
 		sprayCount[player] = nil

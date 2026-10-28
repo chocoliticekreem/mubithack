@@ -2044,4 +2044,5 @@ return {
 	["SPLASH! x{1}"] = "SPLASH! x{1}",
 	["BUCKET FULL! Fly to a fire and DROP"] = "BALDE CHEIO! Voe até um fogo e SOLTE",
 	["NICE! More fire is coming. Get ready!"] = "BOA! Vem mais fogo aí. Prepare-se!",
+	["Hop out first!"] = "Desça primeiro!",
 }

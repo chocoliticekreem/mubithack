@@ -378,6 +378,15 @@ local function buildChip()
 	UiKit.stroke(dot, 1.5, Palette.UiCream)
 	ui.chip = b
 	ui.dot = dot
+	-- not on a call: on a phone the chip column sat on the objectives / guide cards while you looked for the
+	-- fire (docs/game/21-phone-first-fire.md). The red dot waits for the station.
+	local me = Players.LocalPlayer
+	local function onCallChanged()
+		local id = me:GetAttribute("InstanceId")
+		b.Visible = not (type(id) == "string" and id ~= "")
+	end
+	me:GetAttributeChangedSignal("InstanceId"):Connect(onCallChanged)
+	onCallChanged()
 	UiKit.onTap(b, function()
 		if open then
 			UpdateLogController:Close()

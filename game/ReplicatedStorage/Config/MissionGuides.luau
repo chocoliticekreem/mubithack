@@ -66,7 +66,10 @@ return {
 			head = "GRAB THE HOSE",
 			sub = "Stand by your truck, press T. Its water never runs out.",
 			target = { kind = "truck", tag = "TruckRefill" },
-			done = { kind = "hand", item = "Hose" },
+			-- an extinguisher in hand counts too (ArrivalService hands one to an empty-handed kid on arrival):
+			-- the step's arrow points at the truck, away from the fire, so it must never hold back a kid who
+			-- can already spray (phone funnel: 23.6% quit between arriving and the first fire out)
+			done = { kind = "hand", items = { "Hose", "Extinguisher" } },
 			-- live funnel: 42% quit between arriving and the first fire out; a kid stuck on this step must
 			-- reach SPRAY THE FIRE (the arrow on the flames) fast. The extinguisher sprays too.
 			maxSeconds = 20,
