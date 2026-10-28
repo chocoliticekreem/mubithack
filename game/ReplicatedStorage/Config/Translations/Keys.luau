@@ -2089,4 +2089,7 @@ return {
 	"Hide / show the game's buttons (or the 👁 eye, top left).",
 	"Tap the 👁 eye (top left) to hide / show the game's buttons.",
 	"PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left.",
+	-- hoses never ride on a driving truck (Lib/Tools/HoseLine, InventoryService)
+	"The truck drove off — hose stowed!",
+	"Wait for the truck to stop!",
 }

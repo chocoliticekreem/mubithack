@@ -2086,4 +2086,6 @@ return {
 	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Oyunun düğmelerini gizle / göster (ya da sol üstteki 👁 göz).",
 	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Oyunun düğmelerini gizlemek / göstermek için 👁 göze (sol üst) dokun.",
 	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "PASS, HABERLER, DAVET, KUPALAR ve fazlası soldaki MENÜ düğmesinde.",
+	["The truck drove off — hose stowed!"] = "Kamyon gitti — hortum toplandı!",
+	["Wait for the truck to stop!"] = "Kamyonun durmasını bekle!",
 }
