@@ -445,7 +445,9 @@ function TruckBuilder.Build(parent: Instance, cf: CFrame): Model
 	sirenSound.Name = "SirenSound"
 	sirenSound.Looped = true
 	sirenSound.Volume = 0.6
-	sirenSound.RollOffMaxDistance = 300
+	sirenSound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sirenSound.RollOffMinDistance = 14
+	sirenSound.RollOffMaxDistance = 260
 	sirenSound.Parent = siren
 
 	-- Roof light bar: red | white | blue neon on a dark base.

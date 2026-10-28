@@ -45,7 +45,7 @@ local ATTR_BAY = (Names.Attr :: any).Bay or "Bay"
 local AlarmController = {}
 AlarmController.Priority = 60
 AlarmController.DispatchSeconds = math.max(tonumber(GameConfig.AlarmSeconds) or 6, 10)
-AlarmController.SirenVolume = 0.8
+AlarmController.SirenVolume = 0 -- sirens only come from the trucks now (3D on the truck); the station keeps its lights
 
 local player = Players.LocalPlayer
 local RED = Color3.fromRGB(255, 70, 60)
