@@ -21,6 +21,8 @@
 --   BattlePassService:AwardXp(player, amount, reason?) -> number   -- pass XP actually given
 --   BattlePassService:IsPremium(player) -> boolean
 --   BattlePassService:GetState(player) -> table?                   -- the State payload below
+--   BattlePassService:GrantExtra(player, ids, equip?) -> { string } -- rewards owned outside the tiers (ROOKIE PACK,
+--     Services/RookiePackService): saved in pass.extra, kept across seasons; equip = put them on now
 -- Signals: TierUp(player, tier), XpGained(player, amount, reason)
 -- Remotes (BattlePass/*):
 --   State   (S->C owner: state table)          Gain (S->C owner: amount, reason, tier, tiersGained, rewardIds)
@@ -247,6 +249,7 @@ function BattlePassService:GetState(player: Player): { [string]: any }?
 		equipped = equipped,
 		boost = PassRules.boostPct(p, prem, o),
 		claimable = PassRules.claimable(p, prem, o),
+		extra = if p.extra then table.clone(p.extra) else nil,
 		runXp = tonumber(player:GetAttribute(A.RunXp)) or 0,
 	}
 end
@@ -688,6 +691,27 @@ function BattlePassService:Start()
 			end
 		end
 	end)
+end
+
+function BattlePassService:GrantExtra(player: Player, ids: { string }, equip: boolean?): { string }
+	if not passOf(player) then
+		return {}
+	end
+	local o = opts()
+	local new: { string } = {}
+	mutate(player, function(pass: Pass)
+		new = PassRules.grantExtra(pass, ids, o)
+		if equip then
+			for _, id in ids do
+				PassRules.equip(pass, id, true, o)
+			end
+		end
+	end)
+	if ready[player] then
+		push(player)
+		applyAll(player)
+	end
+	return new
 end
 
 ---------------------------------------------------------------------------------- test hooks

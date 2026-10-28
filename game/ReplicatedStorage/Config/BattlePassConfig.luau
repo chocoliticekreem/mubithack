@@ -87,6 +87,10 @@ local Rewards: { [string]: { [string]: any } } = {
 	-- truck paints (premium 70 / 90)
 	paint_galaxy = { Slot = "truck", Name = "Galaxy Truck Paint", Paint = "#3B1E6B", Color = "#E07BFF", Pulse = "#2FA8FF" },
 	paint_inferno = { Slot = "truck", Name = "Inferno Truck Paint", Paint = "#1E1B24", Color = "#FF5A1F", Pulse = "#FFE45C" },
+	-- ROOKIE PACK (Config/RetentionConfig.RookiePack, Services/RookiePackService): not on any tier; owned through
+	-- the pass's `extra` (PassRules.grantExtra), kept across seasons
+	helmet_rookie = { Slot = "helmet", Name = "Rookie Star Helmet", Color = "#FF8A1F", Trim = "#FFF1A8", Sparkle = true },
+	paint_rookie = { Slot = "truck", Name = "Rookie Blue Truck Paint", Paint = "#2F7BEA", Color = "#FFE45C" },
 	-- emotes: Style spin (Turns = full turns, classic 2) | flex (Hop = jump speed, classic 38); Shout = the text over your head; Fx = confetti colours
 	emote_hop = { Slot = "emote", Name = "Happy Hop", Style = "flex", Hop = 30, Shout = "HAPPY HOP!", Fx = { "#6BCB5A", "#FFE45C", "#7EC8F5" } },
 	emote_cheer = { Slot = "emote", Name = "Cheer Jump", Style = "flex", Hop = 44, Shout = "CHEER!", Fx = { "#FF7FC8", "#FFE45C", "#FFFFFF" } },

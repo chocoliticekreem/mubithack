@@ -1,0 +1,10 @@
+{
+  "key": "RookiePack",
+  "kind": "developer product (the game offers it once and never again after it is bought)",
+  "name": "ROOKIE PACK 🎒",
+  "description": "A starter pack for new firefighters!\n• 2x XP for 30 minutes of play\n• Rookie Star Helmet\n• Rookie Blue Truck Paint\nYou keep the helmet and the paint forever.",
+  "price": 49,
+  "icon": "out/rookie-pack.png",
+  "render": "python3 marketing/passes/render_rookie_pack.py",
+  "config": "game/ReplicatedStorage/Config/RetentionConfig.luau RookiePack.ProductId"
+}

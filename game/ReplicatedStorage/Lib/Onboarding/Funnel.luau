@@ -164,6 +164,13 @@ Funnel.Events = table.freeze({
 	ArrivalToFireOut = "ArrivalToFireOut", -- value: seconds from arrival on scene to YOUR first fire out on the call
 	ArrivalNoFireOut = "ArrivalNoFireOut", -- value: seconds on scene before the call ended / you left without one
 	IdleSecondsOnCall = "IdleSecondsOnCall", -- value: seconds on scene with no burning fire within CallPaceService.IdleRadius
+	-- come-back reasons (Services/RetentionService, Services/RookiePackService; docs/game/21-retention.md).
+	-- NotifyPrompted / NotifyAccepted above are reused with field "retention" for the remind-me opt-in.
+	NotifyAsk = "NotifyAsk", -- value: 1; the "🔔 REMIND ME TOMORROW?" card: field shown | yes | no
+	ReturnGap = "ReturnGap", -- value: days since the previous join day (-1 first); F1 device, F2 first | same_day |
+	--                          next_day | d2_6 | d7plus, F3 days since install d0 | d1 | d2_6 | d7plus
+	RookiePackBought = "RookiePackBought", -- value: R$; field offer (within 10 min of its BUY) | other
+	-- (ROOKIE PACK shown / clicked / declined: OfferShown / OfferClicked / OfferDeclined, field "RookiePack_results")
 })
 
 export type Track = { last: number }

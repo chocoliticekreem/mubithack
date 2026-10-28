@@ -11,6 +11,8 @@
 --   Gifted passes (ProfileSchema v7 gifts, owner :giftpass via AdminService): an in-game entitlement that
 --   counts exactly like owning the pass (same Pass_<Key> attr, applied at once) plus PassGifted_<Key> = true
 --   when the player doesn't own the real Roblox pass, so the store shows GIFTED. It is NOT a Roblox pass.
+-- ROOKIE PACK (Config/RetentionConfig.RookiePack.ProductId, 0 = off): the same receipt flow and ledger; its grant
+--   is RookiePackService:Apply (idempotent per PurchaseId in profile retention.rookie.receipts), no donor board.
 -- Donations: MarketplaceService.ProcessReceipt (this is the ONLY script that sets it). Idempotent per
 --   PurchaseId (Lib/Monetization/MonetizationRules): a global ledger DataStore (memory in Studio, like
 --   DataService) + the PurchaseIds kept in the donor's profile (ProfileSchema v5 donations). Returns
@@ -33,6 +35,7 @@
 -- Counters: monetization_prompts, monetization_passes_bought, monetization_donations,
 --           monetization_robux_donated, monetization_receipt_retries
 -- Test hooks (DevHook only): _fakeReceipt(player, robux, purchaseId?) -> "Granted:applied" etc.,
+--   _fakeRookieReceipt(player, purchaseId?) (the ROOKIE PACK receipt through the real flow),
 --   _fakePassBought(player, key) (the purchase path + fanfare), _owns(player) -> "UnlimitedFoam=true,...", _dropReal(player) (forget real ownership), _board() -> top donor rows as text, _selftest()
 
 local DataStoreService = game:GetService("DataStoreService")
@@ -45,6 +48,7 @@ local TweenService = game:GetService("TweenService")
 
 local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local Cfg = require(ConfigFolder:WaitForChild("MonetizationConfig") :: ModuleScript) :: any
+local RetentionConfig = require(ConfigFolder:WaitForChild("RetentionConfig") :: ModuleScript) :: any
 local MapConfig = require(ConfigFolder:WaitForChild("MapConfig") :: ModuleScript) :: any
 local ToolConfig = require(ConfigFolder:WaitForChild("ToolConfig") :: ModuleScript) :: any
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -604,14 +608,34 @@ local function donatedOf(player: Player): number
 	return if type(d) == "table" and type(d.robux) == "number" then d.robux else 0
 end
 
+-- every developer product this game sells: the donations + the ROOKIE PACK (kind "rookie") once it has an id
+local function allProducts(): { any }
+	local list = table.clone(Cfg.DonationProducts)
+	local rp = RetentionConfig.RookiePack
+	if (tonumber(rp.ProductId) or 0) > 0 then
+		table.insert(list, { id = rp.ProductId, robux = tonumber(rp.Price) or 49, kind = "rookie" })
+	end
+	return list
+end
+
 -- The idempotent receipt flow against a given product list (the real config, or a test list).
 local function processReceipt(receipt: any, products: any): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(tonumber(receipt and receipt.PlayerId) or 0)
 	local Data = services.DataService
+	local bought = Rules.product(products, receipt and receipt.ProductId)
+	local isRookie = bought ~= nil and (bought :: any).kind == "rookie"
 	local decision, why = Rules.process(receipt, products, {
 		ledgerHas = ledgerHas,
 		ledgerPut = ledgerPut,
 		grant = function(purchaseId: string, robux: number): Rules.GrantResult
+			if isRookie then
+				local RP = services.RookiePackService
+				if not RP or type(RP.Apply) ~= "function" then
+					return "absent"
+				end
+				local ok, res = pcall(RP.Apply, RP, player, purchaseId)
+				return if ok and (res == "applied" or res == "duplicate") then res else "absent"
+			end
 			if not player or not Data or type(Data.WaitForProfile) ~= "function" then
 				return "absent"
 			end
@@ -636,7 +660,7 @@ local function processReceipt(receipt: any, products: any): Enum.ProductPurchase
 		warn(`[MonetizationService] receipt {tostring(receipt and receipt.PurchaseId)} not processed yet: {why}`)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if why == "applied" and player then
+	if why == "applied" and player and not isRookie then
 		local product = Rules.product(products, receipt.ProductId)
 		local robux = if product then product.robux else 0
 		local total = donatedOf(player)
@@ -729,7 +753,7 @@ function MonetizationService:Start()
 
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(onPassPurchaseFinished)
 	MarketplaceService.ProcessReceipt = function(receipt: any): Enum.ProductPurchaseDecision
-		local ok, res = pcall(processReceipt, receipt, Cfg.DonationProducts)
+		local ok, res = pcall(processReceipt, receipt, allProducts())
 		if not ok then
 			warn(`[MonetizationService] ProcessReceipt: {res}`)
 			return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -902,6 +926,13 @@ function MonetizationService:_fakeReceipt(player: Player, robux: number, purchas
 end
 
 -- Studio test: the real "pass bought" path (PromptGamePassPurchaseFinished with purchased = true).
+-- Studio: the ROOKIE PACK through the real receipt flow (a stand-in product id 1, since ProductId may be 0).
+function MonetizationService:_fakeRookieReceipt(player: Player, purchaseId: string?): string
+	local receipt = { PlayerId = player.UserId, ProductId = 1, PurchaseId = purchaseId or ("rookie-test-" .. os.clock()) }
+	local res = processReceipt(receipt, { { id = 1, robux = 49, kind = "rookie" } })
+	return tostring(res)
+end
+
 function MonetizationService:_fakePassBought(player: Player, key: string): string
 	onPassPurchaseFinished(player, Rules.passId(Cfg.GamePasses, key), true)
 	return self:_owns(player)

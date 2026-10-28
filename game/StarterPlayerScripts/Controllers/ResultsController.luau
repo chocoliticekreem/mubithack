@@ -18,7 +18,8 @@
 -- Reward preview line: the nearest goal, "NEXT: NEW HELMET AT LEVEL 3!" (DataConfig cosmetics / gear unlocks)
 -- or the battle pass's next free tier ("NEXT: CHERRY HELMET AT PASS TIER 2!", read-only from BattlePassConfig).
 -- DAILY CHEST (ResultsFlowService, DailyChest/Granted): a small card bottom-right (right of STAY AT STATION)
--- that pops open with the reward; with no results screen up it shows on its own for a few seconds.
+-- that pops open with the reward; with no results screen up it shows on its own for a few seconds. On a call
+-- with no chest (already opened today) the same corner shows ClientLib/ComeBack's "TOMORROW 🎁 +35 XP 🔥" card.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -32,6 +33,7 @@ local BlameConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChil
 local UiKit = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("UiKit") :: ModuleScript)
 local OfferCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("OfferCard") :: ModuleScript) :: any
 local BlameCard = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("BlameCard") :: ModuleScript) :: any
+local ComeBack = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("ComeBack") :: ModuleScript) :: any
 
 local GamepadNav = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("GamepadNav") :: ModuleScript) :: any
 local Loc = require(game:GetService("ReplicatedStorage"):WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
@@ -315,56 +317,9 @@ local function fireNext(kind: string)
 	end
 end
 
--- the nearest reward goal: a level unlock (cosmetic or gear) or the battle pass's next free tier
+-- the nearest reward goal: a level unlock (cosmetic or gear) or the battle pass's next free tier (ClientLib/ComeBack)
 local function rewardPreview(me: Player): string?
-	local level = tonumber(me:GetAttribute("Level")) or 1
-	local bestText: string?, bestLevel = nil, math.huge
-	local okC, DataConfig = pcall(function()
-		return require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
-	end)
-	if okC and type(DataConfig) == "table" and type(DataConfig.Cosmetics) == "table" then
-		for _, c in DataConfig.Cosmetics do
-			local at = tonumber(c.level) or 0
-			if at > level and at < bestLevel then
-				bestLevel = at
-				bestText = Loc.t("NEXT: {1} AT LEVEL {2}!", { if c.slot == "hose" then "NEW HOSE" else "NEW HELMET", at })
-			end
-		end
-	end
-	local okP, Progression = pcall(function()
-		return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("Progression") :: ModuleScript) :: any
-	end)
-	local okD, ItemDefs = pcall(function()
-		return require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript) :: any
-	end)
-	if okP and type(Progression) == "table" and type(Progression.nextUnlock) == "function" then
-		local id, at = Progression.nextUnlock(level)
-		if id and at and at < bestLevel then
-			local def = okD and type(ItemDefs) == "table" and type(ItemDefs.get) == "function" and ItemDefs.get(id) or nil
-			local name = if type(def) == "table" and type(def.name) == "string" then def.name else tostring(id)
-			bestLevel = at
-			bestText = Loc.t("NEXT: {1} AT LEVEL {2}!", { string.upper(name), at })
-		end
-	end
-	-- a level more than one away: the pass's next free tier is usually closer (read-only, any tier count)
-	if bestLevel > level + 1 then
-		local ok, passText = pcall(function(): string?
-			local Pass = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("BattlePassConfig") :: ModuleScript) :: any
-			local tier = tonumber(me:GetAttribute("PassTier")) or 0
-			local tiers = type(Pass) == "table" and Pass.Tiers
-			local nextTier = type(tiers) == "table" and tiers[tier + 1]
-			local id = type(nextTier) == "table" and nextTier.Free
-			local reward = type(id) == "string" and type(Pass.Rewards) == "table" and Pass.Rewards[id]
-			if type(reward) == "table" and type(reward.Name) == "string" then
-				return Loc.t("NEXT: {1} AT PASS TIER {2}!", { string.upper(reward.Name), tier + 1 })
-			end
-			return nil
-		end)
-		if ok and passText then
-			bestText = passText
-		end
-	end
-	return bestText
+	return ComeBack.unlock(me)
 end
 
 local function star(parent: Instance, i: number, lit: boolean): TextLabel
@@ -681,9 +636,10 @@ local function show(payload: Types.ResultsPayload)
 	local teaser: TextLabel? = nil
 	local previewText = rewardPreview(me)
 	if previewText then
-		local t = UiKit.label(root, "Teaser", previewText, UDim2.fromOffset(700, 26), UDim2.new(0.5, -350, 0, 586), {
+		-- 32 design px: ~14 px on a 667x375 phone (this screen scales to ~0.45 there)
+		local t = UiKit.label(root, "Teaser", previewText, UDim2.fromOffset(760, 30), UDim2.new(0.5, -380, 0, 582), {
 			font = UiKit.Header,
-			textSize = 24,
+			textSize = 32,
 			color = Palette.UiCream,
 			stroke = true,
 			strokeThickness = 2,
@@ -796,6 +752,14 @@ local function show(payload: Types.ResultsPayload)
 		if chest then
 			pendingChest = nil
 			pcall(drawChest, root, chest)
+		else
+			-- no chest on this call (already opened today): TOMORROW 🎁 +35 XP 🔥 streak, same corner
+			pcall(function()
+				local cb = ComeBack.card(root, me, { position = UDim2.fromOffset(1145, 652), anchor = Vector2.new(0.5, 0.5) })
+				if cb then
+					UiKit.pop(cb, 0.35)
+				end
+			end)
 		end
 		-- BLAME OF THE CALL sticker, top-right (ClientLib/BlameCard): clear of NEXT CALL!, offer and invite
 		local okB, blameCard = pcall(BlameCard.build, root, payload)
@@ -837,6 +801,10 @@ function drawChest(root: Frame?, chest: { [string]: any })
 		holder.Parent = own
 		parent = holder
 	end
+	local old = (parent :: Instance):FindFirstChild("ComeBackCard")
+	if old then
+		old:Destroy() -- the chest itself says what's tomorrow
+	end
 	local W, H = 250, 120
 	local card = UiKit.panel(parent :: Instance, "DailyChest", UDim2.fromOffset(W, H), if root then UDim2.fromOffset(1145, 652) else UDim2.fromOffset(130, 60), Vector2.new(0.5, 0.5))
 	card.ZIndex = 6
@@ -874,7 +842,9 @@ function drawChest(root: Frame?, chest: { [string]: any })
 	xp.ZIndex = 8
 	xp.TextXAlignment = Enum.TextXAlignment.Left
 	local extra = if chest.cosmetic then (if string.find(tostring(chest.cosmetic), "^hose") then "NEW HOSE!" else "NEW HELMET!")
-		else Loc.t("TOMORROW: DAY {1}", { tonumber(chest.next) or 2 })
+		else (if Players.LocalPlayer:GetAttribute("DailyNextWhen") == "tomorrow"
+			then Loc.t("TOMORROW: +{1} XP", { tonumber(Players.LocalPlayer:GetAttribute("DailyNextXp")) or 0 })
+			else Loc.t("TOMORROW: DAY {1}", { tonumber(chest.next) or 2 }))
 	local sub = UiKit.label(card, "Sub", extra, UDim2.new(1, -84, 0, 24), UDim2.fromOffset(78, 72), {
 		font = UiKit.Header,
 		textSize = 18,
