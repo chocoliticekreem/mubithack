@@ -515,6 +515,10 @@ local function buildHelp(gui: ScreenGui): Frame
 	helpRow(list, nx(), { "M" }, "Big map.", nil, "Big map (the M button on the minimap).")
 	helpRow(list, nx(), { "Z", "X", "C" }, "Emotes at the station: wave, facepalm, BLAME!")
 	helpRow(list, nx(), { MissionGuideKey }, "Skip a mission guide.")
+	-- HIDE UI (Controllers/HideUiController, Config/HudConfig.HideKeys)
+	helpRow(list, nx(), { "F1" }, "Hide / show the game's buttons (or the 👁 eye, top left).", { F1 = { touch = "👁", pad = "D-PAD ◄" } },
+		"Tap the 👁 eye (top left) to hide / show the game's buttons.")
+	helpRow(list, nx(), { "MENU" }, "PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left.", { MENU = { touch = "MENU", pad = "D-PAD ◄" } })
 	helpRow(list, nx(), { "H" }, "This panel. Graphics + pop-up settings are top left while it's open.")
 
 	local function btn(name: string, label: string, x: number, color: Color3): TextButton

@@ -27,7 +27,7 @@ local PadNav = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("Pa
 local GamepadNav = {}
 
 -- HUD buttons D-pad left lands on first (by Name), else the top-left one
-GamepadNav.HudPriority = { "Accept", "GoNow", "Go", "NextCallButton", "DispatchChip", "StoreChip" }
+GamepadNav.HudPriority = { "Accept", "GoNow", "Go", "NextCallButton", "DispatchChip", "StoreChip", "MenuChip" }
 GamepadNav.ScrollSpeed = 900 -- px per second at full right-stick tilt
 
 export type Opts = { back: (() -> ())?, default: (() -> GuiObject?)?, companions: { string }? }

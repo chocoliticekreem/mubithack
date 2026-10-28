@@ -1,8 +1,10 @@
 --!strict
 -- RetentionController [owner: Retention]. Reasons to come back, in the lobby (docs/game/21-retention.md):
---   * the COME BACK card (ClientLib/ComeBack): "TOMORROW 🎁 +35 XP 🔥 1 / DAY 2 CHEST / ⭐ NEXT: NEW HELMET AT
---     LEVEL 3!", top-left beside the chip column, only at the station and only once the first call is done
---     (never during onboarding). Redrawn when the server's preview attrs (ResultsFlowService) or the level move.
+--   * the 🎁 chest pill (docs/game/22-declutter.md): "🎁 DAY 3: +75 XP" / "🎁 TOMORROW: +35 XP", top-left under
+--     the top bar, only at the station and only once the first call is done (never during onboarding). New
+--     content opens the full COME BACK card (ClientLib/ComeBack: TOMORROW 🎁 +35 XP 🔥 1 / DAY 2 CHEST) for
+--     HudConfig.PillSeconds, then it folds back; tap the pill to open it again, tap the card to fold it. The
+--     "⭐ NEXT unlock" line is not on the HUD any more: the PASS panel's Next line and the results screen have it.
 --   * the "🔔 REMIND ME TOMORROW?" ask: after a finished call, back at the station, through ClientLib/PopupGate
 --     ("notify": one auto pop-up at a time, spaced, allowed in a new player's first session). Only when Roblox
 --     says it can prompt (ExperienceNotificationService:CanPromptOptInAsync: 13+, not opted in yet) and the
@@ -29,6 +31,8 @@ local UiKit = require(ClientLib:WaitForChild("UiKit") :: ModuleScript) :: any
 local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
 local PopupGate = require(ClientLib:WaitForChild("PopupGate") :: ModuleScript) :: any
 local ComeBack = require(ClientLib:WaitForChild("ComeBack") :: ModuleScript) :: any
+local HudRules = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("HudRules") :: ModuleScript)
+local HudCfg = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("HudConfig") :: ModuleScript) :: any
 
 local RetentionController = {}
 RetentionController.Priority = 126
@@ -74,8 +78,43 @@ end
 
 local cardGui: ScreenGui? = nil
 local holder: Frame? = nil
+local openUntil = 0 -- the full card shows until then, else the pill (HudRules.pillExpanded)
+local lastKey = "" -- what the card said last: new content opens it once more
 
-local function redraw()
+local function chestKey(): string
+	return `{player:GetAttribute("DailyNextDay")}|{player:GetAttribute("DailyNextXp")}|{player:GetAttribute("DailyNextWhen")}`
+end
+
+local function pillText(): string?
+	local day = tonumber(player:GetAttribute("DailyNextDay"))
+	local xp = tonumber(player:GetAttribute("DailyNextXp"))
+	if not day or not xp then
+		return nil
+	end
+	if player:GetAttribute("DailyNextWhen") == "tomorrow" then
+		return Loc.t("🎁 TOMORROW: +{1} XP", { xp })
+	end
+	return Loc.t("🎁 DAY {1}: +{2} XP", { day, xp })
+end
+
+local redraw: () -> ()
+
+local function pillSeconds(): number
+	return tonumber(HudCfg.PillSeconds) or 5
+end
+
+-- open the full card for `seconds`, then fold back to the pill
+local function expand(seconds: number)
+	openUntil = os.clock() + seconds
+	redraw()
+	task.delay(seconds + 0.05, function()
+		if not HudRules.pillExpanded(os.clock(), openUntil) then
+			redraw()
+		end
+	end)
+end
+
+redraw = function()
 	local h = holder
 	if not h then
 		return
@@ -86,17 +125,66 @@ local function redraw()
 		end
 	end
 	local show = inLobby() and not PopupGate.onboarding() and player:GetAttribute("DailyNextDay") ~= nil
-	if not show then
+	local label = pillText()
+	if not show or not label then
 		h.Visible = false
 		return
 	end
-	local ok, card = pcall(ComeBack.card, h, player, { width = 290, unlock = true })
-	if ok and card then
-		h.Size = UDim2.fromOffset(card.Size.X.Offset, card.Size.Y.Offset)
-		h.Visible = true
-	else
-		h.Visible = false
+	-- new content (a new day, the chest just opened): the full card once, then the pill
+	local key = chestKey()
+	if key ~= lastKey then
+		lastKey = key
+		expand(pillSeconds())
+		return
 	end
+	if HudRules.pillExpanded(os.clock(), openUntil) then
+		-- the full card, no "NEXT unlock" line (that lives in the PASS panel and on the results screen)
+		local ok, card = pcall(ComeBack.card, h, player, { width = 260, unlock = false })
+		if ok and card then
+			local tap = Instance.new("TextButton")
+			tap.Name = "Fold"
+			tap.Text = ""
+			tap.BackgroundTransparency = 1
+			tap.Size = UDim2.fromScale(1, 1)
+			tap.ZIndex = 9
+			tap.Selectable = false
+			tap.Parent = card
+			tap.Activated:Connect(function()
+				openUntil = 0
+				redraw()
+			end)
+			h.Size = UDim2.fromOffset(card.Size.X.Offset, card.Size.Y.Offset)
+			h.Visible = true
+			return
+		end
+	end
+	-- the pill: "🎁 DAY 3: +75 XP", tap to open the card for a few seconds
+	local pill = Instance.new("TextButton")
+	pill.Name = "ChestPill"
+	pill.Size = UDim2.fromOffset(220, 44)
+	pill.BackgroundColor3 = Color3.fromHex("#FFE2A8")
+	pill.Font = UiKit.Header
+	pill.TextScaled = true
+	pill.TextColor3 = Palette.UiInk
+	pill.Text = label
+	pill.AutoButtonColor = true
+	pill.Parent = h
+	UiKit.corner(pill, 20)
+	UiKit.stroke(pill, 2.5, Palette.UiInk)
+	local cap = Instance.new("UITextSizeConstraint")
+	cap.MaxTextSize = 26
+	cap.Parent = pill
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 10)
+	pad.PaddingRight = UDim.new(0, 10)
+	pad.PaddingTop = UDim.new(0, 7)
+	pad.PaddingBottom = UDim.new(0, 7)
+	pad.Parent = pill
+	UiKit.onTap(pill, function()
+		expand(pillSeconds())
+	end)
+	h.Size = UDim2.fromOffset(220, 44)
+	h.Visible = true
 end
 
 local pending = false
@@ -117,14 +205,14 @@ local function buildCard()
 	local h = Instance.new("Frame")
 	h.Name = "ComeBack"
 	h.BackgroundTransparency = 1
-	h.Size = UDim2.fromOffset(290, 184)
-	-- right of the left chip column (13 + 118 px wide, HudLayout "Chips"), like the lobby offer card
-	h.Position = UDim2.fromOffset(143, 0)
+	h.Size = UDim2.fromOffset(220, 44)
+	-- top-left under the top bar (the chip column is one ☰ MENU chip at the left edge's middle now)
+	h.Position = UDim2.fromOffset(13, 0)
 	h.Visible = false
 	h.Parent = g
 	holder = h
 	HudLayout.add("Left", h, 50) -- the stack owns its Y (under the top bar); empty in the lobby otherwise
-	for _, attr in { "DailyNextDay", "DailyNextXp", "DailyNextWhen", "DailyNextCosmetic", "DailyStreakNow", "Level", "PassTier", "InstanceId", "FirstCallDone", "Onboarded", "FirstFire" } do
+	for _, attr in { "DailyNextDay", "DailyNextXp", "DailyNextWhen", "DailyNextCosmetic", "DailyStreakNow", "InstanceId", "FirstCallDone", "Onboarded", "FirstFire" } do
 		player:GetAttributeChangedSignal(attr):Connect(redrawSoon)
 	end
 	redraw()

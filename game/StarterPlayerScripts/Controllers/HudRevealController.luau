@@ -52,11 +52,28 @@ local TARGETS: { Target } = {
 	{ key = "hotbar", gui = "InventoryHud" },
 	{ key = "carry", gui = "Carry" },
 }
+-- HIDE UI (HudGate.setHidden, the 👁 button): the rest of the game HUD, hide-only ("ui:" keys are never gated
+-- by the onboarding schedule). NOT here, so they always show: Results / DailyChest, the cold open and title,
+-- modal menus (STORE, LOCKER, big map, REMIND ME), screen effects (negative DisplayOrder) and the 👁 itself.
+-- "ui:thumbs" (touch action buttons and tap bubbles) stays up while seated: OUT / UP / DOWN are how you move.
+for _, name in {
+	"ProfileHud", "Achievements", "NavEdge", "Hud", "HudMarkers", "ObjectiveChip", "FireCall", "FireCallEdge",
+	"StructureHud", "HeliHud", "DispatchGui", "ComeBackGui", "GearHud", "DriveHud", "DriveTurn", "MissionGuide",
+	"MissionGuideEdge", "Onboarding", "OnboardingEdge", "TwistGui", "LobbyUI", "SquadGui", "ChipMenuGui",
+	"TruckHud", "TeamBonus", "FanfareGui", "GearUnlocked",
+} do
+	table.insert(TARGETS, { key = "ui:" .. name, gui = name })
+end
+for _, name in { "ThumbButtons", "TapBubble", "TapBubbleIn" } do
+	table.insert(TARGETS, { key = "ui:thumbs", gui = name })
+end
 
 type Held = { inst: Instance, prop: string, key: string, wanted: boolean, setting: boolean, shown: boolean }
 local held: { [Instance]: Held } = {}
 local hudSeenSent = false
 local everGated = false
+local wasHidden = false
+local quiet = false -- coming back from HIDE UI: no reveal pops
 
 local function attr(name: string): any
 	return player:GetAttribute(name)
@@ -132,7 +149,7 @@ local function apply(h: Held)
 	local allowed = HudGate.allows(h.key)
 	if allowed then
 		set(h, h.wanted)
-		if not h.shown and h.wanted and everGated then
+		if not h.shown and h.wanted and everGated and not quiet then
 			popTarget(h.inst) -- revealed now: a small pop so the eye goes to it
 		end
 		h.shown = h.wanted
@@ -146,7 +163,9 @@ local function hold(inst: Instance, prop: string, key: string)
 	if held[inst] then
 		return
 	end
-	local h: Held = { inst = inst, prop = prop, key = key, wanted = (inst :: any)[prop] == true, setting = false, shown = false }
+	local w = (inst :: any)[prop] == true
+	-- hide-only pieces were never gated: no reveal pop the first time they're held
+	local h: Held = { inst = inst, prop = prop, key = key, wanted = w, setting = false, shown = w and string.sub(key, 1, 3) == "ui:" }
 	held[inst] = h
 	inst:GetPropertyChangedSignal(prop):Connect(function()
 		if h.setting then
@@ -242,9 +261,13 @@ function HudRevealController:Start()
 		player:GetAttributeChangedSignal(n):Connect(refresh)
 	end
 	HudGate.onChanged(function()
+		local hid = HudGate.hidden()
+		quiet = wasHidden and not hid
+		wasHidden = hid
 		for _, h in held do
 			apply(h)
 		end
+		quiet = false
 	end)
 	refresh()
 	-- the cutscene flag lives on a controller: poll it (cheap) along with late-built pieces

@@ -2079,4 +2079,11 @@ return {
 	["MORE FIRE COMING!"] = "ІДЕ ЩЕ ВОГОНЬ!",
 	["ALL DONE!"] = "ГОТОВО!",
 	["ALL DONE! {1}"] = "ГОТОВО! {1}",
+	-- the decluttered HUD: ☰ MENU, 👁 HIDE UI, the 🎁 chest pill (ClientLib/ChipMenu, HideUiController, RetentionController)
+	["MENU"] = "МЕНЮ",
+	["🎁 DAY {1}: +{2} XP"] = "🎁 ДЕНЬ {1}: +{2} XP",
+	["🎁 TOMORROW: +{1} XP"] = "🎁 ЗАВТРА: +{1} XP",
+	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Сховати / показати кнопки гри (або око 👁 зліва вгорі).",
+	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Торкнись ока 👁 (зліва вгорі), щоб сховати / показати кнопки гри.",
+	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "ПРОПУСК, НОВИНИ, ЗАПРОСИТИ, ТРОФЕЇ та інше — у кнопці МЕНЮ зліва.",
 }

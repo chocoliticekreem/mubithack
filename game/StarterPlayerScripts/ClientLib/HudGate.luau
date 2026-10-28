@@ -10,6 +10,11 @@
 --   HudGate.set(facts)                    -- HudRevealController only
 --   HudGate.facts() -> ColdOpen.Facts?    -- nil until the first set (everything is hidden until then)
 --   HudGate.onChanged(fn) -> () -> ()     -- fn() after every change; returns a disconnect function
+-- HIDE UI (the 👁 button, Controllers/HideUiController): while hidden, allows() is false for every key, so
+-- every piece HudRevealController holds goes away and comes back exactly as its owner left it. Keys that start
+-- with "ui:" are hide-only pieces (the rest of the HUD: Hud, DispatchGui, ChipMenuGui ...): the onboarding
+-- schedule never gates them. A key in keep (HudGate.setKeep) stays up while hidden (thumb buttons while seated).
+--   HudGate.setHidden(on), HudGate.hidden() -> boolean, HudGate.setKeep(key, on)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ColdOpen = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Onboarding"):WaitForChild("ColdOpen") :: ModuleScript)
@@ -19,8 +24,22 @@ local HudGate = {}
 local current: ColdOpen.Facts? = nil
 local listeners: { [number]: () -> () } = {}
 local nextId = 0
+local hiddenOn = false
+local keep: { [string]: boolean } = {}
+
+local function notify()
+	for _, fn in listeners do
+		task.spawn(fn)
+	end
+end
 
 function HudGate.allows(key: string): boolean
+	if hiddenOn and not keep[key] then
+		return false
+	end
+	if string.sub(key, 1, 3) == "ui:" then
+		return true -- hide-only pieces: the onboarding schedule never gates them
+	end
 	local f = current
 	if not f then
 		return false -- not known yet: brand-new or returning? Hide until we know (a second, under the title)
@@ -47,8 +66,29 @@ function HudGate.set(f: ColdOpen.Facts)
 		return
 	end
 	current = table.freeze(table.clone(f))
-	for _, fn in listeners do
-		task.spawn(fn)
+	notify()
+end
+
+function HudGate.setHidden(on: boolean)
+	if hiddenOn == on then
+		return
+	end
+	hiddenOn = on
+	notify()
+end
+
+function HudGate.hidden(): boolean
+	return hiddenOn
+end
+
+function HudGate.setKeep(key: string, on: boolean)
+	local v = if on then true else nil
+	if keep[key] == v then
+		return
+	end
+	keep[key] = v
+	if hiddenOn then
+		notify()
 	end
 end
 

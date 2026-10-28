@@ -2079,4 +2079,11 @@ return {
 	["MORE FIRE COMING!"] = "ไฟกำลังมาอีก!",
 	["ALL DONE!"] = "เสร็จแล้ว!",
 	["ALL DONE! {1}"] = "เสร็จแล้ว! {1}",
+	-- the decluttered HUD: ☰ MENU, 👁 HIDE UI, the 🎁 chest pill (ClientLib/ChipMenu, HideUiController, RetentionController)
+	["MENU"] = "เมนู",
+	["🎁 DAY {1}: +{2} XP"] = "🎁 วันที่ {1}: +{2} XP",
+	["🎁 TOMORROW: +{1} XP"] = "🎁 พรุ่งนี้: +{1} XP",
+	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "ซ่อน / แสดงปุ่มของเกม (หรือปุ่มตา 👁 มุมซ้ายบน)",
+	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "แตะปุ่มตา 👁 (มุมซ้ายบน) เพื่อซ่อน / แสดงปุ่มของเกม",
+	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "พาส ข่าว ชวนเพื่อน ถ้วยรางวัล และอื่นๆ อยู่ในปุ่มเมนูทางซ้าย",
 }

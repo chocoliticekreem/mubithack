@@ -4,8 +4,9 @@
 --     while you're free (no call). A red dot = a call is waiting. Opens the DISPATCH list: the calls open
 --     right now ("House fire / 27 Maple St · 450 m / ACCEPT", "BUSY" when every crew's out) and BACK TO
 --     STATION. A modal (ClientLib/HudLayout.modal), so it dims the HUD and works in first person.
---   * INCOMING CALL card: pops into the top-centre stack (HudLayout "TopCentre") with ACCEPT [Y] /
---     DECLINE [N] under it and a shrinking timer bar; Menu = true frees the mouse in first person.
+--   * INCOMING CALL card: small, top-right under the minimap (docs/game/22-declutter.md): one line
+--     ("TRASH FIRE  ·  70 m", yellow edge = small job) + ACCEPT [Y] / DECLINE [N] / ... (opens the DISPATCH
+--     list, where CALLS: ON / OFF is) and a shrinking timer bar. Hidden with the HUD by 👁 (it times out).
 -- Renders what the server sends (Dispatch/Offer, Dispatch/Calls); every decision is the server's.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -116,9 +117,11 @@ local function showCard(p: Payload?)
 		return
 	end
 	offerUntil = os.clock() + math.max(1, p.seconds)
-	ui.cardHead.Text = if p.kind == "mini" then "SMALL JOB" else "INCOMING CALL"
-	ui.cardCall.Text = p.call
-	ui.cardSub.Text = Loc.t("{1}  ·  {2}", { p.address, p.distText })
+	-- one line: what and how far ("TRASH FIRE  ·  70 m"); a small job has a yellow edge, a real call red
+	ui.cardCall.Text = Loc.t("{1}  ·  {2}", { p.call, p.distText })
+	if ui.cardStroke then
+		ui.cardStroke.Color = if p.kind == "mini" then Palette.UiWarn else Palette.UiRed
+	end
 	ui.bar.Size = UDim2.fromScale(1, 1)
 	card.Visible = true
 	ui.dot.Visible = true
@@ -298,40 +301,45 @@ local function build()
 	end
 	task.delay(2, fit)
 
-	-- INCOMING CALL card (top-centre stack)
+	-- INCOMING CALL card: small, top-right under the minimap (the squad strip's spot, which only shows on a
+	-- call; a call is only offered while you're free). One line + ACCEPT / DECLINE / ... (the DISPATCH list,
+	-- where CALLS: ON / OFF lives). Never in the top-centre stack: no overlap with the timer / objective chip.
+	local W = 322
 	local card = Instance.new("Frame")
 	card.Name = "IncomingCall"
-	card.AnchorPoint = Vector2.new(0.5, 0)
-	card.Position = UDim2.new(0.5, 0, 0, 10)
-	card.Size = UDim2.fromOffset(440, 84)
+	card.AnchorPoint = Vector2.new(1, 0)
+	card.Position = UDim2.new(1, -14, 0, 220)
+	card.Size = UDim2.fromOffset(W, 98)
 	card.BackgroundColor3 = Palette.UiPanelDark
 	card.BackgroundTransparency = 0.04
 	card.Visible = false
 	-- NOT a menu: popping in while you drive must never grab your mouse / camera. Answer with the keys
 	-- (Y / N) or, with a free cursor or on touch, the buttons.
 	card.Parent = gui
-	UiKit.corner(card, 14)
+	UiKit.corner(card, 12)
 	stroke(card, 3, Palette.UiRed)
+	ui.cardStroke = card:FindFirstChildOfClass("UIStroke")
 	local chip = Instance.new("Frame")
 	chip.Name = "Chip"
-	chip.Position = UDim2.fromOffset(10, 10)
-	chip.Size = UDim2.fromOffset(64, 64)
+	chip.Position = UDim2.fromOffset(8, 8)
+	chip.Size = UDim2.fromOffset(44, 32)
 	chip.BackgroundColor3 = Palette.UiRed
 	chip.Parent = card
-	UiKit.corner(chip, 10)
+	UiKit.corner(chip, 8)
 	stroke(chip, 2)
-	local ct = text(chip, "T", "911", UiKit.Header, CREAM, UDim2.new(1, -10, 1, -18), UDim2.fromOffset(5, 9))
+	local ct = text(chip, "T", "911", UiKit.Header, CREAM, UDim2.new(1, -8, 1, -10), UDim2.fromOffset(4, 5))
 	ct.TextXAlignment = Enum.TextXAlignment.Center
 	textStroke(ct, 1.5)
-	ui.cardHead = text(card, "Head", "INCOMING CALL", UiKit.Header, Palette.UiWarn, UDim2.new(1, -96, 0, 18), UDim2.fromOffset(86, 8))
-	ui.cardCall = text(card, "Call", "", UiKit.Header, CREAM, UDim2.new(1, -96, 0, 30), UDim2.fromOffset(86, 26))
-	textStroke(ui.cardCall, 2)
-	ui.cardSub = text(card, "Where", "", UiKit.Body, CREAM, UDim2.new(1, -96, 0, 20), UDim2.fromOffset(86, 56))
+	ui.cardCall = text(card, "Call", "", UiKit.Header, CREAM, UDim2.new(1, -66, 0, 28), UDim2.fromOffset(60, 10))
+	local cap = Instance.new("UITextSizeConstraint")
+	cap.MaxTextSize = 24
+	cap.Parent = ui.cardCall
+	textStroke(ui.cardCall, 1.5)
 	local track = Instance.new("Frame")
 	track.Name = "Timer"
 	track.AnchorPoint = Vector2.new(0, 1)
-	track.Position = UDim2.new(0, 14, 1, -3)
-	track.Size = UDim2.new(1, -28, 0, 4)
+	track.Position = UDim2.new(0, 12, 1, -3)
+	track.Size = UDim2.new(1, -24, 0, 3)
 	track.BackgroundTransparency = 1
 	track.Parent = card
 	local bar = Instance.new("Frame")
@@ -344,38 +352,36 @@ local function build()
 	ui.bar = bar
 	local actions = Instance.new("Frame")
 	actions.Name = "Actions"
-	actions.AnchorPoint = Vector2.new(0.5, 0)
-	actions.Position = UDim2.new(0.5, 0, 1, 8)
-	actions.Size = UDim2.new(1, 0, 0, 44)
+	actions.Position = UDim2.fromOffset(8, 46)
+	actions.Size = UDim2.new(1, -16, 0, 44)
 	actions.BackgroundTransparency = 1
 	actions.Parent = card
 	local al = Instance.new("UIListLayout")
 	al.FillDirection = Enum.FillDirection.Horizontal
-	al.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	al.Padding = UDim.new(0, 12)
+	al.Padding = UDim.new(0, 6)
 	al.SortOrder = Enum.SortOrder.LayoutOrder
 	al.Parent = actions
-	local acc = button(actions, "Accept", GREEN, UDim2.fromOffset(150, 44))
+	local acc = button(actions, "Accept", GREEN, UDim2.fromOffset(146, 44))
 	acc.LayoutOrder = 1
 	-- gamepad: D-pad right accepts (bound only while the card shows); D-pad left puts the cursor on
-	-- ACCEPT, then right reaches DECLINE / NO CALLS
+	-- ACCEPT, then right reaches DECLINE / ...
 	InputHints.setPick(acc, `[{Cfg.Keys.Accept}] ACCEPT`, "ACCEPT", "ACCEPT ►")
 	UiKit.onTap(acc, acceptOffer)
-	local dec = button(actions, "Decline", Palette.UiPanelDark, UDim2.fromOffset(130, 44))
+	local dec = button(actions, "Decline", Palette.UiPanelDark, UDim2.fromOffset(102, 44))
 	dec.LayoutOrder = 2
 	InputHints.setChip(dec, Cfg.Keys.Decline, "DECLINE")
 	UiKit.onTap(dec, declineOffer)
-	-- go unavailable straight from the card
-	local mute = button(actions, "Mute", Palette.UiPanelDark, UDim2.fromOffset(110, 44))
-	mute.LayoutOrder = 3
-	mute.Text = "NO CALLS"
-	UiKit.onTap(mute, function()
-		setAvailable(false)
+	-- ...: the DISPATCH list (CALLS: ON / OFF, every open call, BACK TO STATION); NO CALLS used to sit here
+	local more = button(actions, "More", Palette.UiPanelDark, UDim2.fromOffset(48, 44))
+	more.LayoutOrder = 3
+	more.Text = "..."
+	UiKit.onTap(more, function()
+		setOpen(true)
 	end)
 	ui.card = card
-	-- its height includes the button row, so toasts / banners stack below the buttons
-	HudLayout.add("TopCentre", card, 25, function(): number
-		return card.Size.Y.Offset + 52
+	-- right column: under the minimap (screen px, like the squad strip's pin in HudController)
+	HudLayout.pin(card, function(sc: number, _inset: number): number
+		return (HudLayout.MinimapTop + HudLayout.MinimapSize + 10) * sc
 	end)
 	HudLayout.reserve(card)
 

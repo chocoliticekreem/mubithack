@@ -2082,4 +2082,11 @@ return {
 	"MORE FIRE COMING!",
 	"ALL DONE!",
 	"ALL DONE! {1}",
+	-- the decluttered HUD: ☰ MENU, 👁 HIDE UI, the 🎁 chest pill (ClientLib/ChipMenu, HideUiController, RetentionController)
+	"MENU",
+	"🎁 DAY {1}: +{2} XP",
+	"🎁 TOMORROW: +{1} XP",
+	"Hide / show the game's buttons (or the 👁 eye, top left).",
+	"Tap the 👁 eye (top left) to hide / show the game's buttons.",
+	"PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left.",
 }
