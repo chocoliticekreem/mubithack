@@ -13,3 +13,6 @@ docs/reference/
 docs/vendor/
 place/
 .claude/settings.local.json
+
+# local Roblox account list (never commit)
+roblox-accounts.txt
