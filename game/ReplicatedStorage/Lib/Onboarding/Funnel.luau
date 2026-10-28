@@ -158,6 +158,11 @@ Funnel.Events = table.freeze({
 	FireHitTicks = "FireHitTicks", -- value: spray ticks that hit a burning part on this call
 	FiresOutOnCall = "FiresOutOnCall", -- value: burning parts this player put out on this call
 	ReignitesOnCall = "ReignitesOnCall", -- value: put-out parts that caught again at the call's site
+	-- arrival -> first fire out (Services/ArrivalService through FunnelService:LogCustomFields; CustomField01 =
+	-- device, 02 = rookie | call, 03 = touch auto-aim locks Lib/Fire/SprayAssist.lockBucket). Live funnel: 23.6%
+	-- of phones (9.5% of PCs) arrived and left before putting out one fire.
+	ArrivalToFireOut = "ArrivalToFireOut", -- value: seconds from arrival on scene to YOUR first fire out on the call
+	ArrivalNoFireOut = "ArrivalNoFireOut", -- value: seconds on scene before the call ended / you left without one
 	IdleSecondsOnCall = "IdleSecondsOnCall", -- value: seconds on scene with no burning fire within CallPaceService.IdleRadius
 })
 

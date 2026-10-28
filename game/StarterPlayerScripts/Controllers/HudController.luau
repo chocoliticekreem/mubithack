@@ -688,8 +688,10 @@ local function placeMarker(m: Marker, target: Vector3?, from: Vector3?)
 	-- calm (phones): far away the GPS route + its marker already lead to the call; F / R join once you're
 	-- close (three arrows to one spot is noise on a small screen)
 	local far = Calm.on() and metres > 60 and m.root.Name ~= "TruckMarker" and player:GetAttribute("WaypointPos") ~= nil
-	m.root.Visible = metres > 20 and not far
-	if far then
+	-- FireCallController's big arrow owns "where is the fire" from arrival to your first fire out: one arrow
+	local guided = m.root.Name == "FireMarker" and player:GetAttribute("FireCallGuide") == true
+	m.root.Visible = metres > 20 and not far and not guided
+	if far or guided then
 		return
 	end
 	local margin = 40

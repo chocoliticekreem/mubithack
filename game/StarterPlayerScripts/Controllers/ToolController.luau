@@ -23,7 +23,9 @@
 --     splash / foam white-out / BONK overlays when Tool/Pushed hits you, world text pops from Tool/Fx.
 --   Ragdoll: calls Ragdoll.listen() so Shared/Ragdoll knockbacks and ragdolls apply to this client's
 --     character (idempotent; PhysicsFxController may call it too).
--- Remotes used: Tool/Spray (C->S), Tool/Pushed (S->C), Tool/Fx (S->C) - all declared by ToolService.
+--   Touch auto-aim (phones): while SPRAY is held the aim locks onto the nearest burning part within 40 studs in a
+--     100 degree cone (Lib/Fire/SprayAssist), the stream curves onto it and it gets a yellow outline.
+-- Remotes used: Tool/Spray (C->S: aim, locked part?), Tool/Pushed (S->C), Tool/Fx (S->C) - all declared by ToolService.
 
 local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
@@ -44,6 +46,7 @@ local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild
 local Ragdoll = require(Shared:WaitForChild("Ragdoll") :: ModuleScript)
 local ToolConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("ToolConfig") :: ModuleScript)
 local ToolMath = require(ReplicatedStorage:WaitForChild("ToolMath") :: ModuleScript)
+local SprayAssist = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Fire"):WaitForChild("SprayAssist") :: ModuleScript)
 
 type Stream = {
 	emitAt: Attachment,
@@ -399,10 +402,65 @@ end
 -- Where your spray goes. The server cools fires in a narrow cone from your HEAD along this direction,
 -- so it must point from the head at what you're looking at: the raw camera LookVector (what we sent
 -- before) points down at your own penguin in third person, so on phones the water landed in front of
--- your feet and fires never went out. Touch also gets aim assist: the nearest burning part roughly in
--- front of you (within AIM_ASSIST_DEG of the camera's heading) is aimed at directly.
-local AIM_ASSIST_DEG = 40
-local AIM_ASSIST_RANGE = 30
+-- your feet and fires never went out.
+-- Touch AUTO-AIM (docs/game/21-phone-first-fire.md, Lib/Fire/SprayAssist): the nearest burning part within
+-- SprayAssist.Cfg.LockRange (40 studs) inside a 100 degree flat cone around the camera's heading is LOCKED:
+-- the aim goes straight at it, the stream curves onto it (renderStream), it gets a yellow outline, and
+-- Tool/Spray tells the server which part (it checks the lock and lands the water on it). While SPRAY is
+-- held the lock sticks to that part until it's out or out of reach, so the stream never jitters between two.
+local lockPart: BasePart? = nil
+local lockHi: Highlight? = nil
+local function lockStillGood(part: BasePart, head: BasePart): boolean
+	return part.Parent ~= nil
+		and part:HasTag(Names.Tag.Burning)
+		and (part.Position - head.Position).Magnitude <= SprayAssist.Cfg.LockRange * 1.1
+end
+
+local function touchLock(head: BasePart, look: Vector3): BasePart?
+	if holding and lockPart and lockStillGood(lockPart, head) then
+		return lockPart
+	end
+	local parts: { BasePart } = {}
+	local pts: { { number } } = {}
+	for _, inst in CollectionService:GetTagged(Names.Tag.Burning) do
+		if inst:IsA("BasePart") then
+			local p = inst.Position
+			table.insert(parts, inst)
+			table.insert(pts, { p.X, p.Y, p.Z })
+		end
+	end
+	local h = head.Position
+	local i = SprayAssist.pick(pts, h.X, h.Y, h.Z, look.X, look.Z)
+	return if i then parts[i] else nil
+end
+
+local function showLock(part: BasePart?)
+	if part then
+		local hi = lockHi
+		if not hi then
+			local n = Instance.new("Highlight")
+			n.Name = "SprayLock"
+			n.FillColor = Palette.UiWarn or Color3.fromRGB(255, 197, 49)
+			n.OutlineColor = Palette.UiWarn or Color3.fromRGB(255, 197, 49)
+			n.FillTransparency = 0.75
+			n.OutlineTransparency = 0
+			n.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			lockHi = n
+			hi = n
+		end
+		local h = hi :: Highlight
+		if h.Adornee ~= part then
+			h.Adornee = part
+		end
+		if h.Parent ~= workspace.Terrain then
+			h.Parent = workspace.Terrain
+		end
+	elseif lockHi then
+		lockHi.Parent = nil
+		lockHi.Adornee = nil
+	end
+end
+
 local function sprayAim(): Vector3?
 	local cam = workspace.CurrentCamera
 	if not cam then
@@ -412,35 +470,19 @@ local function sprayAim(): Vector3?
 	local char = LocalPlayer.Character
 	local head = char and char:FindFirstChild("Head") :: BasePart?
 	if not head then
+		lockPart = nil
 		return look
 	end
 	if InputHints.isTouch() then
-		local flatLook = Vector3.new(look.X, 0, look.Z)
-		if flatLook.Magnitude > 1e-3 then
-			flatLook = flatLook.Unit
-			local minDot = math.cos(math.rad(AIM_ASSIST_DEG))
-			local best: Vector3? = nil
-			local bestScore = -math.huge
-			for _, inst in CollectionService:GetTagged(Names.Tag.Burning) do
-				if inst:IsA("BasePart") then
-					local d = inst.Position - head.Position
-					local dist = d.Magnitude
-					if dist > 0.5 and dist <= AIM_ASSIST_RANGE then
-						local flat = Vector3.new(d.X, 0, d.Z)
-						local dot = if flat.Magnitude > 1e-3 then flat.Unit:Dot(flatLook) else 1
-						if dot >= minDot then
-							local score = dot * 2 - dist / AIM_ASSIST_RANGE -- centred first, then closest
-							if score > bestScore then
-								bestScore, best = score, d.Unit
-							end
-						end
-					end
-				end
-			end
-			if best then
-				return best
+		lockPart = touchLock(head, look)
+		if lockPart then
+			local d = lockPart.Position - head.Position
+			if d.Magnitude > 0.5 then
+				return d.Unit
 			end
 		end
+	else
+		lockPart = nil
 	end
 	-- what's under the middle of the screen, aimed at from the head
 	local rp = RaycastParams.new()
@@ -491,6 +533,25 @@ local function renderStream(player: Player, kind: string, tool: Tool, aim: Vecto
 	local g = if foam then 30 else ToolConfig.StreamGravity
 	local maxT = if foam then ToolConfig.FoamRange / 32 else ToolConfig.StreamMaxTime
 	local v = aim * speed
+	-- touch auto-aim: the stream bends onto the locked fire (the low arc that lands on it; the foam's
+	-- short puff stretches to reach it), so you SEE it lock on
+	local locked = if player == LocalPlayer then lockPart else nil
+	if locked then
+		local d = locked.Position - origin
+		local r = math.sqrt(d.X * d.X + d.Z * d.Z)
+		local ux, uy, uz = SprayAssist.launch(d.X, d.Y, d.Z, speed, g)
+		if not ux then
+			speed = math.sqrt(g * (d.Y + math.sqrt(r * r + d.Y * d.Y))) + 1
+			ux, uy, uz = SprayAssist.launch(d.X, d.Y, d.Z, speed, g)
+		end
+		if ux and uy and uz then
+			v = Vector3.new(ux, uy, uz) * speed
+			local flat = math.sqrt(ux * ux + uz * uz) * speed
+			if flat > 1e-3 then
+				maxT = math.max(maxT, r / flat + 0.08)
+			end
+		end
+	end
 	-- find where the arc lands (excluding the sprayer)
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -630,6 +691,9 @@ local function render()
 			renderStream(player, kind, tool, aim, now)
 		elseif streams[player] then
 			setStreamOn(streams[player], false)
+		end
+		if player == LocalPlayer then
+			showLock(if on and tool and kind then lockPart else nil)
 		end
 	end
 end
@@ -1007,7 +1071,9 @@ function ToolController:Start()
 		if h and cam and kind == h and not blocked(LocalPlayer) then
 			local left = resource(LocalPlayer, kind)
 			if left > 0 then
-				Spray:FireServer(sprayAim() or cam.CFrame.LookVector)
+				local aim = sprayAim() or cam.CFrame.LookVector
+				-- touch: name the locked part; the server checks it (Lib/Fire/SprayAssist.validLock)
+				Spray:FireServer(aim, if InputHints.isTouch() then lockPart else nil)
 				local p = pressureOf(LocalPlayer, kind)
 				local ramp = math.clamp((os.clock() - sprayStartedAt) / 0.4, 0.4, 1)
 				shake(ToolMath.shake(p, ToolConfig.SprayShakeBase, ToolConfig.SprayShakeExtra) * 0.45 * ramp, 0.18)

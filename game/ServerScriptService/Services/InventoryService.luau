@@ -19,6 +19,12 @@
 --   InventoryService:TakeHand(player, id): boolean      -- gear: the hand item was used up (placed ladder)
 --   InventoryService:Equip(player, { hand, back, face }): (boolean, reason?)  -- the station LOCKER menu
 --                                                       (GearService): exact slots, silent, no drops
+--   InventoryService:ReadySpray(player): string        -- on arrival at a call (ArrivalService): make SPRAY
+--                                                       available (Lib/Fire/SprayAssist.ready): "keep" | "swap"
+--                                                       (sprayer on your back) | "give" (a fresh extinguisher:
+--                                                       empty hands, or a tank that goes on the free back) |
+--                                                       "refill" (empty extinguisher) | "none" | "busy". Never drops
+--                                                       anything. Counter inv_ready_<action>
 -- Signals: Changed(player), Bonked(thrower: Player, victim: Player, what: string),
 --          Fumbled(player, itemId: string)
 -- Remotes: Inventory/Drop (C->S, none, 4/s), Inventory/Throw (C->S, aim: unit Vector3, charge: 0..1, 3/s),
@@ -85,6 +91,7 @@ local Cfg = require(ConfigFolder:WaitForChild("InventoryConfig") :: ModuleScript
 local ToolConfig = require(ConfigFolder:WaitForChild("ToolConfig") :: ModuleScript) :: any
 local HoseLineConfig = require(ConfigFolder:WaitForChild("HoseLineConfig") :: ModuleScript) :: any
 local ItemDefs = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemDefs") :: ModuleScript)
+local SprayAssist = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Fire"):WaitForChild("SprayAssist") :: ModuleScript)
 local ItemProps = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Items"):WaitForChild("ItemProps") :: ModuleScript)
 
 local InventoryService = {}
@@ -1754,6 +1761,36 @@ function InventoryService:Equip(player: Player, eq: { hand: string?, back: strin
 	apply(player, ps)
 	Telemetry.count("inv_locker_equips")
 	return true, nil
+end
+
+function InventoryService:ReadySpray(player: Player): string
+	local ps = states[player]
+	if not ps or busyHands(player) or not player.Character then
+		return "busy"
+	end
+	syncHeld(player, ps)
+	local hand, back = ps.hand, ps.back
+	local plan = SprayAssist.ready(
+		if hand then hand.id else nil,
+		if hand then hand.data.foam else nil,
+		if back then back.id else nil,
+		if back then back.data.foam else nil
+	)
+	if plan == "swap" then
+		if not doSwap(player) then
+			plan = "none"
+		end
+	elseif plan == "give" then
+		local ok, how = giveHeld(player, { id = "Extinguisher", data = fresh("Extinguisher") })
+		if not ok or (how and how.dropped) then
+			plan = "none"
+		end
+	elseif plan == "refill" and hand then
+		hand.data.foam = ToolConfig.FoamSize
+		player:SetAttribute("Foam", ToolConfig.FoamSize)
+	end
+	Telemetry.count(`inv_ready_{plan}`)
+	return plan
 end
 
 function InventoryService:GetFace(player: Player): string?
