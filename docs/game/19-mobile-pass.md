@@ -121,5 +121,18 @@ ForgeProbe on the final build: 0 errors.
 - Real-phone check (Roblox's jump button and thumbstick only exist on a touch device).
 - The like-ask did not open in 4 minutes back at the station in the test session (its own calm rules:
   `AskRules.calm`); the gate itself is spec-tested and logged `defer news` in the same session.
-- The SKIP TUTORIAL chip is small on 667x375; the NEWS chip can overlap the objectives card on a call.
+- The NEWS chip can overlap the objectives card on a call (SKIP TUTORIAL: fixed, see below).
 - With nothing in the big "primary" slot (an oxygen tank in hand), the cluster has a gap there.
+
+## Device Emulator pass (750x381, 667x375)
+
+| Problem | Cause | Fix | Measured (Studio, iPhone emulator 750x381, forced touch) |
+|---|---|---|---|
+| Your own head filled the screen next to a truck / wall | Zoom occlusion pulls the camera in to ~2 studs; Roblox only fades your body under ~1.5 studs. `Player.DevCameraOcclusionMode` is server-only, so the client can't switch to Invisicam | `FirstPersonController`: third person on foot, the camera within `FadeFar` (6) studs of your head / torso fades your body (`LocalTransparencyModifier`, up to 0.9 at `FadeNear` 2.5); back to 0 once the camera is away again. Not while seated (VehicleController owns that) | camera 2.19 studs from the head: body 0.90; 8 studs: 0.00 |
+| HOSE thumb button didn't give the hose | The button lived only while the truck was within the IN range (21 studs from the chassis) but the hose prompt reaches 24: right behind the reel it was missing, and at the edge it flickered on / off every refresh, so a tap hit a button being destroyed | Truck gear is looked for out to `GEAR_RANGE` (26); the button lingers 0.8 s past reach and a press re-picks the hose (never re-uses the lingering one while you hold the hose, so a double tap can't stow it). Every thumb button also fires on `GuiButton.Activated` when no Begin went out (emulator / stylus input). Test hook `Player.ThumbTest:Invoke(action)` | 21.5 studs behind the truck: HOSE shown 10/10 samples; press: Extinguisher -> Hose (server `inv_hose_tap`, `inv_hose_swapped`) |
+| Locker GRAB bubble did nothing | `use()` called `InputHoldBegin` on a prompt Roblox wasn't showing (off screen / picked from the truck's own list) | Lockers and gear racks go straight to the server, `Inventory/Take` (like `Inventory/Reel`); the server re-checks stock, Enabled, distance, not seated | facing away from Locker_L2: tap -> Extinguisher in hand, locker unstocked, `inv_take_tap` 1 |
+| Thumb buttons / bubbles 48-52 px | small slot = 0.75 x the 70 px jump button | `ThumbLayout.MinSmall` 64 px; bubbles 64 px | HOSE 64 px, ToolUse 84 px, GRAB / IN bubbles 64 px |
+| Card subtitle ~9 px | `TextScaled` in a 24-unit row at UiKit's 0.55 floor | Small screens: sub line at 15 real px, wrapped (1-3 lines, the card grows), card up to 600 units wide | sub 15.4 px, card 330x48 px |
+| SKIP TUTORIAL ~16 px tall | 30 design units x 0.55 | at least 46 real px tall on small screens | 120x46 px |
+| GRAB YOUR GEAR stayed up in the truck / forever | the card had no "applies" check | lobby tutorial cards hide while seated and when the step's target is gone (arrow too); a lobby step (gear / board / pad) up `StaleCardSeconds` (120) with no progress hides its card (arrow stays). A card hidden and shown again re-pops (it used to stay hidden for the same step) | DriveSeat: card + arrow hidden; out of the truck: card back |
+| HELP chip vs the top card | | measured clear: chip x 7-72, card x 210-540 (750) / 168-498 (667), SKIP x 314-435 | |

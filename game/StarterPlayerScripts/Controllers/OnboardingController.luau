@@ -36,6 +36,7 @@ local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -112,6 +113,8 @@ local state = {
 	seenFireCard = false,
 	wasOnCall = false, -- had an InstanceId this session
 	missionEnded = false, -- ...and it's over (InstanceId back to "")
+	staleKey = "", -- the lobby tutorial step on the card, and since when (os.clock): a stale step hides
+	staleSince = 0,
 }
 
 local ui: { [string]: any } = {}
@@ -672,7 +675,7 @@ local function buildHud()
 	HudLayout.add("TopCentre", card, 20, function(): number
 		local a = ui.actions
 		local any = a and (ui.go.Visible or ui.wait.Visible or ui.skip.Visible or ui.home.Visible)
-		return card.Size.Y.Offset + (if any then 52 else 0)
+		return card.Size.Y.Offset + (if any then a.Size.Y.Offset + 8 else 0)
 	end)
 	HudLayout.reserve(card)
 
@@ -1166,17 +1169,84 @@ end
 
 -- the top-centre card must not run into the left column (mission guide card, 14 + 350 design units)
 -- on narrow screens (4:3 tablets, a portrait-ish window): shrink it to the room between the columns
-local lastWidth = 0
+-- Phones: UiKit's scale bottoms out at 0.55, so the 24-unit sub line printed at ~9 px. There the card
+-- grows instead: the sub line is set at CARD_SUB_PX real pixels (wrapped, as many lines as it needs, up
+-- to 3) and SKIP TUTORIAL is at least SKIP_PX real pixels tall.
+local CARD_SUB_PX = 15
+local SKIP_PX = 46
+local lastFit = ""
 local function fitCard()
 	local gui = ui.gui :: ScreenGui
-	local s = HudLayout.scaleOf(gui)
-	local w = gui.AbsoluteSize.X / math.max(0.01, s)
+	local s = math.max(0.01, HudLayout.scaleOf(gui))
+	local w = gui.AbsoluteSize.X / s
+	local small = Calm.small() or s < 0.75
 	local room = if inMission() then w - 2 * (14 + 350 + 10) else w - 40
-	local width = math.clamp(math.floor(room), 330, 520)
-	if width ~= lastWidth then
-		lastWidth = width
-		ui.card.Size = UDim2.fromOffset(width, 78)
+	local width = math.clamp(math.floor(room), 330, if small then 600 else 520)
+	local sub: TextLabel = ui.sub
+	local key = `{width}|{s}|{small}|{sub.Text}`
+	if key == lastFit then
+		return
 	end
+	lastFit = key
+	local height = 78
+	if small then
+		local size = math.ceil(CARD_SUB_PX / s) -- design units: UIScale brings it back to CARD_SUB_PX
+		local textW = width - 132
+		local ok, b = pcall(function()
+			return TextService:GetTextSize(sub.Text, size, sub.Font, Vector2.new(textW, 10000))
+		end)
+		local lines = if ok then math.clamp(math.ceil(b.Y / size - 0.2), 1, 3) else 2
+		local subH = lines * math.ceil(size * 1.15)
+		sub.TextScaled = false
+		sub.TextWrapped = true
+		sub.TextSize = size
+		sub.TextYAlignment = Enum.TextYAlignment.Top
+		sub.Size = UDim2.new(1, -132, 0, subH)
+		height = math.max(78, 46 + subH + 8)
+		local skipH = math.max(30, math.ceil(SKIP_PX / s))
+		ui.skip.Size = UDim2.fromOffset(math.max(150, math.ceil(skipH * 2.6)), skipH)
+	else
+		sub.TextScaled = true
+		sub.TextWrapped = false
+		sub.TextYAlignment = Enum.TextYAlignment.Center
+		sub.Size = UDim2.new(1, -132, 0, 24)
+		ui.skip.Size = UDim2.fromOffset(150, 30)
+	end
+	ui.card.Size = UDim2.fromOffset(width, height)
+	local rowH = 44
+	for _, b in { ui.go, ui.wait, ui.skip, ui.home } do
+		rowH = math.max(rowH, (b :: TextButton).Size.Y.Offset)
+	end
+	ui.actions.Size = UDim2.new(1, 0, 0, rowH)
+	HudLayout.flush()
+end
+
+-- Lobby tutorial steps that no longer apply: sitting in a truck (GRAB YOUR GEAR from the driver's seat),
+-- the step's target gone, or the same step up for StaleCardSeconds with no progress (the world arrow
+-- keeps pointing; the card comes back when the step changes). Calls / missions / the training fire are
+-- never hidden here.
+local LOBBY_STEPS = { gear = true, board = true, pad = true }
+-- -> (show the card, show the world arrow)
+local function cardApplies(g: Guide?): (boolean, boolean)
+	if not g or inMission() then
+		return true, true
+	end
+	local kind = g.kind
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if SKIPPABLE[kind] and hum and hum.SeatPart then
+		return false, false
+	end
+	if not LOBBY_STEPS[kind] then
+		state.staleKey = ""
+		return true, true
+	end
+	if not g.part or not g.part:IsDescendantOf(workspace) then
+		return false, false
+	end
+	if state.staleKey ~= kind then
+		state.staleKey, state.staleSince = kind, os.clock()
+	end
+	return os.clock() - state.staleSince < (Cfg.StaleCardSeconds or 120), true
 end
 
 local function showCard(g: Guide?)
@@ -1186,6 +1256,7 @@ local function showCard(g: Guide?)
 		if card.Visible then
 			card.Visible = false
 		end
+		state.guideKey = "" -- the same step coming back (out of the truck, Help closed) shows again
 		return
 	end
 	fitCard()
@@ -1567,8 +1638,9 @@ function OnboardingController:Start()
 		-- nothing over the title card, the Help panel or the mission picker
 		local busy = (ui.title and ui.title.gui.Enabled) or state.helpOpen or pickerOpen() or coldOpenPlaying()
 		local g = if busy then nil else currentGuide()
-		showCard(g)
-		placeArrow(g, t)
+		local cardOk, arrowOk = cardApplies(g)
+		showCard(if cardOk then g else nil)
+		placeArrow(if arrowOk then g else nil, t)
 		-- HELP waits for the panda (Onboarding v3 HUD reveal, ClientLib/HudGate)
 		ui.helpChip.Visible = not inMission() and not state.helpOpen and HudGate.allows("help")
 	end)
