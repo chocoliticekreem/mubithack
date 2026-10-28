@@ -1,13 +1,13 @@
 --!strict
 -- HudController [owner: G3]. The in-round HUD (docs/game/02-art-feel-ui.md §9), chunky sticker style, phone-safe
 -- (UiKit.screen: UIScale + CoreUISafeInsets). Renders only replicated state:
---   Workspace RoundState / RoundEndsAt / MissionId      -> timer pill (red + pulse + tick under 30 s)
+--   RoundState / RoundEndsAt of YOUR run               -> timer pill (red + pulse + tick under 30 s), only on a call
 --   tag Burning (under workspace.Map[MissionId])        -> objectives: "FIRES LEFT n"
 --   tag Rescuable + attr RescueState                    -> objectives: "RESCUED a / b"
 --   LocalPlayer attr Heat 0..100 (HeatService)          -> HEAT thermometer (fills red, shakes >= 85, flashes at 100)
 --   LocalPlayer attr Carrying (RescueService)           -> carry slot "CARRYING: DOG -> bring to TRUCK"
 --   LocalPlayer attr Downed (SquadService)              -> DOWNED overlay
---   every Player's Helmet / Downed / Carrying / Heat    -> squad strip (top right)
+--   every Player's Helmet / Downed / Carrying / Heat    -> squad strip (top right, one line each, on a call with 2+)
 --   nearest Burning / trapped Rescuable / Truck         -> on-screen markers + off-screen edge arrows (HudMarkers gui)
 --   Mission/Alarm (missionId, locationName)             -> alarm banner
 --   Shared/Notify (text, kind)                          -> compact toast stack, top-centre under the timer: max 2
@@ -37,6 +37,7 @@ local PopupLogic = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild
 local InputHints = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("InputHints") :: ModuleScript) :: any
 local Calm = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("Calm") :: ModuleScript)
 local Loc = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Loc") :: ModuleScript)
+local HudRules = require(script.Parent.Parent:WaitForChild("Lib"):WaitForChild("HudRules") :: ModuleScript)
 
 local HudController = {}
 HudController.Priority = 50
@@ -207,11 +208,11 @@ local function build(): Ui
 	squad.Name = "Squad"
 	squad.AnchorPoint = Vector2.new(1, 0)
 	squad.Position = UDim2.new(1, -14, 0, 150) -- HudLayout.pin below: under the minimap and its turn-hint slot
-	squad.Size = UDim2.fromOffset(220, 4 * 46)
+	squad.Size = UDim2.fromOffset(180, 4 * 32)
 	squad.BackgroundTransparency = 1
 	local squadLayout = Instance.new("UIListLayout")
 	squadLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	squadLayout.Padding = UDim.new(0, 6)
+	squadLayout.Padding = UDim.new(0, 4)
 	squadLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	squadLayout.Parent = squad
 	squad.Parent = gui
@@ -722,29 +723,22 @@ end
 
 -- squad strip ------------------------------------------------------------------------------
 
+-- one line per player, small: helmet badge, name, status (OK / CARRY / HOT! / DOWNED)
 local function squadRow(parent: Instance, p: Player): Frame
-	local row = UiKit.panel(parent, `Row{p.UserId}`, UDim2.fromOffset(210, 40), UDim2.fromScale(0, 0))
-	UiKit.badge(row, "Badge", 0, 34, UDim2.fromOffset(4, 3))
-	UiKit.label(row, "Name", if p == player then "YOU" else p.DisplayName, UDim2.new(1, -110, 1, 0), UDim2.fromOffset(44, 0), {
-		font = UiKit.Header,
-		textSize = 18,
-		align = Enum.TextXAlignment.Left,
-	})
-	local status = UiKit.label(row, "Status", "OK", UDim2.fromOffset(66, 40), UDim2.new(1, -70, 0, 0), {
+	local row = UiKit.panel(parent, `Row{p.UserId}`, UDim2.fromOffset(176, 28), UDim2.fromScale(0, 0))
+	UiKit.badge(row, "Badge", 0, 24, UDim2.fromOffset(3, 2))
+	UiKit.label(row, "Name", if p == player then "YOU" else p.DisplayName, UDim2.new(1, -92, 1, 0), UDim2.fromOffset(32, 0), {
 		font = UiKit.Header,
 		textSize = 16,
+		align = Enum.TextXAlignment.Left,
+	})
+	local status = UiKit.label(row, "Status", "OK", UDim2.fromOffset(56, 28), UDim2.new(1, -60, 0, 0), {
+		font = UiKit.Header,
+		textSize = 14,
 		color = Palette.UiGood,
 		align = Enum.TextXAlignment.Right,
 	})
 	status.Name = "Status"
-	-- battle pass title (BattlePassService attr PassTitle) under the name; refreshSquad fills it
-	local title = UiKit.label(row, "PassTitle", "", UDim2.new(1, -110, 0, 14), UDim2.fromOffset(45, 24), {
-		font = UiKit.Body,
-		textSize = 12,
-		color = Palette.UiFlameMid,
-		align = Enum.TextXAlignment.Left,
-	})
-	title.Visible = false
 	return row
 end
 
@@ -783,17 +777,7 @@ local function refreshSquad(u: Ui)
 			end
 		end
 		r.BackgroundColor3 = if downedNow then Color3.fromHex("#F2B8B0") else Palette.UiCream
-		local passTitle = p:GetAttribute("PassTitle")
-		local tl = r:FindFirstChild("PassTitle") :: TextLabel?
-		local nameLabel = r:FindFirstChild("Name") :: TextLabel?
-		if tl and nameLabel then
-			local has = type(passTitle) == "string" and passTitle ~= ""
-			tl.Visible = has
-			tl.Text = if has then string.upper(passTitle :: string) else ""
-			local tc = p:GetAttribute("PassTitleColor")
-			tl.TextColor3 = if typeof(tc) == "Color3" and tc ~= Color3.fromHex("#FFF1D6") then (tc :: Color3):Lerp(Palette.UiInk, 0.25) else Palette.UiFlameMid
-			nameLabel.Size = if has then UDim2.new(1, -110, 0, 26) else UDim2.new(1, -110, 1, 0)
-		end
+		-- (no battle pass title under the name any more: one line per player; the results screen shows titles)
 	end
 	for _, c in u.squad:GetChildren() do
 		if c:IsA("Frame") and not seen[c] then
@@ -815,8 +799,10 @@ local function refresh(t: number)
 		return
 	end
 	local state = roundAttr(Names.Attr.RoundState)
-	local active = state == "Active"
-	local inRound = active or state == "Alarm"
+	-- only YOUR call: in the lobby, Workspace's RoundState / RoundEndsAt are a summary of somebody else's run
+	-- (MissionService), and their 1:26 timer, markers and "on a call" busy flag showed at the station
+	local inRound = HudRules.timerShown(instanceIdOf(player), state)
+	local active = inRound and state == "Active"
 	local from = myPos()
 
 	u.timerPill.Visible = inRound
@@ -914,9 +900,18 @@ local function refresh(t: number)
 	wasDowned = downedNow
 	u.downed.BackgroundTransparency = 0.72 + 0.08 * math.sin(t * 5)
 
-	-- squad
-	u.squad.Visible = inRound or #Players:GetPlayers() > 1
-	refreshSquad(u)
+	-- squad: only on a call with 2+ of you (the lobby is not a squad; solo needs no list)
+	local scope = instanceIdOf(player)
+	local members = 0
+	for _, p in Players:GetPlayers() do
+		if instanceIdOf(p) == scope then
+			members += 1
+		end
+	end
+	u.squad.Visible = HudRules.squadShown(scope, members)
+	if u.squad.Visible then
+		refreshSquad(u)
+	end
 
 	-- markers: the truck is forced on while carrying
 	placeMarker(u.marks.fire, if active then nearestFire else nil, from)

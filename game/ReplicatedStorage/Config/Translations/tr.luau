@@ -2079,4 +2079,11 @@ return {
 	["MORE FIRE COMING!"] = "DAHA FAZLA ATEŞ GELİYOR!",
 	["ALL DONE!"] = "HEPSİ TAMAM!",
 	["ALL DONE! {1}"] = "HEPSİ TAMAM! {1}",
+	-- the decluttered HUD: ☰ MENU, 👁 HIDE UI, the 🎁 chest pill (ClientLib/ChipMenu, HideUiController, RetentionController)
+	["MENU"] = "MENÜ",
+	["🎁 DAY {1}: +{2} XP"] = "🎁 GÜN {1}: +{2} XP",
+	["🎁 TOMORROW: +{1} XP"] = "🎁 YARIN: +{1} XP",
+	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Oyunun düğmelerini gizle / göster (ya da sol üstteki 👁 göz).",
+	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Oyunun düğmelerini gizlemek / göstermek için 👁 göze (sol üst) dokun.",
+	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "PASS, HABERLER, DAVET, KUPALAR ve fazlası soldaki MENÜ düğmesinde.",
 }

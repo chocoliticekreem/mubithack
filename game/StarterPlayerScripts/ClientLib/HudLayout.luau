@@ -8,9 +8,10 @@
 --                Each one sits under the previous VISIBLE one.
 --   top-left     stack "Left": objectives -> building integrity -> mission guide card
 --   top-right    minimap (NavMinimap, in the top-bar row) -> its turn-hint slot -> squad strip
---   left edge    stack "Chips" (lobby buttons, one column, in order): [P] PASS, NEWS, INVITE, TROPHIES,
---                [H] HELP, ADMIN. Centred on the left edge, its bottom kept clear of a phone's thumbstick and the
---                gamepad's bottom-left D-pad legend; bottom-left: carry card
+--   left edge    "Chips" (lobby buttons: [P] PASS, NEWS, INVITE, TROPHIES, [H] HELP, ADMIN, HELI): folded into
+--                ONE ☰ MENU chip that opens a grid (ClientLib/ChipMenu; one chip alone shows by itself). Centred
+--                on the left edge, clear of a phone's thumbstick and the D-pad legend; bottom-left: carry card
+--   top-left     👁 HIDE UI (Controllers/HideUiController, in the top-bar row before ClientLib/TopBox)
 --   bottom       hotbar (centre), carry slot above it, truck hints, heat gauge (right)
 --   centre       transient banners (heat warning, level-up / tier-up cards)
 --   modal        PASS / STORE / HELP / LOCKER / mission picker / big map: HudLayout.modal() dims
@@ -20,6 +21,7 @@
 --   HudLayout.stack(name, top, gap?)          top(scale, insetY) -> screen px of the stack's first slot
 --   HudLayout.add(name, obj, order, height?)  the stack owns obj.Position.Y from now on (X is kept).
 --                                             height?: () -> design units (default obj.Size.Y.Offset)
+--                                             name "Chips": ChipMenu.adopt (it owns Position, Size, Visible)
 --   HudLayout.pin(obj, y)                     obj.Position.Y = screen px y(scale, insetY), converted to
 --                                             obj's ScreenGui (inset or full-bleed) on every resize
 --   HudLayout.modal(panel, opts?)             opts.onDismiss (backdrop click), opts.companions = {gui names}.
@@ -214,6 +216,17 @@ function HudLayout.stack(name: string, top: (number, number) -> number, gap: num
 end
 
 function HudLayout.add(name: string, obj: GuiObject, order: number, height: (() -> number)?)
+	if name == "Chips" then
+		-- the lobby chips fold into the one ☰ MENU chip (ClientLib/ChipMenu owns their place and Visible)
+		local ok, ChipMenu = pcall(function()
+			return require(script.Parent:WaitForChild("ChipMenu") :: ModuleScript) :: any
+		end)
+		if ok then
+			ChipMenu.adopt(obj, order)
+			return
+		end
+		warn(`[HudLayout] ChipMenu: {ChipMenu}`)
+	end
 	start()
 	local st = stacks[name]
 	if not st then
@@ -264,8 +277,7 @@ end)
 HudLayout.stack("Left", function(s, inset)
 	return inset + 10 * s
 end)
--- the left chip column: 6 chips x 40 + 5 gaps x 10 = 290 design units, centred on the screen's left edge
--- but never lower than 120 px above the bottom (touch thumbstick, D-pad legend) nor under the top bar
+-- the old left chip column: only a fallback now (HudLayout.add("Chips") goes to ClientLib/ChipMenu)
 HudLayout.ChipColumn = 290
 HudLayout.stack("Chips", function(s, inset)
 	local cam = workspace.CurrentCamera
@@ -411,6 +423,18 @@ local celebrating = false
 -- XP / level-up events land a moment before the results screen; give it this long to claim the screen
 local GRACE = 1.2
 
+-- ClientLib/PopupGate, loaded on first use (declared before pump: pump calls it when a card ends)
+local gate: any = nil
+local function popupGate(): any
+	if gate == nil then
+		local ok, m = pcall(function()
+			return require(script.Parent:WaitForChild("PopupGate") :: ModuleScript)
+		end)
+		gate = if ok then m else false
+	end
+	return gate
+end
+
 local function pump()
 	if celebrating or #queue == 0 or HudLayout.modalOpen() or next(busy) ~= nil then
 		return
@@ -466,16 +490,6 @@ end
 
 -- fn shows the card and returns how many seconds it stays up (the next one waits that long) and, optionally,
 -- a hide() that takes it down early (tap to dismiss)
-local gate: any = nil
-local function popupGate(): any
-	if gate == nil then
-		local ok, m = pcall(function()
-			return require(script.Parent:WaitForChild("PopupGate") :: ModuleScript)
-		end)
-		gate = if ok then m else false
-	end
-	return gate
-end
 
 function HudLayout.celebrate(fn: () -> (number?, (() -> ())?), kind: string?)
 	-- the first call comes first: LEVEL 2! / NEW GEAR! landed on the first-call card in the same second

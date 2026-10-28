@@ -16,7 +16,7 @@
 --     jump spot), DROP (big), DOWN, OUT. The camera follows the heli (Custom camera, zoomed out).
 --   * Riders: F / SPACE / B / OUT hops out (onto the ground beside it).
 --   * HUD while flying: bucket meter + what to do now; a key strip on PC / gamepad.
---   * On foot, owners: a round SUMMON HELI button on the right (U): Heli/Summon.
+--   * On foot, owners: a 🚁 HELI chip in the ☰ MENU (U): Heli/Summon.
 -- Test hooks (execute_luau on the Client): _input(mx, mz, up) (fake stick, nil clears), _drop(), _exit(),
 --   _summon(), _debug() -> JSON
 local CollectionService = game:GetService("CollectionService")
@@ -250,32 +250,35 @@ local function buildHud()
 	strip.Visible = false
 	keyStrip = strip
 
-	-- SUMMON HELI (owners, on foot): right edge, above the thumb cluster
+	-- SUMMON HELI (owners, on foot): a chip in the ☰ MENU (ClientLib/ChipMenu via HudLayout "Chips"; alone, it
+	-- shows by itself on the left edge). It used to be a round button on the right that sat on the squad strip.
 	local b = Instance.new("TextButton")
 	b.Name = "SummonHeli"
-	b.AnchorPoint = Vector2.new(1, 0.5)
-	b.Position = UDim2.new(1, -12, 0.42, 0)
-	b.Size = UDim2.fromOffset(76, 76)
+	b.Position = UDim2.fromOffset(13, 300)
+	b.Size = UDim2.fromOffset(118, 40)
 	b.BackgroundColor3 = Palette.UiRed
-	b.Text = ""
+	b.Font = UiKit.Header
+	b.TextSize = 20
+	b.TextColor3 = Palette.UiCream
 	b.AutoButtonColor = true
 	b.Visible = false
 	b.Parent = g
-	UiKit.corner(b, 38)
+	UiKit.corner(b, 10)
 	UiKit.stroke(b, 3, Palette.UiInk)
-	UiKit.label(b, "Glyph", "🚁", UDim2.fromScale(1, 0.62), UDim2.fromScale(0, 0.04), { textSize = 36 })
-	local lab = UiKit.label(b, "Label", "", UDim2.new(1, 8, 0, 20), UDim2.new(0, -4, 1, -24), {
-		font = UiKit.Header,
-		textSize = 15,
-		color = Palette.UiCream,
-		stroke = true,
-	})
-	InputHints.setChip(lab, Cfg.KeySummon.Name, "HELI")
+	local ts = Instance.new("UIStroke")
+	ts.Thickness = 2
+	ts.Color = Palette.UiInk
+	ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+	ts.Parent = b
+	InputHints.setChip(b, Cfg.KeySummon.Name, "HELI")
 	UiKit.onTap(b, function()
 		Net.event("Heli", "Summon"):FireServer()
 		UiKit.punch(b, 0.1)
 	end)
 	summonBtn = b
+	local HudLayout = require(ClientLib:WaitForChild("HudLayout") :: ModuleScript) :: any
+	HudLayout.reserve(b)
+	HudLayout.add("Chips", b, 6)
 end
 
 local function inMission(): boolean

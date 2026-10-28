@@ -41,7 +41,7 @@ How it works:
 | On foot | L1 (hold) | Throw / YEET (Q). The same button for items and people | InvThrow, RescueThrow (was X: clashed with prompts) |
 | On foot | D-pad up | Swap hand ↔ back (1 / 2) | InvSwap |
 | Anywhere | D-pad down | Big map (M). Right stick pans it, the cursor is on + / - / centre / X, B closes it | NavBigMap, Minimap |
-| Anywhere | D-pad left | MENU: cursor on the HUD buttons (STORE, PASS, NEWS, HELP, DISPATCH, SKIP, GO NOW, ADMIN, settings) | GamepadController |
+| Anywhere | D-pad left | MENU: cursor on the HUD buttons (ACCEPT, GO NOW, DISPATCH, STORE, the ☰ MENU chip that opens PASS / NEWS / INVITE / TROPHIES / HELP / ADMIN / HELI, 👁 HIDE UI). With the HUD hidden it lands on 👁 (docs/game/22-declutter.md) | GamepadController, ClientLib/ChipMenu |
 | A call is ringing | D-pad right | ACCEPT the dispatch call. To DECLINE or pick NO CALLS: D-pad left (lands on ACCEPT), then right | DispatchController |
 | At the station / in the truck | D-pad right | RESPAWN / unflip the truck (R), when its button shows | TruckRespawn |
 | On foot | R3 | First ↔ third person (V) | FirstPersonController |

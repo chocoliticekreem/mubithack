@@ -9,6 +9,9 @@
 --   TopBox.section(name, order, width) -> Frame   a slot (full box height) the caller fills; hide it with
 --                                                 .Visible and the box closes up around it
 --   TopBox.Height                                 the box's inner height in px
+--   TopBox.lead(width) -> () -> (x, y, h)          room for a widget of `width` px BEFORE the box, right after
+--                                                 Roblox's buttons (the 👁 HIDE UI button): the box moves right;
+--                                                 the function gives that spot's screen px (full-bleed) any time
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,11 +27,17 @@ local sections: { [string]: Frame } = {}
 -- Roblox's voice-chat mic sits right after the menu / chat buttons but is not always counted in
 -- TopbarInset (it covered the level badge on phones), so leave room for it when voice is on
 local micRoom = 0
+local leadW = 0 -- TopBox.lead: a widget before the box
+
+local function leftEdge(): number
+	local bar = GuiService.TopbarInset
+	-- the free part of the top bar starts after Roblox's menu / chat buttons (Min.X); 0 before it loads
+	return (if bar.Min.X > 0 then bar.Min.X else 164) + micRoom
+end
 
 local function place(b: Frame)
 	local bar = GuiService.TopbarInset
-	-- the free part of the top bar starts after Roblox's menu / chat buttons (Min.X); 0 before it loads
-	local left = (if bar.Min.X > 0 then bar.Min.X else 164) + micRoom
+	local left = leftEdge() + (if leadW > 0 then leadW + 6 else 0)
 	-- narrow screens (phones): a touch smaller so it ends well short of the minimap
 	local cam = workspace.CurrentCamera
 	local vpX = if cam then cam.ViewportSize.X else 1280
@@ -133,6 +142,18 @@ local function get(): Frame
 		end
 	end)
 	return b
+end
+
+function TopBox.lead(width: number): () -> (number, number, number)
+	leadW = width
+	local b = get()
+	place(b)
+	return function(): (number, number, number)
+		local bar = GuiService.TopbarInset
+		local barH = if bar.Height > 0 then bar.Height else 58
+		local h = math.clamp(barH - 12, 32, 44)
+		return leftEdge() + 8, bar.Min.Y + math.floor((barH - h) / 2) + NUDGE_Y, h
+	end
 end
 
 function TopBox.section(name: string, order: number, width: number): Frame

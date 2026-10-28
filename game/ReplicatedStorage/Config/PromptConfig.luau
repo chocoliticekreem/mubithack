@@ -13,6 +13,8 @@
 --     to read (>= HoldMin s) with a filling bar: reviving, splinting, prying, shutting a valve, a hatch.
 --   * Look: one cream "[E] Verb" sticker plus a yellow outline on the thing (PromptController); on
 --     touch one round verb bubble (TapUseController). Never Roblox's grey default card.
+--   * Taken HUD keys (never give a prompt one): F1 / ` hide or show the whole HUD (Config/HudConfig.HideKeys,
+--     the 👁 button), P pass, H help, B store, L dispatch, M map, ; admin, U heli.
 local Config = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("Config") :: ModuleScript)
 
 return Config.define({

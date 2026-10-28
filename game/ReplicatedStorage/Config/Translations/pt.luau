@@ -2079,4 +2079,11 @@ return {
 	["MORE FIRE COMING!"] = "VEM MAIS FOGO!",
 	["ALL DONE!"] = "TUDO PRONTO!",
 	["ALL DONE! {1}"] = "TUDO PRONTO! {1}",
+	-- the decluttered HUD: ☰ MENU, 👁 HIDE UI, the 🎁 chest pill (ClientLib/ChipMenu, HideUiController, RetentionController)
+	["MENU"] = "MENU",
+	["🎁 DAY {1}: +{2} XP"] = "🎁 DIA {1}: +{2} XP",
+	["🎁 TOMORROW: +{1} XP"] = "🎁 AMANHÃ: +{1} XP",
+	["Hide / show the game's buttons (or the 👁 eye, top left)."] = "Esconde / mostra os botões do jogo (ou o olho 👁, no canto superior esquerdo).",
+	["Tap the 👁 eye (top left) to hide / show the game's buttons."] = "Toque no olho 👁 (canto superior esquerdo) para esconder / mostrar os botões do jogo.",
+	["PASS, NEWS, INVITE, TROPHIES and more live in the MENU button on the left."] = "PASSE, NOVIDADES, CONVIDAR, TROFÉUS e mais ficam no botão MENU à esquerda.",
 }
