@@ -39,6 +39,55 @@ Spec.test("stuck cause", function()
 	Spec.eq(DriveMath.stuckCause(true, 0, 0, false), "idle")
 	Spec.eq(DriveMath.stuckCause(true, 1, 0.5, false), "blocked")
 	Spec.eq(DriveMath.stuckCause(true, 1, 20, true), "wrongway")
+	-- hasn't rolled yet since sitting down (reading the call card): not stuck
+	Spec.eq(DriveMath.stuckCause(true, 0, 0, false, false), "notstarted")
+	Spec.eq(DriveMath.stuckCause(true, 0, 0, false, true), "idle")
+	Spec.eq(DriveMath.stuckCause(true, 0.6, 0, false, false), "blocked") -- pushing from the start = blocked
+end)
+
+Spec.test("headingTo: signed, + = to the right, never flips", function()
+	-- heading north (0, -1): right is +x
+	Spec.eq(math.abs(DriveMath.headingTo(0, -1, 1, 0) - math.pi / 2) < 1e-6, true)
+	Spec.eq(math.abs(DriveMath.headingTo(0, -1, -1, 0) + math.pi / 2) < 1e-6, true)
+	Spec.eq(math.abs(math.abs(DriveMath.headingTo(0, -1, 0, 1)) - math.pi) < 1e-6, true) -- straight behind
+	Spec.eq(DriveMath.headingTo(0, -1, 0, -1), 0)
+	Spec.eq(DriveMath.headingTo(0, 0, 0, 0), 0)
+	Spec.eq(math.floor(DriveMath.cueRotation(0, -1, 1, 0) + 0.5), 90) -- arrow turns clockwise to point right
+end)
+
+Spec.test("assist weight fades out as the stick steers", function()
+	Spec.eq(DriveMath.assistWeight(0, 0.4), 1)
+	Spec.eq(DriveMath.assistWeight(0.2, 0.4), 0.5)
+	Spec.eq(DriveMath.assistWeight(-0.6, 0.4), 0)
+	Spec.eq(DriveMath.assistWeight(0, 0), 0)
+end)
+
+Spec.test("stuck watch: due after held seconds without progress, reset by progress or letting go", function()
+	local w, due = DriveMath.stuckWatch(nil, 0, 0, 0, true, 3, 2.5)
+	Spec.eq(due, false)
+	w, due = DriveMath.stuckWatch(w, 2, 1, 0, true, 3, 2.5)
+	Spec.eq(due, false)
+	w, due = DriveMath.stuckWatch(w, 3.1, 1.5, 0, true, 3, 2.5)
+	Spec.eq(due, true)
+	Spec.eq(w, nil)
+	-- progress restarts the clock
+	w = DriveMath.stuckWatch(nil, 0, 0, 0, true, 3, 2.5)
+	w, due = DriveMath.stuckWatch(w, 2, 5, 0, true, 3, 2.5)
+	w, due = DriveMath.stuckWatch(w, 4, 5, 0, true, 3, 2.5)
+	Spec.eq(due, false)
+	-- letting go of the stick clears it
+	w, due = DriveMath.stuckWatch(w, 6, 5, 0, false, 3, 2.5)
+	Spec.eq(w, nil)
+	Spec.eq(due, false)
+end)
+
+Spec.test("unstick tries back off first and stay small", function()
+	local tries = DriveMath.unstickTries()
+	Spec.eq(tries[1].back > 0, true)
+	for _, t in tries do
+		Spec.eq(t.back > 0 and t.back <= 16, true)
+		Spec.eq(math.abs(t.side) <= 8, true)
+	end
 end)
 
 Spec.test("eta never assumes a parked truck and is whole seconds", function()

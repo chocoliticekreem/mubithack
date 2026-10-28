@@ -9,7 +9,15 @@
 --   DriveMath.wrongBucket(s) -> "0" | "1-10" | "10+"
 --   DriveMath.quitField(reason, seconds, resets, stuck, wrongSeconds) -> string
 --       CustomField03 of DriveQuit, a small constant set: "left|t30-60|r1|s0|w10+"
---   DriveMath.stuckCause(hasDriver, throttle, speed, wrongWay) -> "nodriver" | "idle" | "blocked" | "wrongway"
+--   DriveMath.stuckCause(hasDriver, throttle, speed, wrongWay, started?) -> "nodriver" | "notstarted" | "idle" | "blocked" | "wrongway"
+--       started = false: the truck hasn't rolled yet since DriveStart (a kid reading the call card), not stuck
+--   DriveMath.headingTo(fx, fz, tx, tz) -> signed radians from the heading (fx, fz) to the direction (tx, tz)
+--       (+ = it is to the right; unlike TruckDrive.alignAngle it never flips: the route has a way to go)
+--   DriveMath.assistWeight(steer, maxSteer) -> 0..1   -- touch route assist: 1 with the stick centred, 0 from maxSteer
+--   DriveMath.stuckWatch(w, now, x, z, pushing, seconds, studs) -> (w', due)  -- auto-unstick timer (VehicleController)
+--   DriveMath.unstickTries() -> { { back, side, turn } }  -- spots to try, nearest first (studs; turn 0..1 = how far
+--       to swing toward the route)
+--   DriveMath.cueRotation(cfx, cfz, rx, rz) -> degrees   -- an on-screen arrow that points along (rx, rz) from the camera
 --   DriveMath.eta(leftStuds, speed, minSpeed) -> whole seconds (>= 0)
 --   DriveMath.progress(total, left) -> 0..1
 --   DriveMath.approach(v, target, dt, rise, fall) -> number   -- rate-limited ease toward target
@@ -62,9 +70,12 @@ function DriveMath.quitField(reason: string, seconds: number, resets: number, st
 end
 
 -- Why a truck on a call got nowhere for a while.
-function DriveMath.stuckCause(hasDriver: boolean, throttle: number, speed: number, wrongWay: boolean): string
+function DriveMath.stuckCause(hasDriver: boolean, throttle: number, speed: number, wrongWay: boolean, started: boolean?): string
 	if not hasDriver then
 		return "nodriver"
+	end
+	if started == false and math.abs(throttle) < 0.1 and speed < 4 then
+		return "notstarted"
 	end
 	if wrongWay and speed > 4 then
 		return "wrongway"
@@ -106,6 +117,64 @@ function DriveMath.straight(fx: number, fz: number, rx: number, rz: number, stee
 	end
 	local dot = math.abs((fx * rx + fz * rz) / (lf * lr))
 	return dot >= math.cos(math.rad(maxDeg))
+end
+
+function DriveMath.headingTo(fx: number, fz: number, tx: number, tz: number): number
+	-- right of the heading (fx, fz) is (-fz, fx), as in TruckDrive.alignAngle
+	local side = tx * -fz + tz * fx
+	local ahead = tx * fx + tz * fz
+	if math.abs(side) < 1e-9 and math.abs(ahead) < 1e-9 then
+		return 0
+	end
+	return math.atan2(side, ahead)
+end
+
+function DriveMath.assistWeight(steer: number, maxSteer: number): number
+	if maxSteer <= 0 then
+		return 0
+	end
+	return math.clamp(1 - math.abs(steer) / maxSteer, 0, 1)
+end
+
+export type StuckWatch = { at: number, x: number, z: number }
+
+-- Auto-unstick timer: due once the truck has been pushed (throttle held) for `seconds` without getting
+-- `studs` from where the push started. Letting go, or real progress, restarts it.
+function DriveMath.stuckWatch(w: StuckWatch?, now: number, x: number, z: number, pushing: boolean, seconds: number, studs: number): (StuckWatch?, boolean)
+	if not pushing then
+		return nil, false
+	end
+	if not w then
+		return { at = now, x = x, z = z }, false
+	end
+	local dx, dz = x - w.x, z - w.z
+	if dx * dx + dz * dz > studs * studs then
+		return { at = now, x = x, z = z }, false
+	end
+	if now - w.at >= seconds then
+		return nil, true
+	end
+	return w, false
+end
+
+-- Spots to try when unsticking, nearest first: back off along the truck (away from the push), a little to
+-- either side, and swing the nose toward the route (turn 1 = all the way, 0 = keep the heading).
+function DriveMath.unstickTries(): { { back: number, side: number, turn: number } }
+	return {
+		{ back = 5, side = 0, turn = 1 },
+		{ back = 8, side = 0, turn = 1 },
+		{ back = 6, side = 4, turn = 1 },
+		{ back = 6, side = -4, turn = 1 },
+		{ back = 11, side = 0, turn = 1 },
+		{ back = 5, side = 0, turn = 0 },
+		{ back = 9, side = 6, turn = 0.5 },
+		{ back = 9, side = -6, turn = 0.5 },
+		{ back = 14, side = 0, turn = 0.5 },
+	}
+end
+
+function DriveMath.cueRotation(cfx: number, cfz: number, rx: number, rz: number): number
+	return math.deg(DriveMath.headingTo(cfx, cfz, rx, rz))
 end
 
 function DriveMath.spaced(total: number, skipStart: number, skipEnd: number, spacing: number, max: number): { number }

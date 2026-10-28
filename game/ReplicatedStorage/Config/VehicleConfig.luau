@@ -53,6 +53,10 @@ return Config.define({
 	RescueStuckSeconds = 5,
 	RescueStuckStuds = 3,
 	RescueRoadRange = 160, -- studs: a rescued truck goes to the nearest road node within this, else its spot
+	-- Trucks drive through these (collision group TruckPass; people still bump into them). Phone test drives got
+	-- stuck on the DonationBoard right in front of bay 1 and on tree canopies over the kerb across the exit.
+	TruckPassModels = { DonationBoard = true }, -- models (any depth under Workspace.Map) by name
+	TruckPassParts = { Canopy = true }, -- single parts by name
 	-- Driver's client (anti-tunnel): suspension rays start this far above the chassis centre, so a chassis
 	-- that sank into a thin road top still finds the surface and springs out instead of falling through;
 	-- if it sank deeper than SinkLift studs it is lifted back on top in the same frame.

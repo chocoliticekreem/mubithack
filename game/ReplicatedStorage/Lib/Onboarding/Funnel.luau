@@ -152,7 +152,9 @@ Funnel.Events = table.freeze({
 	--                          ("left|t30-60|r1|s0|w10+": quit the game or the call, seconds bucket, resets, stuck, wrong-way s)
 	TruckReset = "TruckReset", -- value: 1; "Truck reset!" (VehicleService.Rescued); F2 why, F3 call | free
 	TruckStuck = "TruckStuck", -- value: metres left; no progress for DriveConfig.StuckSeconds on a call;
-	--                            F2 role, F3 nodriver | idle | blocked | wrongway
+	--                            F2 role, F3 nodriver | notstarted | idle | blocked | wrongway
+	UnstuckApplied = "UnstuckApplied", -- value: metres left (0 off a call); the driver's client auto-unstuck the
+	--                                    truck (VehicleController); F2 role, F3 call | free
 	-- fire pacing per call (Services/CallPaceService at MissionEnded through FunnelService:LogCustomFields;
 	-- CustomField01 = device, CustomField02 = rookie | call). "Fires sit there, then come back" check.
 	FireHitTicks = "FireHitTicks", -- value: spray ticks that hit a burning part on this call

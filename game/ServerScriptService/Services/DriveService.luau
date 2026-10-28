@@ -12,8 +12,12 @@
 --                   left the game, or left the call (InstanceId changed) before arriving
 --       TruckReset  (value 1, F2 why: below | noground | sunk | stuck | settle | recall | manual, F3 call | free):
 --                   VehicleService.Rescued ("Truck reset!") or the R / RESPAWN TRUCK button
---       TruckStuck  (value = metres left, F2 role, F3 nodriver | idle | blocked | wrongway): on a call, the
---                   road distance left didn't shrink by DriveConfig.StuckStuds for StuckSeconds
+--       TruckStuck  (value = metres left, F2 role, F3 nodriver | notstarted | idle | blocked | wrongway): on a
+--                   call, the road distance left didn't shrink by DriveConfig.StuckStuds for StuckSeconds.
+--                   notstarted = the truck never rolled yet since DriveStart (the lobby seats the squad at launch,
+--                   so a kid reading the call card used to count as "idle"; that inflated TruckStuck ~ DriveStart)
+--       UnstuckApplied (value = metres left, 0 off a call; F2 role, F3 call | free): the driver's client auto-unstuck
+--                   the truck (VehicleController AUTO-UNSTICK, Drive/Unstuck C->S with the try index; 0 = no free spot)
 --     Distance = the road route (StarterPlayerScripts/ClientLib/Pathfind, the GPS's own A*) from the truck
 --     to the player's WaypointPos, recomputed every RouteRefresh s or when off it. Wrong way = moving at
 --     WrongWayMinSpeed+ while the road distance left grows.
@@ -25,7 +29,8 @@
 --   * Drive/TakeWheel (C->S): a rider on a call whose driver's seat is empty slides over
 --     (VehicleService:TakeWheel); DriveController shows TAKE THE WHEEL! after NoDriverSeconds.
 -- Counters: drive_starts, drive_starts_<role>, drive_arrives, drive_quits, drive_stuck, drive_stuck_<cause>,
---   drive_resets, drive_targets_spawned, drive_targets_out, drive_wheel_taken, drive_no_graph
+--   drive_resets, drive_targets_spawned, drive_targets_out, drive_wheel_taken, drive_no_graph, drive_unstuck,
+--   drive_unstuck_none (Drive/Unstuck C->S: the driver's client unstuck the truck / found no free spot)
 -- Test hooks (DevHook only): _state(player) -> JSON, _targets(runId?) -> number
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
@@ -65,6 +70,8 @@ type Drive = {
 	resets: number,
 	stuck: number,
 	wrongSecs: number,
+	rolled: boolean, -- the truck has moved since DriveStart
+	unstuck: number,
 }
 
 local services: { [string]: any } = {}
@@ -384,6 +391,8 @@ local function begin(player: Player, runId: string, run: Instance, seat: BasePar
 		resets = 0,
 		stuck = 0,
 		wrongSecs = 0,
+		rolled = false,
+		unstuck = 0,
 	}
 	drives[player] = d
 	count("drive_starts")
@@ -436,6 +445,9 @@ local function update(player: Player, d: Drive, dt: number)
 		local v = truck.PrimaryPart.AssemblyLinearVelocity
 		speed = Vector3.new(v.X, 0, v.Z).Magnitude
 	end
+	if speed >= 4 then
+		d.rolled = true
+	end
 	local wrong = false
 	if d.prevLeft and speed >= (Cfg.WrongWayMinSpeed or 8) and left > (d.prevLeft :: number) + 1 then
 		d.wrongSecs += dt
@@ -453,7 +465,7 @@ local function update(player: Player, d: Drive, dt: number)
 		local driveSeat = truck and truck:FindFirstChild("DriveSeat")
 		local hasDriver = driveSeat ~= nil and driveSeat:IsA("VehicleSeat") and driveSeat.Occupant ~= nil
 		local throttle = if hasDriver then (driveSeat :: VehicleSeat).ThrottleFloat else 0
-		local cause = DriveMath.stuckCause(hasDriver, throttle, speed, wrong or d.wrongSecs > 0 and speed > 4)
+		local cause = DriveMath.stuckCause(hasDriver, throttle, speed, wrong or d.wrongSecs > 0 and speed > 4, d.rolled)
 		count("drive_stuck")
 		count(`drive_stuck_{cause}`)
 		log(player, "TruckStuck", DriveMath.metres(left), d.role, cause)
@@ -480,7 +492,8 @@ local function tick(dt: number)
 				update(player, d, dt)
 			end
 		elseif d and run then
-			finish(player, d, "arrive")
+			-- on scene; a call that ended while still driving (time up, ended by an admin) is not an arrival
+			finish(player, d, if state == "Results" or state == "Lobby" then "cancel" else "arrive")
 		end
 	end
 	-- practice fires go once the run is on scene or over
@@ -545,6 +558,25 @@ function DriveService:Start()
 			end
 		end
 	end)
+	Net.onServer(Net.event("Drive", "Unstuck"), { rate = 1, burst = 2 }, function(player: Player, try: any)
+		local seat, truck = seatOf(player)
+		if not seat or not truck or seat.Name ~= "DriveSeat" then
+			return
+		end
+		local n = if type(try) == "number" then math.floor(try) else 0
+		if n <= 0 or n > 20 then
+			count("drive_unstuck_none")
+			return
+		end
+		count("drive_unstuck")
+		local d = drives[player]
+		if d then
+			d.unstuck += 1
+			d.bestAt = os.clock() -- just moved it: a fresh chance before another TruckStuck
+			d.inStuck = false
+		end
+		log(player, "UnstuckApplied", if d then DriveMath.metres(d.left) else 0, if d then d.role else "driver", if d then "call" else "free")
+	end)
 	local V = services.VehicleService
 	if V and V.Rescued then
 		V.Rescued:Connect(onRescued)
@@ -585,6 +617,8 @@ function DriveService:_state(player: Player): string
 		seconds = math.floor((os.clock() - d.t0) * 10) / 10,
 		resets = d.resets,
 		stuck = d.stuck,
+		unstuck = d.unstuck,
+		rolled = d.rolled,
 		wrongSecs = math.floor(d.wrongSecs * 10) / 10,
 	})
 end

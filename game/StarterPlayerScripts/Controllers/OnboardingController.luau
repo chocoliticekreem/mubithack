@@ -1631,12 +1631,29 @@ function OnboardingController:Start()
 		end)
 	end
 
+	-- touch, seated in a truck: no tutorial card / arrow over the drive (the stick, GPS and ARRIVING bar need
+	-- the small screen; "1/3 GRAB YOUR GEAR" stayed up the whole drive). It comes back when you get out.
+	local function truckOnTouch(): boolean
+		if not InputHints.isTouch() then
+			return false
+		end
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		local node: Instance? = hum and hum.SeatPart
+		while node and node ~= workspace do
+			if node:HasTag(Names.Tag.Truck) then
+				return true
+			end
+			node = node.Parent
+		end
+		return false
+	end
+
 	local t = 0
 	RunService.RenderStepped:Connect(function(dt: number)
 		t += dt
 		updateBoardLook(dt)
 		-- nothing over the title card, the Help panel or the mission picker
-		local busy = (ui.title and ui.title.gui.Enabled) or state.helpOpen or pickerOpen() or coldOpenPlaying()
+		local busy = (ui.title and ui.title.gui.Enabled) or state.helpOpen or pickerOpen() or coldOpenPlaying() or truckOnTouch()
 		local g = if busy then nil else currentGuide()
 		local cardOk, arrowOk = cardApplies(g)
 		showCard(if cardOk then g else nil)
