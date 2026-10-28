@@ -557,7 +557,8 @@ local function step(dt: number)
 		u.truck.Position = UDim2.new(1, 0, 0.5, 0)
 		u.extra.Visible = false
 	elseif onCall and seat and info and run then
-		u.bar.Visible = true
+		-- the driver gets the ETA inside the one turn card (below); the bar is for riders
+		u.bar.Visible = not isDriver
 		local callName = tostring(run:GetAttribute("Call") or "Fire")
 		local addr = run:GetAttribute("Address")
 		u.call.Text = Loc.t("{1} · {2}", { string.upper(Loc.t(callName)), if type(addr) == "string" then addr else "" })
@@ -632,6 +633,9 @@ local function step(dt: number)
 		wrongFor = 0
 	end
 	u.turnIcon.Rotation = rot
+	if showTurn and info and not info.arrived and wrongFor <= 0 and etaS > 0 then
+		u.turnDist.Text = Loc.t("{1} · arriving {2}s", { u.turnDist.Text, math.max(1, math.floor(etaS + 0.5)) })
+	end
 	u.turn.Visible = showTurn
 
 	-- rider with an empty driver's seat on a call

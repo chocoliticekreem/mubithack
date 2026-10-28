@@ -170,15 +170,17 @@ redraw = function()
 	pill.AutoButtonColor = true
 	pill.Parent = h
 	UiKit.corner(pill, 20)
-	UiKit.stroke(pill, 2.5, Palette.UiInk)
+	-- the outline goes round the PILL: on a TextButton UiKit.stroke outlines the letters, and dark ink round dark
+	-- text read as an unreadable black smear
+	UiKit.stroke(pill, 2.5, Palette.UiInk).ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	local cap = Instance.new("UITextSizeConstraint")
-	cap.MaxTextSize = 26
+	cap.MaxTextSize = 30
 	cap.Parent = pill
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 10)
 	pad.PaddingRight = UDim.new(0, 10)
-	pad.PaddingTop = UDim.new(0, 7)
-	pad.PaddingBottom = UDim.new(0, 7)
+	pad.PaddingTop = UDim.new(0, 4)
+	pad.PaddingBottom = UDim.new(0, 4)
 	pad.Parent = pill
 	UiKit.onTap(pill, function()
 		expand(pillSeconds())

@@ -647,7 +647,12 @@ local function updateHint(from: Vector3, to: Vector3, label: string, along: numb
 	local direct = Vector3.new(to.X - from.X, 0, to.Z - from.Z).Magnitude
 	local arrive = tonumber(NavigationConfig.ArriveRadius) or 45
 	if direct <= arrive then
-		mm:setHint("YOU'RE HERE!", string.upper(label), ICON.arrive)
+		mm:setHint(nil) -- arrived: no card (it stayed up over the fire HUD)
+		return
+	end
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum and hum.SeatPart then
+		mm:setHint(nil) -- driving: DriveController's turn card says it (one card, not two)
 		return
 	end
 	local poly = route

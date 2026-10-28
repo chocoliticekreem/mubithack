@@ -841,7 +841,7 @@ local function refresh(t: number)
 	-- heat
 	local heatAttr = player:GetAttribute(HEAT_ATTR)
 	local heat = if type(heatAttr) == "number" then math.clamp(heatAttr, 0, 100) else 0
-	u.heat.Visible = inRound or heat > 0
+	u.heat.Visible = heat > 0 -- only once you are getting hot (an empty gauge at 0 was clutter, and it showed while driving)
 	u.heatFill.Size = UDim2.fromScale(1, heat / 100)
 	u.heatPct.Text = tostring(math.floor(heat))
 	if heat >= 100 then
