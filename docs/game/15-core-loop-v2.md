@@ -112,3 +112,27 @@ Call Complete 11 -> Back In Lobby 8 (27% quit at the results).
 | NEXT CALL IN 5... auto-launch, STAY AT STATION, squad mates on the same results come along | ResultsController, DispatchService nextCall | |
 | DAILY CHEST: XP every day (25..150), Rookie Yellow helmet day 3, Slime hose day 5, Flamingo helmet day 7; owned -> +25 XP | Lib/Retention/DailyChest, ResultsFlowService, profile `daily` | |
 | Device tag (CustomField01) on the Mission funnel and on PadWaitSeconds, PadLeftBeforeLaunch, ResultsChoice, DailyChestOpened | FunnelService:LogDevice | |
+
+## Short early calls and one objective chip (2026-10-28)
+
+Live data (7 days): Mission funnel First Fire Out -> Mission Complete 685 -> 518 (24% quit, every device),
+Mission Complete -> Back In Lobby 16%, sessions 4.7-7.4 min (genre median 15.7). Calls were too long and it
+wasn't clear when they would end.
+
+What made calls long:
+- **Call 3 was a full call.** `GameConfig.Rookie` covers calls 1-2 only. Call 3 got the catalog call: 330-480 s
+  timers, 6-12 fires squad-scaled to at least `MinArrivalFires` 5, up to 9 rescues, a far site (700+ studs), and
+  two escalation phases (`at` 90 / 180 s) that **hold "all clear"** until they have fired. The panda zoo spread to
+  71 burning parts at once in the playtest.
+- Rookie calls (1-2) could still spread to 10 burning parts and had 2 rescues.
+- The call ended the instant the last objective was done (or silently, during the 10 s grace), with nothing on
+  screen saying how much was left: the HUD card showed FIRES LEFT and RESCUED a / b at the top left, far from the
+  timer.
+
+| Change | Where |
+|---|---|
+| Calls 1-5 use a size tier picked by the squad's newest player's call number (missionsPlayed + 1): calls 1-3 = 3-4 fires, at most 4-5 burning, 1 rescue, at most 1 short wave of 2 fires, 75-100 s on scene, nearest site. Calls 4-5 ramp toward the full call. | `Config/CallRampConfig`, `Lib/Mission/CallRamp`, MissionService |
+| Time running out on a tier call is CALL COMPLETE with the stars earned (at least 1), never TIME'S UP | MissionService buildPayload (`rookieWin`) |
+| Every call ends with "ALL DONE! 3..2..1" (cancelled if a fire flares up), then the results | MissionFlow `timing.doneDelay`, `CallRampConfig.AllDoneSeconds` |
+| One objective chip under the timer: 🔥 N FIRES LEFT -> 🐶 SAVE 1 MORE -> ⚠️ MORE FIRE COMING! -> ✅ ALL DONE! 3. The old top-left objectives card is hidden. | `ObjectiveChipController`, MissionService publishes ObjFires / ObjRescues / ObjRescueKind / ObjWave / DoneAt on the run folder |
+| `CallDuration` and `QuitMidCall` custom events by call number and device | `CallLengthService` (docs/game/20) |

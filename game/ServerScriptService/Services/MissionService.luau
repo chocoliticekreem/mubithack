@@ -62,6 +62,13 @@
 --   set piece, extra people at spare RescueSpawn markers, each with a banner. A phase fires `at` s after
 --   arrival or early after a quiet lull; "all clear" can't end the call while one is still to come.
 --   Counter: escalations.
+--   SHORT EARLY CALLS (Config/CallRampConfig, Lib/Mission/CallRamp): the squad's newest player's call number
+--   (missionsPlayed + 1; run folder attr CallIndex, payload.callIndex) picks a tier for calls 1..5: on-scene
+--   timer, arrival fires, fire cap, max rescues, at most N short waves, nearest site; time running out on a tier
+--   call is CALL COMPLETE (payload.rookieWin) with the stars earned, at least 1. Counter: ramp_calls.
+--   ONE OBJECTIVE CHIP: while Active the run folder carries ObjFires / ObjRescues / ObjRescueKind / ObjWave /
+--   DoneAt (ObjectiveChipController). Every call ends "ALL DONE! 3..2..1" (MissionFlow timing.doneDelay =
+--   CallRampConfig.AllDoneSeconds) before the results. Counter: calls_all_done.
 -- Test hooks (DevHook only): _startRound(locationId, seconds), _startMission(userIds|nil, missionId, seconds),
 --   _endMission(instanceId), _escalate(instanceId), _runInfo(instanceId), _selftest()
 local CollectionService = game:GetService("CollectionService")
