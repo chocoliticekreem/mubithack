@@ -17,6 +17,9 @@
 --                                              its ContextActionService title)
 --   ThumbLayout.forget(action)                 before UnbindAction
 --   ThumbLayout.clusterLeft() -> number        screen px x where the cluster starts (keep widgets left of it)
+--   ThumbLayout.MinSmall                       px: no small button is smaller than this (64)
+-- Every button fires on InputBegan (Touch / MouseButton1: Begin, End on release) AND, when no Begin went
+-- out for a press, on GuiButton.Activated (a quick Begin + End). Test hook: Player.ThumbTest:Invoke(action).
 -- The handler is called as handler(action, Begin / End, nil), exactly like ContextActionService does.
 -- Roblox's own ContextActionService touch buttons are hidden: they live in a small frame by the jump
 -- button that clipped / mis-placed buttons on some phones (SPRAY simply did not show), so we never rely
@@ -30,6 +33,8 @@ local ThumbLayout = {}
 export type Slot = "primary" | "above" | "upleft" | "left" | "upfar" | "leftfar" | "jump"
 type Handler = (string, Enum.UserInputState, any) -> any
 
+ThumbLayout.MinSmall = 64 -- px: the smallest thumb button (SWAP, DROP, THROW, HOSE...)
+
 local ORDER: { Slot } = { "primary", "above", "upleft", "left", "upfar", "leftfar" }
 
 type Entry = { slot: Slot, want: Slot, seq: number, handler: Handler?, button: TextButton?, label: string? }
@@ -37,6 +42,7 @@ local entries: { [string]: Entry } = {}
 local gui: ScreenGui? = nil
 local hooked = false
 local seqN = 0
+local tapAction: (string) -> boolean -- below (screen()'s test hook calls it)
 
 local function isTouch(): boolean
 	local ok, InputHints = pcall(function()
@@ -77,7 +83,8 @@ end
 local function slotRect(slot: Slot): (Vector2, number)
 	local jc, j = jumpRect()
 	local big = math.floor(j * 1.2)
-	local small = math.floor(j * 0.75)
+	-- small buttons never under MIN_SMALL px (a kid's thumb: HOSE was 52 px on a 750-wide phone)
+	local small = math.max(ThumbLayout.MinSmall, math.floor(j * 0.75))
 	local gap = math.max(8, math.floor(j * 0.15))
 	local primary = Vector2.new(jc.X - (j / 2 + gap + big / 2), jc.Y + j * 0.05)
 	if slot == "jump" then
@@ -116,6 +123,17 @@ local function screen(): ScreenGui
 	g.DisplayOrder = 20
 	g.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	gui = g
+	-- test hook (Studio MCP / ForgeTest, where nothing can send a real touch): ThumbTest:Invoke("TapHose")
+	-- presses that button the way Activated does -> true when it was placed with a handler
+	local lp = Players.LocalPlayer
+	if not lp:FindFirstChild("ThumbTest") then
+		local hook = Instance.new("BindableFunction")
+		hook.Name = "ThumbTest"
+		hook.OnInvoke = function(action: string): boolean
+			return tapAction(action)
+		end
+		hook.Parent = lp -- not PlayerGui: that one is emptied on respawn
+	end
 	return g
 end
 
@@ -136,6 +154,22 @@ local function hideRoblox(action: string)
 	if b then
 		b.Visible = false
 	end
+end
+
+-- one quick press of a placed button: Begin, then End (the Activated fallback and the test hook)
+tapAction = function(action: string): boolean
+	local e = entries[action]
+	if not e or not e.handler then
+		return false
+	end
+	task.spawn(e.handler, action, Enum.UserInputState.Begin, nil)
+	task.delay(0.05, function()
+		local e2 = entries[action]
+		if e2 and e2.handler then
+			e2.handler(action, Enum.UserInputState.End, nil)
+		end
+	end)
+	return true
 end
 
 local function makeButton(action: string): TextButton
@@ -170,6 +204,7 @@ local function makeButton(action: string): TextButton
 	lim.Parent = l
 	-- press / release drive the bound handler like ContextActionService would
 	local down = false
+	local began = false -- a Begin went out for this press (Activated is the fallback when it didn't)
 	local function fire(state: Enum.UserInputState)
 		local e = entries[action]
 		if e and e.handler then
@@ -181,6 +216,7 @@ local function makeButton(action: string): TextButton
 		if t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
 			if not down then
 				down = true
+				began = true
 				b.BackgroundTransparency = 0.05
 				fire(Enum.UserInputState.Begin)
 			end
@@ -193,6 +229,15 @@ local function makeButton(action: string): TextButton
 			b.BackgroundTransparency = 0.25
 			fire(Enum.UserInputState.End)
 		end
+	end)
+	-- Activated (any click / tap that lands, whatever input type the device emulator or a stylus reports):
+	-- if no Begin went out for it, this press still counts, as one quick Begin + End
+	b.Activated:Connect(function()
+		if began then
+			began = false
+			return
+		end
+		tapAction(action)
 	end)
 	b.Parent = screen()
 	-- edge arrows / world markers stay off the thumb buttons

@@ -11,6 +11,9 @@ return Config.define({
 	Tagline = "Save the day. Blame your friends.",
 	TitleSeconds = 2.2, -- first join (returning players get a short 1.6 s version); short: the training fire is waiting
 	ReturningTitleSeconds = 1.6,
+	-- a lobby tutorial card (gear / board / pad) up this long with no progress hides (the world arrow
+	-- stays); it also hides while you sit in a truck (OnboardingController.cardApplies)
+	StaleCardSeconds = 120,
 	-- tutorial copy: head = header, sub = small line under it ({bay} {enter} {siren} {horn} are filled in).
 	-- Key hints ("press E") are rewritten for touch / gamepad by ClientLib/InputHints; subTouch / subPad
 	-- replace a line whole where that rewrite isn't enough.

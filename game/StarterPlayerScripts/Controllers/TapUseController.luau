@@ -6,7 +6,7 @@
 --     OnePerButton picked) and the originals come back on keyboard / gamepad. InventoryController's
 --     "[E] Grab Axe" stickers stand down on touch too.
 --   * ONE use bubble over the most relevant thing in reach (rescue > pick-ups > the rest, then nearest):
---     a 56 px cream circle with a one-word verb (GRAB, HOSE, FILL, OPEN...) that follows the thing on
+--     a 64 px cream circle with a one-word verb (GRAB, HOSE, FILL, OPEN...) that follows the thing on
 --     screen (ScreenGui "TapBubble"). Tap it to use it.
 --   * Fire trucks get a SECOND, green IN bubble (ScreenGui "TapBubbleIn") pinned to the door you would get
 --     in by: the driver's door while the driver seat is free, else the nearest free crew seat. That bubble
@@ -15,7 +15,12 @@
 --     "Tap IN to get in" hint shows. The truck's hose prompt (TruckHosePrompt, which lives on the
 --     chassis) is drawn and tapped at the reel, not the chassis centre.
 --   * HOSE thumb button (ThumbLayout slot "upfar", the T key on touch) while a "Grab Hose" prompt (truck
---     or hydrant) is in reach.
+--     or hydrant) is in reach. It stays up HOSE_LINGER s after the prompt drops out of reach (it used to
+--     flicker on / off at the truck's back, where the reach edge is, and a tap landed on a dead button),
+--     and a press re-picks the hose then. Truck gear (reel, lockers) is looked for out to GEAR_RANGE, the
+--     truck hose prompt's own reach, not the shorter IN range (right behind the reel there was no HOSE).
+--   * Truck lockers / gear racks (GRAB) and the hose go straight to the server (Inventory/Take,
+--     Inventory/Reel): Roblox ignores InputHoldBegin on a prompt it isn't showing.
 --   * Tap the thing itself: a ray from the tap (your own character ignored) and a snap radius, so a
 --     fat-finger tap next to an axe still grabs it. In range: it happens (a hold prompt holds for its
 --     HoldDuration, with a ring filling). Out of range: a small "walk closer" pop over it.
@@ -47,8 +52,10 @@ local TRUCK_GEAR_TAP = 8 -- studs from the tap point to a truck reel / locker th
 local player = Players.LocalPlayer
 local SNAP = 6 -- studs: a tap this close to a prompt's part counts as a tap on it
 local REACH_SLACK = 2 -- studs past a prompt's MaxActivationDistance that still count (the server re-checks)
-local BUBBLE_PX = 56 -- on screen, never scaled: a thumb-sized target on every phone
+local BUBBLE_PX = 64 -- on screen, never scaled: a thumb-sized target on every phone (>= 64 px)
 local HOSE_ACTION = "TapHose"
+local HOSE_LINGER = 0.8 -- s the HOSE button stays after its prompt leaves reach (no flicker at the edge)
+local GEAR_RANGE = 26 -- studs from a truck's chassis: its gear (hose reel prompt reach 24 + slack) counts
 local TOP_BAND = 0.36 -- of the screen height: the top HUD (timer, call / guide cards) lives above this
 local TRUCK_HIDDEN = { DoorPrompt = true, SeatPrompt = true }
 
@@ -68,6 +75,8 @@ local bubbleTarget: Target? = nil
 local inBubble: ScreenGui? = nil
 local inTarget: Target? = nil
 local hoseTarget: Target? = nil
+local hoseLast: Target? = nil
+local hoseSeenAt = 0
 local hosePlaced = false
 local busyUntil = 0
 
@@ -309,6 +318,14 @@ local function use(t: Target): boolean
 		count("tap_hose")
 		return true
 	end
+	local holder = prompt.Parent
+	if prompt.Name == "InvPrompt" and holder and holder:IsA("BasePart") and holder:GetAttribute("Stocked") ~= nil then
+		-- a truck locker / gear rack: same reason as the hose (off-screen prompts ignore InputHoldBegin)
+		busyUntil = os.clock() + 0.5
+		Net.event("Inventory", "Take"):FireServer(prompt)
+		count("tap_take")
+		return true
+	end
 	local hold = math.max(0, prompt.HoldDuration)
 	busyUntil = os.clock() + hold + 0.4
 	prompt:InputHoldBegin()
@@ -377,12 +394,12 @@ local function makeBubble(name: string, getTarget: () -> Target?, fill: Color3?)
 	return gui
 end
 
-local function nearestTruck(): Model?
+local function nearestTruck(range: number?): Model?
 	local r = root()
 	if not r or seated() then
 		return nil
 	end
-	local best, bestD = nil :: Model?, (tonumber(VehicleConfig.TapEnterRange) or 22) - 1
+	local best, bestD = nil :: Model?, range or ((tonumber(VehicleConfig.TapEnterRange) or 22) - 1)
 	for _, m in CollectionService:GetTagged(Names.Tag.Truck) do
 		if m:IsA("Model") and m.PrimaryPart and m:IsDescendantOf(workspace) then
 			local d = (m.PrimaryPart.Position - r.Position).Magnitude
@@ -405,7 +422,7 @@ local function candidates(): { ProximityPrompt }
 		seen[prompt] = true
 		table.insert(list, prompt)
 	end
-	local truck = nearestTruck()
+	local truck = nearestTruck(GEAR_RANGE)
 	if truck then
 		for _, d in truck:GetDescendants() do
 			if d:IsA("ProximityPrompt") and not seen[d] and usable(d) then
@@ -469,8 +486,13 @@ local function pickHose(): Target?
 end
 
 local function onHoseButton(_: string, state: Enum.UserInputState, _i: any): Enum.ContextActionResult
-	if state == Enum.UserInputState.Begin and hoseTarget then
-		use(hoseTarget :: Target)
+	if state == Enum.UserInputState.Begin then
+		-- re-pick now (the button lingers a moment past the reach edge); the server re-checks distance
+		-- (never the lingering one once the hose is in your hand: a second tap would stow it again)
+		local t = pickHose() or (if player:GetAttribute("InvHand") == "Hose" then nil else hoseTarget or hoseLast)
+		if t then
+			use(t :: Target)
+		end
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -478,11 +500,18 @@ end
 local function refreshHoseButton()
 	local t = if touch() then pickHose() else nil
 	hoseTarget = t
-	if t and not hosePlaced then
+	if t then
+		hoseLast, hoseSeenAt = t, os.clock()
+	end
+	local holding = player:GetAttribute("InvHand") == "Hose"
+	local want = t ~= nil
+		or (touch() and not seated() and not holding and hoseLast ~= nil and os.clock() - hoseSeenAt < HOSE_LINGER)
+	if want and not hosePlaced then
 		hosePlaced = true
 		ThumbLayout.place(HOSE_ACTION, "upfar", onHoseButton, "HOSE")
-	elseif not t and hosePlaced then
+	elseif not want and hosePlaced then
 		hosePlaced = false
+		hoseLast = nil
 		ThumbLayout.forget(HOSE_ACTION)
 	end
 end

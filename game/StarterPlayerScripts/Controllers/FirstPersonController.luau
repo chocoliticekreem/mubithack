@@ -72,6 +72,12 @@ local CAM = {
 	LobbyZoom = 14,
 	SmokeRange = 26, -- studs: Burning parts closer than this darken the screen edges
 	SootAfter = 10, -- seconds near fire until gloves are fully sooty
+	-- Third person with the camera squeezed in close (a truck / locker / wall right behind you, or a pinch
+	-- zoom): your own body fades so it never fills the screen (a big avatar head was the whole phone
+	-- screen at 2.2 studs; Roblox's own fade only starts under ~1.5 studs). Studs from camera to body.
+	FadeFar = 6, -- starts fading
+	FadeNear = 2.5, -- fully faded (to FadeMax)
+	FadeMax = 0.9,
 }
 
 local ATTR_HEAT = Names.Attr.Heat
@@ -447,6 +453,42 @@ local function carriedModel(): Model?
 	return if m and m:IsA("Model") then m else nil
 end
 
+-- Close-camera fade (third person only): how much of your own body to fade, 0..CAM.FadeMax, from the
+-- camera's distance to the nearest of head / torso. Pure, so it is easy to reason about.
+local function closeFade(dist: number): number
+	if dist >= CAM.FadeFar then
+		return 0
+	end
+	local k = math.clamp((CAM.FadeFar - dist) / (CAM.FadeFar - CAM.FadeNear), 0, 1)
+	return k * CAM.FadeMax
+end
+
+local fadedBody: Model? = nil
+local fadedAmount = 0
+local function fadeBody(char: Model?, amount: number)
+	if fadedBody and (fadedBody ~= char or amount <= 0) then
+		if fadedBody.Parent then
+			for _, d in fadedBody:GetDescendants() do
+				if d:IsA("BasePart") and not d:FindFirstAncestorOfClass("Tool") then
+					d.LocalTransparencyModifier = 0
+				end
+			end
+		end
+		fadedBody, fadedAmount = nil, 0
+	end
+	if not char or amount <= 0 then
+		return
+	end
+	-- the default camera scripts write LocalTransparencyModifier too (only when their own value changes),
+	-- so write every frame while fading; this runs after them (RenderPriority.Camera + 1)
+	fadedBody, fadedAmount = char, amount
+	for _, d in char:GetDescendants() do
+		if d:IsA("BasePart") and not d:FindFirstAncestorOfClass("Tool") then
+			d.LocalTransparencyModifier = amount
+		end
+	end
+end
+
 local function updateScreen(dt: number)
 	local o = overlay
 	if not o then
@@ -580,6 +622,24 @@ local function step(dt: number)
 	local fp = state.enabled and not scripted and isFirstPerson(cam, char) and hum ~= nil and hum.Health > 0
 	setBodyShadows(char, fp)
 	fadeCarried(if fp then carriedModel() else nil)
+	-- third person, camera squeezed in close: fade your own body (never a screen full of your own head)
+	-- (Player.DevCameraOcclusionMode is server-only, so no client-side Invisicam: the fade is the fix)
+	local onFoot = not seated(char)
+	local fade = 0
+	if not fp and not scripted and onFoot and char and state.enabled then
+		local head = char:FindFirstChild("Head") :: BasePart?
+		local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+		local camPos = cam.CFrame.Position
+		local d = math.huge
+		if head then
+			d = (camPos - head.Position).Magnitude
+		end
+		if torso and torso:IsA("BasePart") then
+			d = math.min(d, (camPos - torso.Position).Magnitude)
+		end
+		fade = closeFade(d)
+	end
+	fadeBody(char, fade)
 	local downed = attr(Names.Attr.Downed) == true
 
 	-- head bob and landing dip (camera)

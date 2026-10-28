@@ -135,6 +135,8 @@ local looseOrder: { Model } = {}
 local reelLoose: { [BasePart]: { Model } } = {} -- nozzles lying on the ground, still tethered to the reel
 local flyers: { Flyer } = {}
 local stockHooked: { [BasePart]: true } = setmetatable({}, { __mode = "k" }) :: any
+-- stock prompt -> its locker / rack part + display, for Inventory/Take (the touch GRAB bubble)
+local stockOf: { [ProximityPrompt]: { part: BasePart, display: Model? } } = setmetatable({}, { __mode = "k" }) :: any
 local promptHooked: { [ProximityPrompt]: true } = setmetatable({}, { __mode = "k" }) :: any
 -- hose prompt -> its reel / hydrant body. Strong keys (an Instance key in a weak table can vanish while the
 -- Instance lives), dropped when the prompt is destroyed.
@@ -1172,6 +1174,7 @@ local function hookStock(inst: Instance, kind: string)
 	end
 	local prompt = invPrompt(part, `Grab {displayName(id)}`, if kind == TAG_COMPARTMENT then "Truck" else "Gear Rack", Cfg.GrabDistance)
 	part:SetAttribute("Stocked", true)
+	stockOf[prompt] = { part = part, display = display }
 	prompt.Triggered:Connect(function(player: Player)
 		onStock(player, part, prompt, display)
 	end)
@@ -1632,6 +1635,21 @@ function InventoryService:Start()
 		if src and prompt.Enabled and src:IsDescendantOf(workspace) then
 			Telemetry.count("inv_hose_tap")
 			onReel(player, src)
+		end
+	end)
+	-- the touch GRAB bubble on a truck locker / gear rack (TapUseController): straight to the server, like
+	-- Inventory/Reel. Roblox ignores InputHoldBegin on a prompt it isn't showing (off screen, or picked up
+	-- from the truck's own list while you stand at its back), so a tap on GRAB did nothing there.
+	-- onStock re-checks stock, Enabled and distance.
+	Net.onServer(Net.event("Inventory", "Take"), { rate = 3, burst = 2 }, function(player: Player, prompt: any)
+		local st = if typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") then stockOf[prompt] else nil
+		if st and st.part:IsDescendantOf(workspace) then
+			local _, _, hum = charOf(player)
+			if hum and hum.SeatPart then
+				return
+			end
+			Telemetry.count("inv_take_tap")
+			onStock(player, st.part, prompt, st.display)
 		end
 	end)
 	folder()
