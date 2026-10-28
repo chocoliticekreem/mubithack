@@ -38,6 +38,9 @@
 --                                                               Services/SocialAskService); returns the new count
 --   p.achievements (added inside v8, no bump): { stats, unlocked, sites } (Services/AchievementService,
 --     rules: ReplicatedStorage/Lib/Achievements/AchievementRules). A missing table reads as empty.
+--   p.retention (added inside v8, no bump): { lastJoinDay, notify = { asks, answer, at }, rookie = { shows, bought,
+--     boostLeft, receipts } } (Services/RetentionService, Services/RookiePackService). A missing table is blank.
+--   ProfileSchema.addRookieReceipt(p, purchaseId): boolean   -- ROOKIE PACK receipt applied (false = duplicate)
 --   ProfileSchema.xpForLevel(level): number                  -- lifetime XP at the start of `level`
 --   ProfileSchema.tryLock(envelope, jobId, now, ttl): (Envelope?, string?)
 --   ProfileSchema.release(envelope, jobId): (Envelope?, string?)
@@ -69,6 +72,7 @@ export type Profile = {
 	updates: Updates, -- v8: WHAT'S NEW panel (UpdateLogService)
 	daily: Daily, -- (inside v8, no bump) DAILY CHEST streak (Services/ResultsFlowService, Lib/Retention/DailyChest)
 	achievements: Achievements, -- v8 (no bump): AchievementService
+	retention: Retention, -- v8 (no bump): come-back data (RetentionService, RookiePackService)
 	weekly: Weekly,
 	meta: { created: number, lastSeen: number, sessions: number },
 }
@@ -92,6 +96,15 @@ export type Daily = { lastDay: number, streak: number, total: number }
 -- stats = counter by AchievementConfig.Stats name; unlocked = achievement id -> unix time; sites = SiteIds
 -- worked (EXPLORER). Added inside v8 without a bump (a missing table is empty), like updates.likeAsks.
 export type Achievements = { stats: { [string]: number }, unlocked: { [string]: number }, sites: { [string]: boolean } }
+-- lastJoinDay = UTC day of the previous join (the return-gap analytics); notify = the in-game "remind me" ask
+-- (asks shown, answer "" | "no" | "accepted" | "declined", at = unix time of the answer); rookie = the ROOKIE PACK
+-- (shows = offers shown ever, bought, boostLeft = seconds of 2x XP left, receipts = PurchaseIds applied).
+-- Added inside v8 without a bump, like daily / achievements.
+export type Retention = {
+	lastJoinDay: number,
+	notify: { asks: number, answer: string, at: number },
+	rookie: { shows: number, bought: boolean, boostLeft: number, receipts: { string } },
+}
 export type Lock = { jobId: string, expires: number }
 export type Envelope = { data: any, lock: Lock? }
 export type CosmeticDef = { id: string, slot: string, level: number }
@@ -149,6 +162,16 @@ function ProfileSchema.weekId(unixSeconds: number): number
 	return (math.floor(unixSeconds) - MONDAY_OFFSET) // SECONDS_PER_WEEK
 end
 
+function ProfileSchema.blankRetention(): Retention
+	return {
+		lastJoinDay = 0,
+		notify = { asks = 0, answer = "", at = 0 },
+		rookie = { shows = 0, bought = false, boostLeft = 0, receipts = {} },
+	}
+end
+
+local NOTIFY_ANSWERS = { [""] = true, no = true, accepted = true, declined = true }
+
 function ProfileSchema.default(now: number): Profile
 	local settings: { [string]: any } = {}
 	for key, def in ProfileSchema.Settings do
@@ -185,6 +208,7 @@ function ProfileSchema.default(now: number): Profile
 		updates = { lastSeen = "", prompted = "", likeAsks = 0 },
 		daily = { lastDay = 0, streak = 0, total = 0 },
 		achievements = { stats = {}, unlocked = {}, sites = {} },
+		retention = ProfileSchema.blankRetention(),
 		weekly = { week = ProfileSchema.weekId(now), rescues = 0, blamePoints = 0, missions = 0 },
 		meta = { created = math.floor(now), lastSeen = math.floor(now), sessions = 0 },
 	}
@@ -511,6 +535,32 @@ function ProfileSchema.reconcile(p: any, now: number): Profile
 			ach[key] = nil
 		end
 	end
+
+	local ret = if type(p.retention) == "table" then p.retention else {}
+	local n = if type(ret.notify) == "table" then ret.notify else {}
+	local r = if type(ret.rookie) == "table" then ret.rookie else {}
+	local rookieReceipts: { string } = {}
+	if type(r.receipts) == "table" then
+		for _, id in r.receipts do
+			if type(id) == "string" and #id <= 64 and #rookieReceipts < 10 then
+				table.insert(rookieReceipts, id)
+			end
+		end
+	end
+	p.retention = {
+		lastJoinDay = count(ret.lastJoinDay),
+		notify = {
+			asks = math.min(count(n.asks), 100),
+			answer = if type(n.answer) == "string" and NOTIFY_ANSWERS[n.answer] then n.answer else "",
+			at = count(n.at),
+		},
+		rookie = {
+			shows = math.min(count(r.shows), 100),
+			bought = r.bought == true,
+			boostLeft = math.min(count(r.boostLeft), 24 * 3600),
+			receipts = rookieReceipts,
+		},
+	}
 
 	if type(p.weekly) ~= "table" then
 		p.weekly = d.weekly
@@ -905,6 +955,40 @@ function ProfileSchema.markLikeAsked(p: Profile): number
 	local u = updatesOf(p)
 	u.likeAsks = math.min(count(u.likeAsks) + 1, 1000)
 	return u.likeAsks
+end
+
+-------------------------------------------------------------------------------------- retention
+
+local function retentionOf(p: Profile): Retention
+	local r = (p :: any).retention
+	if type(r) ~= "table" or type(r.rookie) ~= "table" or type(r.notify) ~= "table" then
+		r = ProfileSchema.blankRetention();
+		(p :: any).retention = r
+	end
+	if type(r.rookie.receipts) ~= "table" then
+		r.rookie.receipts = {}
+	end
+	return r
+end
+
+-- The ROOKIE PACK receipt: idempotent per PurchaseId (a re-sent receipt never grants twice).
+function ProfileSchema.addRookieReceipt(p: Profile, purchaseId: string): boolean
+	if type(purchaseId) ~= "string" or purchaseId == "" then
+		return false
+	end
+	local rk = retentionOf(p).rookie
+	if table.find(rk.receipts, purchaseId) then
+		return false
+	end
+	table.insert(rk.receipts, purchaseId)
+	while #rk.receipts > 10 do
+		table.remove(rk.receipts, 1)
+	end
+	return true
+end
+
+function ProfileSchema.retention(p: Profile): Retention
+	return retentionOf(p)
 end
 
 function ProfileSchema.setSetting(p: Profile, key: string, value: any): boolean

@@ -31,6 +31,7 @@
 --   PassRules.unequip(pass, slot) -> boolean
 --   PassRules.sanitizeEquipped(pass, premium, opts) -> boolean   -- drops what you no longer own
 --   PassRules.mergeLegacy(pass, legacy, opts, legacyOpts?) -> boolean   -- one-time import of the old store
+--   PassRules.grantExtra(pass, ids, opts) -> { string }  -- owned outside the tiers, any season (newly added ids)
 --   PassRules.countdown(seconds) -> "12d 4h" | "3h 20m" | "4m 10s" | "ENDED"
 
 export type Pass = {
@@ -41,6 +42,7 @@ export type Pass = {
 	equipped: { [string]: string },
 	legacy: boolean,
 	curve: number?,
+	extra: { [string]: boolean }?, -- rewards owned outside the tiers (ROOKIE PACK); kept across seasons
 }
 export type Opts = {
 	perTier: number,
@@ -131,6 +133,35 @@ function PassRules.blank(season: string): Pass
 	return { season = season, xp = 0, free = {}, premium = {}, equipped = {}, legacy = false }
 end
 
+-- extra rewards: { [id] = true }, ids only (unknown ids are kept: a later config may define them). nil = none.
+local function cleanExtra(v: any): { [string]: boolean }?
+	if type(v) ~= "table" then
+		return nil
+	end
+	local out: { [string]: boolean } = {}
+	local any = false
+	for id, on in v do
+		if type(id) == "string" and #id <= 40 and on == true then
+			out[id] = true
+			any = true
+		end
+	end
+	return if any then out else nil
+end
+
+function PassRules.grantExtra(p: Pass, ids: { string }, opts: Opts): { string }
+	local new: { string } = {}
+	for _, id in ids do
+		if type(id) == "string" and opts.rewards[id] ~= nil and not (p.extra and p.extra[id]) then
+			local e = p.extra or {}
+			e[id] = true
+			p.extra = e
+			table.insert(new, id)
+		end
+	end
+	return new
+end
+
 function PassRules.reconcile(p: any, season: string): (Pass, boolean)
 	if type(p) ~= "table" then
 		return PassRules.blank(season), false
@@ -141,6 +172,7 @@ function PassRules.reconcile(p: any, season: string): (Pass, boolean)
 		local legacy = p.legacy == true
 		local fresh = PassRules.blank(season)
 		fresh.legacy = legacy
+		fresh.extra = cleanExtra(p.extra)
 		return fresh, true
 	end
 	p.xp = math.max(0, math.floor(num(p.xp, 0)))
@@ -156,6 +188,7 @@ function PassRules.reconcile(p: any, season: string): (Pass, boolean)
 	end
 	p.equipped = eq
 	p.legacy = p.legacy == true
+	p.extra = cleanExtra(p.extra)
 	local cv = p.curve
 	p.curve = if type(cv) == "number" and cv == cv and cv % 1 == 0 and cv >= 1 then cv else nil
 	return p :: Pass, false
@@ -371,6 +404,13 @@ function PassRules.owned(p: Pass, premium: boolean, opts: Opts): { [string]: boo
 		for _, t in p.premium do
 			local id = rewardId(t, "premium", opts)
 			if id then
+				out[id] = true
+			end
+		end
+	end
+	if type(p.extra) == "table" then
+		for id, on in p.extra do
+			if on == true and opts.rewards[id] ~= nil then
 				out[id] = true
 			end
 		end

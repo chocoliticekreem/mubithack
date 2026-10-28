@@ -533,6 +533,12 @@ local function passKey(id: number): string
 end
 
 local function productKey(id: number): string
+	local okR, Retention = pcall(function()
+		return require(game:GetService("ReplicatedStorage"):WaitForChild("Config"):WaitForChild("RetentionConfig") :: ModuleScript) :: any
+	end)
+	if okR and type(Retention) == "table" and id > 0 and Retention.RookiePack.ProductId == id then
+		return "rookie_pack"
+	end
 	for _, p in MonetizationConfig.DonationProducts or {} do
 		if type(p) == "table" and p.id == id then
 			return `donation_{p.robux}`

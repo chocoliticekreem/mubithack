@@ -12,7 +12,10 @@
 --     attr ResultsStay = true until the player's next call (DispatchService's NEXT CALL leaves them out).
 -- Telemetry: FunnelService:LogDevice (CustomField01 = device): ResultsChoice (value: seconds the results
 --   were up, kind tap | auto | stay), DailyChestOpened (value: streak day, kind: reward id).
--- Writes: Player attrs DailyStreak (streak day of the last chest), DailyChestToday (true = opened today)
+-- Writes: Player attrs DailyStreak (streak day of the last chest), DailyChestToday (true = opened today), and the
+--   come-back preview (RetentionRules.chestPreview, drawn by ClientLib/ComeBack): DailyNextWhen ("today" |
+--   "tomorrow"), DailyNextDay (streak day 1..7), DailyNextXp, DailyNextCosmetic ("" | DataConfig cosmetic id),
+--   DailyStreakNow (the streak the player is on now, 0 = none)
 -- Counters: daily_chest_opened, daily_chest_day<n>, daily_chest_xp, daily_chest_cosmetic,
 --   results_choice_<kind>, results_choice_<kind>_<device>
 -- Test hooks (DevHook only): _grant(player) -> JSON (opens today's chest if it can), _reset(player),
@@ -27,6 +30,7 @@ local Names = require(Shared:WaitForChild("Names") :: ModuleScript)
 local Telemetry = require(ReplicatedStorage:WaitForChild("ForgeTelemetry") :: ModuleScript)
 local DataConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("DataConfig") :: ModuleScript) :: any
 local DailyChest = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Retention"):WaitForChild("DailyChest") :: ModuleScript)
+local RetentionRules = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Retention"):WaitForChild("RetentionRules") :: ModuleScript)
 
 local ResultsFlowService = {}
 ResultsFlowService.Priority = 96 -- after DataService (20), MissionService (60), FunnelService (95)
@@ -72,12 +76,22 @@ local function today(): number
 	return DailyChest.dayOf(os.time())
 end
 
-local function setAttrs(player: Player, d: any)
+local function setAttrs(player: Player, d: any, owned: any)
 	if type(d) ~= "table" then
 		return
 	end
 	player:SetAttribute("DailyStreak", d.streak or 0)
 	player:SetAttribute("DailyChestToday", (d.lastDay or 0) == today())
+	local pv = RetentionRules.chestPreview(d, today(), if type(owned) == "table" then owned else nil)
+	player:SetAttribute("DailyNextWhen", pv.when)
+	player:SetAttribute("DailyNextDay", pv.day)
+	player:SetAttribute("DailyNextXp", pv.xp)
+	player:SetAttribute("DailyNextCosmetic", pv.cosmetic or "")
+	player:SetAttribute("DailyStreakNow", pv.streak)
+end
+
+local function ownedOf(p: any): any
+	return type(p) == "table" and type(p.cosmetics) == "table" and p.cosmetics.owned or nil
 end
 
 -- Open today's chest for `player` if they haven't yet. Returns the payload sent to the client, or nil.
@@ -120,7 +134,7 @@ local function grant(player: Player): { [string]: any }?
 		end)
 	end
 	local after = Data:GetProfile(player)
-	setAttrs(player, after and after.daily)
+	setAttrs(player, after and after.daily, ownedOf(after))
 	local nextDay = (r.day % DailyChest.MaxStreak) + 1
 	local payload = {
 		day = r.day,
@@ -177,7 +191,7 @@ local function onPlayer(player: Player)
 		if Data and type(Data.WaitForProfile) == "function" then
 			local ok, p = pcall(Data.WaitForProfile, Data, player, 30)
 			if ok and type(p) == "table" and player.Parent == Players then
-				setAttrs(player, p.daily)
+				setAttrs(player, p.daily, ownedOf(p))
 			end
 		end
 	end)
@@ -234,6 +248,7 @@ function ResultsFlowService:_reset(player: Player): boolean
 	end)
 	player:SetAttribute("DailyStreak", 0)
 	player:SetAttribute("DailyChestToday", false)
+	setAttrs(player, DailyChest.blank(), nil)
 	return ok
 end
 

@@ -50,6 +50,15 @@ Spec.test("a new player's first session: only the like-ask, once; the rest wait 
 	Spec.eq(R.decide("like", st({ newbieSession = true, autoShown = R.NewbieCap })), "defer")
 end)
 
+Spec.test("the remind-me ask: allowed in the first session (after the first call), spaced from the like-ask", function()
+	Spec.eq(R.decide("notify", st({ onboarding = true, newbieSession = true })), "drop")
+	Spec.eq(R.decide("notify", st({ newbieSession = true })), "show")
+	Spec.eq(R.decide("notify", st({ newbieSession = true, open = "like" })), "wait")
+	Spec.eq(R.decide("like", st({ newbieSession = true, autoShown = 1, now = 100, lastEnd = 99 })), "wait")
+	Spec.eq(R.decide("like", st({ newbieSession = true, autoShown = 1, now = 100, lastEnd = 100 - R.Gap })), "show")
+	Spec.eq(R.NewbieCap <= 2, true, "never more than two asks in a new player's first session")
+end)
+
 Spec.test("returning players: at most SessionCap auto modals a session", function()
 	Spec.eq(R.decide("offer", st({ autoShown = R.SessionCap - 1 })), "show")
 	Spec.eq(R.decide("offer", st({ autoShown = R.SessionCap })), "defer")

@@ -8,6 +8,7 @@
 --   OfferCard.build(parent, offer, opts?) -> Frame   -- 262 x 124 design units, anchored per opts
 --     opts.position: UDim2, opts.anchor: Vector2, opts.onClose: () -> () (after BUY or No thanks)
 --   OfferCard.price(key, fallback) -> number          -- cached GetProductInfo price
+-- A key that isn't a pass (the ROOKIE PACK) draws offer.name / offer.icon / offer.color (hex) instead.
 local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -70,7 +71,12 @@ end
 function OfferCard.build(parent: Instance, offer: { [string]: any }, opts: { [string]: any }?): Frame
 	local o = opts or {}
 	local key = tostring(offer.key)
-	local def = defOf(key) or {}
+	local def = defOf(key)
+	if not def then
+		-- not a game pass (the ROOKIE PACK developer product): the offer carries its own name / icon / colour
+		local okC, c = pcall(Color3.fromHex, tostring(offer.color or ""))
+		def = { name = offer.name, icon = offer.icon, color = if okC then c else nil, price = offer.price }
+	end
 	local id = tonumber(offer.id) or 0
 	local W, H = OfferCard.Width, OfferCard.Height
 

@@ -10,7 +10,7 @@
 --   2. After that, at most ONE auto modal at a time, and a modal only Gap seconds after the last pop-up
 --      (modal or centre card) went away.
 --   3. A session shows at most SessionCap auto modals (a brand-new player's first session: NewbieCap, and
---      only the kinds marked newbie = true). Everything else is "defer": it stays pending (a red dot, the
+--      only the kinds marked newbie = true: the like-ask and the remind-me ask). Everything else is "defer": it stays pending (a red dot, the
 --      server's flag) and gets its turn next session.
 --
 --   PopupGateRules.Kinds[kind] = { class = "modal" | "card" | "toast" | "banner", prio, newbie }
@@ -21,7 +21,9 @@ local PopupGateRules = {}
 
 PopupGateRules.Gap = 8 -- seconds between one pop-up going away and the next auto modal
 PopupGateRules.SessionCap = 2 -- auto modals per session (returning players)
-PopupGateRules.NewbieCap = 1 -- in the session a player was new in
+-- in the session a player was new in: the remind-me ask (notify) and the like-ask, never more. Day-1 return was
+-- 1-2 %, so the one ask that brings them back tomorrow gets its slot in the first session (docs/game/21-retention.md)
+PopupGateRules.NewbieCap = 2
 
 export type Kind = { class: string, prio: number, newbie: boolean }
 
@@ -29,6 +31,7 @@ PopupGateRules.Kinds = table.freeze({
 	-- auto modals (one at a time, spaced, capped per session)
 	news = table.freeze({ class = "modal", prio = 2, newbie = false }), -- WHAT'S NEW (UpdateLog)
 	like = table.freeze({ class = "modal", prio = 3, newbie = true }), -- "Having fun? 👍" (SocialAsk)
+	notify = table.freeze({ class = "modal", prio = 2, newbie = true }), -- "🔔 Remind me tomorrow?" (RetentionController)
 	offer = table.freeze({ class = "modal", prio = 3, newbie = false }), -- lobby pass offer card
 	-- centre cards: LEVEL UP / NEW GEAR / TIER UP (HudLayout.celebrate takes turns already)
 	celebrate = table.freeze({ class = "card", prio = 5, newbie = true }),

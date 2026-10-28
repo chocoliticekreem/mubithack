@@ -117,6 +117,7 @@ local function asPass(s: { [string]: any }): PassRules.Pass
 		premium = s.premiumClaimed or {},
 		equipped = s.equipped or {},
 		legacy = true,
+		extra = s.extra, -- ROOKIE PACK rewards owned outside the tiers
 	}
 end
 

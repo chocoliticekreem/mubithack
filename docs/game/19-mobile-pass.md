@@ -63,7 +63,7 @@ Pop-ups that open **by themselves** ask it first; things the player opens never 
    they announce is still saved (XP bar, gear, TROPHIES / NEWS dots).
 2. After that, one auto modal at a time, and only `Gap` (8) s after the last pop-up or card went away.
 3. At most `SessionCap` (2) auto modals a session; in the session a player was new in, `NewbieCap` (1) and
-   only the like-ask. WHAT'S NEW and the lobby pass offer wait for the next session (the NEWS dot stays).
+   only the like-ask. (Since doc 21: `NewbieCap` 2, the like-ask and the remind-me ask `notify`.) WHAT'S NEW and the lobby pass offer wait for the next session (the NEWS dot stays).
 
 First join, measured (a screen sampler logging every gui that appears, 667x375, touch):
 

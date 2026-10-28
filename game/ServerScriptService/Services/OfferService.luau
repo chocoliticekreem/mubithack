@@ -10,6 +10,11 @@
 --   * lobby: back at the station after a call that levelled you up, when no results offer was shown for
 --     it (MinGapSeconds), once per session: OfferController's small corner card.
 --   Caps: MaxPerSession offers, MinGapSeconds apart, MaxDeclines "No thanks" per pass, never a rookie call.
+--   * ROOKIE PACK (Services/RookiePackService, Config/RetentionConfig.RookiePack): on the results of the player's
+--     2nd finished call ever (and later results if the caps blocked it), ONCE ever, in place of a pass offer and
+--     under the same MaxPerSession / MinGapSeconds caps (not ResultsEvery: call 2 may be the session's 1st
+--     non-rookie call). Key "RookiePack" (field "RookiePack_results"); BUY opens the developer product prompt.
+--     ProductId 0 = never offered.
 -- "For sale" = a configured id whose GetProductInfo says IsForSale (checked once per server; an
 -- unanswered check counts as for sale, the purchase prompt itself is the final word).
 -- Remotes: Monetization/Offer   (S->C owner: { id, key, reason, moment, price, headline, short })
@@ -41,6 +46,8 @@ local OfferService = {}
 OfferService.Priority = 96 -- after MonetizationService (60), MissionService (60), FunnelService (95)
 
 local O = Cfg.Offers
+local RetentionConfig = require(ReplicatedStorage:WaitForChild("Config"):WaitForChild("RetentionConfig") :: ModuleScript) :: any
+local ROOKIE_KEY = "RookiePack"
 local INSTANCE_ATTR: string = (Names.Attr :: any).InstanceId or "InstanceId"
 
 type Pending = { id: number, key: string, moment: string, shownAt: number? }
@@ -163,6 +170,42 @@ local function send(player: Player, s: State, key: string, reason: string, momen
 	return `sent {key} ({reason}, {moment})`
 end
 
+-- the ROOKIE PACK instead of a pass offer on this results screen? (its own once-ever rule + the session caps)
+local function tryRookie(player: Player, s: State, rookie: boolean): boolean
+	local RP = services.RookiePackService
+	if not RP or type(RP.ShouldOffer) ~= "function" or rookie then
+		return false
+	end
+	if s.shown >= (tonumber(O.MaxPerSession) or 4) or os.clock() - s.lastShown < (tonumber(O.MinGapSeconds) or 150) then
+		return false
+	end
+	local ok, should = pcall(RP.ShouldOffer, RP, player, rookie)
+	if not ok or not should then
+		return false
+	end
+	local r = offerRemote
+	if not r or player:GetAttribute("FirstCallDone") == false then
+		return false
+	end
+	local P = RetentionConfig.RookiePack
+	s.nextId += 1
+	s.pending = { id = s.nextId, key = ROOKIE_KEY, moment = "results" }
+	count("offer_sent")
+	r:FireClient(player, {
+		id = s.nextId,
+		key = ROOKIE_KEY,
+		reason = "rookie",
+		moment = "results",
+		price = RP:Price(),
+		headline = P.Headline,
+		short = P.Short,
+		name = P.Name,
+		icon = P.Icon,
+		color = P.Color,
+	})
+	return true
+end
+
 local function ctxFor(player: Player, s: State, moment: string, signals: Rules.Signals, rookie: boolean): Rules.Ctx
 	return {
 		moment = moment,
@@ -214,6 +257,10 @@ local function onMissionEnded(runId: string, payload: any)
 				passXp = tonumber(player:GetAttribute("PassRunXp")) or 0,
 				bigFire = big >= (tonumber(O.BigFire) or 12),
 			}
+			if tryRookie(player, s, rookie) then
+				s.levelUpUnoffered = false
+				return
+			end
 			local key, reason = Rules.pick(ctxFor(player, s, "results", signals, rookie), O)
 			-- the lobby card may pick up a level up the results screen didn't use
 			s.levelUpUnoffered = levelUp and key == nil and not rookie
@@ -260,13 +307,24 @@ local function onAct(player: Player, action: any, id: any)
 		end
 		count("offer_shown")
 		log(player, "OfferShown", 1, field)
+		if p.key == ROOKIE_KEY then
+			local RP = services.RookiePackService
+			if RP and type(RP.NoteShown) == "function" then
+				RP:NoteShown(player)
+			end
+		end
 	elseif action == "buy" then
 		s.pending = nil
 		s.clicked[p.key] = { at = os.clock(), moment = p.moment }
 		count("offer_clicked")
 		log(player, "OfferClicked", 1, field)
 		local M = services.MonetizationService
-		if M and type(M.PromptPass) == "function" then
+		local RP = services.RookiePackService
+		if p.key == ROOKIE_KEY then
+			if RP and type(RP.Prompt) == "function" then
+				RP:Prompt(player)
+			end
+		elseif M and type(M.PromptPass) == "function" then
 			M:PromptPass(player, p.key)
 		end
 	elseif action == "no" then
@@ -365,6 +423,18 @@ function OfferService:_offer(player: Player, moment: string?, reason: string?): 
 	local s = states[player]
 	if not s then
 		return "no state"
+	end
+	if reason == "rookie" then -- Studio: the ROOKIE PACK card itself (even with ProductId 0: BUY then does nothing)
+		local r = offerRemote
+		if not r then
+			return "no remote"
+		end
+		local P = RetentionConfig.RookiePack
+		s.nextId += 1
+		s.pending = { id = s.nextId, key = ROOKIE_KEY, moment = moment or "results" }
+		r:FireClient(player, { id = s.nextId, key = ROOKIE_KEY, reason = "rookie", moment = moment or "results", price = P.Price,
+			headline = P.Headline, short = P.Short, name = P.Name, icon = P.Icon, color = P.Color })
+		return "sent RookiePack (test)"
 	end
 	local list = Rules.candidates(ctxFor(player, s, moment or "results", {}, false), O)
 	if #list == 0 then
