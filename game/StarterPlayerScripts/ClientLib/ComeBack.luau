@@ -113,7 +113,7 @@ function ComeBack.card(parent: Instance, me: Player, opts: { [string]: any }?): 
 		then (if string.find(cos, "^hose") then "+ NEW HOSE" else "+ NEW HELMET")
 		else Loc.t("DAY {1} CHEST", { day })
 	local W = tonumber(o.width) or 270
-	local H = if unlock then 166 else 128
+	local H = if unlock then 184 else 128
 	local card = UiKit.panel(parent, "ComeBackCard", UDim2.fromOffset(W, H), o.position or UDim2.new(), o.anchor or Vector2.zero)
 	card.BackgroundColor3 = Color3.fromHex("#FFE2A8")
 	card.ZIndex = 6
@@ -161,7 +161,7 @@ function ComeBack.card(parent: Instance, me: Player, opts: { [string]: any }?): 
 	})
 	sub.ZIndex = 8
 	if unlock then
-		local u = UiKit.label(card, "Unlock", unlock, UDim2.new(1, -16, 0, 36), UDim2.fromOffset(8, 124), {
+		local u = UiKit.label(card, "Unlock", unlock, UDim2.new(1, -16, 0, 54), UDim2.fromOffset(8, 122), {
 			font = UiKit.Header,
 			textSize = 26,
 			color = Palette.UiInk,

@@ -117,7 +117,7 @@ local function buildCard()
 	local h = Instance.new("Frame")
 	h.Name = "ComeBack"
 	h.BackgroundTransparency = 1
-	h.Size = UDim2.fromOffset(290, 166)
+	h.Size = UDim2.fromOffset(290, 184)
 	-- right of the left chip column (13 + 118 px wide, HudLayout "Chips"), like the lobby offer card
 	h.Position = UDim2.fromOffset(143, 0)
 	h.Visible = false

@@ -622,8 +622,14 @@ end
 local function processReceipt(receipt: any, products: any): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(tonumber(receipt and receipt.PlayerId) or 0)
 	local Data = services.DataService
-	local bought = Rules.product(products, receipt and receipt.ProductId)
-	local isRookie = bought ~= nil and (bought :: any).kind == "rookie"
+	-- Rules.product returns { id, robux } only: look the kind up on the configured entry itself
+	local isRookie = false
+	local boughtId = tonumber(receipt and receipt.ProductId) or 0
+	for _, prod in (if type(products) == "table" then products else {}) :: { any } do
+		if type(prod) == "table" and prod.id == boughtId and boughtId > 0 and prod.kind == "rookie" then
+			isRookie = true
+		end
+	end
 	local decision, why = Rules.process(receipt, products, {
 		ledgerHas = ledgerHas,
 		ledgerPut = ledgerPut,
