@@ -2072,4 +2072,11 @@ return {
 	["ROOKIE PACK! 2x XP for 30 min + Rookie Star Helmet + Rookie Blue Truck Paint!"] = "¡PACK NOVATO! 2x XP por 30 min + Casco Estrella Novato + Pintura Azul Novato para el camión!",
 	["Rookie Star Helmet"] = "Casco Estrella Novato",
 	["Rookie Blue Truck Paint"] = "Pintura Azul Novato",
+	-- the one objective chip on a call (Controllers/ObjectiveChipController)
+	["{1} FIRES LEFT"] = "QUEDAN {1} FUEGOS",
+	["1 FIRE LEFT"] = "QUEDA 1 FUEGO",
+	["SAVE {1} MORE"] = "SALVA {1} MÁS",
+	["MORE FIRE COMING!"] = "¡VIENE MÁS FUEGO!",
+	["ALL DONE!"] = "¡LISTO!",
+	["ALL DONE! {1}"] = "¡LISTO! {1}",
 }

@@ -78,6 +78,8 @@ local ConfigFolder = ReplicatedStorage:WaitForChild("Config")
 local GameConfig = require(ConfigFolder:WaitForChild("GameConfig") :: ModuleScript) :: any
 local MissionCatalog = require(ConfigFolder:WaitForChild("MissionCatalog") :: ModuleScript) :: { any }
 local MissionFlow = require(ServerScriptService:WaitForChild("Lib"):WaitForChild("Mission"):WaitForChild("MissionFlow") :: ModuleScript)
+local CallRampConfig = require(ConfigFolder:WaitForChild("CallRampConfig") :: ModuleScript) :: any
+local CallRamp = require(ReplicatedStorage:WaitForChild("Lib"):WaitForChild("Mission"):WaitForChild("CallRamp") :: ModuleScript)
 
 local MissionService = {}
 MissionService.Priority = 60
@@ -125,6 +127,10 @@ type Live = {
 	downs: number,
 	payload: Types.ResultsPayload?,
 	rookie: boolean?, -- GameConfig.Rookie: someone in the squad is on one of their first calls
+	callIndex: number?, -- the squad's newest player's lifetime call number (CallRamp.index)
+	ramp: any?, -- Config/CallRampConfig tier for that call (nil = the catalog call as written)
+	chip: { [string]: any }?, -- last objective chip attrs published (publishChip)
+	rampPhases: { any }?, -- the tier's escalation phases (CallRamp.phases), cached
 }
 
 local services: { [string]: any } = {}
@@ -226,10 +232,38 @@ local function rookieCfg(run: Live): any?
 	return if run.rookie and type(GameConfig.Rookie) == "table" then GameConfig.Rookie else nil
 end
 
+-- Config/CallRampConfig: the squad's call number (newest player) and its tier (short early calls).
+local function squadCallIndex(players: { Player }): number
+	local Data = services.DataService
+	local played: { number } = {}
+	for _, p in players do
+		local n = 0
+		if Data and type(Data.GetProfile) == "function" then
+			local ok, profile = pcall(Data.GetProfile, Data, p)
+			n = if ok and type(profile) == "table" then (tonumber(profile.missionsPlayed) or 0) else 0
+		end
+		table.insert(played, n)
+	end
+	return CallRamp.index(played)
+end
+
+-- The call's size limits: its CallRamp tier, else the rookie config (GameConfig.Rookie), else nil.
+local function sizeCfg(run: Live): any?
+	return run.ramp or rookieCfg(run)
+end
+
+local function fireCap(run: Live): number?
+	if run.ramp then
+		return CallRamp.cap(run.ramp, math.max(1, #run.players), CallRampConfig.CapPerExtraPlayer)
+	end
+	local rk = rookieCfg(run)
+	return if rk then tonumber(rk.FireCap) else nil
+end
+
 -- The run's rescue list: the catalog's, squad-scaled, capped on rookie calls.
 local function wantedRescues(run: Live): { { kind: string, count: number } }
 	local wanted = MissionFlow.scaledRescues(run.def.rescues or {}, math.max(1, #run.players), GameConfig.RescuesPerExtraPlayers or 0)
-	local rk = rookieCfg(run)
+	local rk = sizeCfg(run)
 	if rk and tonumber(rk.MaxRescues) then
 		wanted = MissionFlow.capRescues(wanted, rk.MaxRescues)
 	end
@@ -350,8 +384,9 @@ end
 
 -- observation for MissionFlow.tick -----------------------------------------------------------------
 
-local function rescueCounts(run: Live): (number, number, number)
+local function rescueCounts(run: Live): (number, number, number, string?)
 	local rescued, trapped, lost = 0, 0, 0
+	local kind: string? = nil -- the first one still to carry out (objective chip icon)
 	for _, m in CollectionService:GetTagged(Names.Tag.Rescuable) do
 		if m:GetAttribute(Names.Attr.InstanceId) == run.id or m:IsDescendantOf(run.model) then
 			local state = m:GetAttribute(Names.Attr.RescueState)
@@ -363,10 +398,14 @@ local function rescueCounts(run: Live): (number, number, number)
 				lost += 1
 			else
 				trapped += 1
+				if kind == nil then
+					local k = m:GetAttribute(Names.Attr.Kind)
+					kind = if type(k) == "string" then k else "Civilian"
+				end
 			end
 		end
 	end
-	return rescued, trapped, lost
+	return rescued, trapped, lost, kind
 end
 
 local function burningCount(run: Live): number
@@ -567,6 +606,9 @@ end
 -- Fires the call should have burning on scene for this squad (docs/game/08 "squad scaling"):
 -- max(fires.count, GameConfig.MinArrivalFires) * (1 + FireScalePerPlayer * (players - 1)), rounded.
 local function fireTarget(run: Live): number
+	if run.ramp and tonumber(run.ramp.ArrivalFires) then
+		return MissionFlow.scaledFires(run.ramp.ArrivalFires, math.max(1, #run.players), GameConfig.FireScalePerPlayer or 0)
+	end
 	local rk = rookieCfg(run)
 	if rk and tonumber(rk.ArrivalFires) then
 		return rk.ArrivalFires
@@ -856,8 +898,8 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		integrity = integrity,
 		firesOut = run.firesOut,
 	})
-	-- rookie call that ran out of time: a win with what they did (at least 1 star), never TIME'S UP
-	local rk = rookieCfg(run)
+	-- rookie / early (CallRamp) call that ran out of time: a win with what they did (at least 1 star), never TIME'S UP
+	local rk = sizeCfg(run)
 	local rookieWin = rk ~= nil and rk.TimeoutIsWin == true and outcome == "time"
 	if rookieWin then
 		stars = math.max(stars, 1)
@@ -886,6 +928,7 @@ local function buildPayload(run: Live): Types.ResultsPayload
 		squadSize = #run.players,
 		rookie = run.rookie == true, -- ResultsController: "CALL COMPLETE!" instead of TIME'S UP
 		rookieWin = rookieWin,
+		callIndex = run.callIndex, -- CallRamp: the squad's newest player's call number
 	} :: any
 end
 
@@ -959,9 +1002,9 @@ local function onArrived(run: Live)
 	playSound(run.players, "RollOut")
 	safe("flare-up", function()
 		local Fire = services.FireService
-		local rk = rookieCfg(run)
-		if rk and Fire and type(Fire.SetAreaCap) == "function" then
-			Fire:SetAreaCap(run.model, tonumber(rk.FireCap)) -- again: the run's interior is furnished by now
+		local cap = fireCap(run)
+		if cap and Fire and type(Fire.SetAreaCap) == "function" then
+			Fire:SetAreaCap(run.model, cap) -- again: the run's interior is furnished by now
 		end
 		local already = if Fire and type(Fire.CountBurning) == "function" then (Fire:CountBurning(run.id) or 0) else 0
 		local want = fireTarget(run)
@@ -1066,7 +1109,7 @@ local function onDoneDispatch(run: Live)
 		if Fire and type(Fire.ClearInstance) == "function" then
 			Fire:ClearInstance(run.id)
 		end
-		if run.rookie and Fire and type(Fire.SetAreaCap) == "function" then
+		if fireCap(run) and Fire and type(Fire.SetAreaCap) == "function" then
 			Fire:SetAreaCap(run.model, nil) -- the site's next call (maybe not a rookie's) burns normally
 		end
 	end)
@@ -1162,6 +1205,8 @@ local function handle(run: Live, events: { string })
 			onActive(run)
 		elseif ev == "arrived" then
 			onArrived(run)
+		elseif ev == "alldone" then
+			count("calls_all_done")
 		elseif ev == "ended" then
 			onEnded(run)
 		elseif ev == "done" then
@@ -1207,15 +1252,17 @@ end
 
 local function escalationPhases(run: Live): { any }
 	local rk = rookieCfg(run)
-	if rk and rk.NoEscalation then
+	if rk and rk.NoEscalation and not run.ramp then
 		return {}
 	end
 	local e = run.def.escalation
-	if type(e) == "table" then
-		return e
-	end
 	local cfg = GameConfig.Escalation
-	return if type(cfg) == "table" and type(cfg.Default) == "table" then cfg.Default else {}
+	local phases = if type(e) == "table" then e elseif type(cfg) == "table" and type(cfg.Default) == "table" then cfg.Default else {}
+	if run.ramp then
+		run.rampPhases = run.rampPhases or CallRamp.phases(run.ramp, phases) -- early call: at most Waves short waves
+		return run.rampPhases :: { any }
+	end
+	return phases
 end
 
 local function hazardFx(kind: string, pos: Vector3, params: { [string]: any }?)
@@ -1339,6 +1386,46 @@ local function escalationTick(run: Live, obs: MissionFlow.Obs, t: number): boole
 	return true
 end
 
+-- The ONE objective chip (Controllers/ObjectiveChipController) reads these attrs on the run's Workspace.Runs /
+-- Workspace.Instances folder (or the v1.5 instance model): ObjFires (burning), ObjRescues (still to carry out),
+-- ObjRescueKind, ObjWave (a follow-up wave is still to come), DoneAt (server time "ALL DONE!" completes, 0 = not
+-- yet). Written only while Active and only when a value changed.
+local function publishChip(run: Live, obs: MissionFlow.Obs?)
+	if not obs or run.flow.state ~= "Active" then
+		return
+	end
+	local kind: string? = nil
+	if obs.trapped > 0 then
+		local _, _, _, k = rescueCounts(run)
+		kind = k
+	end
+	local want: { [string]: any } = {
+		ObjFires = obs.burning,
+		ObjRescues = obs.trapped,
+		ObjRescueKind = kind or "",
+		ObjWave = obs.held == true,
+		DoneAt = run.flow.doneAt,
+	}
+	local last = run.chip or {}
+	local targets: { Instance } = {}
+	for _, inst in { run.folder, run.mirror } :: { Instance? } do
+		if inst then
+			table.insert(targets, inst)
+		end
+	end
+	if run.mode ~= "dispatch" then
+		table.insert(targets, run.model)
+	end
+	for k, v in want do
+		if last[k] ~= v then
+			for _, inst in targets do
+				inst:SetAttribute(k, v)
+			end
+		end
+	end
+	run.chip = want
+end
+
 local function tickAll()
 	local t = now()
 	for _, run in runs do
@@ -1352,6 +1439,9 @@ local function tickAll()
 				obs.held = escalationTick(run, obs, t)
 			end
 			handle(run, MissionFlow.tick(run.flow, t, obs))
+			if obs and runs[run.id] == run then
+				publishChip(run, obs)
+			end
 		end)
 		if not ok then
 			warn(`[MissionService] tick {run.id} failed: {err}`)
@@ -1590,7 +1680,10 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 	local o: StartOpts = opts or {}
 	local rookie = isRookieSquad(players)
 	local rk = if rookie and type(GameConfig.Rookie) == "table" then GameConfig.Rookie else nil
-	local site, siteId = chooseSite(def.id, o.origin, o.siteId, rk ~= nil and rk.NearestSite == true)
+	local callIndex = squadCallIndex(players)
+	local ramp = CallRamp.tier(CallRampConfig, callIndex)
+	local nearest = (rk ~= nil and rk.NearestSite == true) or (ramp ~= nil and ramp.NearestSite == true)
+	local site, siteId = chooseSite(def.id, o.origin, o.siteId, nearest)
 	if not (site and siteId) then
 		return nil
 	end
@@ -1620,7 +1713,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 	})
 	local fastIn = if (GameConfig.FastArrivalSeconds or 0) > 0 then GameConfig.FastArrivalSeconds else math.floor(travel * 0.75)
 	local flow = MissionFlow.newDispatch({
-		seconds = seconds or def.seconds or GameConfig.RoundSeconds,
+		seconds = seconds or (ramp and tonumber(ramp.Seconds)) or def.seconds or GameConfig.RoundSeconds,
 		travel = travel,
 		fastArrival = fastIn,
 		arrivalBonus = GameConfig.ArrivalBonusSeconds,
@@ -1628,6 +1721,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 		intro = 0,
 		results = GameConfig.DispatchResultsSeconds or GameConfig.ResultsSeconds,
 		grace = GameConfig.AllOutGraceSeconds,
+		doneDelay = CallRampConfig.AllDoneSeconds,
 	}, now())
 
 	local addr = model:GetAttribute(SITE.Address)
@@ -1651,6 +1745,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 		f:SetAttribute("Call", call)
 		f:SetAttribute("DispatchedAt", flow.startedAt)
 		f:SetAttribute("Rookie", rookie) -- DriveController / VehicleController: rookie straight-road boost
+		f:SetAttribute("CallIndex", callIndex) -- CallRamp: the squad's newest player's call number
 		local ref = Instance.new("ObjectValue")
 		ref.Name = "Site"
 		ref.Value = model
@@ -1680,14 +1775,22 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 		downs = 0,
 		payload = nil,
 		rookie = rookie,
+		callIndex = callIndex,
+		ramp = ramp,
 	}
 	resetBlame(players)
 	if rk then
 		count("rookie_calls")
-		safe("rookie fire cap", function()
+	end
+	if ramp then
+		count("ramp_calls")
+	end
+	local cap = fireCap(run)
+	if cap then
+		safe("early call fire cap", function()
 			local Fire = services.FireService
 			if Fire and type(Fire.SetAreaCap) == "function" then
-				Fire:SetAreaCap(model, tonumber(rk.FireCap))
+				Fire:SetAreaCap(model, cap)
 			end
 		end)
 	end
@@ -1723,7 +1826,7 @@ local function startDispatch(players: { Player }, def: any, seconds: number?, op
 	count("missions_started")
 	count("missions_dispatched")
 	print(
-		`[MissionService] {id} DISPATCHED: {def.id} at {siteId} ({address}), {math.floor(dist)} studs, {travel}s travel, {run.firesLit} fires, {#players} player(s){if rookie then " ROOKIE" else ""}`
+		`[MissionService] {id} DISPATCHED: {def.id} at {siteId} ({address}), {math.floor(dist)} studs, {travel}s travel, {run.firesLit} fires, {#players} player(s), call #{callIndex}{if rookie then " ROOKIE" else ""}`
 	)
 	return id
 end
@@ -1790,6 +1893,7 @@ function MissionService:StartMission(squad: { Player }, missionId: string, secon
 		intro = GameConfig.IntroSeconds,
 		results = GameConfig.ResultsSeconds,
 		grace = GameConfig.AllOutGraceSeconds,
+		doneDelay = CallRampConfig.AllDoneSeconds,
 	}, t)
 	local squadId = players[1]:GetAttribute(Names.Attr.SquadId)
 	local run: Live = {
@@ -1891,6 +1995,7 @@ function MissionService:GetMission(instanceId: string): Types.MissionRun?
 		roundState = state, -- raw: "Dispatched" while driving
 		mode = run.mode,
 		rookie = run.rookie == true, -- GameConfig.Rookie (TwistService: no twist on a rookie call)
+		callIndex = run.callIndex,
 	} :: any
 end
 

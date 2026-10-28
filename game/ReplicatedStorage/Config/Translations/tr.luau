@@ -2072,4 +2072,11 @@ return {
 	["ROOKIE PACK! 2x XP for 30 min + Rookie Star Helmet + Rookie Blue Truck Paint!"] = "ÇAYLAK PAKETİ! 30 dk 2x XP + Çaylak Yıldız Kask + Çaylak Mavi Kamyon Boyası!",
 	["Rookie Star Helmet"] = "Çaylak Yıldız Kask",
 	["Rookie Blue Truck Paint"] = "Çaylak Mavi Kamyon Boyası",
+	-- the one objective chip on a call (Controllers/ObjectiveChipController)
+	["{1} FIRES LEFT"] = "{1} ATEŞ KALDI",
+	["1 FIRE LEFT"] = "1 ATEŞ KALDI",
+	["SAVE {1} MORE"] = "{1} TANE DAHA KURTAR",
+	["MORE FIRE COMING!"] = "DAHA FAZLA ATEŞ GELİYOR!",
+	["ALL DONE!"] = "HEPSİ TAMAM!",
+	["ALL DONE! {1}"] = "HEPSİ TAMAM! {1}",
 }

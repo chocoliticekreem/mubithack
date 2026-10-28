@@ -173,6 +173,11 @@ Funnel.Events = table.freeze({
 	--                          next_day | d2_6 | d7plus, F3 days since install d0 | d1 | d2_6 | d7plus
 	RookiePackBought = "RookiePackBought", -- value: R$; field offer (within 10 min of its BUY) | other
 	-- (ROOKIE PACK shown / clicked / declined: OfferShown / OfferClicked / OfferDeclined, field "RookiePack_results")
+	-- call length (Services/CallLengthService; CustomField01 = device, CustomField02 = the player's lifetime call
+	-- number bucket "1".."5" | "6-10" | "11+", Lib/Mission/CallRamp.bucket). Live: 24% quit between the first
+	-- fire out and the end of the call; Config/CallRampConfig keeps calls 1-3 under ~2 minutes.
+	CallDuration = "CallDuration", -- value: seconds from dispatch to the results; F3 win | timeout | fail
+	QuitMidCall = "QuitMidCall", -- value: seconds into the call when they quit; F3 drive | scene | left_drive | left_scene
 })
 
 export type Track = { last: number }
