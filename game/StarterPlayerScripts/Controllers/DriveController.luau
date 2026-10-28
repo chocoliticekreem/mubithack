@@ -592,6 +592,7 @@ local function step(dt: number)
 	-- driver: big turn arrow / WRONG WAY (touch: always up on a call)
 	local showTurn = false
 	local rot = 0
+	local always = Cfg.TouchTurnAlways == true and InputHints.isTouch() -- touch: never hides (and keeps TURN at the corner)
 	if isDriver and onCall and info and not info.arrived and truck then
 		local look = truck:GetPivot().LookVector
 		local dot = look.X * info.dx + look.Z * info.dz
@@ -610,13 +611,17 @@ local function step(dt: number)
 			u.turnText.Text = Loc.t("WRONG WAY!")
 			u.turnDist.Text = Loc.t("TURN AROUND")
 			u.turnIcon.TextColor3 = WARN
-		elseif info.turn and info.turnDist <= (tonumber(Cfg.TurnShowStuds) or 110) and info.turnDist >= (tonumber(Cfg.TurnHideStuds) or 6) then
+		elseif
+			info.turn
+			and info.turnDist <= (tonumber(Cfg.TurnShowStuds) or 110)
+			and (info.turnDist >= (tonumber(Cfg.TurnHideStuds) or 6) or always)
+		then
 			showTurn = true
 			u.turnIcon.Text = ICON[info.turn] or "⬆"
 			u.turnText.Text = if info.turn == "uturn" then Loc.t("U-TURN") else Loc.t("TURN {1}", { Loc.t(string.upper(info.turn)) })
 			u.turnDist.Text = metres(info.turnDist)
 			u.turnIcon.TextColor3 = Color3.fromHex("#7FF5F0")
-		elseif Cfg.TouchTurnAlways and InputHints.isTouch() then
+		elseif always then
 			showTurn = true
 			u.turnIcon.Text = "⬆"
 			u.turnText.Text = Loc.t("STRAIGHT ON")

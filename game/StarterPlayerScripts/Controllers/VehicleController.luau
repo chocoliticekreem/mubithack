@@ -101,6 +101,7 @@ local savedFov = 70
 local respawnButton: TextButton? = nil
 local STATION_RADIUS = 150 -- studs from a TruckBay that count as "at the station"
 local hintLabel: TextLabel? = nil
+local unstuckLabel: TextLabel? = nil
 local camMode = "chase" -- "chase" | "cab"
 local riding: Model? = nil -- truck the local player sits in as a passenger
 local hiddenParts: { [BasePart]: boolean } = {}
@@ -391,8 +392,21 @@ local function unstickStep(truck: Model, chassis: BasePart, push: number)
 	lastUnstick = now
 	local ok, try = pcall(unstick, truck, chassis, push)
 	local worked = ok and type(try) == "number"
-	if worked then
-		pop(chassis, Loc.t("UNSTUCK!"), Color3.fromRGB(120, 230, 140), Vector3.new(0, 10, 0))
+	local un = unstuckLabel
+	if worked and un then
+		un.Text = Loc.t("UNSTUCK!")
+		un.TextTransparency = 0
+		un.TextStrokeTransparency = 0.2
+		un.Visible = true
+		TweenService:Create(un, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.8), {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+		task.delay(1.4, function()
+			if un.TextTransparency > 0.95 then
+				un.Visible = false
+			end
+		end)
 	end
 	pcall(function()
 		Net.event("Drive", "Unstuck"):FireServer(if worked then try else 0)
@@ -1133,6 +1147,21 @@ local function makeRespawnButton()
 	pad.Parent = hint
 	hint.Parent = gui
 	hintLabel = hint
+	-- "UNSTUCK!" toast (AUTO-UNSTICK): small, centre screen just under the turn card, ~1.2 s
+	local un = Instance.new("TextLabel")
+	un.Name = "Unstuck"
+	un.AnchorPoint = Vector2.new(0.5, 0.5)
+	un.Position = UDim2.fromScale(0.5, 0.5)
+	un.Size = UDim2.fromOffset(220, 40)
+	un.BackgroundTransparency = 1
+	un.Font = Enum.Font.LuckiestGuy
+	un.TextScaled = true
+	un.TextColor3 = Color3.fromRGB(140, 240, 150)
+	un.TextStrokeTransparency = 0.2
+	un.Text = ""
+	un.Visible = false
+	un.Parent = gui
+	unstuckLabel = un
 	gui.Parent = pg
 	local HudLayout = require(script.Parent.Parent:WaitForChild("ClientLib"):WaitForChild("HudLayout") :: ModuleScript) :: any
 	HudLayout.reserve(hint) -- world markers / edge arrows stay off the driving hints
