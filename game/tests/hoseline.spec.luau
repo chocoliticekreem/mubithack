@@ -131,13 +131,13 @@ Spec.test("shouldTrip: running across trips, walking or far away doesn't", funct
 	Spec.eq(HoseLine.shouldTrip(20, 3, cfg), false, "not on the hose")
 end)
 
-Spec.test("truckDriving: someone in the driver seat or rolling = hoses come off, none go on", function()
+Spec.test("truckDriving: only rolling = hoses come off, none go on", function()
 	local c = { TruckMoveSpeed = 3 }
 	Spec.eq(HoseLine.truckDriving(0, 0, c), false, "parked, nobody driving")
 	Spec.eq(HoseLine.truckDriving(nil, 2.9, c), false, "nudged by a bump")
 	Spec.truthy(HoseLine.truckDriving(0, 3.5, c), "rolling away with nobody in the seat")
-	Spec.truthy(HoseLine.truckDriving(12345, 0, c), "a driver sat down")
-	Spec.truthy(HoseLine.truckDriving(-1, 0, c), "Studio test players have negative ids")
+	Spec.eq(HoseLine.truckDriving(12345, 0, c), false, "a driver sitting in a parked truck keeps teammates' hoses")
+	Spec.truthy(HoseLine.truckDriving(12345, 5, c), "a driver pulling away")
 	Spec.truthy(HoseLine.truckDriving(nil, 3.5, {}), "default 3 studs/s")
 end)
 

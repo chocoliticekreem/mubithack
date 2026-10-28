@@ -176,8 +176,10 @@ end
 
 -- A truck counts as driving (hoses come off it, none can be grabbed) when someone sits in its driver
 -- seat (driver = attr Driver, a UserId; 0 / nil = nobody) or it rolls faster than cfg.TruckMoveSpeed.
-function HoseLine.truckDriving(driver: number?, speedH: number, cfg: any): boolean
-	return (driver ~= nil and driver ~= 0) or speedH > (cfg.TruckMoveSpeed or 3)
+-- only actual movement counts: a kid waiting in the cab must not pull the hose out of a teammate's hands
+-- (the hose is tied to an anchored stand-in, so a parked truck's physics never see it)
+function HoseLine.truckDriving(_driver: number?, speedH: number, cfg: any): boolean
+	return speedH > (cfg.TruckMoveSpeed or 3)
 end
 
 if (game :: any) == nil then
