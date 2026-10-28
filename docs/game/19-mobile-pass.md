@@ -89,6 +89,56 @@ First join, measured (a screen sampler logging every gui that appears, 667x375, 
 | "Having fun? 👍" (SocialAskController) | after a happy moment | gate `like` |
 | Lobby pass offer (OfferController) | after a level-up call | gate `offer`: not in a new player's first session |
 
+## 6. The drive on a phone (2026-10-28)
+
+Live, 7 days: Mission funnel In Truck -> Arrived On Scene lost **21.5% on phones** (470 -> 369) vs 8.7% on PC
+(46 -> 42), and tablets logged TruckStuck about as often as DriveStart. No autopilot: the kid's push is
+always what moves the truck.
+
+Checked in a local place (`DrivePhone.rbxlx`, Studio's iPhone emulator at 750x381, touch forced with
+`InputHintsMode = "touch"`, `ForceTouchUI`, `DevTouch`). A scripted "phone kid" (Studio attr `DevDrive`,
+through the touch stick shaping): full forward push, coarse thumb steering (0 / ±0.8, full lock + small
+push past 70°) toward a point 18 or 30 studs ahead on the GPS route, 0.3 s reaction delay.
+
+| Root cause | Evidence | Fix |
+|---|---|---|
+| The station car park: the DonationBoard stands right in front of bay 1, and tree **canopies** hang over the kerb across the exit T-junction | Before: the rookie run (look-ahead 18) wedged on `Map.Station.DonationBoard.Board` at 6 s and never moved again (150 s); look-ahead 30 and the long route both wedged on `City.Roads.Tree.Canopy` at (34, 229) at 6 s, 129+ s stopped | Collision group `TruckPass` (VehicleService; `VehicleConfig.TruckPassModels` / `TruckPassParts`): trucks drive through the board and canopies, people still bump into them (1,053 parts) |
+| The "Truck reset!" net never fired on a phone | `needsRescue` needed `seat.ThrottleFloat >= 0.5`; a thumb pushing sideways (`TruckDrive.touchStick` cruise) reports 0.15 | Client **AUTO-UNSTICK** (below). The server net also counts a touch push (throttle >= 0.15 or steer >= 0.5 on Phone / Tablet) |
+| TruckStuck ~ DriveStart was partly a measuring artefact | LobbyService seats the squad at launch, so a kid reading the call card for 5 s logged TruckStuck `idle` every call | New cause `notstarted` (the truck hasn't rolled since DriveStart). A call that ends while still driving is logged as a quit, not an arrival |
+| A rookie's 2nd call could be across town | DispatchService offers (NEXT CALL, radio) used the 250-1,600 stud band; the radio also offered any mission type | Rookies (`GameConfig.Rookie.Calls`): the plain house fire within `Rookie.NearStuds` (150) of them, else the nearest. MissionService's first-call pick was already the nearest (`Rookie.NearestSite`; 284 studs / 407 road studs on one seed, 42 m on another: no site is closer) |
+
+**AUTO-UNSTICK** (VehicleController, any device, `DriveConfig.Unstick*`): pushing 3 s without getting
+2.5 studs = stuck. Tries `DriveMath.unstickTries()` spots 5-14 studs behind the truck (away from the push),
+a little to each side, nose swung toward the route. A spot counts only with anchored ground within 3 studs of
+the ground it stands on, the whole truck box free (things that don't collide with the truck ignored) and a
+clear blockcast sweep from here to there, so it never goes through a wall or the map. Small **UNSTUCK!**
+toast; `Drive/Unstuck` -> DriveService -> **UnstuckApplied** (value metres left, F2 role, F3 call | free).
+No free spot: nothing moves and the "Truck reset!" net stays.
+
+**Route on the phone**: the turn card is bigger, sits in the TopCentre stack right under the ARRIVING bar
+and never hides on a call (TURN LEFT / RIGHT, STRAIGHT ON + metres between turns, TURN kept at the corner);
+WRONG WAY! shows an arrow that points back along the route. **Route assist** (touch only, on a call,
+`DriveConfig.Assist*`): while the kid pushes forward with the stick near centre the turn bends toward a point
+26 studs along the GPS line, fading out by 0.35 stick steer, never when the route is more than 50° off the
+nose or 40 studs away. The glowing ribbon (#268) shows under the truck on 750x381 (screenshots).
+
+**Phone HUD**: the truck hint is one short line ("Push the stick to drive!") above the thumbstick zone and
+left of the thumb buttons, for the first 5 s only; the tutorial card / arrow hide while seated in a truck.
+
+| Run (phone kid) | Before | After |
+|---|---|---|
+| Rookie first call, look-ahead 18 (407 road studs) | wedged on the DonationBoard at 6 s, **never arrived** (150 s) | **arrived 49 s** (another run 67 s), 3-5 unsticks |
+| Rookie first call, look-ahead 30 | wedged on a tree canopy at 6 s, **never arrived** | (same route, see above) |
+| Long call, look-ahead 30 (1,995 road studs) | wedged on the same canopy at 6 s, **never arrived** | **arrived 102 s**, 7 unsticks, longest stop 2.9 s |
+| Rookie first call on another seed (42 m) | | arrived 6.4 s |
+| TruckStuck causes (server) | 3 drives: 6 x `idle` (incl. waiting at launch) | 4 drives: 4 `notstarted`, 5 `wrongway`, 3 `idle`, **0 `blocked`**; 18 UnstuckApplied |
+| Rookie NEXT CALL / radio offer | any mission, 250-1,600 studs (seen: "School fire 260 m") | 6/6 offers: house fire, 70 m |
+
+Screenshots (session scratchpad only): `tycoon-shots/drive-phone/` 01 seated hint + turn card,
+02 driving with STRAIGHT ON + ribbon, 03 WRONG WAY with the back arrow, 04 UNSTUCK! toast, 05 rookie first
+call seated (tutorial card hidden). Not checked on a real phone, or at 667x375 / 844x390 (the emulator
+sat at 750x381); the bot is a model of a kid, not a kid.
+
 ## Truck tap sweep
 
 Client script: stand 4 studs off each side of the truck at three points along it (front, middle, back),

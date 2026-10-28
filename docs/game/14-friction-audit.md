@@ -105,5 +105,5 @@ driven siren truck crawling right behind it (`TrafficConfig.SlowYieldBehind`).
 
 Telemetry (Creator Dashboard custom events, CustomField01 = device): `DriveStart` (route m; role; rookie |
 call), `DriveArrive` (seconds; role; rookie | call), `DriveQuit` (m left; role;
-`left|t30-60|r1|s0|w10+`), `TruckReset` (why; call | free), `TruckStuck` (m left; role; nodriver | idle |
+`left|t30-60|r1|s0|w10+`), `TruckReset` (why; call | free), `TruckStuck` (m left; role; nodriver | notstarted | idle |
 blocked | wrongway). Read these next time before changing the drive again.

@@ -539,7 +539,21 @@ local function makeOffer(p: Player, kind: string?): Offer?
 		o = miniOffer(p, origin)
 	end
 	if not o and kind ~= "mini" then
-		local c = DispatchLogic.offer(freeSites(), MissionCatalog :: any, origin, rookieOpts(p) or opts(), MissionFlow.siteSupports, roll)
+		-- a rookie: the plain house fire close by (as NEXT CALL does), not a school across town
+		local rk = rookieOpts(p)
+		local pool: { any } = MissionCatalog :: any
+		if rk then
+			pool = {}
+			for _, def in MissionCatalog do
+				if def.id == FirstFireConfig.FirstCall then
+					table.insert(pool, def)
+				end
+			end
+			if #pool == 0 then
+				pool = MissionCatalog :: any
+			end
+		end
+		local c = DispatchLogic.offer(freeSites(), pool, origin, rk or opts(), MissionFlow.siteSupports, roll)
 		if c then
 			o = offerOf(c, origin, Cfg.OfferSeconds)
 		end

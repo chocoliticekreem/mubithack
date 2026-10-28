@@ -1151,7 +1151,7 @@ local function makeRespawnButton()
 	local un = Instance.new("TextLabel")
 	un.Name = "Unstuck"
 	un.AnchorPoint = Vector2.new(0.5, 0.5)
-	un.Position = UDim2.fromScale(0.5, 0.5)
+	un.Position = UDim2.fromScale(0.5, 0.6)
 	un.Size = UDim2.fromOffset(220, 40)
 	un.BackgroundTransparency = 1
 	un.Font = Enum.Font.LuckiestGuy
