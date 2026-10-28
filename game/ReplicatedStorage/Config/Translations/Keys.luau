@@ -2075,4 +2075,11 @@ return {
 	"ROOKIE PACK! 2x XP for 30 min + Rookie Star Helmet + Rookie Blue Truck Paint!",
 	"Rookie Star Helmet",
 	"Rookie Blue Truck Paint",
+	-- the one objective chip on a call (Controllers/ObjectiveChipController)
+	"{1} FIRES LEFT",
+	"1 FIRE LEFT",
+	"SAVE {1} MORE",
+	"MORE FIRE COMING!",
+	"ALL DONE!",
+	"ALL DONE! {1}",
 }

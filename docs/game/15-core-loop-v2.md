@@ -112,3 +112,42 @@ Call Complete 11 -> Back In Lobby 8 (27% quit at the results).
 | NEXT CALL IN 5... auto-launch, STAY AT STATION, squad mates on the same results come along | ResultsController, DispatchService nextCall | |
 | DAILY CHEST: XP every day (25..150), Rookie Yellow helmet day 3, Slime hose day 5, Flamingo helmet day 7; owned -> +25 XP | Lib/Retention/DailyChest, ResultsFlowService, profile `daily` | |
 | Device tag (CustomField01) on the Mission funnel and on PadWaitSeconds, PadLeftBeforeLaunch, ResultsChoice, DailyChestOpened | FunnelService:LogDevice | |
+
+## Short early calls and one objective chip (2026-10-28)
+
+Live data (7 days): Mission funnel First Fire Out -> Mission Complete 685 -> 518 (24% quit, every device),
+Mission Complete -> Back In Lobby 16%, sessions 4.7-7.4 min (genre median 15.7). Calls were too long and it
+wasn't clear when they would end.
+
+What made calls long:
+- **Call 3 was a full call.** `GameConfig.Rookie` covers calls 1-2 only. Call 3 got the catalog call: 330-480 s
+  timers, 6-12 fires squad-scaled to at least `MinArrivalFires` 5, up to 9 rescues, a far site (700+ studs), and
+  two escalation phases (`at` 90 / 180 s) that **hold "all clear"** until they have fired. The panda zoo spread to
+  71 burning parts at once in the playtest.
+- Rookie calls (1-2) could still spread to 10 burning parts and had 2 rescues.
+- The call ended the instant the last objective was done (or silently, during the 10 s grace), with nothing on
+  screen saying how much was left: the HUD card showed FIRES LEFT and RESCUED a / b at the top left, far from the
+  timer.
+
+| Change | Where |
+|---|---|
+| Calls 1-5 use a size tier picked by the squad's newest player's call number (missionsPlayed + 1): calls 1-3 = 3-4 fires, at most 4-5 burning, 1 rescue, at most 1 short wave of 2 fires, 75-100 s on scene, nearest site. Calls 4-5 ramp toward the full call. | `Config/CallRampConfig`, `Lib/Mission/CallRamp`, MissionService |
+| Time running out on a tier call is CALL COMPLETE with the stars earned (at least 1), never TIME'S UP | MissionService buildPayload (`rookieWin`) |
+| Every call ends with "ALL DONE! 3..2..1" (cancelled if a fire flares up), then the results | MissionFlow `timing.doneDelay`, `CallRampConfig.AllDoneSeconds` |
+| One objective chip under the timer: 🔥 N FIRES LEFT -> 🐶 SAVE 1 MORE -> ⚠️ MORE FIRE COMING! -> ✅ ALL DONE! 3. The old top-left objectives card is hidden. | `ObjectiveChipController`, MissionService publishes ObjFires / ObjRescues / ObjRescueKind / ObjWave / DoneAt on the run folder |
+| `CallDuration` and `QuitMidCall` custom events by call number and device | `CallLengthService` (docs/game/20) |
+| Calls 1-3: a fire that goes out is never replaced (`NoRegrow`: the site's fire cap follows the burning count down; only a wave raises it). Without it a slow kid with a cap of 4 put out 2 fires in 65 s while spread kept the site at 1-4 burning. | MissionService `shrinkCap` |
+
+Measured in a local place (`ShortCalls.rbxlx`, iPhone 17 Pro emulation) with a scripted "normal kid" (board the
+truck 10 s, drive 20 studs/s, 8 s to grab gear, 6 s to find each fire, walk 10 studs/s, 35% of the spray on
+target, 15 s to find each person). Dispatch to results:
+
+| Call | Before | After |
+|---|---|---|
+| 1 (house fire) | 87 s, 3 stars | 90 s, 3 stars (drive 32 s vs 17 s: another nearest site) |
+| 2 (house fire) | 133 s | 82 s, one 2-fire wave, ALL DONE at 79 s |
+| 3 (house fire) | 282 s, 16 fires lit, 25 put out, 6 rescues | 97 s, 3 + 2 fires, 1 rescue |
+| 3 (panda zoo) | 360 s, TIME'S UP, up to 66 burning, 1 star | 129 s, CALL COMPLETE (timer), 1 star |
+
+Not done here: dispatch still sends call 3 to any mission (`GameConfig.Rookie.Calls` = 2 keeps house fires for
+calls 1-2), and the zoo's nearest site is a 74 s drive, so a zoo call 3 runs past 2 minutes (the timer caps it).

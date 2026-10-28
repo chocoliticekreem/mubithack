@@ -122,7 +122,7 @@ ColdOpenSkipped, OnboardingV3QuitStep, UpdateLogShown, NotifyPrompted / Accepted
 Accepted, **OfferShown / Clicked / Declined / Purchased, PassPurchased, LikeAskShown / Closed,
 InviteAskShown / Prompted / Sent, TwistRolled / Completed, CallTime, PadWaitSeconds,
 PadLeftBeforeLaunch, ResultsChoice, DailyChestOpened, DriveStart / Arrive / Quit, TruckReset,
-TruckStuck, UnstuckApplied, NotifyAsk, ReturnGap (the Day-1 return proxy), RookiePackBought** (definitions:
+TruckStuck, UnstuckApplied, NotifyAsk, ReturnGap (the Day-1 return proxy), RookiePackBought, CallDuration, QuitMidCall** (definitions:
 `ReplicatedStorage/Lib/Onboarding/Funnel.luau`; retention ones: `docs/game/21-retention.md`).
 
 ### Forwarded to Roblox (Creator Dashboard → Analytics → Custom events)
@@ -131,6 +131,21 @@ SessionStart (device, cohort), MissionEnd (value seconds; device, reason, stars)
 PurchaseDone (value R$; device, kind, key), BattlePassTierUp (value tier; device), AchievementUnlocked
 (device, id), UiOpen (device, screen), PerfSample (value fps; device, fps bucket, ping bucket),
 ScriptError (device, side).
+
+### Call length (CallLengthService)
+
+`CallDuration` (value = seconds from dispatch, or late join, to the results) and `QuitMidCall` (value =
+seconds into the call when the player quit the game or left the call). Fields: device, call (the player's
+lifetime call number: `1`..`5`, `6-10`, `11+`), how (`win` / `timeout` / `fail`; `drive` / `scene` /
+`left_drive` / `left_scene`). Creator Dashboard: Custom events -> CallDuration, breakdown CustomField02 for
+"call duration by call number", CustomField01 for device. PostHog:
+
+```sql
+select properties.call as call, properties.device as device, count() as calls,
+       quantile(0.5)(properties.value) as median_s, quantile(0.9)(properties.value) as p90_s
+from events where event = 'CallDuration' and timestamp > now() - interval 7 day
+group by call, device order by call
+```
 
 ## Turning on PostHog
 

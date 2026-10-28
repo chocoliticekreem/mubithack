@@ -187,6 +187,8 @@ Schema.FieldLabels = table.freeze({
 	ArrivalToFireOut = { "device", "context", "locks" },
 	ArrivalNoFireOut = { "device", "how", "locks" },
 	UnstuckApplied = { "device", "role", "context" },
+	CallDuration = { "device", "call", "how" },
+	QuitMidCall = { "device", "call", "how" },
 } :: { [string]: { string } })
 
 -- fields: positional custom field values (1..3)

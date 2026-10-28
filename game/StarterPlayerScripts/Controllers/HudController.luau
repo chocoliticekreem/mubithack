@@ -845,7 +845,8 @@ local function refresh(t: number)
 		end
 	end
 
-	u.objectives.Visible = active
+	-- the one objective chip (ObjectiveChipController, top centre) replaced this card: one objective, one place
+	u.objectives.Visible = false
 	local firesLeft, nearestFire = scanFires(from)
 	local rescued, total, nearestRescue = scanRescues(from)
 	u.fires.Text = Loc.t("FIRES LEFT  {1}", { firesLeft })

@@ -2072,4 +2072,11 @@ return {
 	["ROOKIE PACK! 2x XP for 30 min + Rookie Star Helmet + Rookie Blue Truck Paint!"] = "PAKET PEMULA! 2x XP selama 30 mnt + Helm Bintang Pemula + Cat Truk Biru Pemula!",
 	["Rookie Star Helmet"] = "Helm Bintang Pemula",
 	["Rookie Blue Truck Paint"] = "Cat Truk Biru Pemula",
+	-- the one objective chip on a call (Controllers/ObjectiveChipController)
+	["{1} FIRES LEFT"] = "{1} API LAGI",
+	["1 FIRE LEFT"] = "1 API LAGI",
+	["SAVE {1} MORE"] = "SELAMATKAN {1} LAGI",
+	["MORE FIRE COMING!"] = "API LAIN DATANG!",
+	["ALL DONE!"] = "SEMUA BERES!",
+	["ALL DONE! {1}"] = "SEMUA BERES! {1}",
 }

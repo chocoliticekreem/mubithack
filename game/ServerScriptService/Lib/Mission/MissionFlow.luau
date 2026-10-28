@@ -16,6 +16,8 @@
 --                                         alarm = 0, intro = 0, results = 15, grace = 10 }, now)
 --   MissionFlow.tick(run, now, obs)   -- obs.arrived = a squad member or their truck is in the ArrivalZone
 --     events: "arrived" (Dispatched -> Active; run.fast + bonus seconds when quick), "ended", "done"
+--   timing.doneDelay (every run): objectives done -> "alldone" (run.doneAt = now + doneDelay), success once it
+--     holds that long (or the timer runs out meanwhile); undone in between -> "notdone" (doneAt back to 0)
 --   MissionFlow.siteSupports(missionTypes, missionId) -> boolean     -- "house_fire, school_alarm"
 --   MissionFlow.pickSite(sites, missionId, tieStuds?, roll?) -> siteId?   -- nearest free site first
 --   MissionFlow.travelAllowance(studs, { speed, min, max }) -> seconds
@@ -39,6 +41,7 @@ export type Timing = {
 	travel: number?, -- v2: driving allowance added to the timer at dispatch
 	fastArrival: number?, -- v2: arrive within this many seconds of dispatch for the bonus
 	arrivalBonus: number?, -- v2: seconds added to the timer on a fast arrival
+	doneDelay: number?, -- every objective done: wait this long ("ALL DONE! 3..2..1") before the success end
 }
 export type Obs = {
 	burning: number, -- burning parts in the instance
@@ -65,6 +68,7 @@ export type Run = {
 	dispatch: boolean, -- v2 dispatch run (no alarm/intro; Dispatched until arrival)
 	arrivedAt: number, -- 0 until arrival
 	fast: boolean, -- arrived within timing.fastArrival
+	doneAt: number, -- every objective is done: the call completes at this time (0 = not done yet)
 }
 export type StarRule = { id: string, text: string?, seconds: number?, min: number? } -- min: buildingSaved integrity
 export type Summary = {
@@ -101,6 +105,7 @@ function MissionFlow.new(timing: Timing, now: number): Run
 		dispatch = false,
 		arrivedAt = 0,
 		fast = false,
+		doneAt = 0,
 	}
 end
 
@@ -122,6 +127,7 @@ function MissionFlow.newDispatch(timing: Timing, now: number): Run
 		dispatch = true,
 		arrivedAt = 0,
 		fast = false,
+		doneAt = 0,
 	}
 end
 
@@ -226,10 +232,25 @@ function MissionFlow.tick(run: Run, now: number, obs: Obs?): { string }
 	if run.state == "Active" then
 		if obs and obs.alive <= 0 then
 			finishInto(run, now, if obs.players <= 0 then "forced" else "wiped", out)
-		elseif now >= run.endsAt then
-			finishInto(run, now, "time", out)
-		elseif obs and now - run.activeSince >= run.timing.grace and MissionFlow.objectivesDone(obs) then
+			return out
+		end
+		local done = obs ~= nil and now - run.activeSince >= run.timing.grace and MissionFlow.objectivesDone(obs)
+		local delay = math.max(run.timing.doneDelay or 0, 0)
+		if done and (delay == 0 or (run.doneAt > 0 and (now >= run.doneAt or now >= run.endsAt))) then
 			finishInto(run, now, "success", out)
+		elseif done then
+			if run.doneAt == 0 then
+				run.doneAt = now + delay
+				table.insert(out, "alldone") -- "ALL DONE! 3..2..1"
+			end
+		else
+			if obs and run.doneAt > 0 then
+				run.doneAt = 0 -- a fire flared up (or a wave landed) during the countdown
+				table.insert(out, "notdone")
+			end
+			if now >= run.endsAt then
+				finishInto(run, now, "time", out)
+			end
 		end
 		return out
 	end
